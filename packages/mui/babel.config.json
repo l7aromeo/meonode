@@ -1,0 +1,42 @@
+{
+  "presets": [
+    [
+      "@babel/preset-env",
+      {
+        "modules": false
+      }
+    ],
+    "@babel/preset-typescript",
+    [
+      "minify",
+      {
+        "keepFnName": true,
+        "keepClassName": true
+      }
+    ]
+  ],
+  "plugins": [
+    [
+      "@babel/plugin-transform-json-modules"
+    ],
+    [
+      "module-resolver",
+      {
+        "root": [
+          "./src"
+        ],
+        "alias": {
+          "@src": "./src"
+        },
+        "extensions": [
+          ".js",
+          ".ts"
+        ]
+      }
+    ]
+  ],
+  "generatorOpts": {
+    "importAttributesKeyword": "with"
+  },
+  "exclude": ["**/node_modules/**"]
+}

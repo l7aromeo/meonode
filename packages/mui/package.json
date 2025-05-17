@@ -1,0 +1,66 @@
+{
+  "name": "@meonode/mui",
+  "description": "A lightweight wrapper around `@mui/material` components for use with `@meonode/ui` and the BaseNode runtime.",
+  "version": "0.0.1-alpha.6",
+  "type": "module",
+  "main": "./dist/main.js",
+  "types": "./dist/main.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/main.js",
+      "types": "./dist/main.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "docs",
+    "package.json",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "lint": "eslint --fix",
+    "build": "rm -rf ./dist && babel src --out-dir dist --extensions \".ts,.js\" && tsc && tsc-alias && copyfiles -u 1 \"src/**/*.json\" dist",
+    "publish": "npm publish"
+  },
+  "devDependencies": {
+    "@babel/cli": "^7.0.0",
+    "@babel/core": "^7.0.0",
+    "@babel/plugin-transform-json-modules": "^7.27.1",
+    "@babel/preset-env": "^7.0.0",
+    "@babel/preset-typescript": "^7.27.1",
+    "@eslint/js": "^9.27.0",
+    "@meonode/ui": "^0.0.1-alpha.2",
+    "@mui/material": "^7.1.0",
+    "@types/copyfiles": "^2",
+    "@types/react": "^19.1.4",
+    "@typescript-eslint/eslint-plugin": "^8.32.1",
+    "@typescript-eslint/parser": "^8.32.1",
+    "babel-plugin-module-resolver": "^5.0.2",
+    "babel-preset-minify": "^0.5.2",
+    "copyfiles": "^2.4.1",
+    "eslint": "^9.27.0",
+    "eslint-plugin-jsdoc": "^50.6.17",
+    "eslint-plugin-prettier": "^5.4.0",
+    "eslint-plugin-unused-imports": "^4.1.4",
+    "prettier": "^3.5.3",
+    "tsc-alias": "^1.8.16",
+    "typescript": "^5.8.3",
+    "typescript-eslint": "^8.32.1"
+  },
+  "packageManager": "yarn@4.9.1",
+  "peerDependencies": {
+    "@meonode/ui": "*",
+    "@mui/material": "*",
+    "react": "*"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/l7aromeo/meonode-mui.git"
+  },
+  "homepage": "https://github.com/l7aromeo/meonode-mui#readme",
+  "bugs": {
+    "url": "https://github.com/l7aromeo/meonode-mui/issues"
+  },
+  "license": "MIT"
+}
