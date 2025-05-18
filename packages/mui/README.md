@@ -1,7 +1,6 @@
 # `@meonode/mui`
 
-[![NPM version](https://img.shields.io/npm/v/@meonode/mui.svg?style=flat)](https://www.npmjs.com/package/@meonode/mui)  
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![NPM version](https://img.shields.io/npm/v/@meonode/mui.svg?style=flat)](https://www.npmjs.com/package/@meonode/mui) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 > A lightweight wrapper around [@mui/material](https://mui.com/) components for use with [`@meonode/ui`](https://www.npmjs.com/package/@meonode/ui) and the BaseNode runtime.
 
