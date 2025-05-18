@@ -1473,7 +1473,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@meonode/mui@npm:^0.0.1-alpha.5, @meonode/mui@workspace:.":
+"@meonode/mui@workspace:.":
   version: 0.0.0-use.local
   resolution: "@meonode/mui@workspace:."
   dependencies:
@@ -1483,7 +1483,6 @@ __metadata:
     "@babel/preset-env": "npm:^7.0.0"
     "@babel/preset-typescript": "npm:^7.27.1"
     "@eslint/js": "npm:^9.27.0"
-    "@meonode/mui": "npm:^0.0.1-alpha.5"
     "@meonode/ui": "npm:^0.0.1-alpha.2"
     "@mui/material": "npm:^7.1.0"
     "@types/copyfiles": "npm:^2"
