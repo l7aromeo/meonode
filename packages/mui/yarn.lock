@@ -1483,7 +1483,6 @@ __metadata:
     "@babel/preset-env": "npm:^7.27.2"
     "@babel/preset-typescript": "npm:^7.27.1"
     "@eslint/js": "npm:^9.27.0"
-    "@meonode/ui": "npm:^0.0.1-alpha.12"
     "@mui/material": "npm:^7.1.0"
     "@types/react": "npm:^19.1.4"
     "@typescript-eslint/eslint-plugin": "npm:^8.32.1"
@@ -1504,15 +1503,6 @@ __metadata:
     react: "*"
   languageName: unknown
   linkType: soft
-
-"@meonode/ui@npm:^0.0.1-alpha.12":
-  version: 0.0.1-alpha.12
-  resolution: "@meonode/ui@npm:0.0.1-alpha.12"
-  peerDependencies:
-    react: "*"
-  checksum: 10c0/1a5c69acba3051a06314168f5d218a72301cf3120450b63a7892b9bc61f301b0410baa275d640538695208d544252d58dcde371aa06af42525b96b644503d011
-  languageName: node
-  linkType: hard
 
 "@mui/core-downloads-tracker@npm:^7.1.0":
   version: 7.1.0

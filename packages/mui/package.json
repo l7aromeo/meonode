@@ -1,7 +1,7 @@
 {
   "name": "@meonode/mui",
   "description": "A lightweight wrapper around `@mui/material` components for use with `@meonode/ui` and the BaseNode runtime.",
-  "version": "0.0.1-alpha.9",
+  "version": "1.0.1",
   "type": "module",
   "main": "./dist/main.js",
   "types": "./dist/main.d.ts",
@@ -19,6 +19,9 @@
     "README.md"
   ],
   "scripts": {
+    "watch:build": "yarn dlx concurrently \"yarn watch:core\" \"yarn watch:src\"",
+    "watch:core": "yarn dlx nodemon --watch $MEONODE/core/dist --ext ts,js,json --exec \"yarn add -D @meonode/ui@file:$MEONODE/core\"",
+    "watch:src": "yarn dlx nodemon --watch src --ext ts,js,json --exec \"yarn build\"",
     "lint": "eslint --fix",
     "build": "rm -rf ./dist && babel src --out-dir dist --extensions \".ts,.js\" && tsc && tsc-alias",
     "publish:pre": "./prepublish.sh && yarn version -i prerelease && yarn npm publish --tag next",
@@ -33,7 +36,6 @@
     "@babel/preset-env": "^7.27.2",
     "@babel/preset-typescript": "^7.27.1",
     "@eslint/js": "^9.27.0",
-    "@meonode/ui": "^0.0.1-alpha.12",
     "@mui/material": "^7.1.0",
     "@types/react": "^19.1.4",
     "@typescript-eslint/eslint-plugin": "^8.32.1",
@@ -66,6 +68,5 @@
   "publishConfig": {
     "access": "public"
   },
-  "license": "MIT",
-  "stableVersion": "0.0.1-alpha.8"
+  "license": "MIT"
 }
