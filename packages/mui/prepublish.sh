@@ -1,8 +1,8 @@
 #!/bin/zsh
 
-removeStableVersion() {
+removeKeys() {
   # Extract .stableVersion removal logic into a variable
-  jq_script="del(.stableVersion)"
+  jq_script="del(.stableVersion, .devDependencies[\"@meonode/ui\"])"
 
   # Assign the input file to a variable for clarity
   input_file="$1"
@@ -14,5 +14,5 @@ removeStableVersion() {
 
 # A simple script to find all package.json files and run the workaround on them, filtering node_modules and .nx cache files
 find . -type d \( -name node_modules \) -prune -o -name 'package.json' -print|while read -r fname; do
-  removeStableVersion "$fname"
+  removeKeys "$fname"
 done
