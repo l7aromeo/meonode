@@ -1,10 +1,9 @@
 'use strict'
-import { Node } from '@meonode/ui'
 import * as Mui from '@mui/material'
 import * as MuiStyles from '@mui/material/styles'
 import { ComponentType } from 'react'
-import type { BaseNodeInstance, BaseNodeProps, NodeElement, NodeProps } from '@meonode/ui'
-import { getComponentType } from '@meonode/ui'
+import type { BaseNodeInstance, RawNodeProps, NodeElement, NodeProps } from '@meonode/ui'
+import { Node, getComponentType } from '@meonode/ui'
 
 /**
  * Validates whether a MUI export should be wrapped as a renderable React component.
@@ -211,10 +210,10 @@ for (const componentName of componentKeys) {
       props: NodeProps<T> = {} as NodeProps<T>,
     ): BaseNodeInstance<T> => {
       if (!isProbablyMuiTheme(props.theme)) {
-        ;(props as BaseNodeProps<T>).nodeTheme = props.theme
+        ;(props as RawNodeProps<T>).nodeTheme = props.theme
         delete props.theme
       }
-      return Node(OriginalComponentCandidate, props as BaseNodeProps<T>) as BaseNodeInstance<T>
+      return Node(OriginalComponentCandidate, props as RawNodeProps<T>) as BaseNodeInstance<T>
     }
   }
 }
