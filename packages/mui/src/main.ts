@@ -1,6 +1,5 @@
 'use strict'
 import * as Mui from '@mui/material'
-import * as MuiStyles from '@mui/material/styles'
 import { ComponentType } from 'react'
 import type { NodeInstance, RawNodeProps, NodeElement, NodeProps } from '@meonode/ui'
 import { Node, getComponentType } from '@meonode/ui'
@@ -198,10 +197,10 @@ export function isProbablyMuiTheme(obj: unknown): boolean {
  * @see NodeInstance - For node instance structure
  * @see Node - For the wrapping function implementation
  */
-const MergedMuiComponents = { ...Mui, ...MuiStyles } as MuiModule
+const MuiComponents = Mui as MuiModule
 const componentKeys = Object.keys(Mui) as Array<keyof MuiModule>
 for (const componentName of componentKeys) {
-  const OriginalComponentCandidate = MergedMuiComponents[componentName]
+  const OriginalComponentCandidate = MuiComponents[componentName]
 
   if (isRenderableMuiComponent(OriginalComponentCandidate, componentName)) {
     type RenderableComponentName = keyof FilterComponents<MuiModule>
