@@ -2,7 +2,7 @@
 
 removeKeys() {
   # Extract .stableVersion removal logic into a variable
-  jq_script="del(.stableVersion, .devDependencies[\"@meonode/ui\"])"
+  jq_script="del(.stableVersion)"
 
   # Assign the input file to a variable for clarity
   input_file="$1"
