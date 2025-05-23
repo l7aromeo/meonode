@@ -210,7 +210,7 @@ for (const componentName of componentKeys) {
       props: NodeProps<T> = {} as NodeProps<T>,
     ): NodeInstance<T> => {
       if (!isProbablyMuiTheme(props.theme)) {
-        ;(props as RawNodeProps<T>).nodeTheme = props.theme
+        ;(props as RawNodeProps<T>).nodetheme = props.theme
         delete props.theme
       }
       return Node(OriginalComponentCandidate, props as RawNodeProps<T>) as NodeInstance<T>

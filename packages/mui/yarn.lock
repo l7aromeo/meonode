@@ -1483,8 +1483,9 @@ __metadata:
     "@babel/preset-env": "npm:^7.27.2"
     "@babel/preset-typescript": "npm:^7.27.1"
     "@eslint/js": "npm:^9.27.0"
+    "@meonode/ui": "npm:^0.1.22"
     "@mui/material": "npm:^7.1.0"
-    "@types/react": "npm:^19.1.4"
+    "@types/react": "npm:^19.1.5"
     "@typescript-eslint/eslint-plugin": "npm:^8.32.1"
     "@typescript-eslint/parser": "npm:^8.32.1"
     babel-plugin-module-resolver: "npm:^5.0.2"
@@ -1503,6 +1504,16 @@ __metadata:
     react: "*"
   languageName: unknown
   linkType: soft
+
+"@meonode/ui@npm:^0.1.22":
+  version: 0.1.22
+  resolution: "@meonode/ui@npm:0.1.22"
+  peerDependencies:
+    react: "*"
+    react-dom: "*"
+  checksum: 10c0/0999fe24318cdfb25a2e6e9bb1e5ae83ad07b22e00b4b600fd8125cf3bc3f6ce9788e6e9f08aa9201137513941c47a8aa3a60adb77ff380ee3361e47b8a44299
+  languageName: node
+  linkType: hard
 
 "@mui/core-downloads-tracker@npm:^7.1.0":
   version: 7.1.0
@@ -1766,12 +1777,12 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@types/react@npm:^19.1.4":
-  version: 19.1.4
-  resolution: "@types/react@npm:19.1.4"
+"@types/react@npm:^19.1.5":
+  version: 19.1.5
+  resolution: "@types/react@npm:19.1.5"
   dependencies:
     csstype: "npm:^3.0.2"
-  checksum: 10c0/501350d4f9cef13c5dd1b1496fa70ebaff52f6fa359b623b51c9d817e5bc4333fa3c8b7a6a4cbc88c643385052d66a243c3ceccfd6926062f917a2dd0535f6b3
+  checksum: 10c0/e0811aadc65cf4030e2418c7975b524f126db806bacb85cffdbe5e50c3606e9a5ffe89ffe6bf9c945e03f5e8d5ed992686bc6bb478db1f3127cc50933f648e1e
   languageName: node
   linkType: hard
 
