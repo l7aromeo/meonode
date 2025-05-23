@@ -2,7 +2,7 @@
 import * as Mui from '@mui/material'
 import * as MuiStyles from '@mui/material/styles'
 import { ComponentType } from 'react'
-import type { BaseNodeInstance, RawNodeProps, NodeElement, NodeProps } from '@meonode/ui'
+import type { NodeInstance, RawNodeProps, NodeElement, NodeProps } from '@meonode/ui'
 import { Node, getComponentType } from '@meonode/ui'
 
 /**
@@ -62,9 +62,9 @@ export function isRenderableMuiComponent(component: any, componentName: string):
 
 /**
  * Factory function type for creating wrapped MUI components.
- * Takes optional props and returns a BaseNodeInstance that can be rendered.
+ * Takes optional props and returns a NodeInstance that can be rendered.
  * @template C - The MUI component type to wrap
- * @returns A BaseNodeInstance representing the wrapped component
+ * @returns A NodeInstance representing the wrapped component
  * @example
  * ```ts
  * type ButtonFactory = WrappedMuiComponentFactory<typeof Button>;
@@ -72,7 +72,7 @@ export function isRenderableMuiComponent(component: any, componentName: string):
  * wrappedButton({ variant: 'contained', children: 'Click me' });
  * ```
  */
-type WrappedMuiComponentFactory<C extends ComponentType<any>> = (props?: NodeProps<C>) => BaseNodeInstance<C>
+type WrappedMuiComponentFactory<C extends ComponentType<any>> = (props?: NodeProps<C>) => NodeInstance<C>
 
 /**
  * Type alias for accessing Material-UI module exports.
@@ -108,8 +108,8 @@ type FilterComponents<T> = {
  * ```ts
  * // Type definition includes all component factories:
  * type Factories = {
- *   Button: (props?: ButtonProps) => BaseNodeInstance<typeof Button>;
- *   TextField: (props?: TextFieldProps) => BaseNodeInstance<typeof TextField>;
+ *   Button: (props?: ButtonProps) => NodeInstance<typeof Button>;
+ *   TextField: (props?: TextFieldProps) => NodeInstance<typeof TextField>;
  *   // ...etc
  * }
  * ```
@@ -182,7 +182,7 @@ export function isProbablyMuiTheme(obj: unknown): boolean {
  *   - Direct CSS properties (without needing sx prop)
  *   - Common React props like children, key, etc
  *   - Theme context access
- * - Returns a BaseNodeInstance that can be rendered to React elements
+ * - Returns a NodeInstance that can be rendered to React elements
  * @example
  * ```ts
  * // Original MUI Button becomes a factory function:
@@ -195,7 +195,7 @@ export function isProbablyMuiTheme(obj: unknown): boolean {
  * ```
  * @see isRenderableMuiComponent - For component validation logic
  * @see NodeProps - For supported prop types
- * @see BaseNodeInstance - For node instance structure
+ * @see NodeInstance - For node instance structure
  * @see Node - For the wrapping function implementation
  */
 const MergedMuiComponents = { ...Mui, ...MuiStyles } as MuiModule
@@ -208,12 +208,12 @@ for (const componentName of componentKeys) {
 
     muiNodeFactoriesInternal[componentName as unknown as RenderableComponentName] = <T extends NodeElement>(
       props: NodeProps<T> = {} as NodeProps<T>,
-    ): BaseNodeInstance<T> => {
+    ): NodeInstance<T> => {
       if (!isProbablyMuiTheme(props.theme)) {
         ;(props as RawNodeProps<T>).nodeTheme = props.theme
         delete props.theme
       }
-      return Node(OriginalComponentCandidate, props as RawNodeProps<T>) as BaseNodeInstance<T>
+      return Node(OriginalComponentCandidate, props as RawNodeProps<T>) as NodeInstance<T>
     }
   }
 }
