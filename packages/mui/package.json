@@ -1,7 +1,7 @@
 {
   "name": "@meonode/mui",
   "description": "A lightweight wrapper around `@mui/material` components for use with `@meonode/ui` and the BaseNode runtime.",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "type": "module",
   "main": "./dist/main.js",
   "types": "./dist/main.d.ts",
@@ -31,26 +31,26 @@
   },
   "devDependencies": {
     "@babel/cli": "^7.27.2",
-    "@babel/core": "^7.27.1",
+    "@babel/core": "^7.27.4",
     "@babel/plugin-transform-json-modules": "^7.27.1",
     "@babel/preset-env": "^7.27.2",
     "@babel/preset-typescript": "^7.27.1",
-    "@eslint/js": "^9.27.0",
-    "@meonode/ui": "^0.1.22",
-    "@mui/material": "^7.1.0",
-    "@types/react": "^19.1.5",
-    "@typescript-eslint/eslint-plugin": "^8.32.1",
-    "@typescript-eslint/parser": "^8.32.1",
+    "@eslint/js": "^9.28.0",
+    "@meonode/ui": "^0.1.64",
+    "@mui/material": "^7.1.1",
+    "@types/react": "^19.1.6",
+    "@typescript-eslint/eslint-plugin": "^8.33.1",
+    "@typescript-eslint/parser": "^8.33.1",
     "babel-plugin-module-resolver": "^5.0.2",
     "babel-preset-minify": "^0.5.2",
-    "eslint": "^9.27.0",
-    "eslint-plugin-jsdoc": "^50.6.17",
-    "eslint-plugin-prettier": "^5.4.0",
+    "eslint": "^9.28.0",
+    "eslint-plugin-jsdoc": "^50.7.1",
+    "eslint-plugin-prettier": "^5.4.1",
     "eslint-plugin-unused-imports": "^4.1.4",
     "prettier": "^3.5.3",
     "tsc-alias": "^1.8.16",
     "typescript": "^5.8.3",
-    "typescript-eslint": "^8.32.1"
+    "typescript-eslint": "^8.33.1"
   },
   "packageManager": "yarn@4.9.1",
   "peerDependencies": {
@@ -58,6 +58,7 @@
     "@mui/material": "*",
     "react": "*"
   },
+  "sideEffects": false,
   "repository": {
     "type": "git",
     "url": "git+https://github.com/l7aromeo/meonode-mui.git"

@@ -3,7 +3,12 @@
     [
       "@babel/preset-env",
       {
-        "modules": false
+        "modules": false,
+        "exclude": [
+          "@babel/plugin-transform-classes",
+          "@babel/plugin-transform-spread"
+        ],
+        "bugfixes": true
       }
     ],
     "@babel/preset-typescript",
@@ -17,20 +22,18 @@
   ],
   "plugins": [
     [
-      "@babel/plugin-transform-json-modules"
-    ],
-    [
       "module-resolver",
       {
         "root": [
-          "./src"
+          "./"
         ],
         "alias": {
           "@src": "./src"
         },
         "extensions": [
           ".js",
-          ".ts"
+          ".ts",
+          ".json"
         ]
       }
     ]
@@ -38,5 +41,7 @@
   "generatorOpts": {
     "importAttributesKeyword": "with"
   },
-  "exclude": ["**/node_modules/**"]
+  "exclude": [
+    "**/node_modules/**"
+  ]
 }
