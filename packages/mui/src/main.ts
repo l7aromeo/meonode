@@ -1,7 +1,7 @@
 'use strict'
 import * as Mui from '@mui/material'
 import { ComponentType } from 'react'
-import type { NodeInstance, RawNodeProps, NodeElement, NodeProps } from '@meonode/ui'
+import type { NodeInstance, RawNodeProps, NodeProps } from '@meonode/ui'
 import { Node, getComponentType } from '@meonode/ui'
 
 /**
@@ -60,20 +60,6 @@ export function isRenderableMuiComponent(component: any, componentName: string):
 }
 
 /**
- * Factory function type for creating wrapped MUI components.
- * Takes optional props and returns a NodeInstance that can be rendered.
- * @template C - The MUI component type to wrap
- * @returns A NodeInstance representing the wrapped component
- * @example
- * ```ts
- * type ButtonFactory = WrappedMuiComponentFactory<typeof Button>;
- * const wrappedButton: ButtonFactory = (props) => Node(Button, props);
- * wrappedButton({ variant: 'contained', children: 'Click me' });
- * ```
- */
-type WrappedMuiComponentFactory<C extends ComponentType<any>> = (props?: NodeProps<C>) => NodeInstance<C>
-
-/**
  * Type alias for accessing Material-UI module exports.
  * Provides type-safe access to all MUI components and utilities.
  */
@@ -94,6 +80,20 @@ type MuiModule = typeof Mui
 type FilterComponents<T> = {
   [K in keyof T as T[K] extends ComponentType<any> ? K : never]: T[K]
 }
+
+/**
+ * Factory function type for creating wrapped MUI components.
+ * Takes optional props and returns a NodeInstance that can be rendered.
+ * @template C - The MUI component type to wrap
+ * @returns A NodeInstance representing the wrapped component
+ * @example
+ * ```ts
+ * type ButtonFactory = WrappedMuiComponentFactory<typeof Button>;
+ * const wrappedButton: ButtonFactory = (props) => Node(Button, props);
+ * wrappedButton({ variant: 'contained', children: 'Click me' });
+ * ```
+ */
+type WrappedMuiComponentFactory<C extends MuiModule[keyof MuiModule] & ComponentType<any>> = (props?: NodeProps<C>) => NodeInstance<C>
 
 /**
  * Maps MUI components to their corresponding factory functions.
@@ -203,16 +203,16 @@ for (const componentName of componentKeys) {
   const OriginalComponentCandidate = MuiComponents[componentName]
 
   if (isRenderableMuiComponent(OriginalComponentCandidate, componentName)) {
-    type RenderableComponentName = keyof FilterComponents<MuiModule>
+    type RenderableComponentType = typeof OriginalComponentCandidate
 
-    muiNodeFactoriesInternal[componentName as unknown as RenderableComponentName] = <T extends NodeElement>(
-      props: NodeProps<T> = {} as NodeProps<T>,
-    ): NodeInstance<T> => {
+    muiNodeFactoriesInternal[componentName as keyof FilterComponents<MuiModule>] = (
+      props: NodeProps<RenderableComponentType> = {} as NodeProps<RenderableComponentType>,
+    ): NodeInstance<RenderableComponentType> => {
       if (!isProbablyMuiTheme(props.theme)) {
-        ;(props as RawNodeProps<T>).nodetheme = props.theme
+        ;(props as RawNodeProps<RenderableComponentType>).nodetheme = props.theme
         delete props.theme
       }
-      return Node(OriginalComponentCandidate, props as RawNodeProps<T>) as NodeInstance<T>
+      return Node(OriginalComponentCandidate, props as RawNodeProps<RenderableComponentType>)
     }
   }
 }
