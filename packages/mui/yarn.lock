@@ -1544,7 +1544,7 @@ __metadata:
     "@babel/preset-env": "npm:^7.27.2"
     "@babel/preset-typescript": "npm:^7.27.1"
     "@eslint/js": "npm:^9.28.0"
-    "@meonode/ui": "npm:^0.1.64"
+    "@meonode/ui": "npm:^0.1.87"
     "@mui/material": "npm:^7.1.1"
     "@types/react": "npm:^19.1.6"
     "@typescript-eslint/eslint-plugin": "npm:^8.33.1"
@@ -1566,13 +1566,13 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@meonode/ui@npm:^0.1.64":
-  version: 0.1.64
-  resolution: "@meonode/ui@npm:0.1.64"
+"@meonode/ui@npm:^0.1.87":
+  version: 0.1.87
+  resolution: "@meonode/ui@npm:0.1.87"
   peerDependencies:
     react: "*"
     react-dom: "*"
-  checksum: 10c0/b641ee6d73dd41c53022144891797afaeb3b31539af4003ddf2e76959ada54ed96176b3cb8d63e5b3e00f974d6df67b048da7d5b8ac7c760b70def43a88d27d3
+  checksum: 10c0/8f1b0541f69892c8f88b2a82d8eb6dd8620bec7e335f05f116071d8eebe34307b78e563f8473b8fa375b70aee52495d31377ea56a21c84ec84099c78d061e781
   languageName: node
   linkType: hard
 
