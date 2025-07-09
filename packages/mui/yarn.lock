@@ -1687,6 +1687,7 @@ __metadata:
     "@meonode/ui": "*"
     "@mui/lab": "*"
     "@mui/material": "*"
+    "@mui/system": "*"
     "@mui/types": "*"
     react: "*"
   languageName: unknown
