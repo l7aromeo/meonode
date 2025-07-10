@@ -1,7 +1,5 @@
 import createMuiNode from '@src/core'
 import * as Mui from '@mui/material'
-import * as MuiLab from '@mui/lab'
-import { Node, NodeProps } from '@meonode/ui'
 
 /**
  * Export Material-UI component factories with enhanced type-safety and prop validation.
@@ -135,16 +133,3 @@ export const Toolbar = createMuiNode(Mui.Toolbar)
 export const Tooltip = createMuiNode(Mui.Tooltip)
 export const Typography = createMuiNode(Mui.Typography)
 export const Zoom = createMuiNode(Mui.Zoom)
-
-// Mui Lab Components
-export const Timeline = createMuiNode(MuiLab.Timeline)
-export const TimelineConnector = createMuiNode(MuiLab.TimelineConnector)
-export const TimelineContent = createMuiNode(MuiLab.TimelineContent)
-export const TimelineDot = createMuiNode(MuiLab.TimelineDot)
-export const TimelineItem = createMuiNode(MuiLab.TimelineItem)
-export const TimelineOppositeContent = createMuiNode(MuiLab.TimelineOppositeContent)
-export const TimelineSeparator = createMuiNode(MuiLab.TimelineSeparator)
-export const Masonry = createMuiNode(MuiLab.Masonry)
-export const TabContext = createMuiNode(MuiLab.TabContext)
-export const TabList = (props: NodeProps<typeof MuiLab.TabList>) => Node(MuiLab.TabList, props)
-export const TabPanel = createMuiNode(MuiLab.TabPanel)

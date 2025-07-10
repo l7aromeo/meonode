@@ -1,2 +1,2 @@
 export * from '@src/core'
-export * from '@src/exports'
+export * from '@src/lib/mui.core'
