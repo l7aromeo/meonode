@@ -1,9 +1,9 @@
 'use strict'
-import * as Mui from '@mui/material'
 import React from 'react'
 import type { NodeInstance, NodeProps } from '@meonode/ui'
 import { Node } from '@meonode/ui'
 import { OverridableComponent, OverridableTypeMap, OverrideProps } from '@mui/material/OverridableComponent'
+import { extendTheme } from '@mui/material'
 
 /**
  * Determines if an object is likely to be a Material-UI theme object by comparing its structure
@@ -32,7 +32,7 @@ import { OverridableComponent, OverridableTypeMap, OverrideProps } from '@mui/ma
 export function isProbablyMuiTheme(obj: unknown): boolean {
   if (typeof obj !== 'object' || obj === null) return false
 
-  const referenceTheme = Mui.extendTheme()
+  const referenceTheme = extendTheme()
   const themeKeys = Object.keys(referenceTheme)
   const objKeys = Object.keys(obj as object)
 
