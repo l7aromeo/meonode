@@ -9,6 +9,38 @@
     ".": {
       "import": "./dist/main.js",
       "types": "./dist/main.d.ts"
+    },
+    "./lab": {
+      "import": "./dist/lib/mui.lab.js",
+      "types": "./dist/lib/mui.lab.d.ts"
+    },
+    "./x-data-grid": {
+      "import": "./dist/lib/mui.x-data-grid.js",
+      "types": "./dist/lib/mui.x-data-grid.d.ts"
+    },
+    "./x-data-grid-pro": {
+      "import": "./dist/lib/mui.x-data-grid-pro.js",
+      "types": "./dist/lib/mui.x-data-grid-pro.d.ts"
+    },
+    "./x-data-grid-premium": {
+      "import": "./dist/lib/mui.x-data-grid-premium.js",
+      "types": "./dist/lib/mui.x-data-grid-premium.d.ts"
+    },
+    "./x-date-pickers": {
+      "import": "./dist/lib/mui.x-date-pickers.js",
+      "types": "./dist/lib/mui.x-date-pickers.d.ts"
+    },
+    "./x-tree-view": {
+      "import": "./dist/lib/mui.x-tree-view.js",
+      "types": "./dist/lib/mui.x-tree-view.d.ts"
+    },
+    "./x-charts": {
+      "import": "./dist/lib/mui.x-charts.js",
+      "types": "./dist/lib/mui.x-charts.d.ts"
+    },
+    "./x-charts-pro": {
+      "import": "./dist/lib/mui.x-charts-pro.js",
+      "types": "./dist/lib/mui.x-charts-pro.d.ts"
     }
   },
   "files": [
@@ -41,6 +73,13 @@
     "@mui/material": "^7.2.0",
     "@mui/system": "^7.2.0",
     "@mui/types": "^7.4.4",
+    "@mui/x-charts": "^8.7.0",
+    "@mui/x-charts-pro": "^8.7.0",
+    "@mui/x-data-grid": "^8.7.0",
+    "@mui/x-data-grid-premium": "^8.7.0",
+    "@mui/x-data-grid-pro": "^8.7.0",
+    "@mui/x-date-pickers": "^8.7.0",
+    "@mui/x-tree-view": "^8.7.0",
     "@types/react": "^19.1.8",
     "@typescript-eslint/eslint-plugin": "^8.36.0",
     "@typescript-eslint/parser": "^8.36.0",
@@ -58,10 +97,17 @@
   "packageManager": "yarn@4.9.1",
   "peerDependencies": {
     "@meonode/ui": "*",
-    "@mui/lab": "*",
-    "@mui/material": "*",
-    "@mui/system": "*",
-    "@mui/types": "*",
+    "@mui/lab": "^7.0.0-beta.14",
+    "@mui/material": "^7.2.0",
+    "@mui/system": "^7.2.0",
+    "@mui/types": "^7.4.4",
+    "@mui/x-charts": "^8.7.0",
+    "@mui/x-charts-pro": "^8.7.0",
+    "@mui/x-data-grid": "^8.7.0",
+    "@mui/x-data-grid-premium": "^8.7.0",
+    "@mui/x-data-grid-pro": "^8.7.0",
+    "@mui/x-date-pickers": "^8.7.0",
+    "@mui/x-tree-view": "^8.7.0",
     "react": "*"
   },
   "sideEffects": false,
