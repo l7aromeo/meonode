@@ -1,6 +1,96 @@
 import React from 'react'
 import createMuiNode from '@src/core'
-import * as MuiDataGrid from '@mui/x-data-grid-premium'
+import {
+  DataGridPremium as MuiDataGridPremium,
+  GridApiContext as MuiGridApiContext,
+  GridContextProvider as MuiGridContextProvider,
+  GridPagination as MuiGridPagination,
+  GridAiAssistantPanel as MuiGridAiAssistantPanel,
+  GridPanelHeader as MuiGridPanelHeader,
+  GridPanelContent as MuiGridPanelContent,
+  GridPanelWrapper as MuiGridPanelWrapper,
+  GridPanelFooter as MuiGridPanelFooter,
+  GridPivotPanel as MuiGridPivotPanel,
+  GridEmptyPivotOverlay as MuiGridEmptyPivotOverlay,
+  GridHeader as MuiGridHeader,
+  GridHeaderCheckbox as MuiGridHeaderCheckbox,
+  GridHeaderFilterMenu as MuiGridHeaderFilterMenu,
+  GridHeaderFilterMenuContainer as MuiGridHeaderFilterMenuContainer,
+  GridRow as MuiGridRow,
+  GridRowCount as MuiGridRowCount,
+  GridNoRowsOverlay as MuiGridNoRowsOverlay,
+  GridSelectedRowCount as MuiGridSelectedRowCount,
+  GridFooter as MuiGridFooter,
+  GridFooterContainer as MuiGridFooterContainer,
+  GridFooterPlaceholder as MuiGridFooterPlaceholder,
+  GridBody as MuiGridBody,
+  GridActionsCell as MuiGridActionsCell,
+  GridActionsCellItem as MuiGridActionsCellItem,
+  GridBooleanCell as MuiGridBooleanCell,
+  GridCell as MuiGridCell,
+  GridCellCheckboxForwardRef as MuiGridCellCheckboxForwardRef,
+  GridCellCheckboxRenderer as MuiGridCellCheckboxRenderer,
+  GridDetailPanelToggleCell as MuiGridDetailPanelToggleCell,
+  GridEditBooleanCell as MuiGridEditBooleanCell,
+  GridEditDateCell as MuiGridEditDateCell,
+  GridEditInputCell as MuiGridEditInputCell,
+  GridEditSingleSelectCell as MuiGridEditSingleSelectCell,
+  GridHeaderFilterCell as MuiGridHeaderFilterCell,
+  GridRowReorderCell as MuiGridRowReorderCell,
+  GridSkeletonCell as MuiGridSkeletonCell,
+  GridTreeDataGroupingCell as MuiGridTreeDataGroupingCell,
+  GridColumnsManagement as MuiGridColumnsManagement,
+  GridColumnHeaders as MuiGridColumnHeaders,
+  GridColumnsPanel as MuiGridColumnsPanel,
+  GridColumnHeaderMenu as MuiGridColumnHeaderMenu,
+  GridColumnHeaderItem as MuiGridColumnHeaderItem,
+  GridColumnHeaderFilterIconButton as MuiGridColumnHeaderFilterIconButton,
+  GridColumnHeaderSeparator as MuiGridColumnHeaderSeparator,
+  GridColumnHeaderTitle as MuiGridColumnHeaderTitle,
+  GridNoColumnsOverlay as MuiGridNoColumnsOverlay,
+  GridExcelExportMenuItem as MuiGridExcelExportMenuItem,
+  GridPrintExportMenuItem as MuiGridPrintExportMenuItem,
+  GridCsvExportMenuItem as MuiGridCsvExportMenuItem,
+  ExportCsv as MuiExportCsv,
+  ExportPrint as MuiExportPrint,
+  ExportExcel as MuiExportExcel,
+  FilterPanelTrigger as MuiFilterPanelTrigger,
+  GridArrowUpwardIcon as MuiGridArrowUpwardIcon,
+  GridArrowDownwardIcon as MuiGridArrowDownwardIcon,
+  GridKeyboardArrowRight as MuiGridKeyboardArrowRight,
+  GridExpandMoreIcon as MuiGridExpandMoreIcon,
+  GridFilterListIcon as MuiGridFilterListIcon,
+  GridFilterAltIcon as MuiGridFilterAltIcon,
+  GridSearchIcon as MuiGridSearchIcon,
+  GridMenuIcon as MuiGridMenuIcon,
+  GridCheckCircleIcon as MuiGridCheckCircleIcon,
+  GridColumnIcon as MuiGridColumnIcon,
+  GridSeparatorIcon as MuiGridSeparatorIcon,
+  GridViewHeadlineIcon as MuiGridViewHeadlineIcon,
+  GridTableRowsIcon as MuiGridTableRowsIcon,
+  GridViewStreamIcon as MuiGridViewStreamIcon,
+  GridTripleDotsVerticalIcon as MuiGridTripleDotsVerticalIcon,
+  GridCloseIcon as MuiGridCloseIcon,
+  GridAddIcon as MuiGridAddIcon,
+  GridRemoveIcon as MuiGridRemoveIcon,
+  GridLoadIcon as MuiGridLoadIcon,
+  GridDragIcon as MuiGridDragIcon,
+  GridCheckIcon as MuiGridCheckIcon,
+  GridMoreVertIcon as MuiGridMoreVertIcon,
+  GridVisibilityOffIcon as MuiGridVisibilityOffIcon,
+  GridViewColumnIcon as MuiGridViewColumnIcon,
+  GridClearIcon as MuiGridClearIcon,
+  GridDeleteIcon as MuiGridDeleteIcon,
+  GridDeleteForeverIcon as MuiGridDeleteForeverIcon,
+  GridDownloadIcon as MuiGridDownloadIcon,
+  DataGridPremiumProps,
+  GridSkeletonCellProps,
+  GridActionsCellItemProps,
+  GridColumnHeaderSeparatorProps,
+  GridRenderCellParams,
+  GridRowCountProps,
+  GridSortDirection,
+} from '@mui/x-data-grid-premium'
 import { GridStateColDef, PinnedColumnPosition } from '@mui/x-data-grid/internals'
 import { SxProps, Theme } from '@mui/system'
 
@@ -12,13 +102,13 @@ interface GridColumnHeaderItemProps {
   isDragging: boolean
   isResizing: boolean
   isLast: boolean
-  sortDirection: MuiDataGrid.GridSortDirection
+  sortDirection: GridSortDirection
   sortIndex?: number
   filterItemsCounter?: number
   hasFocus?: boolean
   tabIndex: 0 | -1
   disableReorder?: boolean
-  separatorSide?: MuiDataGrid.GridColumnHeaderSeparatorProps['side']
+  separatorSide?: GridColumnHeaderSeparatorProps['side']
   pinnedPosition?: PinnedColumnPosition
   pinnedOffset?: number
   style?: React.CSSProperties
@@ -28,7 +118,7 @@ interface GridColumnHeaderItemProps {
   showRightBorder: boolean
 }
 
-interface GridBooleanCellProps extends MuiDataGrid.GridRenderCellParams {
+interface GridBooleanCellProps extends GridRenderCellParams {
   hideDescendantCount?: boolean
 }
 
@@ -50,96 +140,96 @@ type GridSelectedRowCountProps = React.HTMLAttributes<HTMLDivElement> &
  * - Proper component validation and error handling
  */
 
-export const DataGridPremium = createMuiNode<React.ComponentType<MuiDataGrid.DataGridPremiumProps>>(MuiDataGrid.DataGridPremium)
-export const GridApiContext = createMuiNode(MuiDataGrid.GridApiContext)
-export const GridContextProvider = createMuiNode(MuiDataGrid.GridContextProvider)
-export const GridPagination = createMuiNode(MuiDataGrid.GridPagination)
-export const GridAiAssistantPanel = createMuiNode(MuiDataGrid.GridAiAssistantPanel)
+export const DataGridPremium = createMuiNode<React.ComponentType<DataGridPremiumProps>>(MuiDataGridPremium)
+export const GridApiContext = createMuiNode(MuiGridApiContext)
+export const GridContextProvider = createMuiNode(MuiGridContextProvider)
+export const GridPagination = createMuiNode(MuiGridPagination)
+export const GridAiAssistantPanel = createMuiNode(MuiGridAiAssistantPanel)
 
-export const GridPanelHeader = createMuiNode(MuiDataGrid.GridPanelHeader)
-export const GridPanelContent = createMuiNode(MuiDataGrid.GridPanelContent)
-export const GridPanelWrapper = createMuiNode(MuiDataGrid.GridPanelWrapper)
-export const GridPanelFooter = createMuiNode(MuiDataGrid.GridPanelFooter)
+export const GridPanelHeader = createMuiNode(MuiGridPanelHeader)
+export const GridPanelContent = createMuiNode(MuiGridPanelContent)
+export const GridPanelWrapper = createMuiNode(MuiGridPanelWrapper)
+export const GridPanelFooter = createMuiNode(MuiGridPanelFooter)
 
-export const GridPivotPanel = createMuiNode(MuiDataGrid.GridPivotPanel)
-export const GridEmptyPivotOverlay = createMuiNode(MuiDataGrid.GridEmptyPivotOverlay)
+export const GridPivotPanel = createMuiNode(MuiGridPivotPanel)
+export const GridEmptyPivotOverlay = createMuiNode(MuiGridEmptyPivotOverlay)
 
-export const GridHeader = createMuiNode(MuiDataGrid.GridHeader)
-export const GridHeaderCheckbox = createMuiNode(MuiDataGrid.GridHeaderCheckbox)
-export const GridHeaderFilterMenu = createMuiNode(MuiDataGrid.GridHeaderFilterMenu)
-export const GridHeaderFilterMenuContainer = createMuiNode(MuiDataGrid.GridHeaderFilterMenuContainer)
+export const GridHeader = createMuiNode(MuiGridHeader)
+export const GridHeaderCheckbox = createMuiNode(MuiGridHeaderCheckbox)
+export const GridHeaderFilterMenu = createMuiNode(MuiGridHeaderFilterMenu)
+export const GridHeaderFilterMenuContainer = createMuiNode(MuiGridHeaderFilterMenuContainer)
 
-export const GridRow = createMuiNode(MuiDataGrid.GridRow)
-export const GridRowCount = createMuiNode<React.ComponentType<MuiDataGrid.GridRowCountProps>>(MuiDataGrid.GridRowCount)
-export const GridNoRowsOverlay = createMuiNode(MuiDataGrid.GridNoRowsOverlay)
-export const GridSelectedRowCount = createMuiNode<React.ComponentType<GridSelectedRowCountProps>>(MuiDataGrid.GridSelectedRowCount)
+export const GridRow = createMuiNode(MuiGridRow)
+export const GridRowCount = createMuiNode<React.ComponentType<GridRowCountProps>>(MuiGridRowCount)
+export const GridNoRowsOverlay = createMuiNode(MuiGridNoRowsOverlay)
+export const GridSelectedRowCount = createMuiNode<React.ComponentType<GridSelectedRowCountProps>>(MuiGridSelectedRowCount)
 
-export const GridFooter = createMuiNode(MuiDataGrid.GridFooter)
-export const GridFooterContainer = createMuiNode(MuiDataGrid.GridFooterContainer)
-export const GridFooterPlaceholder = createMuiNode(MuiDataGrid.GridFooterPlaceholder)
-export const GridBody = createMuiNode(MuiDataGrid.GridBody)
+export const GridFooter = createMuiNode(MuiGridFooter)
+export const GridFooterContainer = createMuiNode(MuiGridFooterContainer)
+export const GridFooterPlaceholder = createMuiNode(MuiGridFooterPlaceholder)
+export const GridBody = createMuiNode(MuiGridBody)
 
-export const GridActionsCell = createMuiNode(MuiDataGrid.GridActionsCell)
-export const GridActionsCellItem = createMuiNode<React.ComponentType<MuiDataGrid.GridActionsCellItemProps>>(MuiDataGrid.GridActionsCellItem)
-export const GridBooleanCell = createMuiNode<React.ComponentType<GridBooleanCellProps>>(MuiDataGrid.GridBooleanCell)
-export const GridCell = createMuiNode(MuiDataGrid.GridCell)
-export const GridCellCheckboxForwardRef = createMuiNode(MuiDataGrid.GridCellCheckboxForwardRef)
-export const GridCellCheckboxRenderer = createMuiNode(MuiDataGrid.GridCellCheckboxRenderer)
-export const GridDetailPanelToggleCell = createMuiNode(MuiDataGrid.GridDetailPanelToggleCell)
-export const GridEditBooleanCell = createMuiNode(MuiDataGrid.GridEditBooleanCell)
-export const GridEditDateCell = createMuiNode(MuiDataGrid.GridEditDateCell)
-export const GridEditInputCell = createMuiNode(MuiDataGrid.GridEditInputCell)
-export const GridEditSingleSelectCell = createMuiNode(MuiDataGrid.GridEditSingleSelectCell)
-export const GridHeaderFilterCell = createMuiNode(MuiDataGrid.GridHeaderFilterCell)
-export const GridRowReorderCell = createMuiNode(MuiDataGrid.GridRowReorderCell)
-export const GridSkeletonCell = createMuiNode<React.ComponentType<MuiDataGrid.GridSkeletonCellProps>>(MuiDataGrid.GridSkeletonCell)
-export const GridTreeDataGroupingCell = createMuiNode(MuiDataGrid.GridTreeDataGroupingCell)
+export const GridActionsCell = createMuiNode(MuiGridActionsCell)
+export const GridActionsCellItem = createMuiNode<React.ComponentType<GridActionsCellItemProps>>(MuiGridActionsCellItem)
+export const GridBooleanCell = createMuiNode<React.ComponentType<GridBooleanCellProps>>(MuiGridBooleanCell)
+export const GridCell = createMuiNode(MuiGridCell)
+export const GridCellCheckboxForwardRef = createMuiNode(MuiGridCellCheckboxForwardRef)
+export const GridCellCheckboxRenderer = createMuiNode(MuiGridCellCheckboxRenderer)
+export const GridDetailPanelToggleCell = createMuiNode(MuiGridDetailPanelToggleCell)
+export const GridEditBooleanCell = createMuiNode(MuiGridEditBooleanCell)
+export const GridEditDateCell = createMuiNode(MuiGridEditDateCell)
+export const GridEditInputCell = createMuiNode(MuiGridEditInputCell)
+export const GridEditSingleSelectCell = createMuiNode(MuiGridEditSingleSelectCell)
+export const GridHeaderFilterCell = createMuiNode(MuiGridHeaderFilterCell)
+export const GridRowReorderCell = createMuiNode(MuiGridRowReorderCell)
+export const GridSkeletonCell = createMuiNode<React.ComponentType<GridSkeletonCellProps>>(MuiGridSkeletonCell)
+export const GridTreeDataGroupingCell = createMuiNode(MuiGridTreeDataGroupingCell)
 
-export const GridColumnsManagement = createMuiNode(MuiDataGrid.GridColumnsManagement)
-export const GridColumnHeaders = createMuiNode(MuiDataGrid.GridColumnHeaders)
-export const GridColumnsPanel = createMuiNode(MuiDataGrid.GridColumnsPanel)
-export const GridColumnHeaderMenu = createMuiNode(MuiDataGrid.GridColumnHeaderMenu)
-export const GridColumnHeaderItem = createMuiNode<React.ComponentType<GridColumnHeaderItemProps>>(MuiDataGrid.GridColumnHeaderItem)
-export const GridColumnHeaderFilterIconButton = createMuiNode(MuiDataGrid.GridColumnHeaderFilterIconButton)
-export const GridColumnHeaderSeparator = createMuiNode<React.ComponentType<MuiDataGrid.GridColumnHeaderSeparatorProps>>(MuiDataGrid.GridColumnHeaderSeparator)
-export const GridColumnHeaderTitle = createMuiNode(MuiDataGrid.GridColumnHeaderTitle)
-export const GridNoColumnsOverlay = createMuiNode(MuiDataGrid.GridNoColumnsOverlay)
+export const GridColumnsManagement = createMuiNode(MuiGridColumnsManagement)
+export const GridColumnHeaders = createMuiNode(MuiGridColumnHeaders)
+export const GridColumnsPanel = createMuiNode(MuiGridColumnsPanel)
+export const GridColumnHeaderMenu = createMuiNode(MuiGridColumnHeaderMenu)
+export const GridColumnHeaderItem = createMuiNode<React.ComponentType<GridColumnHeaderItemProps>>(MuiGridColumnHeaderItem)
+export const GridColumnHeaderFilterIconButton = createMuiNode(MuiGridColumnHeaderFilterIconButton)
+export const GridColumnHeaderSeparator = createMuiNode<React.ComponentType<GridColumnHeaderSeparatorProps>>(MuiGridColumnHeaderSeparator)
+export const GridColumnHeaderTitle = createMuiNode(MuiGridColumnHeaderTitle)
+export const GridNoColumnsOverlay = createMuiNode(MuiGridNoColumnsOverlay)
 
-export const GridExcelExportMenuItem = createMuiNode(MuiDataGrid.GridExcelExportMenuItem)
-export const GridPrintExportMenuItem = createMuiNode(MuiDataGrid.GridPrintExportMenuItem)
-export const GridCsvExportMenuItem = createMuiNode(MuiDataGrid.GridCsvExportMenuItem)
+export const GridExcelExportMenuItem = createMuiNode(MuiGridExcelExportMenuItem)
+export const GridPrintExportMenuItem = createMuiNode(MuiGridPrintExportMenuItem)
+export const GridCsvExportMenuItem = createMuiNode(MuiGridCsvExportMenuItem)
 
-export const ExportCsv = createMuiNode(MuiDataGrid.ExportCsv)
-export const ExportPrint = createMuiNode(MuiDataGrid.ExportPrint)
-export const ExportExcel = createMuiNode(MuiDataGrid.ExportExcel)
+export const ExportCsv = createMuiNode(MuiExportCsv)
+export const ExportPrint = createMuiNode(MuiExportPrint)
+export const ExportExcel = createMuiNode(MuiExportExcel)
 
-export const FilterPanelTrigger = createMuiNode(MuiDataGrid.FilterPanelTrigger)
+export const FilterPanelTrigger = createMuiNode(MuiFilterPanelTrigger)
 
-export const GridArrowUpwardIcon = createMuiNode(MuiDataGrid.GridArrowUpwardIcon)
-export const GridArrowDownwardIcon = createMuiNode(MuiDataGrid.GridArrowDownwardIcon)
-export const GridKeyboardArrowRight = createMuiNode(MuiDataGrid.GridKeyboardArrowRight)
-export const GridExpandMoreIcon = createMuiNode(MuiDataGrid.GridExpandMoreIcon)
-export const GridFilterListIcon = createMuiNode(MuiDataGrid.GridFilterListIcon)
-export const GridFilterAltIcon = createMuiNode(MuiDataGrid.GridFilterAltIcon)
-export const GridSearchIcon = createMuiNode(MuiDataGrid.GridSearchIcon)
-export const GridMenuIcon = createMuiNode(MuiDataGrid.GridMenuIcon)
-export const GridCheckCircleIcon = createMuiNode(MuiDataGrid.GridCheckCircleIcon)
-export const GridColumnIcon = createMuiNode(MuiDataGrid.GridColumnIcon)
-export const GridSeparatorIcon = createMuiNode(MuiDataGrid.GridSeparatorIcon)
-export const GridViewHeadlineIcon = createMuiNode(MuiDataGrid.GridViewHeadlineIcon)
-export const GridTableRowsIcon = createMuiNode(MuiDataGrid.GridTableRowsIcon)
-export const GridViewStreamIcon = createMuiNode(MuiDataGrid.GridViewStreamIcon)
-export const GridTripleDotsVerticalIcon = createMuiNode(MuiDataGrid.GridTripleDotsVerticalIcon)
-export const GridCloseIcon = createMuiNode(MuiDataGrid.GridCloseIcon)
-export const GridAddIcon = createMuiNode(MuiDataGrid.GridAddIcon)
-export const GridRemoveIcon = createMuiNode(MuiDataGrid.GridRemoveIcon)
-export const GridLoadIcon = createMuiNode(MuiDataGrid.GridLoadIcon)
-export const GridDragIcon = createMuiNode(MuiDataGrid.GridDragIcon)
-export const GridCheckIcon = createMuiNode(MuiDataGrid.GridCheckIcon)
-export const GridMoreVertIcon = createMuiNode(MuiDataGrid.GridMoreVertIcon)
-export const GridVisibilityOffIcon = createMuiNode(MuiDataGrid.GridVisibilityOffIcon)
-export const GridViewColumnIcon = createMuiNode(MuiDataGrid.GridViewColumnIcon)
-export const GridClearIcon = createMuiNode(MuiDataGrid.GridClearIcon)
-export const GridDeleteIcon = createMuiNode(MuiDataGrid.GridDeleteIcon)
-export const GridDeleteForeverIcon = createMuiNode(MuiDataGrid.GridDeleteForeverIcon)
-export const GridDownloadIcon = createMuiNode(MuiDataGrid.GridDownloadIcon)
+export const GridArrowUpwardIcon = createMuiNode(MuiGridArrowUpwardIcon)
+export const GridArrowDownwardIcon = createMuiNode(MuiGridArrowDownwardIcon)
+export const GridKeyboardArrowRight = createMuiNode(MuiGridKeyboardArrowRight)
+export const GridExpandMoreIcon = createMuiNode(MuiGridExpandMoreIcon)
+export const GridFilterListIcon = createMuiNode(MuiGridFilterListIcon)
+export const GridFilterAltIcon = createMuiNode(MuiGridFilterAltIcon)
+export const GridSearchIcon = createMuiNode(MuiGridSearchIcon)
+export const GridMenuIcon = createMuiNode(MuiGridMenuIcon)
+export const GridCheckCircleIcon = createMuiNode(MuiGridCheckCircleIcon)
+export const GridColumnIcon = createMuiNode(MuiGridColumnIcon)
+export const GridSeparatorIcon = createMuiNode(MuiGridSeparatorIcon)
+export const GridViewHeadlineIcon = createMuiNode(MuiGridViewHeadlineIcon)
+export const GridTableRowsIcon = createMuiNode(MuiGridTableRowsIcon)
+export const GridViewStreamIcon = createMuiNode(MuiGridViewStreamIcon)
+export const GridTripleDotsVerticalIcon = createMuiNode(MuiGridTripleDotsVerticalIcon)
+export const GridCloseIcon = createMuiNode(MuiGridCloseIcon)
+export const GridAddIcon = createMuiNode(MuiGridAddIcon)
+export const GridRemoveIcon = createMuiNode(MuiGridRemoveIcon)
+export const GridLoadIcon = createMuiNode(MuiGridLoadIcon)
+export const GridDragIcon = createMuiNode(MuiGridDragIcon)
+export const GridCheckIcon = createMuiNode(MuiGridCheckIcon)
+export const GridMoreVertIcon = createMuiNode(MuiGridMoreVertIcon)
+export const GridVisibilityOffIcon = createMuiNode(MuiGridVisibilityOffIcon)
+export const GridViewColumnIcon = createMuiNode(MuiGridViewColumnIcon)
+export const GridClearIcon = createMuiNode(MuiGridClearIcon)
+export const GridDeleteIcon = createMuiNode(MuiGridDeleteIcon)
+export const GridDeleteForeverIcon = createMuiNode(MuiGridDeleteForeverIcon)
+export const GridDownloadIcon = createMuiNode(MuiGridDownloadIcon)

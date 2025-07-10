@@ -1,5 +1,18 @@
 import createMuiNode from '@src/core'
-import * as MuiDatePickers from '@mui/x-date-pickers'
+import {
+  TimeField as MuiTimeField,
+  TimePicker as MuiTimePicker,
+  TimePickerToolbar as MuiTimePickerToolbar,
+  DesktopTimePicker as MuiDesktopTimePicker,
+  DatePicker as MuiDatePicker,
+  DatePickerToolbar as MuiDatePickerToolbar,
+  DesktopDatePicker as MuiDesktopDatePicker,
+  DateTimePicker as MuiDateTimePicker,
+  DateTimePickerTabs as MuiDateTimePickerTabs,
+  DateTimePickerToolbar as MuiDateTimePickerToolbar,
+  DesktopDateTimePicker as MuiDesktopDateTimePicker,
+  DesktopDateTimePickerLayout as MuiDesktopDateTimePickerLayout,
+} from '@mui/x-date-pickers'
 
 /**
  * Export Material-UI X Date Pickers component factories with enhanced type-safety and prop validation.
@@ -10,17 +23,17 @@ import * as MuiDatePickers from '@mui/x-date-pickers'
  * - Proper component validation and error handling
  */
 
-export const TimeField = createMuiNode(MuiDatePickers.TimeField)
-export const TimePicker = createMuiNode(MuiDatePickers.TimePicker)
-export const TimePickerToolbar = createMuiNode(MuiDatePickers.TimePickerToolbar)
-export const DesktopTimePicker = createMuiNode(MuiDatePickers.DesktopTimePicker)
+export const TimeField = createMuiNode(MuiTimeField)
+export const TimePicker = createMuiNode(MuiTimePicker)
+export const TimePickerToolbar = createMuiNode(MuiTimePickerToolbar)
+export const DesktopTimePicker = createMuiNode(MuiDesktopTimePicker)
 
-export const DatePickers = createMuiNode(MuiDatePickers.DatePicker)
-export const DatePickerToolbar = createMuiNode(MuiDatePickers.DatePickerToolbar)
-export const DesktopDatePicker = createMuiNode(MuiDatePickers.DesktopDatePicker)
+export const DatePickers = createMuiNode(MuiDatePicker)
+export const DatePickerToolbar = createMuiNode(MuiDatePickerToolbar)
+export const DesktopDatePicker = createMuiNode(MuiDesktopDatePicker)
 
-export const DateTimePicker = createMuiNode(MuiDatePickers.DateTimePicker)
-export const DateTimePickerTabs = createMuiNode(MuiDatePickers.DateTimePickerTabs)
-export const DateTimePickerToolbar = createMuiNode(MuiDatePickers.DateTimePickerToolbar)
-export const DesktopDateTimePicker = createMuiNode(MuiDatePickers.DesktopDateTimePicker)
-export const DesktopDateTimePickerLayout = createMuiNode(MuiDatePickers.DesktopDateTimePickerLayout)
+export const DateTimePicker = createMuiNode(MuiDateTimePicker)
+export const DateTimePickerTabs = createMuiNode(MuiDateTimePickerTabs)
+export const DateTimePickerToolbar = createMuiNode(MuiDateTimePickerToolbar)
+export const DesktopDateTimePicker = createMuiNode(MuiDesktopDateTimePicker)
+export const DesktopDateTimePickerLayout = createMuiNode(MuiDesktopDateTimePickerLayout)

@@ -1,75 +1,125 @@
 import React from 'react'
 import createMuiNode from '@src/core'
-import * as MuiCharts from '@mui/x-charts'
-import { PieArcLabelProps, PieArcProps } from '@mui/x-charts'
+import {
+  ChartsAxis as MuiChartsAxis,
+  ChartsXAxis as MuiChartsXAxis,
+  ChartsYAxis as MuiChartsYAxis,
+  ChartsAxisHighlight as MuiChartsAxisHighlight,
+  ChartsAxisHighlightPath as MuiChartsAxisHighlightPath,
+  ChartsClipPath as MuiChartsClipPath,
+  ChartsGrid as MuiChartsGrid,
+  ChartsItemTooltipContent as MuiChartsItemTooltipContent,
+  ChartsLocalizationProvider as MuiChartsLocalizationProvider,
+  ChartsLabelMark as MuiChartsLabelMark,
+  ChartsLegend as MuiChartsLegend,
+  ChartsReferenceLine as MuiChartsReferenceLine,
+  ChartsSurface as MuiChartsSurface,
+  ChartsText as MuiChartsText,
+  ChartsTooltip as MuiChartsTooltip,
+  ChartsTooltipContainer as MuiChartsTooltipContainer,
+  ChartsTooltipPaper as MuiChartsTooltipPaper,
+  ChartsTooltipTable as MuiChartsTooltipTable,
+  ChartsTooltipCell as MuiChartsTooltipCell,
+  ChartsTooltipRow as MuiChartsTooltipRow,
+  AnimatedArea as MuiAnimatedArea,
+  AnimatedLine as MuiAnimatedLine,
+  AreaElement as MuiAreaElement,
+  AreaPlot as MuiAreaPlot,
+  BarChart as MuiBarChart,
+  BarElement as MuiBarElement,
+  BarLabel as MuiBarLabel,
+  BarPlot as MuiBarPlot,
+  LineChart as MuiLineChart,
+  LineElement as MuiLineElement,
+  LineHighlightElement as MuiLineHighlightElement,
+  LinePlot as MuiLinePlot,
+  LineHighlightPlot as MuiLineHighlightPlot,
+  PieChart as MuiPieChart,
+  PieArc as MuiPieArc,
+  PieArcLabel as MuiPieArcLabel,
+  PieArcPlot as MuiPieArcPlot,
+  PieArcLabelPlot as MuiPieArcLabelPlot,
+  PiePlot as MuiPiePlot,
+  PiecewiseColorLegend as MuiPiecewiseColorLegend,
+  Scatter as MuiScatter,
+  ScatterChart as MuiScatterChart,
+  ScatterMarker as MuiScatterMarker,
+  ScatterPlot as MuiScatterPlot,
+  Unstable_RadarChart as MuiUnstableRadarChart,
+  Unstable_RadarDataProvider as MuiUnstableRadarDataProvider,
+  RadarChart as MuiRadarChart,
+  RadarSeriesArea as MuiRadarSeriesArea,
+  RadarSeriesMarks as MuiRadarSeriesMarks,
+  RadarSeriesPlot as MuiRadarSeriesPlot,
+  RadarAxisHighlight as MuiRadarAxisHighlight,
+  RadarGrid as MuiRadarGrid,
+  RadarMetricLabels as MuiRadarMetricLabels,
+  RadarDataProvider as MuiRadarDataProvider,
+} from '@mui/x-charts'
+import type { PieArcLabelProps, PieArcProps } from '@mui/x-charts'
 
 /**
  * Export Material-UI X Charts component factories with enhanced type-safety and prop validation.
- * Each export is a factory function that wraps the original MUI component, providing:
- * - Full TypeScript type checking for component props
- * - Direct CSS property support without requiring sx prop
- * - Theme context access and inheritance
- * - Proper component validation and error handling
  */
 
-export const ChartsAxis = createMuiNode(MuiCharts.ChartsAxis)
-export const ChartsXAxis = createMuiNode(MuiCharts.ChartsXAxis)
-export const ChartsYAxis = createMuiNode(MuiCharts.ChartsYAxis)
-export const ChartsAxisHighlight = createMuiNode(MuiCharts.ChartsAxisHighlight)
-export const ChartsAxisHighlightPath = createMuiNode(MuiCharts.ChartsAxisHighlightPath)
-export const ChartsClipPath = createMuiNode(MuiCharts.ChartsClipPath)
-export const ChartsGrid = createMuiNode(MuiCharts.ChartsGrid)
-export const ChartsItemTooltipContent = createMuiNode(MuiCharts.ChartsItemTooltipContent)
-export const ChartsLocalizationProvider = createMuiNode(MuiCharts.ChartsLocalizationProvider)
-export const ChartsLabelMark = createMuiNode(MuiCharts.ChartsLabelMark)
-export const ChartsLegend = createMuiNode(MuiCharts.ChartsLegend)
-export const ChartsReferenceLine = createMuiNode(MuiCharts.ChartsReferenceLine)
-export const ChartsSurface = createMuiNode(MuiCharts.ChartsSurface)
-export const ChartsText = createMuiNode(MuiCharts.ChartsText)
-export const ChartsTooltip = createMuiNode(MuiCharts.ChartsTooltip)
-export const ChartsTooltipContainer = createMuiNode(MuiCharts.ChartsTooltipContainer)
-export const ChartsTooltipPaper = createMuiNode(MuiCharts.ChartsTooltipPaper)
-export const ChartsTooltipTable = createMuiNode(MuiCharts.ChartsTooltipTable)
-export const ChartsTooltipCell = createMuiNode(MuiCharts.ChartsTooltipCell)
-export const ChartsTooltipRow = createMuiNode(MuiCharts.ChartsTooltipRow)
+export const ChartsAxis = createMuiNode(MuiChartsAxis)
+export const ChartsXAxis = createMuiNode(MuiChartsXAxis)
+export const ChartsYAxis = createMuiNode(MuiChartsYAxis)
+export const ChartsAxisHighlight = createMuiNode(MuiChartsAxisHighlight)
+export const ChartsAxisHighlightPath = createMuiNode(MuiChartsAxisHighlightPath)
+export const ChartsClipPath = createMuiNode(MuiChartsClipPath)
+export const ChartsGrid = createMuiNode(MuiChartsGrid)
+export const ChartsItemTooltipContent = createMuiNode(MuiChartsItemTooltipContent)
+export const ChartsLocalizationProvider = createMuiNode(MuiChartsLocalizationProvider)
+export const ChartsLabelMark = createMuiNode(MuiChartsLabelMark)
+export const ChartsLegend = createMuiNode(MuiChartsLegend)
+export const ChartsReferenceLine = createMuiNode(MuiChartsReferenceLine)
+export const ChartsSurface = createMuiNode(MuiChartsSurface)
+export const ChartsText = createMuiNode(MuiChartsText)
+export const ChartsTooltip = createMuiNode(MuiChartsTooltip)
+export const ChartsTooltipContainer = createMuiNode(MuiChartsTooltipContainer)
+export const ChartsTooltipPaper = createMuiNode(MuiChartsTooltipPaper)
+export const ChartsTooltipTable = createMuiNode(MuiChartsTooltipTable)
+export const ChartsTooltipCell = createMuiNode(MuiChartsTooltipCell)
+export const ChartsTooltipRow = createMuiNode(MuiChartsTooltipRow)
 
-export const AnimatedArea = createMuiNode(MuiCharts.AnimatedArea)
-export const AnimatedLine = createMuiNode(MuiCharts.AnimatedLine)
+export const AnimatedArea = createMuiNode(MuiAnimatedArea)
+export const AnimatedLine = createMuiNode(MuiAnimatedLine)
 
-export const AreaElement = createMuiNode(MuiCharts.AreaElement)
-export const AreaPlot = createMuiNode(MuiCharts.AreaPlot)
+export const AreaElement = createMuiNode(MuiAreaElement)
+export const AreaPlot = createMuiNode(MuiAreaPlot)
 
-export const BarChart = createMuiNode(MuiCharts.BarChart)
-export const BarElement = createMuiNode(MuiCharts.BarElement)
-export const BarLabel = createMuiNode(MuiCharts.BarLabel)
-export const BarPlot = createMuiNode(MuiCharts.BarPlot)
+export const BarChart = createMuiNode(MuiBarChart)
+export const BarElement = createMuiNode(MuiBarElement)
+export const BarLabel = createMuiNode(MuiBarLabel)
+export const BarPlot = createMuiNode(MuiBarPlot)
 
-export const LineChart = createMuiNode(MuiCharts.LineChart)
-export const LineElement = createMuiNode(MuiCharts.LineElement)
-export const LineHighlightElement = createMuiNode(MuiCharts.LineHighlightElement)
-export const LinePlot = createMuiNode(MuiCharts.LinePlot)
-export const LineHighlightPlot = createMuiNode(MuiCharts.LineHighlightPlot)
+export const LineChart = createMuiNode(MuiLineChart)
+export const LineElement = createMuiNode(MuiLineElement)
+export const LineHighlightElement = createMuiNode(MuiLineHighlightElement)
+export const LinePlot = createMuiNode(MuiLinePlot)
+export const LineHighlightPlot = createMuiNode(MuiLineHighlightPlot)
 
-export const PieChart = createMuiNode(MuiCharts.PieChart)
-export const PieArc = createMuiNode(MuiCharts.PieArc as React.ComponentType<PieArcProps>)
-export const PieArcLabel = createMuiNode(MuiCharts.PieArcLabel as React.ComponentType<PieArcLabelProps>)
-export const PieArcPlot = createMuiNode(MuiCharts.PieArcPlot)
-export const PieArcLabelPlot = createMuiNode(MuiCharts.PieArcLabelPlot)
-export const PiePlot = createMuiNode(MuiCharts.PiePlot)
-export const PiecewiseColorLegend = createMuiNode(MuiCharts.PiecewiseColorLegend)
+export const PieChart = createMuiNode(MuiPieChart)
+export const PieArc = createMuiNode(MuiPieArc as React.ComponentType<PieArcProps>)
+export const PieArcLabel = createMuiNode(MuiPieArcLabel as React.ComponentType<PieArcLabelProps>)
+export const PieArcPlot = createMuiNode(MuiPieArcPlot)
+export const PieArcLabelPlot = createMuiNode(MuiPieArcLabelPlot)
+export const PiePlot = createMuiNode(MuiPiePlot)
+export const PiecewiseColorLegend = createMuiNode(MuiPiecewiseColorLegend)
 
-export const Scatter = createMuiNode(MuiCharts.Scatter)
-export const ScatterChart = createMuiNode(MuiCharts.ScatterChart)
-export const ScatterMarker = createMuiNode(MuiCharts.ScatterMarker)
-export const ScatterPlot = createMuiNode(MuiCharts.ScatterPlot)
+export const Scatter = createMuiNode(MuiScatter)
+export const ScatterChart = createMuiNode(MuiScatterChart)
+export const ScatterMarker = createMuiNode(MuiScatterMarker)
+export const ScatterPlot = createMuiNode(MuiScatterPlot)
 
-export const Unstable_RadarChart = createMuiNode(MuiCharts.Unstable_RadarChart)
-export const Unstable_RadarDataProvider = createMuiNode(MuiCharts.Unstable_RadarDataProvider)
-export const RadarChart = createMuiNode(MuiCharts.RadarChart)
-export const RadarSeriesArea = createMuiNode(MuiCharts.RadarSeriesArea)
-export const RadarSeriesMarks = createMuiNode(MuiCharts.RadarSeriesMarks)
-export const RadarSeriesPlot = createMuiNode(MuiCharts.RadarSeriesPlot)
-export const RadarAxisHighlight = createMuiNode(MuiCharts.RadarAxisHighlight)
-export const RadarGrid = createMuiNode(MuiCharts.RadarGrid)
-export const RadarMetricLabels = createMuiNode(MuiCharts.RadarMetricLabels)
-export const RadarDataProvider = createMuiNode(MuiCharts.RadarDataProvider)
+export const Unstable_RadarChart = createMuiNode(MuiUnstableRadarChart)
+export const Unstable_RadarDataProvider = createMuiNode(MuiUnstableRadarDataProvider)
+export const RadarChart = createMuiNode(MuiRadarChart)
+export const RadarSeriesArea = createMuiNode(MuiRadarSeriesArea)
+export const RadarSeriesMarks = createMuiNode(MuiRadarSeriesMarks)
+export const RadarSeriesPlot = createMuiNode(MuiRadarSeriesPlot)
+export const RadarAxisHighlight = createMuiNode(MuiRadarAxisHighlight)
+export const RadarGrid = createMuiNode(MuiRadarGrid)
+export const RadarMetricLabels = createMuiNode(MuiRadarMetricLabels)
+export const RadarDataProvider = createMuiNode(MuiRadarDataProvider)

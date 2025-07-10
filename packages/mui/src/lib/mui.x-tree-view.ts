@@ -1,5 +1,21 @@
 import createMuiNode from '@src/core'
-import * as MuiTreeView from '@mui/x-tree-view'
+import {
+  RichTreeViewRoot as MuiRichTreeViewRoot,
+  SimpleTreeViewRoot as MuiSimpleTreeViewRoot,
+  TreeItem as MuiTreeItem,
+  TreeItemContent as MuiTreeItemContent,
+  TreeItemCheckbox as MuiTreeItemCheckbox,
+  TreeItemDragAndDropOverlay as MuiTreeItemDragAndDropOverlay,
+  TreeItemGroupTransition as MuiTreeItemGroupTransition,
+  TreeItemIconContainer as MuiTreeItemIconContainer,
+  TreeItemLabel as MuiTreeItemLabel,
+  TreeItemLabelInput as MuiTreeItemLabelInput,
+  TreeItemProvider as MuiTreeItemProvider,
+  TreeItemRoot as MuiTreeItemRoot,
+  TreeItemIcon as MuiTreeItemIcon,
+  TreeViewExpandIcon as MuiTreeViewExpandIcon,
+  TreeViewCollapseIcon as MuiTreeViewCollapseIcon,
+} from '@mui/x-tree-view'
 
 /**
  * Export Material-UI X Tree View component factories with enhanced type-safety and prop validation.
@@ -9,20 +25,20 @@ import * as MuiTreeView from '@mui/x-tree-view'
  * - Theme context access and inheritance
  * - Proper component validation and error handling
  */
-export const RichTreeViewRoot = createMuiNode(MuiTreeView.RichTreeViewRoot)
-export const SimpleTreeViewRoot = createMuiNode(MuiTreeView.SimpleTreeViewRoot)
+export const RichTreeViewRoot = createMuiNode(MuiRichTreeViewRoot)
+export const SimpleTreeViewRoot = createMuiNode(MuiSimpleTreeViewRoot)
 
-export const TreeItem = createMuiNode(MuiTreeView.TreeItem)
-export const TreeItemContent = createMuiNode(MuiTreeView.TreeItemContent)
-export const TreeItemCheckbox = createMuiNode(MuiTreeView.TreeItemCheckbox)
-export const TreeItemDragAndDropOverlay = createMuiNode(MuiTreeView.TreeItemDragAndDropOverlay)
-export const TreeItemGroupTransition = createMuiNode(MuiTreeView.TreeItemGroupTransition)
-export const TreeItemIconContainer = createMuiNode(MuiTreeView.TreeItemIconContainer)
-export const TreeItemLabel = createMuiNode(MuiTreeView.TreeItemLabel)
-export const TreeItemLabelInput = createMuiNode(MuiTreeView.TreeItemLabelInput)
-export const TreeItemProvider = createMuiNode(MuiTreeView.TreeItemProvider)
-export const TreeItemRoot = createMuiNode(MuiTreeView.TreeItemRoot)
+export const TreeItem = createMuiNode(MuiTreeItem)
+export const TreeItemContent = createMuiNode(MuiTreeItemContent)
+export const TreeItemCheckbox = createMuiNode(MuiTreeItemCheckbox)
+export const TreeItemDragAndDropOverlay = createMuiNode(MuiTreeItemDragAndDropOverlay)
+export const TreeItemGroupTransition = createMuiNode(MuiTreeItemGroupTransition)
+export const TreeItemIconContainer = createMuiNode(MuiTreeItemIconContainer)
+export const TreeItemLabel = createMuiNode(MuiTreeItemLabel)
+export const TreeItemLabelInput = createMuiNode(MuiTreeItemLabelInput)
+export const TreeItemProvider = createMuiNode(MuiTreeItemProvider)
+export const TreeItemRoot = createMuiNode(MuiTreeItemRoot)
 
-export const TreeItemIcon = createMuiNode(MuiTreeView.TreeItemIcon)
-export const TreeViewExpandIcon = createMuiNode(MuiTreeView.TreeViewExpandIcon)
-export const TreeViewCollapseIcon = createMuiNode(MuiTreeView.TreeViewCollapseIcon)
+export const TreeItemIcon = createMuiNode(MuiTreeItemIcon)
+export const TreeViewExpandIcon = createMuiNode(MuiTreeViewExpandIcon)
+export const TreeViewCollapseIcon = createMuiNode(MuiTreeViewCollapseIcon)

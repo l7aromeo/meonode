@@ -1,5 +1,17 @@
 import createMuiNode from '@src/core'
-import * as MuiLab from '@mui/lab'
+import {
+  Timeline as MuiTimeline,
+  TimelineConnector as MuiTimelineConnector,
+  TimelineContent as MuiTimelineContent,
+  TimelineDot as MuiTimelineDot,
+  TimelineItem as MuiTimelineItem,
+  TimelineOppositeContent as MuiTimelineOppositeContent,
+  TimelineSeparator as MuiTimelineSeparator,
+  Masonry as MuiMasonry,
+  TabContext as MuiTabContext,
+  TabList as MuiTabList,
+  TabPanel as MuiTabPanel,
+} from '@mui/lab'
 
 /**
  * Export Material-UI Lab component factories with enhanced type-safety and prop validation.
@@ -9,14 +21,14 @@ import * as MuiLab from '@mui/lab'
  * - Theme context access and inheritance
  * - Proper component validation and error handling
  */
-export const Timeline = createMuiNode(MuiLab.Timeline)
-export const TimelineConnector = createMuiNode(MuiLab.TimelineConnector)
-export const TimelineContent = createMuiNode(MuiLab.TimelineContent)
-export const TimelineDot = createMuiNode(MuiLab.TimelineDot)
-export const TimelineItem = createMuiNode(MuiLab.TimelineItem)
-export const TimelineOppositeContent = createMuiNode(MuiLab.TimelineOppositeContent)
-export const TimelineSeparator = createMuiNode(MuiLab.TimelineSeparator)
-export const Masonry = createMuiNode(MuiLab.Masonry)
-export const TabContext = createMuiNode(MuiLab.TabContext)
-export const TabList = createMuiNode<typeof MuiLab.TabList>(MuiLab.TabList)
-export const TabPanel = createMuiNode(MuiLab.TabPanel)
+export const Timeline = createMuiNode(MuiTimeline)
+export const TimelineConnector = createMuiNode(MuiTimelineConnector)
+export const TimelineContent = createMuiNode(MuiTimelineContent)
+export const TimelineDot = createMuiNode(MuiTimelineDot)
+export const TimelineItem = createMuiNode(MuiTimelineItem)
+export const TimelineOppositeContent = createMuiNode(MuiTimelineOppositeContent)
+export const TimelineSeparator = createMuiNode(MuiTimelineSeparator)
+export const Masonry = createMuiNode(MuiMasonry)
+export const TabContext = createMuiNode(MuiTabContext)
+export const TabList = createMuiNode<typeof MuiTabList>(MuiTabList)
+export const TabPanel = createMuiNode(MuiTabPanel)
