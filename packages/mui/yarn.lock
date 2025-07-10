@@ -1703,7 +1703,7 @@ __metadata:
     "@babel/preset-env": "npm:^7.28.0"
     "@babel/preset-typescript": "npm:^7.27.1"
     "@eslint/js": "npm:^9.30.1"
-    "@meonode/ui": "npm:^0.1.89"
+    "@meonode/ui": "npm:^0.1.90"
     "@mui/lab": "npm:^7.0.0-beta.14"
     "@mui/material": "npm:^7.2.0"
     "@mui/system": "npm:^7.2.0"
@@ -1730,21 +1730,28 @@ __metadata:
     typescript-eslint: "npm:^8.36.0"
   peerDependencies:
     "@meonode/ui": "*"
-    "@mui/lab": "*"
-    "@mui/material": "*"
-    "@mui/system": "*"
-    "@mui/types": "*"
+    "@mui/lab": ^7.0.0-beta.14
+    "@mui/material": ^7.2.0
+    "@mui/system": ^7.2.0
+    "@mui/types": ^7.4.4
+    "@mui/x-charts": ^8.7.0
+    "@mui/x-charts-pro": ^8.7.0
+    "@mui/x-data-grid": ^8.7.0
+    "@mui/x-data-grid-premium": ^8.7.0
+    "@mui/x-data-grid-pro": ^8.7.0
+    "@mui/x-date-pickers": ^8.7.0
+    "@mui/x-tree-view": ^8.7.0
     react: "*"
   languageName: unknown
   linkType: soft
 
-"@meonode/ui@npm:^0.1.89":
-  version: 0.1.89
-  resolution: "@meonode/ui@npm:0.1.89"
+"@meonode/ui@npm:^0.1.90":
+  version: 0.1.90
+  resolution: "@meonode/ui@npm:0.1.90"
   peerDependencies:
     react: "*"
     react-dom: "*"
-  checksum: 10c0/cd939cf480a6fae7f768461620ca43c13214386511f668bcea68469d7ae122cc678666035d4953a2cf1f38469d95361bcec41f34e087f36a8c66f91e6923a91c
+  checksum: 10c0/909b6d5bd897aec78c3e87e36a93730a3518fc0b82c46f549bd5d13291c4e58854e5de3239738bf00a2b9feb09b531728f46c51b8ead6f194ad1cec5ffc4f142
   languageName: node
   linkType: hard
 
