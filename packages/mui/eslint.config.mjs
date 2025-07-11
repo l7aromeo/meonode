@@ -4,19 +4,24 @@ import prettier from 'eslint-plugin-prettier'
 import unusedImports from 'eslint-plugin-unused-imports'
 import tsParser from '@typescript-eslint/parser'
 import jsDoc from 'eslint-plugin-jsdoc'
+import globals from "globals";
 
 const eslintConfig = [
   {
-    ignores: ["**/dist/**", "**/build/**"], // Add other directories you wish to ignore
+    ignores: ["**/dist/**", "**/build/**"],
   },
   jsDoc.configs['flat/stylistic-typescript'],
   js.configs.recommended,
   ...tsEslint.configs.recommended,
   {
-    files: ['**/*.ts', '**/*.tsx'],
+    files: ['**/*.js', '**/*.jsx', '**/*.ts', '**/*.tsx'],
     languageOptions: {
-      ecmaVersion: 2023,
+      ecmaVersion: 2026,
       parser: tsParser,
+      globals: {
+        ...globals.node,
+        ...globals.es2026
+      }
     },
     plugins: {
       prettier,

@@ -54,6 +54,24 @@ type WithPolymorphic<TMap extends OverridableTypeMap, TComponent extends React.E
 }
 
 /**
+ * Type for the factory function returned by createMuiNode for OverridableComponents.
+ * @template TMap - The OverridableTypeMap for the Material-UI component.
+ * @template TDefaultComponent - The default React element type for the component.
+ */
+type MuiNodeFactory<TMap extends OverridableTypeMap, TDefaultComponent extends React.ElementType = TMap['defaultComponent']> = <
+  T extends React.ElementType = TDefaultComponent,
+>(
+  props?: NodeProps<OverridableComponent<WithPolymorphic<TMap, T>>> &
+    Omit<OverrideProps<WithPolymorphic<TMap, T>, T>, keyof NodeProps<OverridableComponent<WithPolymorphic<TMap, T>>>>,
+) => NodeInstance<OverridableComponent<WithPolymorphic<TMap, T>>>
+
+/**
+ * Type for the factory function returned by createMuiNode for generic React elements.
+ * @template TElement - The React element type to wrap.
+ */
+type GenericNodeFactory<TElement extends React.ElementType> = (props?: NodeProps<TElement>) => NodeInstance<TElement>
+
+/**
  * Creates a function that generates a `NodeInstance` for a Material-UI component
  * with support for polymorphic behavior.
  * @template TMap - The OverridableTypeMap for the Material-UI component.
@@ -63,10 +81,7 @@ type WithPolymorphic<TMap extends OverridableTypeMap, TComponent extends React.E
  */
 export default function createMuiNode<TMap extends OverridableTypeMap, TDefaultComponent extends React.ElementType = TMap['defaultComponent']>(
   element: OverridableComponent<TMap>,
-): <T extends React.ElementType = TDefaultComponent>(
-  props?: NodeProps<OverridableComponent<WithPolymorphic<TMap, T>>> &
-    Omit<OverrideProps<WithPolymorphic<TMap, T>, T>, keyof NodeProps<OverridableComponent<WithPolymorphic<TMap, T>>>>,
-) => NodeInstance<OverridableComponent<WithPolymorphic<TMap, T>>>
+): MuiNodeFactory<TMap, TDefaultComponent>
 
 /**
  * Creates a function that generates a `NodeInstance` for a generic React element.
@@ -74,7 +89,7 @@ export default function createMuiNode<TMap extends OverridableTypeMap, TDefaultC
  * @param element The React element to wrap.
  * @returns A function that takes props and returns a `NodeInstance` for the element.
  */
-export default function createMuiNode<TElement extends React.ElementType>(element: TElement): (props?: NodeProps<TElement>) => NodeInstance<TElement>
+export default function createMuiNode<TElement extends React.ElementType>(element: TElement): GenericNodeFactory<TElement>
 
 /**
  * Creates a function that generates a `NodeInstance` for any given element.

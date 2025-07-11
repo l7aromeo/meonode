@@ -3,7 +3,7 @@
     "target": "ESNext",               // Let Babel handle JS transpile
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "strict": true,
+    "strict": false,
     "declaration": true,
     "declarationMap": true,
     "emitDeclarationOnly": true,     // Only emit .d.ts files

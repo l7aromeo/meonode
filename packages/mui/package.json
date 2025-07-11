@@ -11,36 +11,36 @@
       "types": "./dist/main.d.ts"
     },
     "./lab": {
-      "import": "./dist/lib/mui.lab.js",
-      "types": "./dist/lib/mui.lab.d.ts"
+      "import": "./dist/lib/mui.lab/index.js",
+      "types": "./dist/lib/mui.lab/index.d.ts"
     },
     "./x-data-grid": {
-      "import": "./dist/lib/mui.x-data-grid.js",
-      "types": "./dist/lib/mui.x-data-grid.d.ts"
+      "import": "./dist/lib/mui.x-data-grid/index.js",
+      "types": "./dist/lib/mui.x-data-grid/index.d.ts"
     },
     "./x-data-grid-pro": {
-      "import": "./dist/lib/mui.x-data-grid-pro.js",
-      "types": "./dist/lib/mui.x-data-grid-pro.d.ts"
+      "import": "./dist/lib/mui.x-data-grid-pro/index.js",
+      "types": "./dist/lib/mui.x-data-grid-pro/index.d.ts"
     },
     "./x-data-grid-premium": {
-      "import": "./dist/lib/mui.x-data-grid-premium.js",
-      "types": "./dist/lib/mui.x-data-grid-premium.d.ts"
+      "import": "./dist/lib/mui.x-data-grid-premium/index.js",
+      "types": "./dist/lib/mui.x-data-grid-premium/index.d.ts"
     },
     "./x-date-pickers": {
-      "import": "./dist/lib/mui.x-date-pickers.js",
-      "types": "./dist/lib/mui.x-date-pickers.d.ts"
+      "import": "./dist/lib/mui.x-date-pickers/index.js",
+      "types": "./dist/lib/mui.x-date-pickers/index.d.ts"
     },
     "./x-tree-view": {
-      "import": "./dist/lib/mui.x-tree-view.js",
-      "types": "./dist/lib/mui.x-tree-view.d.ts"
+      "import": "./dist/lib/mui.x-tree-view/index.js",
+      "types": "./dist/lib/mui.x-tree-view/index.d.ts"
     },
     "./x-charts": {
-      "import": "./dist/lib/mui.x-charts.js",
-      "types": "./dist/lib/mui.x-charts.d.ts"
+      "import": "./dist/lib/mui.x-charts/index.js",
+      "types": "./dist/lib/mui.x-charts/index.d.ts"
     },
     "./x-charts-pro": {
-      "import": "./dist/lib/mui.x-charts-pro.js",
-      "types": "./dist/lib/mui.x-charts-pro.d.ts"
+      "import": "./dist/lib/mui.x-charts-pro/index.js",
+      "types": "./dist/lib/mui.x-charts-pro/index.d.ts"
     }
   },
   "files": [
@@ -51,11 +51,12 @@
     "README.md"
   ],
   "scripts": {
+    "generate:src": "node scripts/generate-wrapper-src.js",
     "watch:build": "yarn dlx concurrently \"yarn watch:core\" \"yarn watch:src\"",
     "watch:core": "yarn dlx nodemon --watch $MEONODE/core/dist --ext ts,js,json --exec \"yarn add -D @meonode/ui@file:$MEONODE/core\"",
     "watch:src": "yarn dlx nodemon --watch src --ext ts,js,json --exec \"yarn build\"",
     "lint": "eslint --fix",
-    "build": "rm -rf ./dist && babel src --out-dir dist --extensions \".ts,.js\" && tsc && tsc-alias",
+    "build": "rm -rf ./dist && yarn generate:src && babel src-gen --out-dir dist --extensions \".ts,.js\" && tsc && tsc-alias",
     "publish:pre": "./prepublish.sh && yarn version -i prerelease && yarn npm publish --tag next",
     "publish:patch": "./prepublish.sh && yarn version -i patch && yarn npm publish --tag latest",
     "publish:minor": "./prepublish.sh && yarn version -i minor && yarn npm publish --tag latest",
@@ -64,8 +65,10 @@
   "devDependencies": {
     "@babel/cli": "^7.28.0",
     "@babel/core": "^7.28.0",
+    "@babel/generator": "^7.28.0",
     "@babel/plugin-transform-json-modules": "^7.28.0",
     "@babel/preset-env": "^7.28.0",
+    "@babel/preset-react": "^7.27.1",
     "@babel/preset-typescript": "^7.27.1",
     "@eslint/js": "^9.30.1",
     "@meonode/ui": "^0.1.90",
@@ -80,6 +83,7 @@
     "@mui/x-data-grid-pro": "^8.7.0",
     "@mui/x-date-pickers": "^8.7.0",
     "@mui/x-tree-view": "^8.7.0",
+    "@types/babel__generator": "^7",
     "@types/react": "^19.1.8",
     "@typescript-eslint/eslint-plugin": "^8.36.0",
     "@typescript-eslint/parser": "^8.36.0",
@@ -89,6 +93,7 @@
     "eslint-plugin-jsdoc": "^50.8.0",
     "eslint-plugin-prettier": "^5.5.1",
     "eslint-plugin-unused-imports": "^4.1.4",
+    "globals": "^16.3.0",
     "prettier": "^3.6.2",
     "tsc-alias": "^1.8.16",
     "typescript": "^5.8.3",

@@ -1,7 +1,7 @@
 import React from 'react'
 import createMuiNode from '@src/core'
 import {
-  DataGridPremium as MuiDataGridPremium,
+  DataGridPro as MuiDataGridPro,
   GridApiContext as MuiGridApiContext,
   GridContextProvider as MuiGridContextProvider,
   GridPagination as MuiGridPagination,
@@ -82,52 +82,12 @@ import {
   GridSkeletonCellProps,
   GridActionsCellItemProps,
   GridColumnHeaderSeparatorProps,
-  GridRenderCellParams,
   GridRowCountProps,
-  GridSortDirection,
 } from '@mui/x-data-grid-pro'
-import { GridStateColDef, PinnedColumnPosition } from '@mui/x-data-grid/internals'
-import { SxProps, Theme } from '@mui/system'
-
-interface GridColumnHeaderItemProps {
-  colIndex: number
-  colDef: GridStateColDef
-  columnMenuOpen: boolean
-  headerHeight: number
-  isDragging: boolean
-  isResizing: boolean
-  isLast: boolean
-  sortDirection: GridSortDirection
-  sortIndex?: number
-  filterItemsCounter?: number
-  hasFocus?: boolean
-  tabIndex: 0 | -1
-  disableReorder?: boolean
-  separatorSide?: GridColumnHeaderSeparatorProps['side']
-  pinnedPosition?: PinnedColumnPosition
-  pinnedOffset?: number
-  style?: React.CSSProperties
-  isLastUnpinned: boolean
-  isSiblingFocused: boolean
-  showLeftBorder: boolean
-  showRightBorder: boolean
-}
-
-interface GridBooleanCellProps extends GridRenderCellParams {
-  hideDescendantCount?: boolean
-}
-
-interface SelectedRowCountProps {
-  selectedRowCount: number
-}
-
-type GridSelectedRowCountProps = React.HTMLAttributes<HTMLDivElement> &
-  SelectedRowCountProps & {
-    sx?: SxProps<Theme>
-  }
+import { GridBooleanCellProps, GridColumnHeaderItemProps, GridSelectedRowCountProps } from '@src/lib/mui.x-data-grid-pro.type'
 
 /**
- * Export Material-UI X Data Grid Premium component factories with enhanced type-safety and prop validation.
+ * Export Material-UI X Data Grid Pro component factories with enhanced type-safety and prop validation.
  * Each export is a factory function that wraps the original MUI component, providing:
  * - Full TypeScript type checking for component props
  * - Direct CSS property support without requiring sx prop
@@ -135,7 +95,7 @@ type GridSelectedRowCountProps = React.HTMLAttributes<HTMLDivElement> &
  * - Proper component validation and error handling
  */
 
-export const DataGridPremium = createMuiNode<React.ComponentType<DataGridProProps>>(MuiDataGridPremium)
+export const DataGridPro = createMuiNode<React.ComponentType<DataGridProProps>>(MuiDataGridPro)
 export const GridApiContext = createMuiNode(MuiGridApiContext)
 export const GridContextProvider = createMuiNode(MuiGridContextProvider)
 export const GridPagination = createMuiNode(MuiGridPagination)

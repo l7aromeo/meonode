@@ -87,49 +87,9 @@ import {
   GridSkeletonCellProps,
   GridActionsCellItemProps,
   GridColumnHeaderSeparatorProps,
-  GridRenderCellParams,
   GridRowCountProps,
-  GridSortDirection,
 } from '@mui/x-data-grid-premium'
-import { GridStateColDef, PinnedColumnPosition } from '@mui/x-data-grid/internals'
-import { SxProps, Theme } from '@mui/system'
-
-interface GridColumnHeaderItemProps {
-  colIndex: number
-  colDef: GridStateColDef
-  columnMenuOpen: boolean
-  headerHeight: number
-  isDragging: boolean
-  isResizing: boolean
-  isLast: boolean
-  sortDirection: GridSortDirection
-  sortIndex?: number
-  filterItemsCounter?: number
-  hasFocus?: boolean
-  tabIndex: 0 | -1
-  disableReorder?: boolean
-  separatorSide?: GridColumnHeaderSeparatorProps['side']
-  pinnedPosition?: PinnedColumnPosition
-  pinnedOffset?: number
-  style?: React.CSSProperties
-  isLastUnpinned: boolean
-  isSiblingFocused: boolean
-  showLeftBorder: boolean
-  showRightBorder: boolean
-}
-
-interface GridBooleanCellProps extends GridRenderCellParams {
-  hideDescendantCount?: boolean
-}
-
-interface SelectedRowCountProps {
-  selectedRowCount: number
-}
-
-type GridSelectedRowCountProps = React.HTMLAttributes<HTMLDivElement> &
-  SelectedRowCountProps & {
-    sx?: SxProps<Theme>
-  }
+import { GridBooleanCellProps, GridColumnHeaderItemProps, GridSelectedRowCountProps } from '@src/lib/mui.x-data-grid-premium.type'
 
 /**
  * Export Material-UI X Data Grid Premium component factories with enhanced type-safety and prop validation.

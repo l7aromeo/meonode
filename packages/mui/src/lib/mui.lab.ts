@@ -11,7 +11,9 @@ import {
   TabContext as MuiTabContext,
   TabList as MuiTabList,
   TabPanel as MuiTabPanel,
+  TabListProps,
 } from '@mui/lab'
+import React from 'react'
 
 /**
  * Export Material-UI Lab component factories with enhanced type-safety and prop validation.
@@ -30,5 +32,5 @@ export const TimelineOppositeContent = createMuiNode(MuiTimelineOppositeContent)
 export const TimelineSeparator = createMuiNode(MuiTimelineSeparator)
 export const Masonry = createMuiNode(MuiMasonry)
 export const TabContext = createMuiNode(MuiTabContext)
-export const TabList = createMuiNode<typeof MuiTabList>(MuiTabList)
+export const TabList = createMuiNode<React.ComponentType<TabListProps>>(MuiTabList)
 export const TabPanel = createMuiNode(MuiTabPanel)
