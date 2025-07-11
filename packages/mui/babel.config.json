@@ -4,10 +4,7 @@
       "@babel/preset-env",
       {
         "modules": false,
-        "exclude": [
-          "@babel/plugin-transform-classes",
-          "@babel/plugin-transform-spread"
-        ],
+        "exclude": ["@babel/plugin-transform-classes", "@babel/plugin-transform-spread"],
         "bugfixes": true
       }
     ],
@@ -20,28 +17,8 @@
       }
     ]
   ],
-  "plugins": [
-    [
-      "module-resolver",
-      {
-        "root": [
-          "./"
-        ],
-        "alias": {
-          "@src": "./src"
-        },
-        "extensions": [
-          ".js",
-          ".ts",
-          ".json"
-        ]
-      }
-    ]
-  ],
   "generatorOpts": {
     "importAttributesKeyword": "with"
   },
-  "exclude": [
-    "**/node_modules/**"
-  ]
+  "exclude": ["**/node_modules/**"]
 }
