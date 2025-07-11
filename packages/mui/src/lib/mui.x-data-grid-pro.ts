@@ -78,6 +78,12 @@ import {
   GridDeleteIcon as MuiGridDeleteIcon,
   GridDeleteForeverIcon as MuiGridDeleteForeverIcon,
   GridDownloadIcon as MuiGridDownloadIcon,
+  Toolbar as MuiToolbar,
+  ToolbarButton as MuiToolbarButton,
+  QuickFilter as MuiQuickFilter,
+  QuickFilterClear as MuiQuickFilterClear,
+  QuickFilterControl as MuiQuickFilterControl,
+  QuickFilterTrigger as MuiQuickFilterTrigger,
   DataGridProProps,
   GridSkeletonCellProps,
   GridActionsCellItemProps,
@@ -182,3 +188,11 @@ export const GridClearIcon = createMuiNode(MuiGridClearIcon)
 export const GridDeleteIcon = createMuiNode(MuiGridDeleteIcon)
 export const GridDeleteForeverIcon = createMuiNode(MuiGridDeleteForeverIcon)
 export const GridDownloadIcon = createMuiNode(MuiGridDownloadIcon)
+
+export const Toolbar = createMuiNode(MuiToolbar)
+export const ToolbarButton = createMuiNode(MuiToolbarButton)
+
+export const QuickFilter = createMuiNode(MuiQuickFilter)
+export const QuickFilterClear = createMuiNode(MuiQuickFilterClear)
+export const QuickFilterControl = createMuiNode(MuiQuickFilterControl)
+export const QuickFilterTrigger = createMuiNode(MuiQuickFilterTrigger)

@@ -49,6 +49,7 @@ import {
   ScatterChartPro as MuiScatterChartPro,
   ScatterMarker as MuiScatterMarker,
   ScatterPlot as MuiScatterPlot,
+  SparkLineChart as MuiSparkLineChart,
   Heatmap as MuiHeatmap,
   HeatmapTooltip as MuiHeatmapTooltip,
   HeatmapTooltipContent as MuiHeatmapTooltipContent,
@@ -130,6 +131,8 @@ export const ScatterChart = createMuiNode(MuiScatterChart)
 export const ScatterChartPro = createMuiNode(MuiScatterChartPro)
 export const ScatterMarker = createMuiNode(MuiScatterMarker)
 export const ScatterPlot = createMuiNode(MuiScatterPlot)
+
+export const SparkLineChart = createMuiNode(MuiSparkLineChart)
 
 export const Heatmap = createMuiNode(MuiHeatmap)
 export const HeatmapTooltip = createMuiNode(MuiHeatmapTooltip)

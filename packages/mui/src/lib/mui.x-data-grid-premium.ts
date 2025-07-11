@@ -83,6 +83,17 @@ import {
   GridDeleteIcon as MuiGridDeleteIcon,
   GridDeleteForeverIcon as MuiGridDeleteForeverIcon,
   GridDownloadIcon as MuiGridDownloadIcon,
+  Toolbar as MuiToolbar,
+  ToolbarButton as MuiToolbarButton,
+  AiAssistantPanelTrigger as MuiAiAssistantPanelTrigger,
+  PromptField as MuiPromptField,
+  PromptFieldControl as MuiPromptFieldControl,
+  PromptFieldSend as MuiPromptFieldSend,
+  PromptFieldRecord as MuiPromptFieldRecord,
+  QuickFilter as MuiQuickFilter,
+  QuickFilterClear as MuiQuickFilterClear,
+  QuickFilterControl as MuiQuickFilterControl,
+  QuickFilterTrigger as MuiQuickFilterTrigger,
   DataGridPremiumProps,
   GridSkeletonCellProps,
   GridActionsCellItemProps,
@@ -193,3 +204,18 @@ export const GridClearIcon = createMuiNode(MuiGridClearIcon)
 export const GridDeleteIcon = createMuiNode(MuiGridDeleteIcon)
 export const GridDeleteForeverIcon = createMuiNode(MuiGridDeleteForeverIcon)
 export const GridDownloadIcon = createMuiNode(MuiGridDownloadIcon)
+
+export const Toolbar = createMuiNode(MuiToolbar)
+export const ToolbarButton = createMuiNode(MuiToolbarButton)
+
+export const AiAssistantPanelTrigger = createMuiNode(MuiAiAssistantPanelTrigger)
+
+export const PromptField = createMuiNode(MuiPromptField)
+export const PromptFieldControl = createMuiNode(MuiPromptFieldControl)
+export const PromptFieldRecord = createMuiNode(MuiPromptFieldRecord)
+export const PromptFieldSend = createMuiNode(MuiPromptFieldSend)
+
+export const QuickFilter = createMuiNode(MuiQuickFilter)
+export const QuickFilterClear = createMuiNode(MuiQuickFilterClear)
+export const QuickFilterControl = createMuiNode(MuiQuickFilterControl)
+export const QuickFilterTrigger = createMuiNode(MuiQuickFilterTrigger)

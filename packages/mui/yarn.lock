@@ -998,55 +998,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@babel/plugin-transform-react-display-name@npm:^7.27.1":
-  version: 7.28.0
-  resolution: "@babel/plugin-transform-react-display-name@npm:7.28.0"
-  dependencies:
-    "@babel/helper-plugin-utils": "npm:^7.27.1"
-  peerDependencies:
-    "@babel/core": ^7.0.0-0
-  checksum: 10c0/f5f86d2ad92be3e962158f344c2e385e23e2dfae7c8c7dc32138fb2cc46f63f5e50386c9f6c6fc16dbf1792c7bb650ad92c18203d0c2c0bd875bc28b0b80ef30
-  languageName: node
-  linkType: hard
-
-"@babel/plugin-transform-react-jsx-development@npm:^7.27.1":
-  version: 7.27.1
-  resolution: "@babel/plugin-transform-react-jsx-development@npm:7.27.1"
-  dependencies:
-    "@babel/plugin-transform-react-jsx": "npm:^7.27.1"
-  peerDependencies:
-    "@babel/core": ^7.0.0-0
-  checksum: 10c0/eb8c4b6a79dc5c49b41e928e2037e1ee0bbfa722e4fd74c0b7c0d11103c82c2c25c434000e1b051d534c7261ab5c92b6d1e85313bf1b26e37db3f051ae217b58
-  languageName: node
-  linkType: hard
-
-"@babel/plugin-transform-react-jsx@npm:^7.27.1":
-  version: 7.27.1
-  resolution: "@babel/plugin-transform-react-jsx@npm:7.27.1"
-  dependencies:
-    "@babel/helper-annotate-as-pure": "npm:^7.27.1"
-    "@babel/helper-module-imports": "npm:^7.27.1"
-    "@babel/helper-plugin-utils": "npm:^7.27.1"
-    "@babel/plugin-syntax-jsx": "npm:^7.27.1"
-    "@babel/types": "npm:^7.27.1"
-  peerDependencies:
-    "@babel/core": ^7.0.0-0
-  checksum: 10c0/1a08637c39fc78c9760dd4a3ed363fdbc762994bf83ed7872ad5bda0232fcd0fc557332f2ce36b522c0226dfd9cc8faac6b88eddda535f24825198a689e571af
-  languageName: node
-  linkType: hard
-
-"@babel/plugin-transform-react-pure-annotations@npm:^7.27.1":
-  version: 7.27.1
-  resolution: "@babel/plugin-transform-react-pure-annotations@npm:7.27.1"
-  dependencies:
-    "@babel/helper-annotate-as-pure": "npm:^7.27.1"
-    "@babel/helper-plugin-utils": "npm:^7.27.1"
-  peerDependencies:
-    "@babel/core": ^7.0.0-0
-  checksum: 10c0/34bc090f4a7e460d82a851971b4d0f32e4bb519bafb927154f4174506283fe02b0f471fc20655c6050a8bf7b748bfa31c7e8f7d688849476d8266623554fbb28
-  languageName: node
-  linkType: hard
-
 "@babel/plugin-transform-regenerator@npm:^7.28.0":
   version: 7.28.0
   resolution: "@babel/plugin-transform-regenerator@npm:7.28.0"
@@ -1292,22 +1243,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@babel/preset-react@npm:^7.27.1":
-  version: 7.27.1
-  resolution: "@babel/preset-react@npm:7.27.1"
-  dependencies:
-    "@babel/helper-plugin-utils": "npm:^7.27.1"
-    "@babel/helper-validator-option": "npm:^7.27.1"
-    "@babel/plugin-transform-react-display-name": "npm:^7.27.1"
-    "@babel/plugin-transform-react-jsx": "npm:^7.27.1"
-    "@babel/plugin-transform-react-jsx-development": "npm:^7.27.1"
-    "@babel/plugin-transform-react-pure-annotations": "npm:^7.27.1"
-  peerDependencies:
-    "@babel/core": ^7.0.0-0
-  checksum: 10c0/a80b02ef08b026cb9830d6512d08c7cd378eef4c0631dacba4aa1106240d9bb76af6373463f0255f4bbdbfcce40375a61e92735375906ba5871629b0c314bc45
-  languageName: node
-  linkType: hard
-
 "@babel/preset-typescript@npm:^7.27.1":
   version: 7.27.1
   resolution: "@babel/preset-typescript@npm:7.27.1"
@@ -1491,16 +1426,16 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@es-joy/jsdoccomment@npm:~0.50.2":
-  version: 0.50.2
-  resolution: "@es-joy/jsdoccomment@npm:0.50.2"
+"@es-joy/jsdoccomment@npm:~0.52.0":
+  version: 0.52.0
+  resolution: "@es-joy/jsdoccomment@npm:0.52.0"
   dependencies:
-    "@types/estree": "npm:^1.0.6"
-    "@typescript-eslint/types": "npm:^8.11.0"
+    "@types/estree": "npm:^1.0.8"
+    "@typescript-eslint/types": "npm:^8.34.1"
     comment-parser: "npm:1.4.1"
     esquery: "npm:^1.6.0"
     jsdoc-type-pratt-parser: "npm:~4.1.0"
-  checksum: 10c0/a5fa480066e38678e8a2cd8656fc5529f1f7ba6deef08f698e55a1b1582968e9b2d3126d9349684811bb1391370292937bc4390fb8dee1a2f36393ded8f95dab
+  checksum: 10c0/4def78060ef58859f31757b9d30c4939fc33e7d9ee85637a7f568c1d209c33aa0abd2cf5a3a4f3662ec5b12b85ecff2f2035d809dc93b9382a31a6dfb200d83c
   languageName: node
   linkType: hard
 
@@ -1767,7 +1702,6 @@ __metadata:
     "@babel/generator": "npm:^7.28.0"
     "@babel/plugin-transform-json-modules": "npm:^7.28.0"
     "@babel/preset-env": "npm:^7.28.0"
-    "@babel/preset-react": "npm:^7.27.1"
     "@babel/preset-typescript": "npm:^7.27.1"
     "@eslint/js": "npm:^9.30.1"
     "@meonode/ui": "npm:^0.1.90"
@@ -1775,21 +1709,22 @@ __metadata:
     "@mui/material": "npm:^7.2.0"
     "@mui/system": "npm:^7.2.0"
     "@mui/types": "npm:^7.4.4"
-    "@mui/x-charts": "npm:^8.7.0"
-    "@mui/x-charts-pro": "npm:^8.7.0"
-    "@mui/x-data-grid": "npm:^8.7.0"
-    "@mui/x-data-grid-premium": "npm:^8.7.0"
-    "@mui/x-data-grid-pro": "npm:^8.7.0"
-    "@mui/x-date-pickers": "npm:^8.7.0"
-    "@mui/x-tree-view": "npm:^8.7.0"
-    "@types/babel__generator": "npm:^7"
+    "@mui/x-charts": "npm:^8.8.0"
+    "@mui/x-charts-pro": "npm:^8.8.0"
+    "@mui/x-data-grid": "npm:^8.8.0"
+    "@mui/x-data-grid-premium": "npm:^8.8.0"
+    "@mui/x-data-grid-pro": "npm:^8.8.0"
+    "@mui/x-date-pickers": "npm:^8.8.0"
+    "@mui/x-tree-view": "npm:^8.8.0"
+    "@mui/x-tree-view-pro": "npm:^8.8.0"
+    "@types/babel__generator": "npm:^7.27.0"
     "@types/react": "npm:^19.1.8"
     "@typescript-eslint/eslint-plugin": "npm:^8.36.0"
     "@typescript-eslint/parser": "npm:^8.36.0"
     babel-plugin-module-resolver: "npm:^5.0.2"
     babel-preset-minify: "npm:^0.5.2"
     eslint: "npm:^9.30.1"
-    eslint-plugin-jsdoc: "npm:^50.8.0"
+    eslint-plugin-jsdoc: "npm:^51.3.4"
     eslint-plugin-prettier: "npm:^5.5.1"
     eslint-plugin-unused-imports: "npm:^4.1.4"
     globals: "npm:^16.3.0"
@@ -1803,13 +1738,13 @@ __metadata:
     "@mui/material": ^7.2.0
     "@mui/system": ^7.2.0
     "@mui/types": ^7.4.4
-    "@mui/x-charts": ^8.7.0
-    "@mui/x-charts-pro": ^8.7.0
-    "@mui/x-data-grid": ^8.7.0
-    "@mui/x-data-grid-premium": ^8.7.0
-    "@mui/x-data-grid-pro": ^8.7.0
-    "@mui/x-date-pickers": ^8.7.0
-    "@mui/x-tree-view": ^8.7.0
+    "@mui/x-charts": ^8.8.0
+    "@mui/x-charts-pro": ^8.8.0
+    "@mui/x-data-grid": ^8.8.0
+    "@mui/x-data-grid-premium": ^8.8.0
+    "@mui/x-data-grid-pro": ^8.8.0
+    "@mui/x-date-pickers": ^8.8.0
+    "@mui/x-tree-view": ^8.8.0
     react: "*"
   languageName: unknown
   linkType: soft
@@ -2102,17 +2037,17 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@mui/x-charts-pro@npm:^8.7.0":
-  version: 8.7.0
-  resolution: "@mui/x-charts-pro@npm:8.7.0"
+"@mui/x-charts-pro@npm:^8.8.0":
+  version: 8.8.0
+  resolution: "@mui/x-charts-pro@npm:8.8.0"
   dependencies:
     "@babel/runtime": "npm:^7.27.6"
-    "@mui/utils": "npm:^7.1.1"
-    "@mui/x-charts": "npm:8.7.0"
+    "@mui/utils": "npm:^7.2.0"
+    "@mui/x-charts": "npm:8.8.0"
     "@mui/x-charts-vendor": "npm:8.5.3"
-    "@mui/x-internal-gestures": "npm:0.2.0"
-    "@mui/x-internals": "npm:8.7.0"
-    "@mui/x-license": "npm:8.7.0"
+    "@mui/x-internal-gestures": "npm:0.2.1"
+    "@mui/x-internals": "npm:8.8.0"
+    "@mui/x-license": "npm:8.8.0"
     clsx: "npm:^2.1.1"
     prop-types: "npm:^15.8.1"
     rasterizehtml: "npm:^1.3.1"
@@ -2131,7 +2066,7 @@ __metadata:
       optional: true
     "@emotion/styled":
       optional: true
-  checksum: 10c0/370ceeaca31e18e3f9788c4b7286ceac0e51850daf3646129d950cb20acba40d13db6b224489f41c81089771c6b49267f8a8f030b58dd98869d40a80d9431443
+  checksum: 10c0/14da8a19e8d634932d004da6adc3c0ee7c94aa48956fdfefceb088c59642efffe3169e9b751245c58520cd8c13903bcc4475df8c3e9850dd0ca078a97872a333
   languageName: node
   linkType: hard
 
@@ -2160,15 +2095,15 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@mui/x-charts@npm:8.7.0, @mui/x-charts@npm:^8.7.0":
-  version: 8.7.0
-  resolution: "@mui/x-charts@npm:8.7.0"
+"@mui/x-charts@npm:8.8.0, @mui/x-charts@npm:^8.8.0":
+  version: 8.8.0
+  resolution: "@mui/x-charts@npm:8.8.0"
   dependencies:
     "@babel/runtime": "npm:^7.27.6"
-    "@mui/utils": "npm:^7.1.1"
+    "@mui/utils": "npm:^7.2.0"
     "@mui/x-charts-vendor": "npm:8.5.3"
-    "@mui/x-internal-gestures": "npm:0.2.0"
-    "@mui/x-internals": "npm:8.7.0"
+    "@mui/x-internal-gestures": "npm:0.2.1"
+    "@mui/x-internals": "npm:8.8.0"
     bezier-easing: "npm:^2.1.0"
     clsx: "npm:^2.1.1"
     prop-types: "npm:^15.8.1"
@@ -2186,20 +2121,20 @@ __metadata:
       optional: true
     "@emotion/styled":
       optional: true
-  checksum: 10c0/dbcbe3bed658bbcbef47b630eb1c96f6f81f282edbae1a5c5aa6135dbd2775819ce76ee45e7f0766fa20c70dad3449bbc271a4d440efbd6ab6cc6682aa56991d
+  checksum: 10c0/c6590c56e91a04c1d06eea72aa692af4164a90241bf59a1f5eb4fe6c5b60309b82a2e1b9a13b01e1cb12ea3592fb8f4b460d18f14cdadc731cb553e320ffa637
   languageName: node
   linkType: hard
 
-"@mui/x-data-grid-premium@npm:^8.7.0":
-  version: 8.7.0
-  resolution: "@mui/x-data-grid-premium@npm:8.7.0"
+"@mui/x-data-grid-premium@npm:^8.8.0":
+  version: 8.8.0
+  resolution: "@mui/x-data-grid-premium@npm:8.8.0"
   dependencies:
     "@babel/runtime": "npm:^7.27.6"
-    "@mui/utils": "npm:^7.1.1"
-    "@mui/x-data-grid": "npm:8.7.0"
-    "@mui/x-data-grid-pro": "npm:8.7.0"
-    "@mui/x-internals": "npm:8.7.0"
-    "@mui/x-license": "npm:8.7.0"
+    "@mui/utils": "npm:^7.2.0"
+    "@mui/x-data-grid": "npm:8.8.0"
+    "@mui/x-data-grid-pro": "npm:8.8.0"
+    "@mui/x-internals": "npm:8.8.0"
+    "@mui/x-license": "npm:8.8.0"
     "@types/format-util": "npm:^1.0.4"
     clsx: "npm:^2.1.1"
     exceljs: "npm:^4.4.0"
@@ -2216,19 +2151,19 @@ __metadata:
       optional: true
     "@emotion/styled":
       optional: true
-  checksum: 10c0/d07e8d134637c25884bb6b5a3b6d3f163f26d97de7210c6858c1ef0c561d4c3c072c312e8de6fc5a29db1ebd5af2e2ace2e4fa2b90cc0a8da01fbcda8f556bec
+  checksum: 10c0/8ffb07fbb39adf32b3d452df7fc3a6b4ad4ca09ff0e7eab8e70bd6a320e5189c1c11eb2bb9ac4d4df0bc811fae00aa24cb84ee98d6c2031926dd310882920fe8
   languageName: node
   linkType: hard
 
-"@mui/x-data-grid-pro@npm:8.7.0, @mui/x-data-grid-pro@npm:^8.7.0":
-  version: 8.7.0
-  resolution: "@mui/x-data-grid-pro@npm:8.7.0"
+"@mui/x-data-grid-pro@npm:8.8.0, @mui/x-data-grid-pro@npm:^8.8.0":
+  version: 8.8.0
+  resolution: "@mui/x-data-grid-pro@npm:8.8.0"
   dependencies:
     "@babel/runtime": "npm:^7.27.6"
-    "@mui/utils": "npm:^7.1.1"
-    "@mui/x-data-grid": "npm:8.7.0"
-    "@mui/x-internals": "npm:8.7.0"
-    "@mui/x-license": "npm:8.7.0"
+    "@mui/utils": "npm:^7.2.0"
+    "@mui/x-data-grid": "npm:8.8.0"
+    "@mui/x-internals": "npm:8.8.0"
+    "@mui/x-license": "npm:8.8.0"
     "@types/format-util": "npm:^1.0.4"
     clsx: "npm:^2.1.1"
     prop-types: "npm:^15.8.1"
@@ -2244,17 +2179,17 @@ __metadata:
       optional: true
     "@emotion/styled":
       optional: true
-  checksum: 10c0/3ae5ee4b5c570ec12460e5a19b6cc2f3cd96675be53141ee3e0aa51205b6d74d09665653f78d9edc35391afaaf121be7bf2251798680d984fb54e6bb4f58a610
+  checksum: 10c0/b00bb1a62f9475e857387371bafbee7d49fe874dd5bdb96fabec15e1517382d8a23d55fbf034987a194c6de550a21484ddcbfc9d1faf07b71193846014afd038
   languageName: node
   linkType: hard
 
-"@mui/x-data-grid@npm:8.7.0, @mui/x-data-grid@npm:^8.7.0":
-  version: 8.7.0
-  resolution: "@mui/x-data-grid@npm:8.7.0"
+"@mui/x-data-grid@npm:8.8.0, @mui/x-data-grid@npm:^8.8.0":
+  version: 8.8.0
+  resolution: "@mui/x-data-grid@npm:8.8.0"
   dependencies:
     "@babel/runtime": "npm:^7.27.6"
-    "@mui/utils": "npm:^7.1.1"
-    "@mui/x-internals": "npm:8.7.0"
+    "@mui/utils": "npm:^7.2.0"
+    "@mui/x-internals": "npm:8.8.0"
     clsx: "npm:^2.1.1"
     prop-types: "npm:^15.8.1"
     use-sync-external-store: "npm:^1.5.0"
@@ -2270,17 +2205,17 @@ __metadata:
       optional: true
     "@emotion/styled":
       optional: true
-  checksum: 10c0/cb77a88b336a4809dcec2e1f0252700eb8467913eb19adea32b6c65c0a0f3ac68311d82f4f83f8ef6269d2e90ddd83518c378cfcb8f1a45dfc7d59fd2a749fe9
+  checksum: 10c0/8d625f7a4c78da866ed7c03ed226f633f54504389284986feb33e154d7bd2d1bd5331e7580953eeaf1997ec9b4947518bcd8b6c7b14aa3253b7e6bb8555bd9d8
   languageName: node
   linkType: hard
 
-"@mui/x-date-pickers@npm:^8.7.0":
-  version: 8.7.0
-  resolution: "@mui/x-date-pickers@npm:8.7.0"
+"@mui/x-date-pickers@npm:^8.8.0":
+  version: 8.8.0
+  resolution: "@mui/x-date-pickers@npm:8.8.0"
   dependencies:
     "@babel/runtime": "npm:^7.27.6"
-    "@mui/utils": "npm:^7.1.1"
-    "@mui/x-internals": "npm:8.7.0"
+    "@mui/utils": "npm:^7.2.0"
+    "@mui/x-internals": "npm:8.8.0"
     "@types/react-transition-group": "npm:^4.4.12"
     clsx: "npm:^2.1.1"
     prop-types: "npm:^15.8.1"
@@ -2318,44 +2253,44 @@ __metadata:
       optional: true
     moment-jalaali:
       optional: true
-  checksum: 10c0/964b2ab033b50925536319e67512055ae496631595de3cf488b37cc1d44c7f962645eae7942589c4817d8e82fa35fd819cae62108b4902cb916e8315774ce966
+  checksum: 10c0/5b3e27c30b07baabbbd7f93074b699d64507547fcc3bccd61e4a209ecb8fe64b0c9619514205fabc56dab96935b297b808a9a129eb62289b3f2b11b2955e43f8
   languageName: node
   linkType: hard
 
-"@mui/x-internal-gestures@npm:0.2.0":
-  version: 0.2.0
-  resolution: "@mui/x-internal-gestures@npm:0.2.0"
+"@mui/x-internal-gestures@npm:0.2.1":
+  version: 0.2.1
+  resolution: "@mui/x-internal-gestures@npm:0.2.1"
   dependencies:
     "@babel/runtime": "npm:^7.27.6"
-  checksum: 10c0/8d6dc80a71df30de4b920d95e36c3a6e4dc58a5e8be155b7ed477c55c1bf764f4d568cf43b984de0363ed7cfef360e1d6c2cdae5ed7e8d415092befe20b86333
+  checksum: 10c0/ba78af50ebc5a1d50d54ed85df33591823316d4326a8b27f99508339b09f53a89d63919d20f72f1161bbc5c337b8a8b507f74a0c33b83b969caaf53f7590a028
   languageName: node
   linkType: hard
 
-"@mui/x-internals@npm:8.7.0":
-  version: 8.7.0
-  resolution: "@mui/x-internals@npm:8.7.0"
+"@mui/x-internals@npm:8.8.0":
+  version: 8.8.0
+  resolution: "@mui/x-internals@npm:8.8.0"
   dependencies:
     "@babel/runtime": "npm:^7.27.6"
-    "@mui/utils": "npm:^7.1.1"
+    "@mui/utils": "npm:^7.2.0"
     reselect: "npm:^5.1.1"
   peerDependencies:
     "@mui/system": ^5.15.14 || ^6.0.0 || ^7.0.0
     react: ^17.0.0 || ^18.0.0 || ^19.0.0
-  checksum: 10c0/c3fab5603a046db85f739195576de4581cf9afed7c6b299322b6745ad9336534afb1e62e8fa9fc5a37e1e9eee942b51c7bccf2ccecf591efa27650a513071eed
+  checksum: 10c0/8f83c2b90c42a92ec2e3a0e52f8fa9f1d8c66b1b863bcda36b97ca5e8394a6420dbb0fce1a7f795d34f49165d58659111d3165301c226f032f5ee27a1992dfbe
   languageName: node
   linkType: hard
 
-"@mui/x-license@npm:8.7.0":
-  version: 8.7.0
-  resolution: "@mui/x-license@npm:8.7.0"
+"@mui/x-license@npm:8.8.0":
+  version: 8.8.0
+  resolution: "@mui/x-license@npm:8.8.0"
   dependencies:
     "@babel/runtime": "npm:^7.27.6"
-    "@mui/utils": "npm:^7.1.1"
-    "@mui/x-internals": "npm:8.7.0"
+    "@mui/utils": "npm:^7.2.0"
+    "@mui/x-internals": "npm:8.8.0"
     "@mui/x-telemetry": "npm:8.5.3"
   peerDependencies:
     react: ^17.0.0 || ^18.0.0 || ^19.0.0
-  checksum: 10c0/4b3975d07fae978fe435fdaff37edbce47d67ccd9a26fcff16b76e33ba62ab3bb0c01145a7024687999da60334336ac5f83cc405853bd0bc9e30ad7d05e6eeba
+  checksum: 10c0/a53223e58b20c05796a7943a45d05504f2128d10b79d799b46c12b801b5a639393352111bc0aac2350dc2ca0cb64006147ae93e85c8f0851c23e13d3e3c1e56b
   languageName: node
   linkType: hard
 
@@ -2373,13 +2308,15 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@mui/x-tree-view@npm:^8.7.0":
-  version: 8.7.0
-  resolution: "@mui/x-tree-view@npm:8.7.0"
+"@mui/x-tree-view-pro@npm:^8.8.0":
+  version: 8.8.0
+  resolution: "@mui/x-tree-view-pro@npm:8.8.0"
   dependencies:
     "@babel/runtime": "npm:^7.27.6"
-    "@mui/utils": "npm:^7.1.1"
-    "@mui/x-internals": "npm:8.7.0"
+    "@mui/utils": "npm:^7.2.0"
+    "@mui/x-internals": "npm:8.8.0"
+    "@mui/x-license": "npm:8.8.0"
+    "@mui/x-tree-view": "npm:8.8.0"
     "@types/react-transition-group": "npm:^4.4.12"
     clsx: "npm:^2.1.1"
     prop-types: "npm:^15.8.1"
@@ -2398,7 +2335,36 @@ __metadata:
       optional: true
     "@emotion/styled":
       optional: true
-  checksum: 10c0/5e4a64606aa22d4996030de976c6e27f4912209582426cd237c3d493dd735eaa232175b19de2ce803b08edaa5c46926674e2db71899749bc0d0b1d29509cd870
+  checksum: 10c0/c9e9480a98b91c73778b84d20648458174b4138e445598c9c43928959c7b3a585a8168d6e5e05f1d3e02d49858f33f4698c38faf92b0b7a86d985b8ed15518d3
+  languageName: node
+  linkType: hard
+
+"@mui/x-tree-view@npm:8.8.0, @mui/x-tree-view@npm:^8.8.0":
+  version: 8.8.0
+  resolution: "@mui/x-tree-view@npm:8.8.0"
+  dependencies:
+    "@babel/runtime": "npm:^7.27.6"
+    "@mui/utils": "npm:^7.2.0"
+    "@mui/x-internals": "npm:8.8.0"
+    "@types/react-transition-group": "npm:^4.4.12"
+    clsx: "npm:^2.1.1"
+    prop-types: "npm:^15.8.1"
+    react-transition-group: "npm:^4.4.5"
+    reselect: "npm:^5.1.1"
+    use-sync-external-store: "npm:^1.5.0"
+  peerDependencies:
+    "@emotion/react": ^11.9.0
+    "@emotion/styled": ^11.8.1
+    "@mui/material": ^5.15.14 || ^6.0.0 || ^7.0.0
+    "@mui/system": ^5.15.14 || ^6.0.0 || ^7.0.0
+    react: ^17.0.0 || ^18.0.0 || ^19.0.0
+    react-dom: ^17.0.0 || ^18.0.0 || ^19.0.0
+  peerDependenciesMeta:
+    "@emotion/react":
+      optional: true
+    "@emotion/styled":
+      optional: true
+  checksum: 10c0/54cd280bafb9d05d5d99a28134c5d0c44e76782a2b20fca520366f13ef610eab1777d2fe27336d87eb2b19894f3b37d43a666265d88ca534a42d070c92672f28
   languageName: node
   linkType: hard
 
@@ -2479,7 +2445,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@types/babel__generator@npm:^7":
+"@types/babel__generator@npm:^7.27.0":
   version: 7.27.0
   resolution: "@types/babel__generator@npm:7.27.0"
   dependencies:
@@ -2554,6 +2520,13 @@ __metadata:
   version: 1.0.7
   resolution: "@types/estree@npm:1.0.7"
   checksum: 10c0/be815254316882f7c40847336cd484c3bc1c3e34f710d197160d455dc9d6d050ffbf4c3bc76585dba86f737f020ab20bdb137ebe0e9116b0c86c7c0342221b8c
+  languageName: node
+  linkType: hard
+
+"@types/estree@npm:^1.0.8":
+  version: 1.0.8
+  resolution: "@types/estree@npm:1.0.8"
+  checksum: 10c0/39d34d1afaa338ab9763f37ad6066e3f349444f9052b9676a7cc0252ef9485a41c6d81c9c4e0d26e9077993354edf25efc853f3224dd4b447175ef62bdcc86a5
   languageName: node
   linkType: hard
 
@@ -2694,17 +2667,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@typescript-eslint/types@npm:8.36.0, @typescript-eslint/types@npm:^8.36.0":
+"@typescript-eslint/types@npm:8.36.0, @typescript-eslint/types@npm:^8.34.1, @typescript-eslint/types@npm:^8.36.0":
   version: 8.36.0
   resolution: "@typescript-eslint/types@npm:8.36.0"
   checksum: 10c0/cacb941a0caad6ab556c416051b97ec33b364b7c8e0703e2729ae43f12daf02b42eef12011705329107752e3f1685ca82cfffe181d637f85907293cb634bee31
-  languageName: node
-  linkType: hard
-
-"@typescript-eslint/types@npm:^8.11.0":
-  version: 8.32.1
-  resolution: "@typescript-eslint/types@npm:8.32.1"
-  checksum: 10c0/86f59b29c12e7e8abe45a1659b6fae5e7b0cfaf09ab86dd596ed9d468aa61082bbccd509d25f769b197fbfdf872bbef0b323a2ded6ceaca351f7c679f1ba3bd3
   languageName: node
   linkType: hard
 
@@ -3976,23 +3942,23 @@ __metadata:
   languageName: node
   linkType: hard
 
-"eslint-plugin-jsdoc@npm:^50.8.0":
-  version: 50.8.0
-  resolution: "eslint-plugin-jsdoc@npm:50.8.0"
+"eslint-plugin-jsdoc@npm:^51.3.4":
+  version: 51.3.4
+  resolution: "eslint-plugin-jsdoc@npm:51.3.4"
   dependencies:
-    "@es-joy/jsdoccomment": "npm:~0.50.2"
+    "@es-joy/jsdoccomment": "npm:~0.52.0"
     are-docs-informative: "npm:^0.0.2"
     comment-parser: "npm:1.4.1"
     debug: "npm:^4.4.1"
     escape-string-regexp: "npm:^4.0.0"
-    espree: "npm:^10.3.0"
+    espree: "npm:^10.4.0"
     esquery: "npm:^1.6.0"
     parse-imports-exports: "npm:^0.2.4"
     semver: "npm:^7.7.2"
     spdx-expression-parse: "npm:^4.0.0"
   peerDependencies:
     eslint: ^7.0.0 || ^8.0.0 || ^9.0.0
-  checksum: 10c0/8829eb841666e897ddce2677e8288fcdc231bab73add93236e14f2fc7f5d494f5809ac7fc1f809c64817abe532e9a7f4a6aa2eeac303c518d4f70f22ef13642c
+  checksum: 10c0/59e5aa972bdd1bd4e2ca2796ed4455dff1069044abc028621e107aa4b0cbb62ce09554c8e7c2ff3a44a1cbd551e54b6970adc420ba3a89adc6236b94310a81ff
   languageName: node
   linkType: hard
 
@@ -4110,7 +4076,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"espree@npm:^10.0.1, espree@npm:^10.3.0":
+"espree@npm:^10.0.1":
   version: 10.3.0
   resolution: "espree@npm:10.3.0"
   dependencies:

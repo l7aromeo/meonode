@@ -45,6 +45,7 @@ import {
   ScatterChart as MuiScatterChart,
   ScatterMarker as MuiScatterMarker,
   ScatterPlot as MuiScatterPlot,
+  SparkLineChart as MuiSparkLineChart,
   Unstable_RadarChart as MuiUnstableRadarChart,
   Unstable_RadarDataProvider as MuiUnstableRadarDataProvider,
   RadarChart as MuiRadarChart,
@@ -112,6 +113,8 @@ export const Scatter = createMuiNode(MuiScatter)
 export const ScatterChart = createMuiNode(MuiScatterChart)
 export const ScatterMarker = createMuiNode(MuiScatterMarker)
 export const ScatterPlot = createMuiNode(MuiScatterPlot)
+
+export const SparkLineChart = createMuiNode(MuiSparkLineChart)
 
 export const Unstable_RadarChart = createMuiNode(MuiUnstableRadarChart)
 export const Unstable_RadarDataProvider = createMuiNode(MuiUnstableRadarDataProvider)

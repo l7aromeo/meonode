@@ -53,13 +53,6 @@ const SRC_GEN_DIR = path.join(PACKAGE_ROOT, 'src-gen')
 const CORE_UTILITY_SRC_PATH = path.join(SRC_DIR, 'core.ts')
 
 /**
- * The path to the main ts source file
- * @type {string}
- * @constant
- */
-const MAIN_TS_SRC_PATH = path.join(SRC_DIR, 'main.ts')
-
-/**
  * Defines the source files and output configurations for different MUI modules.
  * Each key represents a category of MUI components (e.g., 'mui.core', 'mui.lab').
  * @type {Object.<string, {srcFile: string, outputSubdir: string, muiPackage: string}>}
@@ -110,6 +103,11 @@ const MODULE_SOURCES = {
     srcFile: path.join(SRC_DIR, 'lib', 'mui.x-tree-view.ts'),
     outputSubdir: path.join(SRC_GEN_DIR, 'lib', 'mui.x-tree-view'),
     muiPackage: '@mui/x-tree-view',
+  },
+  'mui.x-tree-view-pro': {
+    srcFile: path.join(SRC_DIR, 'lib', 'mui.x-tree-view-pro.ts'),
+    outputSubdir: path.join(SRC_GEN_DIR, 'lib', 'mui.x-tree-view-pro'),
+    muiPackage: '@mui/x-tree-view-pro',
   },
 }
 
@@ -327,7 +325,6 @@ generateWrapperSourceFiles()
 export * from './core'
 export * from './lib/mui.core'
 `.trim()
-
     // Generate the main.ts file
     const mainTSGenPath = path.join(SRC_GEN_DIR, 'main.ts')
     fs.writeFileSync(mainTSGenPath, mainTSContent + '\n')
