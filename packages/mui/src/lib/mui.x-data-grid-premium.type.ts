@@ -40,12 +40,3 @@ export type GridSelectedRowCountProps = React.HTMLAttributes<HTMLDivElement> &
   SelectedRowCountProps & {
     sx?: SxProps<Theme>
   }
-
-/**
- * Export Material-UI X Data Grid component factories with enhanced type-safety and prop validation.
- * Each export is a factory function that wraps the original MUI component, providing:
- * - Full TypeScript type checking for component props
- * - Direct CSS property support without requiring sx prop
- * - Theme context access and inheritance
- * - Proper component validation and error handling
- */

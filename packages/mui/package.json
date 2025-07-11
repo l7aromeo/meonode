@@ -59,7 +59,7 @@
     "watch:core": "yarn dlx nodemon --watch $MEONODE/core/dist --ext ts,js,json --exec \"yarn add -D @meonode/ui@file:$MEONODE/core\"",
     "watch:src": "yarn dlx nodemon --watch src --ext ts,js,json --exec \"yarn build\"",
     "lint": "eslint --fix",
-    "build": "rm -rf ./dist && yarn generate:src && babel src-gen --out-dir dist --extensions \".ts,.js\" && tsc && tsc-alias",
+    "build": "rm -rf ./dist && yarn generate:src && babel src-gen --out-dir dist --extensions \".ts,.js\" && tsc -p tsconfig.build.json && tsc-alias -p tsconfig.build.json",
     "publish:pre": "./prepublish.sh && yarn version -i prerelease && yarn npm publish --tag next",
     "publish:patch": "./prepublish.sh && yarn version -i patch && yarn npm publish --tag latest",
     "publish:minor": "./prepublish.sh && yarn version -i minor && yarn npm publish --tag latest",

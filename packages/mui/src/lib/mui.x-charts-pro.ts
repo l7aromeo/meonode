@@ -54,8 +54,8 @@ import {
   HeatmapTooltip as MuiHeatmapTooltip,
   HeatmapTooltipContent as MuiHeatmapTooltipContent,
   HeatmapPlot as MuiHeatmapPlot,
-  Unstable_RadarChart as MuiUnstableRadarChart,
-  Unstable_RadarDataProvider as MuiUnstableRadarDataProvider,
+  Unstable_RadarChart as MuiUnstable_RadarChart,
+  Unstable_RadarDataProvider as MuiUnstable_RadarDataProvider,
   RadarChart as MuiRadarChart,
   RadarChartPro as MuiRadarChartPro,
   RadarSeriesArea as MuiRadarSeriesArea,
@@ -65,7 +65,7 @@ import {
   RadarGrid as MuiRadarGrid,
   RadarMetricLabels as MuiRadarMetricLabels,
   RadarDataProvider as MuiRadarDataProvider,
-  Unstable_FunnelChart as MuiUnstableFunnelChart,
+  Unstable_FunnelChart as MuiUnstable_FunnelChart,
   FunnelPlot as MuiFunnelPlot,
   FunnelSection as MuiFunnelSection,
   FunnelSectionLabel as MuiFunnelSectionLabel,
@@ -139,8 +139,8 @@ export const HeatmapTooltip = createMuiNode(MuiHeatmapTooltip)
 export const HeatmapTooltipContent = createMuiNode(MuiHeatmapTooltipContent)
 export const HeatmapPlot = createMuiNode(MuiHeatmapPlot)
 
-export const Unstable_RadarChart = createMuiNode(MuiUnstableRadarChart)
-export const Unstable_RadarDataProvider = createMuiNode(MuiUnstableRadarDataProvider)
+export const Unstable_RadarChart = createMuiNode(MuiUnstable_RadarChart)
+export const Unstable_RadarDataProvider = createMuiNode(MuiUnstable_RadarDataProvider)
 export const RadarChart = createMuiNode(MuiRadarChart)
 export const RadarChartPro = createMuiNode(MuiRadarChartPro)
 export const RadarSeriesArea = createMuiNode(MuiRadarSeriesArea)
@@ -151,7 +151,7 @@ export const RadarGrid = createMuiNode(MuiRadarGrid)
 export const RadarMetricLabels = createMuiNode(MuiRadarMetricLabels)
 export const RadarDataProvider = createMuiNode(MuiRadarDataProvider)
 
-export const Unstable_FunnelChart = createMuiNode(MuiUnstableFunnelChart)
+export const Unstable_FunnelChart = createMuiNode(MuiUnstable_FunnelChart)
 export const FunnelPlot = createMuiNode(MuiFunnelPlot)
 export const FunnelSection = createMuiNode(MuiFunnelSection)
 export const FunnelSectionLabel = createMuiNode(MuiFunnelSectionLabel)

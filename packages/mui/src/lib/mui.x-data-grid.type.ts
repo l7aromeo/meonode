@@ -1,8 +1,8 @@
 import React from 'react'
-import { GridColumnHeaderSeparatorProps } from '@mui/x-data-grid-pro'
+import { GridColumnHeaderSeparatorProps } from '@mui/x-data-grid'
 import { GridStateColDef, PinnedColumnPosition } from '@mui/x-data-grid/internals'
 import { SxProps, Theme } from '@mui/system'
-import { GridRenderCellParams, GridSortDirection } from '@mui/x-data-grid-pro'
+import { GridRenderCellParams, GridSortDirection } from '@mui/x-data-grid'
 
 export interface GridColumnHeaderItemProps {
   colIndex: number
@@ -40,12 +40,3 @@ export type GridSelectedRowCountProps = React.HTMLAttributes<HTMLDivElement> &
   SelectedRowCountProps & {
     sx?: SxProps<Theme>
   }
-
-/**
- * Export Material-UI X Data Grid component factories with enhanced type-safety and prop validation.
- * Each export is a factory function that wraps the original MUI component, providing:
- * - Full TypeScript type checking for component props
- * - Direct CSS property support without requiring sx prop
- * - Theme context access and inheritance
- * - Proper component validation and error handling
- */
