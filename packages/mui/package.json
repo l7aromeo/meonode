@@ -1,7 +1,7 @@
 {
   "name": "@meonode/mui",
   "description": "A lightweight wrapper around `@mui/material` components for use with `@meonode/ui` and the BaseNode runtime.",
-  "version": "1.0.11",
+  "version": "1.0.12",
   "type": "module",
   "sideEffects": false,
   "exports": {
@@ -116,6 +116,7 @@
     "@mui/x-data-grid-pro": "^8.8.0",
     "@mui/x-date-pickers": "^8.8.0",
     "@mui/x-tree-view": "^8.8.0",
+    "@mui/x-tree-view-pro": "^8.8.0",
     "react": "*"
   },
   "repository": {

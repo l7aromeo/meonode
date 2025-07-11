@@ -1745,6 +1745,7 @@ __metadata:
     "@mui/x-data-grid-pro": ^8.8.0
     "@mui/x-date-pickers": ^8.8.0
     "@mui/x-tree-view": ^8.8.0
+    "@mui/x-tree-view-pro": ^8.8.0
     react: "*"
   languageName: unknown
   linkType: soft
