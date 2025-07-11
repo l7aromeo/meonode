@@ -1813,6 +1813,8 @@ __metadata:
     typescript: "npm:^5.8.3"
     typescript-eslint: "npm:^8.36.0"
   peerDependencies:
+    "@emotion/react": ^11.14.0
+    "@emotion/styled": ^11.14.1
     "@meonode/ui": ^0.1.90
     "@mui/lab": ^7.0.0-beta.14
     "@mui/material": ^7.2.0
