@@ -446,9 +446,6 @@ generateWrapperSourceFiles()
     const mainTSContent = `
 export * from './core'
 export * from './lib/mui.core'
-// Consider adding exports for other module indexes here if you need them to be
-// directly accessible from 'src-gen/main'. For example:
-// export * from './lib/mui.x-data-grid'
 `.trim()
     fs.writeFileSync(mainTSGenPath, mainTSContent + '\n')
     console.log(`Generated ${mainTSGenPath}!`)
