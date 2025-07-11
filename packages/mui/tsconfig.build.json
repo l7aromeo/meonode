@@ -12,10 +12,7 @@
     "resolveJsonModule": true,
     "baseUrl": ".",
     "outDir": "./dist",
-    "rootDir": "./src-gen",
-    "paths": {
-      "@src/*": ["./src/*"]
-    }
+    "rootDir": "./src-gen"
   },
   "include": ["src-gen"],
   "exclude": ["dist", "node_modules"]
