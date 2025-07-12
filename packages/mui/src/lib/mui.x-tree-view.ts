@@ -1,5 +1,6 @@
 import createMuiNode from '@src/core'
 import {
+  RichTreeView as MuiRichTreeView,
   RichTreeViewRoot as MuiRichTreeViewRoot,
   SimpleTreeViewRoot as MuiSimpleTreeViewRoot,
   TreeItem as MuiTreeItem,
@@ -25,6 +26,7 @@ import {
  * - Theme context access and inheritance
  * - Proper component validation and error handling
  */
+export const RichTreeView = createMuiNode(MuiRichTreeView)
 export const RichTreeViewRoot = createMuiNode(MuiRichTreeViewRoot)
 export const SimpleTreeViewRoot = createMuiNode(MuiSimpleTreeViewRoot)
 
