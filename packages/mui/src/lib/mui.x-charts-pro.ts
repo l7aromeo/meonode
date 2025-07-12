@@ -70,7 +70,6 @@ import {
   FunnelSection as MuiFunnelSection,
   FunnelSectionLabel as MuiFunnelSectionLabel,
 } from '@mui/x-charts-pro'
-
 import type { PieArcLabelProps, PieArcProps } from '@mui/x-charts-pro'
 
 /**
