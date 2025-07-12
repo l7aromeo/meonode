@@ -125,6 +125,8 @@ import {
   Typography as MuiTypography,
   Zoom as MuiZoom,
 } from '@mui/material'
+import { OverridableComponent } from '@mui/material/OverridableComponent'
+import { BoxTypeMap } from '@mui/system'
 
 /**
  * Export Material-UI component factories with enhanced type-safety and prop validation.
@@ -148,7 +150,7 @@ export const Backdrop = createMuiNode(MuiBackdrop)
 export const Badge = createMuiNode(MuiBadge)
 export const BottomNavigation = createMuiNode(MuiBottomNavigation)
 export const BottomNavigationAction = createMuiNode(MuiBottomNavigationAction)
-export const Box = createMuiNode(MuiBox)
+export const Box = createMuiNode(MuiBox as OverridableComponent<BoxTypeMap>)
 export const Breadcrumbs = createMuiNode(MuiBreadcrumbs)
 export const Button = createMuiNode(MuiButton)
 export const ButtonBase = createMuiNode(MuiButtonBase)
