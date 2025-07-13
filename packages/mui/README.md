@@ -8,7 +8,7 @@
 
 ## Features
   - ✅ Fully typed MUI component wrappers
-  - 🌳 Tree-shakeable exports via subpath entrypoints
+  - 🌳 Tree-shakeable exports
   - 🔌 Seamless integration with @meonode/ui
   - ⚡ Lightweight runtime with zero additional abstraction overhead
 
@@ -20,10 +20,12 @@ To get started with `@meonode/mui`, you need to install the core Material-UI pac
 
 ```shell
 yarn add @mui/material @emotion/react @emotion/styled @meonode/mui
+yarn add -D @mui/system @mui/types
 ```
 or
 ```shell
 npm install @mui/material @emotion/react @emotion/styled @meonode/mui
+npm install --save-dev @mui/system @mui/types
 ````
 
 ### Optional Packages for Extended Functionality
