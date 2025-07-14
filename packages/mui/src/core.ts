@@ -5,6 +5,17 @@ import { Node } from '@meonode/ui'
 import { OverridableComponent, OverridableTypeMap, OverrideProps } from '@mui/material/OverridableComponent'
 import { extendTheme } from '@mui/material'
 
+// Memoize the reference theme keys
+let memoizedReferenceThemeKeys: string[] | null = null
+
+function getReferenceThemeKeys(): string[] {
+  if (memoizedReferenceThemeKeys === null) {
+    const referenceTheme = extendTheme()
+    memoizedReferenceThemeKeys = Object.keys(referenceTheme)
+  }
+  return memoizedReferenceThemeKeys
+}
+
 /**
  * Determines if an object is likely to be a Material-UI theme object by comparing its structure
  * to a reference theme.
@@ -12,19 +23,19 @@ import { extendTheme } from '@mui/material'
  * @returns `true` if the object appears to be a MUI theme, `false` otherwise
  * @remarks
  * The function uses a heuristic approach by:
- * 1. Creating a reference theme using MUI's extendTheme()
+ * 1. Creating a reference theme using MUI's extendTheme() (done once and memoized)
  * 2. Comparing the keys of the input object with the reference theme
  * 3. Calculating a similarity score based on matching keys
  * 4. Considering it a theme if at least 25% of reference keys are present
  * @example
  * ```ts
  * const customTheme = {
- *   palette: { primary: { main: '#000' } },
- *   typography: { fontSize: 14 }
+ * palette: { primary: { main: '#000' } },
+ * typography: { fontSize: 14 }
  * };
  *
  * if (isProbablyMuiTheme(customTheme)) {
- *   // Handle theme object
+ * // Handle theme object
  * }
  * ```
  * @throws Will not throw, but returns false for null, non-objects, or invalid inputs
@@ -32,12 +43,11 @@ import { extendTheme } from '@mui/material'
 export function isProbablyMuiTheme(obj: unknown): boolean {
   if (typeof obj !== 'object' || obj === null) return false
 
-  const referenceTheme = extendTheme()
-  const themeKeys = Object.keys(referenceTheme)
+  const referenceThemeKeys = getReferenceThemeKeys()
   const objKeys = Object.keys(obj as object)
 
-  const commonKeys = objKeys.filter(key => themeKeys.includes(key))
-  const similarity = commonKeys.length / themeKeys.length
+  const commonKeys = objKeys.filter(key => referenceThemeKeys.includes(key))
+  const similarity = commonKeys.length / referenceThemeKeys.length
 
   return similarity >= 0.25
 }
