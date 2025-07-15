@@ -74,7 +74,7 @@
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.1",
     "@eslint/js": "^9.31.0",
-    "@meonode/ui": "^0.1.96",
+    "@meonode/ui": "^0.1.98",
     "@mui/lab": "^7.0.0-beta.14",
     "@mui/material": "^7.2.0",
     "@mui/system": "^7.2.0",
@@ -89,8 +89,8 @@
     "@mui/x-tree-view-pro": "^8.8.0",
     "@types/babel__generator": "^7.27.0",
     "@types/react": "^19.1.8",
-    "@typescript-eslint/eslint-plugin": "^8.36.0",
-    "@typescript-eslint/parser": "^8.36.0",
+    "@typescript-eslint/eslint-plugin": "^8.37.0",
+    "@typescript-eslint/parser": "^8.37.0",
     "babel-preset-minify": "^0.5.2",
     "eslint": "^9.31.0",
     "eslint-plugin-jsdoc": "^51.3.4",
@@ -100,7 +100,7 @@
     "prettier": "^3.6.2",
     "tsc-alias": "^1.8.16",
     "typescript": "^5.8.3",
-    "typescript-eslint": "^8.36.0"
+    "typescript-eslint": "^8.37.0"
   },
   "packageManager": "yarn@4.9.1",
   "peerDependencies": {
