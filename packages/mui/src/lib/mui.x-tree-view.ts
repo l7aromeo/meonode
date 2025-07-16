@@ -3,6 +3,7 @@ import {
   RichTreeView as MuiRichTreeView,
   RichTreeViewRoot as MuiRichTreeViewRoot,
   SimpleTreeViewRoot as MuiSimpleTreeViewRoot,
+  SimpleTreeView as MuiSimpleTreeView,
   TreeItem as MuiTreeItem,
   TreeItemContent as MuiTreeItemContent,
   TreeItemCheckbox as MuiTreeItemCheckbox,
@@ -29,6 +30,7 @@ import {
 export const RichTreeView = createMuiNode(MuiRichTreeView)
 export const RichTreeViewRoot = createMuiNode(MuiRichTreeViewRoot)
 export const SimpleTreeViewRoot = createMuiNode(MuiSimpleTreeViewRoot)
+export const SimpleTreeView = createMuiNode(MuiSimpleTreeView)
 
 export const TreeItem = createMuiNode(MuiTreeItem)
 export const TreeItemContent = createMuiNode(MuiTreeItemContent)
