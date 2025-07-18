@@ -1,7 +1,7 @@
 {
   "name": "@meonode/mui",
   "description": "A lightweight wrapper around `@mui/material` components for use with `@meonode/ui` and the BaseNode runtime.",
-  "version": "1.0.30",
+  "version": "1.0.32",
   "type": "module",
   "sideEffects": false,
   "exports": {
@@ -74,7 +74,7 @@
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.1",
     "@eslint/js": "^9.31.0",
-    "@meonode/ui": "^0.1.103",
+    "@meonode/ui": "^0.1.104",
     "@mui/lab": "^7.0.0-beta.14",
     "@mui/material": "^7.2.0",
     "@mui/system": "^7.2.0",
@@ -106,7 +106,7 @@
   "peerDependencies": {
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.1",
-    "@meonode/ui": "^0.1.103",
+    "@meonode/ui": "^0.1.104",
     "@mui/lab": "^7.0.0-beta.14",
     "@mui/material": "^7.2.0",
     "@mui/system": "^7.2.0",

@@ -1767,7 +1767,7 @@ __metadata:
     "@emotion/react": "npm:^11.14.0"
     "@emotion/styled": "npm:^11.14.1"
     "@eslint/js": "npm:^9.31.0"
-    "@meonode/ui": "npm:^0.1.103"
+    "@meonode/ui": "npm:^0.1.104"
     "@mui/lab": "npm:^7.0.0-beta.14"
     "@mui/material": "npm:^7.2.0"
     "@mui/system": "npm:^7.2.0"
@@ -1797,7 +1797,7 @@ __metadata:
   peerDependencies:
     "@emotion/react": ^11.14.0
     "@emotion/styled": ^11.14.1
-    "@meonode/ui": ^0.1.103
+    "@meonode/ui": ^0.1.104
     "@mui/lab": ^7.0.0-beta.14
     "@mui/material": ^7.2.0
     "@mui/system": ^7.2.0
@@ -1814,13 +1814,13 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@meonode/ui@npm:^0.1.103":
-  version: 0.1.103
-  resolution: "@meonode/ui@npm:0.1.103"
+"@meonode/ui@npm:^0.1.104":
+  version: 0.1.104
+  resolution: "@meonode/ui@npm:0.1.104"
   peerDependencies:
     react: "*"
     react-dom: "*"
-  checksum: 10c0/2091871d6f0d4ad2e043e68fe055b2471f838d2f1d993b1c5ea494063564a6cd4affdf1f4815ae853b3a3e801c9c63d3f4b29e16d95e8f0ec343ae9e5bfa027f
+  checksum: 10c0/6debabc5b56c8ea724ef66c80cadefadc83ba9e5b2f297b7ba11353fc43cbf95830626dcc87fa77ac7a545d180e56a1e5fde6be4201684d6c9ff46e3bc45a2a6
   languageName: node
   linkType: hard
 
