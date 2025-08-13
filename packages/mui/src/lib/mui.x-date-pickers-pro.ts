@@ -13,7 +13,7 @@ import {
   DateTimePickerToolbar as MuiDateTimePickerToolbar,
   DesktopDateTimePicker as MuiDesktopDateTimePicker,
   DesktopDateTimePickerLayout as MuiDesktopDateTimePickerLayout,
-} from '@mui/x-date-pickers'
+} from '@mui/x-date-pickers-pro'
 
 /**
  * Export Material-UI X Date Pickers component factories with enhanced type-safety and prop validation.
