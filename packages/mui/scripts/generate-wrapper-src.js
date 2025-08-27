@@ -26,11 +26,15 @@ const MODULE_SOURCES = {
     srcFile: path.join(SRC_DIR, 'lib', 'mui.x-charts.ts'),
     outputSubdir: path.join(SRC_GEN_DIR, 'lib', 'mui.x-charts'),
     muiPackage: '@mui/x-charts',
+    typeSrcFile: path.join(SRC_DIR, 'lib', 'mui.x-charts.type.ts'),
+    typeOutputSubdir: path.join(SRC_GEN_DIR, 'lib', 'mui.x-charts'),
   },
   'mui.x-charts-pro': {
     srcFile: path.join(SRC_DIR, 'lib', 'mui.x-charts-pro.ts'),
     outputSubdir: path.join(SRC_GEN_DIR, 'lib', 'mui.x-charts-pro'),
     muiPackage: '@mui/x-charts-pro',
+    typeSrcFile: path.join(SRC_DIR, 'lib', 'mui.x-charts-pro.type.ts'),
+    typeOutputSubdir: path.join(SRC_GEN_DIR, 'lib', 'mui.x-charts-pro'),
   },
   'mui.x-data-grid': {
     srcFile: path.join(SRC_DIR, 'lib', 'mui.x-data-grid.ts'),
