@@ -5,7 +5,11 @@ import { Node } from '@meonode/ui'
 import { OverridableComponent, OverridableTypeMap, OverrideProps } from '@mui/material/OverridableComponent'
 import { extendTheme } from '@mui/material'
 
-// Memoize the reference theme keys
+declare global {
+  const UNDEFINED_VOID_ONLY: unique symbol
+}
+
+// Memoized reference theme keys
 let memoizedReferenceThemeKeys: string[] | null = null
 
 function getReferenceThemeKeys(): string[] {
@@ -16,110 +20,89 @@ function getReferenceThemeKeys(): string[] {
   return memoizedReferenceThemeKeys
 }
 
-/**
- * Determines if an object is likely to be a Material-UI theme object by comparing its structure
- * to a reference theme.
- * @param obj The object to evaluate as a potential MUI theme
- * @returns `true` if the object appears to be a MUI theme, `false` otherwise
- * @remarks
- * The function uses a heuristic approach by:
- * 1. Creating a reference theme using MUI's extendTheme() (done once and memoized)
- * 2. Comparing the keys of the input object with the reference theme
- * 3. Calculating a similarity score based on matching keys
- * 4. Considering it a theme if at least 25% of reference keys are present
- * @example
- * ```ts
- * const customTheme = {
- * palette: { primary: { main: '#000' } },
- * typography: { fontSize: 14 }
- * };
- *
- * if (isProbablyMuiTheme(customTheme)) {
- * // Handle theme object
- * }
- * ```
- * @throws Will not throw, but returns false for null, non-objects, or invalid inputs
- */
 export function isProbablyMuiTheme(obj: unknown): boolean {
   if (typeof obj !== 'object' || obj === null) return false
-
   const referenceThemeKeys = getReferenceThemeKeys()
   const objKeys = Object.keys(obj as object)
-
   const commonKeys = objKeys.filter(key => referenceThemeKeys.includes(key))
   const similarity = commonKeys.length / referenceThemeKeys.length
-
   return similarity >= 0.25
 }
 
-/**
- * A utility type that extends an OverridableTypeMap to include a polymorphic `component` prop.
- * This allows the component to be overridden with a different React element type.
- * @template TMap - The base OverridableTypeMap to extend.
- * @template TComponent - The React element type to use for the `component` prop.
- */
-type WithPolymorphic<TMap extends OverridableTypeMap, TComponent extends React.ElementType> = TMap & {
-  props: TMap['props'] & Partial<{ component: TComponent }>
-  defaultComponent: TMap['defaultComponent']
+// --- Types ------------------------------------------------------
+
+type WithPolymorphic<TypeMap extends OverridableTypeMap, ComponentType extends React.ElementType> = TypeMap & {
+  props: TypeMap['props'] & Partial<{ component: ComponentType }>
+  defaultComponent: TypeMap['defaultComponent']
 }
 
 /**
- * Type for the factory function returned by createMuiNode for OverridableComponents.
- * @template TMap - The OverridableTypeMap for the Material-UI component.
- * @template TDefaultComponent - The default React element type for the component.
+ * Factory for Material-UI components.
+ * @template AdditionalProps Extra props baked in when creating the factory.
+ * @template TypeMap The OverridableTypeMap of the MUI component.
+ * @template DefaultComponent The default underlying element of the MUI component.
  */
-type MuiNodeFactory<TMap extends OverridableTypeMap, TDefaultComponent extends React.ElementType = TMap['defaultComponent']> = <
-  T extends React.ElementType = TDefaultComponent,
+type MuiNodeFactory<
+  AdditionalProps extends Record<string, any> = Record<string, any>,
+  TypeMap extends OverridableTypeMap = OverridableTypeMap,
+  DefaultComponent extends React.ElementType = TypeMap['defaultComponent'],
+> = <CallProps extends Record<string, any> = Record<string, any>, ComponentType extends React.ElementType = DefaultComponent>(
+  props?: NodeProps<OverridableComponent<WithPolymorphic<TypeMap, ComponentType>>> &
+    Omit<
+      OverrideProps<WithPolymorphic<TypeMap, ComponentType>, ComponentType>,
+      keyof NodeProps<OverridableComponent<WithPolymorphic<TypeMap, ComponentType>>>
+    > &
+    AdditionalProps &
+    CallProps,
+) => NodeInstance<OverridableComponent<WithPolymorphic<TypeMap, ComponentType>>>
+
+/**
+ * Factory for generic React elements.
+ * @template AdditionalProps Extra props baked in when creating the factory.
+ * @template Element The React element type.
+ */
+type GenericNodeFactory<AdditionalProps extends Record<string, any> = Record<string, any>, Element extends React.ElementType = React.ElementType> = <
+  CallProps extends Record<string, any> = Record<string, any>,
 >(
-  props?: NodeProps<OverridableComponent<WithPolymorphic<TMap, T>>> &
-    Omit<OverrideProps<WithPolymorphic<TMap, T>, T>, keyof NodeProps<OverridableComponent<WithPolymorphic<TMap, T>>>>,
-) => NodeInstance<OverridableComponent<WithPolymorphic<TMap, T>>>
+  props?: NodeProps<Element> & AdditionalProps & CallProps,
+) => NodeInstance<Element>
+
+// --- Overloads --------------------------------------------------
 
 /**
- * Type for the factory function returned by createMuiNode for generic React elements.
- * @template TElement - The React element type to wrap.
+ * Create node factory for a Material-UI OverridableComponent.
  */
-type GenericNodeFactory<TElement extends React.ElementType> = (props?: NodeProps<TElement>) => NodeInstance<TElement>
+export default function createMuiNode<
+  AdditionalProps extends Record<string, any> = Record<string, any>,
+  TypeMap extends OverridableTypeMap = OverridableTypeMap,
+  DefaultComponent extends React.ElementType = TypeMap['defaultComponent'],
+>(
+  element: OverridableComponent<TypeMap>,
+  initialProps?: Partial<
+    NodeProps<OverridableComponent<WithPolymorphic<TypeMap, DefaultComponent>>> & OverrideProps<WithPolymorphic<TypeMap, DefaultComponent>, DefaultComponent>
+  > &
+    AdditionalProps,
+): MuiNodeFactory<AdditionalProps, TypeMap, DefaultComponent>
 
 /**
- * Creates a function that generates a `NodeInstance` for a Material-UI component
- * with support for polymorphic behavior.
- * @template TMap - The OverridableTypeMap for the Material-UI component.
- * @template TDefaultComponent - The default React element type for the component.
- * @param element The Material-UI component to wrap.
- * @returns A function that takes props and returns a `NodeInstance` for the component.
+ * Create node factory for a generic React element.
  */
-export default function createMuiNode<TMap extends OverridableTypeMap, TDefaultComponent extends React.ElementType = TMap['defaultComponent']>(
-  element: OverridableComponent<TMap>,
-): MuiNodeFactory<TMap, TDefaultComponent>
+export default function createMuiNode<AdditionalProps extends Record<string, any> = Record<string, any>, Element extends React.ElementType = React.ElementType>(
+  element: Element,
+  initialProps?: Partial<NodeProps<Element>> & AdditionalProps,
+): GenericNodeFactory<AdditionalProps, Element>
 
-/**
- * Creates a function that generates a `NodeInstance` for a generic React element.
- * @template TElement - The React element type to wrap.
- * @param element The React element to wrap.
- * @returns A function that takes props and returns a `NodeInstance` for the element.
- */
-export default function createMuiNode<TElement extends React.ElementType>(element: TElement): GenericNodeFactory<TElement>
+// --- Implementation --------------------------------------------
 
-/**
- * Creates a function that generates a `NodeInstance` for any given element.
- * @param element The element to wrap.
- * @returns A function that takes props and returns a `NodeInstance` for the element.
- * @remarks
- * - If the `theme` prop is not a valid Material-UI theme, it is renamed to `nodetheme`.
- * - This ensures compatibility with the `Node` function.
- */
-export default function createMuiNode(element: any): any {
+export default function createMuiNode(element: any, initialProps: any = {}): any {
   return (props: any = {}) => {
-    if (!isProbablyMuiTheme(props?.theme)) {
-      props.nodetheme = props.theme
-      delete props.theme
+    const merged = { ...initialProps, ...props }
+    if (!isProbablyMuiTheme(merged?.theme)) {
+      merged.nodetheme = merged.theme
+      delete merged.theme
     }
-    return Node(element, props)
+    return Node(element, merged)
   }
 }
 
-/**
- * Exports the `createMuiNode` function for external use.
- */
 export { createMuiNode }
