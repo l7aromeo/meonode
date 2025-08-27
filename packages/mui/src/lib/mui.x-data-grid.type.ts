@@ -1,8 +1,13 @@
 import React from 'react'
-import { GridColumnHeaderSeparatorProps } from '@mui/x-data-grid'
+import { GridColumnHeaderSeparatorProps, GridMenuProps } from '@mui/x-data-grid'
 import { GridStateColDef, PinnedColumnPosition } from '@mui/x-data-grid/internals'
 import { SxProps, Theme } from '@mui/system'
 import { GridRenderCellParams, GridSortDirection } from '@mui/x-data-grid'
+
+export interface GridActionsCellProps extends Omit<GridRenderCellParams, 'api'> {
+  api?: GridRenderCellParams['api']
+  position?: GridMenuProps['position']
+}
 
 export interface GridColumnHeaderItemProps {
   colIndex: number

@@ -90,7 +90,14 @@ import {
   GridColumnHeaderSeparatorProps,
   GridRowCountProps,
 } from '@mui/x-data-grid-pro'
-import { GridBooleanCellProps, GridColumnHeaderItemProps, GridSelectedRowCountProps } from '@src/lib/mui.x-data-grid-pro.type'
+import {
+  GridBooleanCellProps,
+  GridColumnHeaderItemProps,
+  GridHeaderFilterMenuProps,
+  GridSelectedRowCountProps,
+  GridTreeDataGroupingCellProps,
+} from '@src/lib/mui.x-data-grid-pro.type'
+import { GridActionsCellProps } from '@src/lib/mui.x-data-grid-premium.type'
 
 /**
  * Export Material-UI X Data Grid Pro component factories with enhanced type-safety and prop validation.
@@ -113,7 +120,7 @@ export const GridPanelFooter = createMuiNode(MuiGridPanelFooter)
 
 export const GridHeader = createMuiNode(MuiGridHeader)
 export const GridHeaderCheckbox = createMuiNode(MuiGridHeaderCheckbox)
-export const GridHeaderFilterMenu = createMuiNode(MuiGridHeaderFilterMenu)
+export const GridHeaderFilterMenu = createMuiNode<React.ComponentType<GridHeaderFilterMenuProps>>(MuiGridHeaderFilterMenu)
 export const GridHeaderFilterMenuContainer = createMuiNode(MuiGridHeaderFilterMenuContainer)
 
 export const GridRow = createMuiNode(MuiGridRow)
@@ -126,7 +133,7 @@ export const GridFooterContainer = createMuiNode(MuiGridFooterContainer)
 export const GridFooterPlaceholder = createMuiNode(MuiGridFooterPlaceholder)
 export const GridBody = createMuiNode(MuiGridBody)
 
-export const GridActionsCell = createMuiNode(MuiGridActionsCell)
+export const GridActionsCell = createMuiNode<React.ComponentType<GridActionsCellProps>>(MuiGridActionsCell)
 export const GridActionsCellItem = createMuiNode<React.ComponentType<GridActionsCellItemProps>>(MuiGridActionsCellItem)
 export const GridBooleanCell = createMuiNode<React.ComponentType<GridBooleanCellProps>>(MuiGridBooleanCell)
 export const GridCell = createMuiNode(MuiGridCell)
@@ -140,7 +147,7 @@ export const GridEditSingleSelectCell = createMuiNode(MuiGridEditSingleSelectCel
 export const GridHeaderFilterCell = createMuiNode(MuiGridHeaderFilterCell)
 export const GridRowReorderCell = createMuiNode(MuiGridRowReorderCell)
 export const GridSkeletonCell = createMuiNode<React.ComponentType<GridSkeletonCellProps>>(MuiGridSkeletonCell)
-export const GridTreeDataGroupingCell = createMuiNode(MuiGridTreeDataGroupingCell)
+export const GridTreeDataGroupingCell = createMuiNode<React.ComponentType<GridTreeDataGroupingCellProps>>(MuiGridTreeDataGroupingCell)
 
 export const GridColumnsManagement = createMuiNode(MuiGridColumnsManagement)
 export const GridColumnHeaders = createMuiNode(MuiGridColumnHeaders)

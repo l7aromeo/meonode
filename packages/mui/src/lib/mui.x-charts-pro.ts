@@ -54,8 +54,6 @@ import {
   HeatmapTooltip as MuiHeatmapTooltip,
   HeatmapTooltipContent as MuiHeatmapTooltipContent,
   HeatmapPlot as MuiHeatmapPlot,
-  Unstable_RadarChart as MuiUnstable_RadarChart,
-  Unstable_RadarDataProvider as MuiUnstable_RadarDataProvider,
   RadarChart as MuiRadarChart,
   RadarChartPro as MuiRadarChartPro,
   RadarSeriesArea as MuiRadarSeriesArea,
@@ -65,12 +63,11 @@ import {
   RadarGrid as MuiRadarGrid,
   RadarMetricLabels as MuiRadarMetricLabels,
   RadarDataProvider as MuiRadarDataProvider,
-  Unstable_FunnelChart as MuiUnstable_FunnelChart,
   FunnelPlot as MuiFunnelPlot,
   FunnelSection as MuiFunnelSection,
   FunnelSectionLabel as MuiFunnelSectionLabel,
 } from '@mui/x-charts-pro'
-import type { PieArcLabelProps, PieArcProps } from '@mui/x-charts-pro'
+import { PieArcLabelProps, PieArcProps } from '@src/lib/mui.x-charts-pro.type'
 
 /**
  * Export Material-UI X Charts Pro component factories with enhanced type-safety and prop validation.
@@ -138,8 +135,6 @@ export const HeatmapTooltip = createMuiNode(MuiHeatmapTooltip)
 export const HeatmapTooltipContent = createMuiNode(MuiHeatmapTooltipContent)
 export const HeatmapPlot = createMuiNode(MuiHeatmapPlot)
 
-export const Unstable_RadarChart = createMuiNode(MuiUnstable_RadarChart)
-export const Unstable_RadarDataProvider = createMuiNode(MuiUnstable_RadarDataProvider)
 export const RadarChart = createMuiNode(MuiRadarChart)
 export const RadarChartPro = createMuiNode(MuiRadarChartPro)
 export const RadarSeriesArea = createMuiNode(MuiRadarSeriesArea)
@@ -150,7 +145,6 @@ export const RadarGrid = createMuiNode(MuiRadarGrid)
 export const RadarMetricLabels = createMuiNode(MuiRadarMetricLabels)
 export const RadarDataProvider = createMuiNode(MuiRadarDataProvider)
 
-export const Unstable_FunnelChart = createMuiNode(MuiUnstable_FunnelChart)
 export const FunnelPlot = createMuiNode(MuiFunnelPlot)
 export const FunnelSection = createMuiNode(MuiFunnelSection)
 export const FunnelSectionLabel = createMuiNode(MuiFunnelSectionLabel)

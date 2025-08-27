@@ -84,7 +84,7 @@ import {
   GridRowCountProps,
   DataGridProps,
 } from '@mui/x-data-grid'
-import { GridBooleanCellProps, GridColumnHeaderItemProps, GridSelectedRowCountProps } from '@src/lib/mui.x-data-grid.type'
+import { GridActionsCellProps, GridBooleanCellProps, GridColumnHeaderItemProps, GridSelectedRowCountProps } from '@src/lib/mui.x-data-grid.type'
 
 /**
  * Export Material-UI X Data Grid component factories with enhanced type-safety and prop validation.
@@ -118,7 +118,7 @@ export const GridFooterContainer = createMuiNode(MuiGridFooterContainer)
 export const GridFooterPlaceholder = createMuiNode(MuiGridFooterPlaceholder)
 export const GridBody = createMuiNode(MuiGridBody)
 
-export const GridActionsCell = createMuiNode(MuiGridActionsCell)
+export const GridActionsCell = createMuiNode<React.ComponentType<GridActionsCellProps>>(MuiGridActionsCell)
 export const GridActionsCellItem = createMuiNode<React.ComponentType<GridActionsCellItemProps>>(MuiGridActionsCellItem)
 export const GridBooleanCell = createMuiNode<React.ComponentType<GridBooleanCellProps>>(MuiGridBooleanCell)
 export const GridCell = createMuiNode(MuiGridCell)

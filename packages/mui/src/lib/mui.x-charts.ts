@@ -46,8 +46,6 @@ import {
   ScatterMarker as MuiScatterMarker,
   ScatterPlot as MuiScatterPlot,
   SparkLineChart as MuiSparkLineChart,
-  Unstable_RadarChart as MuiUnstable_RadarChart,
-  Unstable_RadarDataProvider as MuiUnstable_RadarDataProvider,
   RadarChart as MuiRadarChart,
   RadarSeriesArea as MuiRadarSeriesArea,
   RadarSeriesMarks as MuiRadarSeriesMarks,
@@ -57,7 +55,7 @@ import {
   RadarMetricLabels as MuiRadarMetricLabels,
   RadarDataProvider as MuiRadarDataProvider,
 } from '@mui/x-charts'
-import type { PieArcLabelProps, PieArcProps } from '@mui/x-charts'
+import { PieArcLabelProps, PieArcProps } from '@src/lib/mui.x-charts.type'
 
 /**
  * Export Material-UI X Charts component factories with enhanced type-safety and prop validation.
@@ -116,8 +114,6 @@ export const ScatterPlot = createMuiNode(MuiScatterPlot)
 
 export const SparkLineChart = createMuiNode(MuiSparkLineChart)
 
-export const Unstable_RadarChart = createMuiNode(MuiUnstable_RadarChart)
-export const Unstable_RadarDataProvider = createMuiNode(MuiUnstable_RadarDataProvider)
 export const RadarChart = createMuiNode(MuiRadarChart)
 export const RadarSeriesArea = createMuiNode(MuiRadarSeriesArea)
 export const RadarSeriesMarks = createMuiNode(MuiRadarSeriesMarks)
