@@ -1792,7 +1792,7 @@ __metadata:
     "@emotion/react": "npm:^11.14.0"
     "@emotion/styled": "npm:^11.14.1"
     "@eslint/js": "npm:^9.34.0"
-    "@meonode/ui": "npm:^0.1.118"
+    "@meonode/ui": "npm:^0.1.120"
     "@mui/lab": "npm:^7.0.0-beta.16"
     "@mui/material": "npm:^7.3.1"
     "@mui/system": "npm:^7.3.1"
@@ -1823,7 +1823,7 @@ __metadata:
   peerDependencies:
     "@emotion/react": ^11.14.0
     "@emotion/styled": ^11.14.1
-    "@meonode/ui": ^0.1.117
+    "@meonode/ui": ^0.1.120
     "@mui/lab": ^7.0.0-beta.16
     "@mui/material": ^7.3.1
     "@mui/system": ^7.3.1
@@ -1837,20 +1837,20 @@ __metadata:
     "@mui/x-date-pickers-pro": ^8.11.0
     "@mui/x-tree-view": ^8.11.0
     "@mui/x-tree-view-pro": ^8.11.0
-    react: "*"
+    react: ">=18.3.1"
   languageName: unknown
   linkType: soft
 
-"@meonode/ui@npm:^0.1.118":
-  version: 0.1.118
-  resolution: "@meonode/ui@npm:0.1.118"
+"@meonode/ui@npm:^0.1.120":
+  version: 0.1.120
+  resolution: "@meonode/ui@npm:0.1.120"
   dependencies:
     "@emotion/react": "npm:^11.14.0"
   peerDependencies:
-    "@emotion/cache": ^11.14.0
-    react: ^18.3.1
-    react-dom: ^18.3.1
-  checksum: 10c0/711af6e62cf8caeb5816797f82a618c05573e2ee19eb4e22715079ce1b81c676fddec9f482bce61bade2bc09566d449f4056f997c5ec70889f129b6eeaf74971
+    "@emotion/cache": ">=11.14.0"
+    react: ">=18.3.1"
+    react-dom: ">=18.3.1"
+  checksum: 10c0/079694acf8ed3a72501f4eb21a163456914876d69931feb817b0cf9800ca8ef65237add69876a1c7da59fbe041baf0c03799c858b9a1c11016c1ef754e417628
   languageName: node
   linkType: hard
 
