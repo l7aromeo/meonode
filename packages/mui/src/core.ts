@@ -46,7 +46,7 @@ type MuiNodeFactory<
   AdditionalProps extends Record<string, any> = Record<string, any>,
   TypeMap extends OverridableTypeMap = OverridableTypeMap,
   DefaultComponent extends React.ElementType = TypeMap['defaultComponent'],
-> = <CallProps extends Record<string, any> = Record<string, any>, ComponentType extends React.ElementType = DefaultComponent>(
+> = (<CallProps extends Record<string, any> = Record<string, any>, ComponentType extends React.ElementType = DefaultComponent>(
   props?: NodeProps<OverridableComponent<WithPolymorphic<TypeMap, ComponentType>>> &
     Omit<
       OverrideProps<WithPolymorphic<TypeMap, ComponentType>, ComponentType>,
@@ -54,18 +54,18 @@ type MuiNodeFactory<
     > &
     AdditionalProps &
     CallProps,
-) => NodeInstance<OverridableComponent<WithPolymorphic<TypeMap, ComponentType>>>
+) => NodeInstance<OverridableComponent<WithPolymorphic<TypeMap, ComponentType>>>) & { element: Element }
 
 /**
  * Factory for generic React elements.
  * @template AdditionalProps Extra props baked in when creating the factory.
  * @template Element The React element type.
  */
-type GenericNodeFactory<AdditionalProps extends Record<string, any> = Record<string, any>, Element extends React.ElementType = React.ElementType> = <
+type GenericNodeFactory<AdditionalProps extends Record<string, any> = Record<string, any>, Element extends React.ElementType = React.ElementType> = (<
   CallProps extends Record<string, any> = Record<string, any>,
 >(
   props?: NodeProps<Element> & AdditionalProps & CallProps,
-) => NodeInstance<Element>
+) => NodeInstance<Element>) & { element: Element }
 
 // --- Overloads --------------------------------------------------
 
@@ -95,7 +95,7 @@ export default function createMuiNode<AdditionalProps extends Record<string, any
 // --- Implementation --------------------------------------------
 
 export default function createMuiNode(element: any, initialProps: any = {}): any {
-  return (props: any = {}) => {
+  const Instance = (props: any = {}) => {
     const merged = { ...initialProps, ...props }
     if (!isProbablyMuiTheme(merged?.theme)) {
       merged.nodetheme = merged.theme
@@ -103,6 +103,9 @@ export default function createMuiNode(element: any, initialProps: any = {}): any
     }
     return Node(element, merged)
   }
+
+  Instance.element = element
+  return Instance
 }
 
 export { createMuiNode }
