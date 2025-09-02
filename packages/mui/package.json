@@ -1,7 +1,7 @@
 {
   "name": "@meonode/mui",
   "description": "A lightweight wrapper around `@mui/material` components for use with `@meonode/ui` and the BaseNode runtime.",
-  "version": "1.0.53",
+  "version": "1.0.54",
   "type": "module",
   "sideEffects": false,
   "exports": {
@@ -51,7 +51,8 @@
     "docs",
     "package.json",
     "LICENSE",
-    "README.md"
+    "README.md",
+    "CHANGELOG.md"
   ],
   "scripts": {
     "generate:src": "node scripts/generate-wrapper-src.js",
