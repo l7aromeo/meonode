@@ -1,4 +1,4 @@
-import createMuiNode from '@src/core'
+import createMuiNode from '@src/core.js'
 import {
   LocalizationProvider as MuiLocalizationProvider,
   TimeField as MuiTimeField,

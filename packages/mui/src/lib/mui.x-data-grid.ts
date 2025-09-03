@@ -1,5 +1,5 @@
 import React from 'react'
-import createMuiNode from '@src/core'
+import createMuiNode from '@src/core.js'
 import {
   DataGrid as MuiDataGrid,
   GridApiContext as MuiGridApiContext,
@@ -84,7 +84,7 @@ import {
   GridRowCountProps,
   DataGridProps,
 } from '@mui/x-data-grid'
-import { GridActionsCellProps, GridBooleanCellProps, GridColumnHeaderItemProps, GridSelectedRowCountProps } from '@src/lib/mui.x-data-grid.type'
+import { GridActionsCellProps, GridBooleanCellProps, GridColumnHeaderItemProps, GridSelectedRowCountProps } from '@src/lib/mui.x-data-grid.type.js'
 
 /**
  * Export Material-UI X Data Grid component factories with enhanced type-safety and prop validation.

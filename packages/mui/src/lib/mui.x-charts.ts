@@ -1,5 +1,5 @@
 import React from 'react'
-import createMuiNode from '@src/core'
+import createMuiNode from '@src/core.js'
 import {
   ChartsAxis as MuiChartsAxis,
   ChartsXAxis as MuiChartsXAxis,
@@ -55,7 +55,7 @@ import {
   RadarMetricLabels as MuiRadarMetricLabels,
   RadarDataProvider as MuiRadarDataProvider,
 } from '@mui/x-charts'
-import { PieArcLabelProps, PieArcProps } from '@src/lib/mui.x-charts.type'
+import { PieArcLabelProps, PieArcProps } from '@src/lib/mui.x-charts.type.js'
 
 /**
  * Export Material-UI X Charts component factories with enhanced type-safety and prop validation.

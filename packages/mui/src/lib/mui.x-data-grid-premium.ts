@@ -1,5 +1,5 @@
 import React from 'react'
-import createMuiNode from '@src/core'
+import createMuiNode from '@src/core.js'
 import {
   DataGridPremium as MuiDataGridPremium,
   GridApiContext as MuiGridApiContext,
@@ -107,7 +107,7 @@ import {
   GridHeaderFilterMenuProps,
   GridSelectedRowCountProps,
   GridTreeDataGroupingCellProps,
-} from '@src/lib/mui.x-data-grid-premium.type'
+} from '@src/lib/mui.x-data-grid-premium.type.js'
 
 /**
  * Export Material-UI X Data Grid Premium component factories with enhanced type-safety and prop validation.

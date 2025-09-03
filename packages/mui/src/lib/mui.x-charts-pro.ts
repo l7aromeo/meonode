@@ -1,5 +1,5 @@
 import React from 'react'
-import createMuiNode from '@src/core'
+import createMuiNode from '@src/core.js'
 import {
   ChartsAxis as MuiChartsAxis,
   ChartsXAxis as MuiChartsXAxis,
@@ -67,7 +67,7 @@ import {
   FunnelSection as MuiFunnelSection,
   FunnelSectionLabel as MuiFunnelSectionLabel,
 } from '@mui/x-charts-pro'
-import { PieArcLabelProps, PieArcProps } from '@src/lib/mui.x-charts-pro.type'
+import { PieArcLabelProps, PieArcProps } from '@src/lib/mui.x-charts-pro.type.js'
 
 /**
  * Export Material-UI X Charts Pro component factories with enhanced type-safety and prop validation.

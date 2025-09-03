@@ -1,2 +1,2 @@
-export * from '@src/core'
-export * from '@src/lib/mui.core'
+export * from '@src/core.js'
+export * from '@src/lib/mui.core.js'

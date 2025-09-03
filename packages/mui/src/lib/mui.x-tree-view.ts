@@ -1,4 +1,4 @@
-import createMuiNode from '@src/core'
+import createMuiNode from '@src/core.js'
 import {
   RichTreeView as MuiRichTreeView,
   RichTreeViewRoot as MuiRichTreeViewRoot,

@@ -1,4 +1,4 @@
-import createMuiNode from '@src/core'
+import createMuiNode from '@src/core.js'
 import {
   Accordion as MuiAccordion,
   AccordionActions as MuiAccordionActions,

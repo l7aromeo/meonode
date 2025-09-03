@@ -89,7 +89,7 @@ async function processTypeFile(srcFilePath, outputDirPath) {
   babel.traverse(ast, {
     ImportDeclaration(nodePath) {
       let importSourceValue = nodePath.node.source.value
-      if (importSourceValue.startsWith('@src/lib/') && importSourceValue.endsWith('.type')) {
+      if (importSourceValue.startsWith('@src/lib/') && importSourceValue.endsWith('.type.js')) {
         const originalRelativeSrcPath = importSourceValue.replace('@src/', 'src/')
         const importedTypeBaseName = path.basename(originalRelativeSrcPath, '.ts')
         const importedTypeModuleName = importedTypeBaseName.replace(/\.type$/, '')
@@ -183,15 +183,15 @@ async function generateWrapperSourceFiles() {
     babel.traverse(ast, {
       ImportDeclaration(nodePath) {
         let importSourceValue = nodePath.node.source.value
-        if (importSourceValue.startsWith('@src/lib/') && importSourceValue.endsWith('.type')) {
+        if (importSourceValue.startsWith('@src/lib/') && importSourceValue.endsWith('.type.js')) {
           const originalRelativeSrcPath = importSourceValue.replace('@src/', 'src/')
           const importedTypeBaseName = path.basename(originalRelativeSrcPath, '.ts')
-          const importedTypeModuleName = importedTypeBaseName.replace(/\.type$/, '')
+          const importedTypeModuleName = importedTypeBaseName.replace(/\.type.js$/, '')
           const targetOutputSubdirForImportedType = path.join(SRC_GEN_DIR, 'lib', importedTypeModuleName)
           const targetOutputFilePath = path.join(targetOutputSubdirForImportedType, 'type.ts')
           let newRelativePath = path.relative(config.outputSubdir, targetOutputFilePath)
           if (newRelativePath === 'type.ts') {
-            importSourceValue = './type'
+            importSourceValue = './type.js'
           } else {
             if (!newRelativePath.startsWith('.')) {
               newRelativePath = `./${newRelativePath}`
@@ -319,7 +319,7 @@ async function generateWrapperSourceFiles() {
       const individualComponentCode = `
 ${typeImportLines}
 ${importReactLine ? importReactLine + '\n' : ''}
-import { createMuiNode } from '${relativeCreateMuiNodePath}'
+import { createMuiNode } from '${relativeCreateMuiNodePath}.js'
 import { ${comp.originalMuiComponentName} as ${comp.muiAlias} } from '${comp.muiPackage}'
 
 const ${comp.exportName} = ${wrapperCall}
@@ -335,9 +335,9 @@ export default ${comp.exportName}
     }
 
     // Generate index.ts for the current module
-    const indexExports = componentsToGenerate.map(comp => `export { default as ${comp.exportName} } from './${comp.exportName}'`).join('\n')
+    const indexExports = componentsToGenerate.map(comp => `export { default as ${comp.exportName} } from './${comp.exportName}.js'`).join('\n')
     if (config.typeSrcFile) {
-      const typeExports = `export * from './type'`
+      const typeExports = `export * from './type.js'`
       if (indexExports) {
         fs.writeFileSync(path.join(config.outputSubdir, 'index.ts'), indexExports + '\n' + typeExports + '\n')
       } else {
@@ -360,8 +360,8 @@ generateWrapperSourceFiles()
   .then(() => {
     const mainTSGenPath = path.join(SRC_GEN_DIR, 'main.ts')
     const mainTSContent = `
-export * from './core'
-export * from './lib/mui.core'
+export * from './core.js'
+export * from './lib/mui.core/index.js'
 `.trim()
     fs.writeFileSync(mainTSGenPath, mainTSContent + '\n')
     console.log(`Generated ${mainTSGenPath}!`)
