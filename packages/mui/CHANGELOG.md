@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.60] - 2025-09-05
+
+### Added
+- **mui**: add type definitions for MUI Lab and X Data Grid components to improve type safety
+
+### Changed
+- **core**: enhance type definitions for MUI node factories and improve generic node factory implementation
+
+### Chore
+- **deps**: update `@eslint/js` to 9.35.0
+- **deps**: bump `@meonode/ui` to 0.2.9
+
 ## [1.0.59] - 2025-09-05
 
 ### Changed
