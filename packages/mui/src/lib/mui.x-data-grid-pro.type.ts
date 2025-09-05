@@ -68,3 +68,13 @@ export interface GridTreeDataGroupingCellProps extends GridRenderCellParams<any,
    */
   offsetMultiplier?: number
 }
+
+export interface RowCountProps {
+  rowCount: number
+  visibleRowCount: number
+}
+
+export type GridRowCountProps = React.HTMLAttributes<HTMLDivElement> &
+  RowCountProps & {
+    sx?: SxProps<Theme>
+  }

@@ -21,6 +21,8 @@ const MODULE_SOURCES = {
     srcFile: path.join(SRC_DIR, 'lib', 'mui.lab.ts'),
     outputSubdir: path.join(SRC_GEN_DIR, 'lib', 'mui.lab'),
     muiPackage: '@mui/lab',
+    typeSrcFile: path.join(SRC_DIR, 'lib', 'mui.lab.type.ts'),
+    typeOutputSubdir: path.join(SRC_GEN_DIR, 'lib', 'mui.lab'),
   },
   'mui.x-charts': {
     srcFile: path.join(SRC_DIR, 'lib', 'mui.x-charts.ts'),

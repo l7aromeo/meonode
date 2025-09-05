@@ -68,3 +68,13 @@ export interface GridHeaderFilterMenuProps {
   showClearItem: boolean
   clearFilterItem: () => void
 }
+
+export interface RowCountProps {
+  rowCount: number
+  visibleRowCount: number
+}
+
+export type GridRowCountProps = React.HTMLAttributes<HTMLDivElement> &
+  RowCountProps & {
+    sx?: SxProps<Theme>
+  }

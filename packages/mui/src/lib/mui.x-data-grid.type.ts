@@ -45,3 +45,13 @@ export type GridSelectedRowCountProps = React.HTMLAttributes<HTMLDivElement> &
   SelectedRowCountProps & {
     sx?: SxProps<Theme>
   }
+
+export interface RowCountProps {
+  rowCount: number
+  visibleRowCount: number
+}
+
+export type GridRowCountProps = React.HTMLAttributes<HTMLDivElement> &
+  RowCountProps & {
+    sx?: SxProps<Theme>
+  }
