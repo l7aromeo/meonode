@@ -1614,10 +1614,17 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@eslint/js@npm:9.34.0, @eslint/js@npm:^9.34.0":
+"@eslint/js@npm:9.34.0":
   version: 9.34.0
   resolution: "@eslint/js@npm:9.34.0"
   checksum: 10c0/53f1bfd2a374683d9382a6850354555f6e89a88416c34a5d34e9fbbaf717e97c2b06300e8f93e5eddba8bda8951ccab7f93a680e56ded1a3d21d526019e69bab
+  languageName: node
+  linkType: hard
+
+"@eslint/js@npm:^9.35.0":
+  version: 9.35.0
+  resolution: "@eslint/js@npm:9.35.0"
+  checksum: 10c0/d40fe38724bc76c085c0b753cdf937fa35c0d6807ae76b2632e3f5f66c3040c91adcf1aff2ce70b4f45752e60629fadc415eeec9af3be3c274bae1cac54b9840
   languageName: node
   linkType: hard
 
@@ -1824,8 +1831,8 @@ __metadata:
     "@babel/preset-typescript": "npm:^7.27.1"
     "@emotion/react": "npm:^11.14.0"
     "@emotion/styled": "npm:^11.14.1"
-    "@eslint/js": "npm:^9.34.0"
-    "@meonode/ui": "npm:^0.2.8"
+    "@eslint/js": "npm:^9.35.0"
+    "@meonode/ui": "npm:^0.2.9"
     "@mui/lab": "npm:^7.0.0-beta.17"
     "@mui/material": "npm:^7.3.2"
     "@mui/system": "npm:^7.3.2"
@@ -1874,16 +1881,16 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@meonode/ui@npm:^0.2.8":
-  version: 0.2.8
-  resolution: "@meonode/ui@npm:0.2.8"
+"@meonode/ui@npm:^0.2.9":
+  version: 0.2.9
+  resolution: "@meonode/ui@npm:0.2.9"
   dependencies:
     "@emotion/react": "npm:^11.14.0"
   peerDependencies:
     "@emotion/cache": ">=11.14.0"
     react: ">=18.3.1"
     react-dom: ">=18.3.1"
-  checksum: 10c0/a6289d26dac308499cee2333995ac2b6b3c9df66742cf2279d5dc061ba8e531a9b58de43a001fc31592c2c5dbceeeb4b30486c9cea05f89471fb07a3d19bb63a
+  checksum: 10c0/1b5834cfd06b9853d89563333003f05e8f3ad521c378f8fb48d5809640eac842827e186152c9d39e2119e4c2057b128659c94f6343f0e5d2e2ea7312e0cda7bb
   languageName: node
   linkType: hard
 
