@@ -1872,7 +1872,7 @@ __metadata:
     "@emotion/react": "npm:^11.14.0"
     "@emotion/styled": "npm:^11.14.1"
     "@eslint/js": "npm:^9.35.0"
-    "@meonode/ui": "npm:^0.2.12"
+    "@meonode/ui": "npm:^0.2.13"
     "@mui/lab": "npm:^7.0.0-beta.17"
     "@mui/material": "npm:^7.3.2"
     "@mui/system": "npm:^7.3.2"
@@ -1892,7 +1892,7 @@ __metadata:
     "@typescript-eslint/parser": "npm:^8.43.0"
     babel-preset-minify: "npm:^0.5.2"
     eslint: "npm:^9.35.0"
-    eslint-plugin-jsdoc: "npm:^55.4.0"
+    eslint-plugin-jsdoc: "npm:^56.0.2"
     eslint-plugin-prettier: "npm:^5.5.4"
     eslint-plugin-unused-imports: "npm:^4.2.0"
     globals: "npm:^16.4.0"
@@ -1921,16 +1921,16 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@meonode/ui@npm:^0.2.12":
-  version: 0.2.12
-  resolution: "@meonode/ui@npm:0.2.12"
+"@meonode/ui@npm:^0.2.13":
+  version: 0.2.13
+  resolution: "@meonode/ui@npm:0.2.13"
   dependencies:
     "@emotion/react": "npm:^11.14.0"
   peerDependencies:
     "@emotion/cache": ">=11.14.0"
     react: ">=18.3.1"
     react-dom: ">=18.3.1"
-  checksum: 10c0/4053d386234169d116a7e144a7c17473d51724f306302dc38fe7290dcbd48e16e58f9712d5cd8891e72f828da63d492322278a6b2bb671da16ac59c7d84200cd
+  checksum: 10c0/6bab72a5e31633d0a4516fa061bf1acc3ae6032a7740ab2b141d92af2ce71219c34a5644760e4fa973eef76ee3e44c52bb17fb3795e041ab237f379c124cfcba
   languageName: node
   linkType: hard
 
@@ -4169,9 +4169,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"eslint-plugin-jsdoc@npm:^55.4.0":
-  version: 55.4.0
-  resolution: "eslint-plugin-jsdoc@npm:55.4.0"
+"eslint-plugin-jsdoc@npm:^56.0.2":
+  version: 56.0.2
+  resolution: "eslint-plugin-jsdoc@npm:56.0.2"
   dependencies:
     "@es-joy/jsdoccomment": "npm:~0.58.0"
     are-docs-informative: "npm:^0.0.2"
@@ -4186,7 +4186,7 @@ __metadata:
     spdx-expression-parse: "npm:^4.0.0"
   peerDependencies:
     eslint: ^7.0.0 || ^8.0.0 || ^9.0.0
-  checksum: 10c0/f8349665b10f14ef44b0a2469174011ab6e9fb5efee55245122c077d7c9a8e52a29267aa7c5bd22e11dd8bd23a64c09ebcbdbd91bad87debcc981b9a811e1faa
+  checksum: 10c0/5968e4428af1bb641a316fef73ccd0ddd6d5b72a88ef2899d31d358339829d8e51c0933b031f274e4561fa62d7abbf92a98bed472f9ae1c9d709cdbebfc4734d
   languageName: node
   linkType: hard
 
