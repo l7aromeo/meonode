@@ -1872,7 +1872,7 @@ __metadata:
     "@emotion/react": "npm:^11.14.0"
     "@emotion/styled": "npm:^11.14.1"
     "@eslint/js": "npm:^9.35.0"
-    "@meonode/ui": "npm:^0.2.13"
+    "@meonode/ui": "npm:^0.2.14"
     "@mui/lab": "npm:^7.0.0-beta.17"
     "@mui/material": "npm:^7.3.2"
     "@mui/system": "npm:^7.3.2"
@@ -1892,7 +1892,7 @@ __metadata:
     "@typescript-eslint/parser": "npm:^8.43.0"
     babel-preset-minify: "npm:^0.5.2"
     eslint: "npm:^9.35.0"
-    eslint-plugin-jsdoc: "npm:^56.0.2"
+    eslint-plugin-jsdoc: "npm:^56.1.2"
     eslint-plugin-prettier: "npm:^5.5.4"
     eslint-plugin-unused-imports: "npm:^4.2.0"
     globals: "npm:^16.4.0"
@@ -1903,7 +1903,7 @@ __metadata:
   peerDependencies:
     "@emotion/react": ^11.14.0
     "@emotion/styled": ^11.14.1
-    "@meonode/ui": ^0.2.12
+    "@meonode/ui": ^0.2.14
     "@mui/lab": ^7.0.0-beta.17
     "@mui/material": ^7.3.2
     "@mui/system": ^7.3.2
@@ -1921,16 +1921,16 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@meonode/ui@npm:^0.2.13":
-  version: 0.2.13
-  resolution: "@meonode/ui@npm:0.2.13"
+"@meonode/ui@npm:^0.2.14":
+  version: 0.2.14
+  resolution: "@meonode/ui@npm:0.2.14"
   dependencies:
     "@emotion/react": "npm:^11.14.0"
   peerDependencies:
     "@emotion/cache": ">=11.14.0"
     react: ">=18.3.1"
     react-dom: ">=18.3.1"
-  checksum: 10c0/6bab72a5e31633d0a4516fa061bf1acc3ae6032a7740ab2b141d92af2ce71219c34a5644760e4fa973eef76ee3e44c52bb17fb3795e041ab237f379c124cfcba
+  checksum: 10c0/6fadf08ce204ad1d8f5fd4c94c961d0d17c3bfa2b937f75eb76c98a38cdeb24feb5774abb5f3901ad9c3863440b4a64805cbf053e575a9060fdd18f8de56524a
   languageName: node
   linkType: hard
 
@@ -4169,9 +4169,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"eslint-plugin-jsdoc@npm:^56.0.2":
-  version: 56.0.2
-  resolution: "eslint-plugin-jsdoc@npm:56.0.2"
+"eslint-plugin-jsdoc@npm:^56.1.2":
+  version: 56.1.2
+  resolution: "eslint-plugin-jsdoc@npm:56.1.2"
   dependencies:
     "@es-joy/jsdoccomment": "npm:~0.58.0"
     are-docs-informative: "npm:^0.0.2"
@@ -4186,7 +4186,7 @@ __metadata:
     spdx-expression-parse: "npm:^4.0.0"
   peerDependencies:
     eslint: ^7.0.0 || ^8.0.0 || ^9.0.0
-  checksum: 10c0/5968e4428af1bb641a316fef73ccd0ddd6d5b72a88ef2899d31d358339829d8e51c0933b031f274e4561fa62d7abbf92a98bed472f9ae1c9d709cdbebfc4734d
+  checksum: 10c0/5f5f379ab2a2868049e793341a851fb9fd6d5541a9cdc87d61556defc55a94ff281435cf6bff6f7e9ce8b8426723ce6b063240a81c8d311f12180c9bdb306c6e
   languageName: node
   linkType: hard
 
