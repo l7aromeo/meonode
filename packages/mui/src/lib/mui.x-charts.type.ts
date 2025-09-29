@@ -1,3 +1,4 @@
+import React from 'react'
 import { PieItemId, PieArcClasses, PieArcLabelClasses } from '@mui/x-charts'
 
 export declare interface PieArcOwnerState {
@@ -6,6 +7,7 @@ export declare interface PieArcOwnerState {
   color: string
   isFaded: boolean
   isHighlighted: boolean
+  isFocused: boolean
   classes?: Partial<PieArcClasses>
 }
 
@@ -20,7 +22,7 @@ export type PieArcProps = Omit<React.SVGProps<SVGPathElement>, 'ref' | 'id'> &
     startAngle: number
     /** @default false */
     skipAnimation: boolean
-  }
+  } & React.RefAttributes<SVGPathElement>
 
 export interface PieArcLabelOwnerState {
   id: PieItemId
