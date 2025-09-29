@@ -1,7 +1,7 @@
 {
   "name": "@meonode/mui",
   "description": "A lightweight wrapper around `@mui/material` components for use with `@meonode/ui` and the BaseNode runtime.",
-  "version": "1.0.69",
+  "version": "1.0.70",
   "type": "module",
   "sideEffects": false,
   "exports": {

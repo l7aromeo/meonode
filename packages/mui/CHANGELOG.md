@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.70] - 2025-09-29
+
+### Chore
+- chore(types): add isFocused property and React.RefAttributes to PieArcOwnerState
+- chore(deps): update @meonode/ui to 0.3.8, @mui packages to 8.12.x, eslint-plugin-jsdoc to 60.5.0, and typescript-eslint packages to 8.44.1
+
 ## [1.0.69] - 2025-09-21
 
 ### Chore
