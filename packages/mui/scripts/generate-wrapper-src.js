@@ -318,11 +318,23 @@ async function generateWrapperSourceFiles() {
         wrapperCall = `createMuiNode(${comp.muiAlias})`
       }
 
+      const styleComponents = new Set(['ThemeProvider'])
+      let muiImport = ''
+      if (comp.muiPackage === '@mui/material') {
+        if (styleComponents.has(comp.originalMuiComponentName)) {
+          muiImport = `import { ${comp.originalMuiComponentName} as ${comp.muiAlias} } from '${comp.muiPackage}/styles'`
+        } else {
+          muiImport = `import ${comp.muiAlias} from '${comp.muiPackage}/${comp.originalMuiComponentName}'`
+        }
+      } else {
+        muiImport = `import { ${comp.originalMuiComponentName} as ${comp.muiAlias} } from '${comp.muiPackage}'`
+      }
+
       const individualComponentCode = `
 ${typeImportLines}
 ${importReactLine ? importReactLine + '\n' : ''}
 import { createMuiNode } from '${relativeCreateMuiNodePath}.js'
-import { ${comp.originalMuiComponentName} as ${comp.muiAlias} } from '${comp.muiPackage}'
+${muiImport}
 
 const ${comp.exportName} = ${wrapperCall}
 export default ${comp.exportName}
