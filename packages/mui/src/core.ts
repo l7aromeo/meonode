@@ -3,7 +3,7 @@ import { ElementType } from 'react'
 import type { HasRequiredProps, MergedProps, NodeElement, NodeInstance, NodeProps, PropsOf } from '@meonode/ui'
 import { Node } from '@meonode/ui'
 import { OverridableComponent, OverridableTypeMap, OverrideProps } from '@mui/material/OverridableComponent'
-import { extendTheme } from '@mui/material'
+import { extendTheme } from '@mui/material/styles'
 
 // --- Global type sentinel ---------------------------------------
 
