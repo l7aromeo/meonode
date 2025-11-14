@@ -1,6 +1,6 @@
 'use strict'
 import { ElementType } from 'react'
-import type { HasRequiredProps, MergedProps, NodeElement, NodeInstance, NodeProps, PropsOf } from '@meonode/ui'
+import type { DependencyList, HasRequiredProps, MergedProps, NodeElement, NodeInstance, NodeProps, PropsOf } from '@meonode/ui'
 import { Node } from '@meonode/ui'
 import { OverridableComponent, OverridableTypeMap, OverrideProps } from '@mui/material/OverridableComponent'
 import { extendTheme } from '@mui/material/styles'
@@ -58,6 +58,7 @@ type MuiNodeFactory<
     > &
     InitialProperties &
     AdditionalProperties,
+  deps?: DependencyList,
 ) => NodeInstance<OverridableComponent<WithPolymorphic<TypeMap, ComponentType>>>) & { element: Element }
 
 /**
@@ -102,13 +103,13 @@ export default function createMuiNode<InitialProperties extends Record<string, a
 // --- Implementation --------------------------------------------
 
 export default function createMuiNode(element: any, initialProps: any = {}): any {
-  const Instance = (props: any = {}) => {
+  const Instance = (props: any = {}, deps?: DependencyList) => {
     const merged = { ...initialProps, ...props }
     if (!isProbablyMuiTheme(merged?.theme)) {
       merged.nodetheme = merged.theme
       delete merged.theme
     }
-    return Node(element, merged)
+    return Node(element, merged, deps)
   }
 
   Instance.element = element
