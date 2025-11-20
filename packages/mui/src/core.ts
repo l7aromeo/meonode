@@ -1,6 +1,6 @@
 'use strict'
 import { ElementType } from 'react'
-import type { DependencyList, HasRequiredProps, MergedProps, NodeElement, NodeInstance, NodeProps, PropsOf } from '@meonode/ui'
+import type { DependencyList, HasRequiredProps, MergedProps, NodeElementType, NodeInstance, NodeProps, PropsOf } from '@meonode/ui'
 import { Node } from '@meonode/ui'
 import { OverridableComponent, OverridableTypeMap, OverrideProps } from '@mui/material/OverridableComponent'
 import { extendTheme } from '@mui/material/styles'
@@ -66,12 +66,18 @@ type MuiNodeFactory<
  * @template InitialProperties Initial/Extra props baked in when creating the factory.
  * @template Element The React element type.
  */
-type GenericNodeFactory<Element extends NodeElement> =
+type GenericNodeFactory<Element extends NodeElementType> =
   HasRequiredProps<PropsOf<Element>> extends true
-    ? (<AdditionalProps extends Record<string, any> = Record<string, any>>(props: MergedProps<Element, AdditionalProps>) => NodeInstance<Element>) & {
+    ? (<AdditionalProps extends Record<string, any> = Record<string, any>>(
+        props: MergedProps<Element, AdditionalProps>,
+        deps?: DependencyList,
+      ) => NodeInstance<Element>) & {
         element: Element
       }
-    : (<AdditionalProps extends Record<string, any> = Record<string, any>>(props?: MergedProps<Element, AdditionalProps>) => NodeInstance<Element>) & {
+    : (<AdditionalProps extends Record<string, any> = Record<string, any>>(
+        props?: MergedProps<Element, AdditionalProps>,
+        deps?: DependencyList,
+      ) => NodeInstance<Element>) & {
         element: Element
       }
 
