@@ -5,11 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2025-12-05
+
+### Refactor
+- improve type parameter definitions in core.ts for MuiNodeFactory and GenericNodeFactory
+    - removed default `Record<string, any>` constraints on generic parameters to increase type flexibility
+    - added `ExactProps` generic parameter to `GenericNodeFactory` to enhance prop type precision
+    - updated related function signatures accordingly without changing runtime behavior
+
+### Chore
+- update dependencies to latest versions
+
 ## [1.1.1] - 2025-11-20
+
 - fix(core): add optional dependency list parameter to GenericNodeFactory function signatures
 - chore(deps): update @meonode/ui and other dependencies to latest versions
 
 ## [1.1.0] - 2025-11-14
+
 - chore(release): bump version to 1.1.0
 - feat(core): add dependency list parameter to createMuiNode function
 - chore(deps): update dependencies to latest versions
