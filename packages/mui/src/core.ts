@@ -47,10 +47,10 @@ type WithPolymorphic<TypeMap extends OverridableTypeMap, ComponentType extends E
  * @template DefaultComponent The default underlying element of the MUI component.
  */
 type MuiNodeFactory<
-  InitialProperties extends Record<string, any> = Record<string, any>,
+  InitialProperties,
   TypeMap extends OverridableTypeMap = OverridableTypeMap,
   DefaultComponent extends ElementType = TypeMap['defaultComponent'],
-> = (<AdditionalProperties extends Record<string, any> = Record<string, any>, ComponentType extends ElementType = DefaultComponent>(
+> = (<AdditionalProperties, ComponentType extends ElementType = DefaultComponent>(
   props?: NodeProps<OverridableComponent<WithPolymorphic<TypeMap, ComponentType>>> &
     Omit<
       OverrideProps<WithPolymorphic<TypeMap, ComponentType>, ComponentType>,
@@ -68,14 +68,14 @@ type MuiNodeFactory<
  */
 type GenericNodeFactory<Element extends NodeElementType> =
   HasRequiredProps<PropsOf<Element>> extends true
-    ? (<AdditionalProps extends Record<string, any> = Record<string, any>>(
-        props: MergedProps<Element, AdditionalProps>,
+    ? (<AdditionalProps, ExactProps extends object = object>(
+        props: MergedProps<Element, AdditionalProps, ExactProps>,
         deps?: DependencyList,
       ) => NodeInstance<Element>) & {
         element: Element
       }
-    : (<AdditionalProps extends Record<string, any> = Record<string, any>>(
-        props?: MergedProps<Element, AdditionalProps>,
+    : (<AdditionalProps, ExactProps extends object = object>(
+        props?: MergedProps<Element, AdditionalProps, ExactProps>,
         deps?: DependencyList,
       ) => NodeInstance<Element>) & {
         element: Element
