@@ -2,6 +2,9 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.2] - 2025-12-12
+- chore(deps): update dependencies to latest versions
+
 ## [1.2.1] - 2025-12-12
 - chore(deps): update Yarn and dependencies to latest versions
 
