@@ -2,21 +2,21 @@ import createMuiNode from '@src/core.js'
 import {
   RichTreeViewPro as MuiRichTreeViewPro,
   RichTreeViewProRoot as MuiRichTreeViewProRoot,
-  SimpleTreeViewRoot as MuiSimpleTreeViewRoot,
   SimpleTreeView as MuiSimpleTreeView,
+  SimpleTreeViewRoot as MuiSimpleTreeViewRoot,
   TreeItem as MuiTreeItem,
-  TreeItemContent as MuiTreeItemContent,
   TreeItemCheckbox as MuiTreeItemCheckbox,
+  TreeItemContent as MuiTreeItemContent,
   TreeItemDragAndDropOverlay as MuiTreeItemDragAndDropOverlay,
   TreeItemGroupTransition as MuiTreeItemGroupTransition,
+  TreeItemIcon as MuiTreeItemIcon,
   TreeItemIconContainer as MuiTreeItemIconContainer,
   TreeItemLabel as MuiTreeItemLabel,
   TreeItemLabelInput as MuiTreeItemLabelInput,
   TreeItemProvider as MuiTreeItemProvider,
   TreeItemRoot as MuiTreeItemRoot,
-  TreeItemIcon as MuiTreeItemIcon,
-  TreeViewExpandIcon as MuiTreeViewExpandIcon,
   TreeViewCollapseIcon as MuiTreeViewCollapseIcon,
+  TreeViewExpandIcon as MuiTreeViewExpandIcon,
 } from '@mui/x-tree-view-pro'
 
 /**
@@ -27,22 +27,23 @@ import {
  * - Theme context access and inheritance
  * - Proper component validation and error handling
  */
+
 export const RichTreeViewPro = createMuiNode(MuiRichTreeViewPro)
 export const RichTreeViewProRoot = createMuiNode(MuiRichTreeViewProRoot)
-export const SimpleTreeViewRoot = createMuiNode(MuiSimpleTreeViewRoot)
 export const SimpleTreeView = createMuiNode(MuiSimpleTreeView)
+export const SimpleTreeViewRoot = createMuiNode(MuiSimpleTreeViewRoot)
 
 export const TreeItem = createMuiNode(MuiTreeItem)
-export const TreeItemContent = createMuiNode(MuiTreeItemContent)
 export const TreeItemCheckbox = createMuiNode(MuiTreeItemCheckbox)
+export const TreeItemContent = createMuiNode(MuiTreeItemContent)
 export const TreeItemDragAndDropOverlay = createMuiNode(MuiTreeItemDragAndDropOverlay)
 export const TreeItemGroupTransition = createMuiNode(MuiTreeItemGroupTransition)
+export const TreeItemIcon = createMuiNode(MuiTreeItemIcon)
 export const TreeItemIconContainer = createMuiNode(MuiTreeItemIconContainer)
 export const TreeItemLabel = createMuiNode(MuiTreeItemLabel)
 export const TreeItemLabelInput = createMuiNode(MuiTreeItemLabelInput)
 export const TreeItemProvider = createMuiNode(MuiTreeItemProvider)
 export const TreeItemRoot = createMuiNode(MuiTreeItemRoot)
 
-export const TreeItemIcon = createMuiNode(MuiTreeItemIcon)
-export const TreeViewExpandIcon = createMuiNode(MuiTreeViewExpandIcon)
 export const TreeViewCollapseIcon = createMuiNode(MuiTreeViewCollapseIcon)
+export const TreeViewExpandIcon = createMuiNode(MuiTreeViewExpandIcon)
