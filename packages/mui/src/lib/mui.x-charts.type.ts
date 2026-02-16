@@ -8,6 +8,7 @@ export declare interface PieArcOwnerState {
   isFaded: boolean
   isHighlighted: boolean
   isFocused: boolean
+  stroke?: string
   classes?: Partial<PieArcClasses>
 }
 
@@ -20,8 +21,17 @@ export type PieArcProps = Omit<React.SVGProps<SVGPathElement>, 'ref' | 'id'> &
     outerRadius: number
     paddingAngle: number
     startAngle: number
-    /** @default false */
-    skipAnimation: boolean
+
+    /**
+     * If `true`, the animation is disabled.
+     */
+    skipAnimation?: boolean
+
+    /**
+     * If `true`, the default event handlers are disabled.
+     * Those are used, for example, to display a tooltip or highlight the arc on hover.
+     */
+    skipInteraction?: boolean
   } & React.RefAttributes<SVGPathElement>
 
 export interface PieArcLabelOwnerState {
@@ -43,4 +53,5 @@ export type PieArcLabelProps = PieArcLabelOwnerState &
     paddingAngle: number
     skipAnimation: boolean
     formattedArcLabel?: string | null
+    hidden?: boolean
   }
