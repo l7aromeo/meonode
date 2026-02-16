@@ -2,6 +2,30 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.0] - 2026-02-17
+
+### Feature
+
+- **mui**: add new component wrappers and improve formatting ([da952d4](https://github.com/l7aromeo/meonode-mui/commit/da952d4e2fabd2e274cfcbe535f0c7280b16ac1f))
+- **mui.lab**: add LoadingButton component ([104529a](https://github.com/l7aromeo/meonode-mui/commit/104529a5bbf5a34090a2835f10f8704ed2347990))
+- **mui**: add comprehensive support for MUI X-Charts components ([b6b13ca](https://github.com/l7aromeo/meonode-mui/commit/b6b13ca4bd0790d89b19b45b878508bcd723f336))
+- **charts**: add comprehensive support for MUI X Charts Pro ([3e16c7a](https://github.com/l7aromeo/meonode-mui/commit/3e16c7a8fccf11fa111fad024eeb83bbe08d7693))
+- **datagrid**: expand and refactor MUI X Data Grid component wrappers ([3438b59](https://github.com/l7aromeo/meonode-mui/commit/3438b5968a28644558e019caf9fa5c5fc7eb60e0))
+- **mui**: add type definitions for MUI X Data Grid components ([a982957](https://github.com/l7aromeo/meonode-mui/commit/a982957d22e39666f516eb7555b9edfb9d28e9c1))
+- **mui**: expand Data Grid Pro exports and update types ([ed7dffd](https://github.com/l7aromeo/meonode-mui/commit/ed7dffd5ac0cbd5908c81060400b286da7aedcb3))
+- **mui**: expand component exports for @mui/x-date-pickers ([366744a](https://github.com/l7aromeo/meonode-mui/commit/36674a4660ed9383f30f6815df3f8795665f38b2))
+- **mui**: expand x-date-pickers-pro exports ([8fedb56](https://github.com/l7aromeo/meonode-mui/commit/8fedb56ca7374bedfb8b7988a9df6f11863f82c8))
+
+### Refactor
+
+- **core**: replace NodeElementType with React ElementType ([ce5d1a9](https://github.com/l7aromeo/meonode-mui/commit/ce5d1a950d576c50a95c08921f8858ea8e2a07b9))
+
+### Chore
+
+- **deps**: update dependencies to latest versions ([37bc8b9](https://github.com/l7aromeo/meonode-mui/commit/37bc8b97f39f3d288e5da55571279f522da06f60))
+- sort imports and exports in mui.x-tree-view.ts ([7fcfc4d](https://github.com/l7aromeo/meonode-mui/commit/7fcfc4d982f1868aeb9e1ffadfba291c6d12b468))
+- alphabetize imports and exports in mui.x-tree-view-pro.ts ([aec594e](https://github.com/l7aromeo/meonode-mui/commit/aec594e9979b7a54cf492cbc0fcdde1bfae20ce2))
+
 ## [1.2.2] - 2025-12-12
 - chore(deps): update dependencies to latest versions
 
