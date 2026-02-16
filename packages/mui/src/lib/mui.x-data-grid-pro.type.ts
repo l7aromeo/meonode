@@ -2,7 +2,18 @@ import React from 'react'
 import { GridColumnHeaderSeparatorProps } from '@mui/x-data-grid-pro'
 import { GridStateColDef, PinnedColumnPosition } from '@mui/x-data-grid/internals'
 import { SxProps, Theme } from '@mui/system'
-import { GridRenderCellParams, GridSortDirection, GridColDef, GridFilterItem, GridFilterOperator, GridMenuProps, GridGroupNode } from '@mui/x-data-grid-pro'
+import {
+  GridRenderCellParams,
+  GridSortDirection,
+  GridColDef,
+  GridFilterItem,
+  GridFilterOperator,
+  GridMenuProps,
+  GridGroupNode,
+  GridTreeNodeWithRender,
+  GridValidRowModel,
+  GridRowParams,
+} from '@mui/x-data-grid-pro'
 
 export interface GridColumnHeaderItemProps {
   colIndex: number
@@ -41,9 +52,41 @@ export type GridSelectedRowCountProps = React.HTMLAttributes<HTMLDivElement> &
     sx?: SxProps<Theme>
   }
 
-export interface GridActionsCellProps extends Omit<GridRenderCellParams, 'api'> {
+export interface GridActionsCellProps<
+  R extends GridValidRowModel = any,
+  V = any,
+  F = V,
+  N extends GridTreeNodeWithRender = GridTreeNodeWithRender,
+> extends Omit<GridRenderCellParams<R, V, F, N>, 'api'> {
   api?: GridRenderCellParams['api']
   position?: GridMenuProps['position']
+  children: React.ReactNode
+
+  /**
+   * If true, the children passed to the component will not be validated.
+   * If false, only `GridActionsCellItem` and `React.Fragment` are allowed as children.
+   * Only use this prop if you know what you are doing.
+   * @default false
+   */
+  suppressChildrenValidation?: boolean
+
+  /**
+   * Callback to fire before the menu gets opened.
+   * Use this callback to prevent the menu from opening.
+   * @param {GridRowParams<R>} params Row parameters.
+   * @param {React.MouseEvent<HTMLElement>} event The event triggering this callback.
+   * @returns {boolean} if the menu should be opened.
+   */
+  onMenuOpen?: (params: GridRowParams<R>, event: React.MouseEvent<HTMLElement>) => boolean
+
+  /**
+   * Callback to fire before the menu gets closed.
+   * Use this callback to prevent the menu from closing.
+   * @param {GridRowParams<R>} params Row parameters.
+   * @param {React.MouseEvent<HTMLElement> | React.KeyboardEvent | MouseEvent | TouchEvent | undefined} event The event triggering this callback.
+   * @returns {boolean} if the menu should be closed.
+   */
+  onMenuClose?: (params: GridRowParams<R>, event: React.MouseEvent<HTMLElement> | React.KeyboardEvent | MouseEvent | TouchEvent | undefined) => boolean
 }
 
 export interface GridHeaderFilterMenuProps {
