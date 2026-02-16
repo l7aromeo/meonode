@@ -1,6 +1,6 @@
 'use strict'
 import { ElementType } from 'react'
-import type { DependencyList, HasRequiredProps, MergedProps, NodeElementType, NodeInstance, NodeProps, PropsOf } from '@meonode/ui'
+import type { DependencyList, HasRequiredProps, MergedProps, NodeInstance, NodeProps, PropsOf } from '@meonode/ui'
 import { Node } from '@meonode/ui'
 import { OverridableComponent, OverridableTypeMap, OverrideProps } from '@mui/material/OverridableComponent'
 import { extendTheme } from '@mui/material/styles'
@@ -59,14 +59,14 @@ type MuiNodeFactory<
     InitialProperties &
     AdditionalProperties,
   deps?: DependencyList,
-) => NodeInstance<OverridableComponent<WithPolymorphic<TypeMap, ComponentType>>>) & { element: Element }
+) => NodeInstance<OverridableComponent<WithPolymorphic<TypeMap, ComponentType>>>) & { element: ElementType }
 
 /**
  * Factory for generic React elements.
  * @template InitialProperties Initial/Extra props baked in when creating the factory.
  * @template Element The React element type.
  */
-type GenericNodeFactory<Element extends NodeElementType> =
+type GenericNodeFactory<Element extends ElementType> =
   HasRequiredProps<PropsOf<Element>> extends true
     ? (<AdditionalProps, ExactProps extends object = object>(
         props: MergedProps<Element, AdditionalProps, ExactProps>,
