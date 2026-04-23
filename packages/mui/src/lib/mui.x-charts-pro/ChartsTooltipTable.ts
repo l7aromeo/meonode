@@ -1,0 +1,5 @@
+import { createMuiNode } from '@src/core.js'
+import { ChartsTooltipTable as MuiChartsTooltipTable } from '@mui/x-charts-pro'
+
+const ChartsTooltipTable = createMuiNode(MuiChartsTooltipTable)
+export default ChartsTooltipTable

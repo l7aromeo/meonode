@@ -1,15 +1,9 @@
 'use strict'
-import { ElementType } from 'react'
+import type { ElementType } from 'react'
 import type { DependencyList, HasRequiredProps, MergedProps, NodeInstance, NodeProps, PropsOf } from '@meonode/ui'
 import { Node } from '@meonode/ui'
-import { OverridableComponent, OverridableTypeMap, OverrideProps } from '@mui/material/OverridableComponent'
+import type { OverridableComponent, OverridableTypeMap, OverrideProps } from '@mui/material/OverridableComponent'
 import { extendTheme } from '@mui/material/styles'
-
-// --- Global type sentinel ---------------------------------------
-
-declare global {
-  const UNDEFINED_VOID_ONLY: unique symbol
-}
 
 // --- Theme detection --------------------------------------------
 
@@ -39,6 +33,24 @@ type WithPolymorphic<TypeMap extends OverridableTypeMap, ComponentType extends E
   props: TypeMap['props'] & Partial<{ component: ComponentType }>
   defaultComponent: TypeMap['defaultComponent']
 }
+
+/**
+ * Public type alias for the factory returned by `createMuiNode`. Use this to annotate
+ * exported wrappers so TypeScript can write the annotation verbatim into the emitted
+ * `.d.ts` (avoiding TS4023 / TS2883 when MUI's inferred prop types live in non-portable
+ * deep `*.mjs` paths). Routes OverridableComponents to the polymorphic factory and
+ * everything else to the generic element factory.
+ */
+export type WrappedMui<E> =
+  E extends OverridableComponent<infer TypeMap>
+    ? OverridableTypeMap extends TypeMap
+      ? E extends ElementType
+        ? GenericNodeFactory<E>
+        : never
+      : MuiNodeFactory<object, TypeMap>
+    : E extends ElementType
+      ? GenericNodeFactory<E>
+      : never
 
 /**
  * Factory for Material-UI components.

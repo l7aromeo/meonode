@@ -1,0 +1,5 @@
+import { createMuiNode } from '@src/core.js'
+import { GridTableRowsIcon as MuiGridTableRowsIcon } from '@mui/x-data-grid-pro'
+
+const GridTableRowsIcon = createMuiNode(MuiGridTableRowsIcon)
+export default GridTableRowsIcon
