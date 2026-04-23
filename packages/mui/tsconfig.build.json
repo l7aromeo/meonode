@@ -10,10 +10,14 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "resolveJsonModule": true,
-    "baseUrl": ".",
-    "outDir": "./dist",
-    "rootDir": "./src-gen"
+    "verbatimModuleSyntax": true,
+    "outDir": "./dist/types",
+    "rootDir": "./src",
+    "paths": {
+      "@src/*": ["./src/*"]
+    },
+    "types": ["node"]
   },
-  "include": ["src-gen"],
-  "exclude": ["dist", "node_modules"]
+  "include": ["src"],
+  "exclude": ["dist", "node_modules", "rollup.config.ts"]
 }

@@ -2,7 +2,6 @@ import js from "@eslint/js";
 import tsEslint from 'typescript-eslint'
 import prettier from 'eslint-plugin-prettier'
 import unusedImports from 'eslint-plugin-unused-imports'
-import tsParser from '@typescript-eslint/parser'
 import jsDoc from 'eslint-plugin-jsdoc'
 import globals from "globals";
 
@@ -17,7 +16,7 @@ const eslintConfig = [
     files: ['**/*.js', '**/*.jsx', '**/*.ts', '**/*.tsx'],
     languageOptions: {
       ecmaVersion: 2026,
-      parser: tsParser,
+      parser: tsEslint.parser,
       globals: {
         ...globals.node,
         ...globals.es2026
