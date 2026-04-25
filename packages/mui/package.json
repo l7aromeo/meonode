@@ -24,7 +24,7 @@
     "README.md"
   ],
   "scripts": {
-    "build": "rm -rf ./dist && rollup -c rollup.config.ts --configPlugin @rollup/plugin-typescript && tsc -p tsconfig.build.json && tsc-alias -p tsconfig.build.json",
+    "build": "rm -rf ./dist && rollup -c rollup.config.ts --configPlugin typescript && tsc -p tsconfig.build.json && tsc-alias -p tsconfig.build.json",
     "generate:lib": "bun scripts/generate-wrapper-lib.js",
     "lint": "eslint --fix && tsc --noEmit",
     "release": "semantic-release",
@@ -38,6 +38,26 @@
       "import": "./dist/esm/main.js",
       "require": "./dist/cjs/main.cjs",
       "types": "./dist/types/main.d.ts"
+    },
+    "./nextjs13": {
+      "import": "./dist/esm/lib/mui.nextjs13/index.js",
+      "require": "./dist/cjs/lib/mui.nextjs13/index.cjs",
+      "types": "./dist/types/lib/mui.nextjs13/index.d.ts"
+    },
+    "./nextjs14": {
+      "import": "./dist/esm/lib/mui.nextjs14/index.js",
+      "require": "./dist/cjs/lib/mui.nextjs14/index.cjs",
+      "types": "./dist/types/lib/mui.nextjs14/index.d.ts"
+    },
+    "./nextjs15": {
+      "import": "./dist/esm/lib/mui.nextjs15/index.js",
+      "require": "./dist/cjs/lib/mui.nextjs15/index.cjs",
+      "types": "./dist/types/lib/mui.nextjs15/index.d.ts"
+    },
+    "./nextjs16": {
+      "import": "./dist/esm/lib/mui.nextjs16/index.js",
+      "require": "./dist/cjs/lib/mui.nextjs16/index.cjs",
+      "types": "./dist/types/lib/mui.nextjs16/index.d.ts"
     },
     "./lab": {
       "import": "./dist/esm/lib/mui.lab/index.js",
@@ -89,6 +109,7 @@
     "@meonode/ui": "^1.4.5",
     "@mui/lab": "^9.0.0-beta.2",
     "@mui/material": "^9.0.0",
+    "@mui/material-nextjs": "^9.0.0",
     "@mui/x-charts": "9.0.2",
     "@mui/x-charts-pro": "^9.0.2",
     "@mui/x-data-grid": "^9.0.2",
@@ -107,6 +128,7 @@
     "@meonode/ui": "^1.4.5",
     "@mui/lab": "^9.0.0-beta.2",
     "@mui/material": "^9.0.0",
+    "@mui/material-nextjs": "^9.0.0",
     "@mui/x-charts": "9.0.2",
     "@mui/x-charts-pro": "^9.0.2",
     "@mui/x-data-grid": "^9.0.2",

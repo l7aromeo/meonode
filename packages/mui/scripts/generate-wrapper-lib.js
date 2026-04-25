@@ -44,6 +44,10 @@ function incCode(code) {
 
 const MODULE_CONFIGS = [
   { key: 'mui.core', importPath: '@mui/material' },
+  { key: 'mui.nextjs13', importPath: '@mui/material-nextjs/v13-appRouter' },
+  { key: 'mui.nextjs14', importPath: '@mui/material-nextjs/v14-appRouter' },
+  { key: 'mui.nextjs15', importPath: '@mui/material-nextjs/v15-appRouter' },
+  { key: 'mui.nextjs16', importPath: '@mui/material-nextjs/v16-appRouter' },
   { key: 'mui.lab', importPath: '@mui/lab' },
   { key: 'mui.x-date-pickers', importPath: '@mui/x-date-pickers' },
   { key: 'mui.x-date-pickers-pro', importPath: '@mui/x-date-pickers-pro' },
@@ -330,8 +334,7 @@ function generateModule(config, autoWrappedMap = {}, excludedMap = {}) {
   for (const entry of importEntries) {
     entry.componentNames = entry.componentNames.filter(name => !excluded.has(name))
   }
-  const autoWrapped = new Set(autoWrappedMap[cacheKey] ?? [])
-  const wrappedMuiSet = autoWrapped
+  const wrappedMuiSet = new Set(autoWrappedMap[cacheKey] ?? [])
   renderModuleFiles(config, importEntries, wrappedMuiSet)
   console.log(`Generated ${cacheKey} (${seen.size} exports)`)
 }

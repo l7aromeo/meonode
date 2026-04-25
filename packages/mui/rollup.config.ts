@@ -14,6 +14,10 @@ const SRC_DIR = path.resolve(__dirname, 'src')
 const input = [
   'src/main.ts',
   'src/core.ts',
+  'src/lib/mui.nextjs13/index.ts',
+  'src/lib/mui.nextjs14/index.ts',
+  'src/lib/mui.nextjs15/index.ts',
+  'src/lib/mui.nextjs16/index.ts',
   'src/lib/mui.core/index.ts',
   'src/lib/mui.lab/index.ts',
   'src/lib/mui.x-date-pickers/index.ts',
@@ -46,7 +50,7 @@ const plugins = [
   esbuild({
     target: 'es2020',
     sourceMap: true,
-    tsconfig: path.resolve(__dirname, 'tsconfig.json'),
+    tsconfig: path.resolve(__dirname, 'tsconfig.build.json'),
   }),
 ]
 
