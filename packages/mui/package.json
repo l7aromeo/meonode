@@ -86,7 +86,7 @@
     }
   },
   "peerDependencies": {
-    "@meonode/ui": "^1.4.3",
+    "@meonode/ui": "^1.4.5",
     "@mui/lab": "^9.0.0-beta.2",
     "@mui/material": "^9.0.0",
     "@mui/x-charts": "9.0.2",
@@ -104,7 +104,7 @@
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.1",
     "@eslint/js": "^10.0.1",
-    "@meonode/ui": "^1.4.3",
+    "@meonode/ui": "^1.4.5",
     "@mui/lab": "^9.0.0-beta.2",
     "@mui/material": "^9.0.0",
     "@mui/x-charts": "9.0.2",
