@@ -48,7 +48,7 @@ const plugins = [
   }),
   commonjs(),
   esbuild({
-    target: 'es2020',
+    target: 'ESNext',
     sourceMap: true,
     tsconfig: path.resolve(__dirname, 'tsconfig.build.json'),
   }),
