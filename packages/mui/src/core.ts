@@ -76,10 +76,13 @@ type MuiBaseProps<TypeMap extends OverridableTypeMap> = Omit<BaseProps<TypeMap>,
  */
 type MeonodeDirectCssProps<ComponentType extends ElementType> = HasCSSCompatibleStyleProp<PropsOf<ComponentType>> extends true ? ThemedCSSProperties : object
 
-/** MUI `BaseProps` with direct-CSS keys removed so {@link MeonodeDirectCssProps} wins for them. */
-type MuiBasePropsForMerge<TypeMap extends OverridableTypeMap, ComponentType extends ElementType> = Omit<
-  MuiBaseProps<TypeMap>,
-  keyof MeonodeDirectCssProps<ComponentType>
+/**
+ * MUI `BaseProps` with direct-CSS keys removed, wrapped in `Partial` so declaration
+ * emit stays optional for consumers. Without `Partial`, TypeScript expands the
+ * distributive `Omit` in published `.d.ts` files and makes every MUI prop required.
+ */
+type MuiComponentPropsLayer<TypeMap extends OverridableTypeMap, ComponentType extends ElementType> = Partial<
+  Omit<MuiBaseProps<TypeMap>, keyof MeonodeDirectCssProps<ComponentType>>
 >
 
 /**
@@ -87,7 +90,7 @@ type MuiBasePropsForMerge<TypeMap extends OverridableTypeMap, ComponentType exte
  *
  * Built so the resolved element (`ComponentType`) drives DOM/event prop types when
  * forwarding to the root (e.g. `onClick` typed for `<a>` when `component="a"`).
- * MUI component props from `MuiBasePropsForMerge` take precedence over overlapping
+ * MUI component props from `MuiComponentPropsLayer` take precedence over overlapping
  * root element props (e.g. Accordion `onChange` vs div `onChange`). meonode-only
  * extras (`css`, `children` as `Children`, `props` passthrough, `ref`/`key`,
  * `disableEmotion`, and direct themed CSS props when the root supports style tags)
@@ -106,9 +109,9 @@ type MuiBasePropsForMerge<TypeMap extends OverridableTypeMap, ComponentType exte
  */
 type MuiNodeProps<TypeMap extends OverridableTypeMap, ComponentType extends ElementType> = Omit<
   NodeProps<ComponentType>,
-  keyof MuiBasePropsForMerge<TypeMap, ComponentType>
+  keyof MuiComponentPropsLayer<TypeMap, ComponentType>
 > &
-  MuiBasePropsForMerge<TypeMap, ComponentType> &
+  MuiComponentPropsLayer<TypeMap, ComponentType> &
   MeonodeDirectCssProps<ComponentType> & { as?: never }
 
 /**
