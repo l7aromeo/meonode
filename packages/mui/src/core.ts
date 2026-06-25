@@ -50,13 +50,13 @@ export type WrappedMui<E> =
 /**
  * Props accepted by an OverridableComponent wrapper for a resolved root element.
  *
- * Built so the resolved element (`ComponentType`) — not the component's default
- * element — drives the DOM/event prop types. This is what gives correct event
- * inference (e.g. `onClick` typed for `<a>` when `component="a"`). meonode's own
- * `NodeProps` extras (themed CSS props, `css`, `children` as `Children`, `props`
- * passthrough, `ref`/`key`) take precedence; MUI's component-specific props
- * (`variant`, `color`, etc. from the TypeMap) are layered in for any key meonode
- * does not already own.
+ * Built so the resolved element (`ComponentType`) drives DOM/event prop types when
+ * forwarding to the root (e.g. `onClick` typed for `<a>` when `component="a"`).
+ * MUI component props from `BaseProps` take precedence over overlapping root
+ * element props (e.g. Accordion `onChange` vs div `onChange`). meonode-only
+ * extras (`css`, themed CSS props, `children` as `Children`, `props` passthrough,
+ * `ref`/`key`, `disableEmotion`) remain from `NodeProps` when absent in
+ * `BaseProps`.
  *
  * The Emotion-style `as` prop is explicitly forbidden here (`as?: never`).
  * OverridableComponents are polymorphic via MUI's own `component` prop, which
@@ -67,17 +67,17 @@ export type WrappedMui<E> =
  * @template TypeMap The OverridableTypeMap of the MUI component.
  * @template ComponentType The resolved root element type.
  */
-type MuiNodeProps<TypeMap extends OverridableTypeMap, ComponentType extends ElementType> = NodeProps<ComponentType> &
-  Omit<BaseProps<TypeMap>, keyof NodeProps<ComponentType>> & { as?: never }
+type MuiNodeProps<TypeMap extends OverridableTypeMap, ComponentType extends ElementType> = Omit<NodeProps<ComponentType>, keyof BaseProps<TypeMap>> &
+  BaseProps<TypeMap> & { as?: never }
 
 /**
  * Factory for Material-UI OverridableComponents.
  *
- * Mirrors MUI's own `OverridableComponent` typing with two call signatures so the
- * root element is inferred from the `component` prop:
- * - When `component` is provided, `ComponentType` is inferred from it and the props
- *   (including event handlers) are typed against that element.
- * - Otherwise the component's default element is used.
+ * Single generic signature (MUI-style): `ComponentType` defaults to the component's
+ * default element and is inferred from the optional `component` prop when present.
+ * This keeps `component` optional on the default call while still narrowing DOM/event
+ * props when it is set — without a separate overload that incorrectly surfaces
+ * "Property 'component' is missing" when overload resolution fails elsewhere.
  * @template InitialProperties Initial/Extra props baked in when creating the factory.
  * @template TypeMap The OverridableTypeMap of the MUI component.
  * @template DefaultComponent The default underlying element of the MUI component.
@@ -87,11 +87,10 @@ type MuiNodeFactory<
   TypeMap extends OverridableTypeMap = OverridableTypeMap,
   DefaultComponent extends ElementType = TypeMap['defaultComponent'],
 > = {
-  <ComponentType extends ElementType>(
-    props: { component: ComponentType } & MuiNodeProps<TypeMap, ComponentType> & InitialProperties,
+  <ComponentType extends ElementType = DefaultComponent>(
+    props?: MuiNodeProps<TypeMap, ComponentType> & InitialProperties,
     deps?: DependencyList,
-  ): NodeInstance<ComponentType>
-  (props?: MuiNodeProps<TypeMap, DefaultComponent> & InitialProperties, deps?: DependencyList): NodeInstance<DefaultComponent>
+  ): NodeInstance<NoInfer<ComponentType>>
 } & { element: ElementType }
 
 /**
