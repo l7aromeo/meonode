@@ -1,5 +1,5 @@
-import { createMuiNode, type WrappedMui } from '@src/core.js'
+import { createMuiNode } from '@src/core.js'
 import { TabList as MuiTabList } from '@mui/lab'
 
-const TabList: WrappedMui<typeof MuiTabList> = createMuiNode(MuiTabList)
+const TabList = createMuiNode(MuiTabList)
 export default TabList
