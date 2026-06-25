@@ -48,15 +48,25 @@ export type WrappedMui<E> =
       : never
 
 /**
+ * Keys owned by `@meonode/ui` that must not be replaced when layering MUI `BaseProps`
+ * on top of `NodeProps`. Without this, `BaseProps.children` (`ReactNode`) wins over
+ * meonode's `Children` (NodeInstance / node factories / async nodes).
+ */
+type MeonodeReservedKeys = 'children' | 'css' | 'disableEmotion' | 'props'
+
+/** MUI component props with meonode-reserved keys stripped so they never override {@link NodeProps}. */
+type MuiBaseProps<TypeMap extends OverridableTypeMap> = Omit<BaseProps<TypeMap>, MeonodeReservedKeys>
+
+/**
  * Props accepted by an OverridableComponent wrapper for a resolved root element.
  *
  * Built so the resolved element (`ComponentType`) drives DOM/event prop types when
  * forwarding to the root (e.g. `onClick` typed for `<a>` when `component="a"`).
- * MUI component props from `BaseProps` take precedence over overlapping root
+ * MUI component props from `MuiBaseProps` take precedence over overlapping root
  * element props (e.g. Accordion `onChange` vs div `onChange`). meonode-only
- * extras (`css`, themed CSS props, `children` as `Children`, `props` passthrough,
- * `ref`/`key`, `disableEmotion`) remain from `NodeProps` when absent in
- * `BaseProps`.
+ * extras (`css`, `children` as `Children`, `props` passthrough, `ref`/`key`,
+ * `disableEmotion`, themed CSS props) stay on {@link NodeProps} via
+ * {@link MeonodeReservedKeys} even when MUI also declares `children`.
  *
  * The Emotion-style `as` prop is explicitly forbidden here (`as?: never`).
  * OverridableComponents are polymorphic via MUI's own `component` prop, which
@@ -67,8 +77,8 @@ export type WrappedMui<E> =
  * @template TypeMap The OverridableTypeMap of the MUI component.
  * @template ComponentType The resolved root element type.
  */
-type MuiNodeProps<TypeMap extends OverridableTypeMap, ComponentType extends ElementType> = Omit<NodeProps<ComponentType>, keyof BaseProps<TypeMap>> &
-  BaseProps<TypeMap> & { as?: never }
+type MuiNodeProps<TypeMap extends OverridableTypeMap, ComponentType extends ElementType> = Omit<NodeProps<ComponentType>, keyof MuiBaseProps<TypeMap>> &
+  MuiBaseProps<TypeMap> & { as?: never }
 
 /**
  * Factory for Material-UI OverridableComponents.
