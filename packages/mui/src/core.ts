@@ -1,6 +1,16 @@
 'use strict'
 import type { ElementType } from 'react'
-import type { DependencyList, HasRequiredProps, NodeElementType, NodeInstance, NodeProps, PolymorphicProps, PropsOf } from '@meonode/ui'
+import type {
+  DependencyList,
+  HasCSSCompatibleStyleProp,
+  HasRequiredProps,
+  NodeElementType,
+  NodeInstance,
+  NodeProps,
+  PolymorphicProps,
+  PropsOf,
+  ThemedCSSProperties,
+} from '@meonode/ui'
 import { Node } from '@meonode/ui'
 import type { BaseProps, OverridableComponent, OverridableTypeMap } from '@mui/material/OverridableComponent'
 import { extendTheme } from '@mui/material/styles'
@@ -58,15 +68,32 @@ type MeonodeReservedKeys = 'children' | 'css' | 'disableEmotion' | 'props'
 type MuiBaseProps<TypeMap extends OverridableTypeMap> = Omit<BaseProps<TypeMap>, MeonodeReservedKeys>
 
 /**
+ * Top-level themed CSS props from {@link NodeProps} (gated by style-tag support on
+ * `ComponentType`). These always win at runtime (meonode Emotion processing) and
+ * in typing. MUI props that share a name with a CSS property (e.g. Button palette
+ * `color`) are stripped from the MUI layer here — pass them via {@link NodeProps}'s
+ * `props` passthrough to skip meonode CSS processing and reach MUI unchanged.
+ */
+type MeonodeDirectCssProps<ComponentType extends ElementType> = HasCSSCompatibleStyleProp<PropsOf<ComponentType>> extends true ? ThemedCSSProperties : object
+
+/** MUI `BaseProps` with direct-CSS keys removed so {@link MeonodeDirectCssProps} wins for them. */
+type MuiBasePropsForMerge<TypeMap extends OverridableTypeMap, ComponentType extends ElementType> = Omit<
+  MuiBaseProps<TypeMap>,
+  keyof MeonodeDirectCssProps<ComponentType>
+>
+
+/**
  * Props accepted by an OverridableComponent wrapper for a resolved root element.
  *
  * Built so the resolved element (`ComponentType`) drives DOM/event prop types when
  * forwarding to the root (e.g. `onClick` typed for `<a>` when `component="a"`).
- * MUI component props from `MuiBaseProps` take precedence over overlapping root
- * element props (e.g. Accordion `onChange` vs div `onChange`). meonode-only
+ * MUI component props from `MuiBasePropsForMerge` take precedence over overlapping
+ * root element props (e.g. Accordion `onChange` vs div `onChange`). meonode-only
  * extras (`css`, `children` as `Children`, `props` passthrough, `ref`/`key`,
- * `disableEmotion`, themed CSS props) stay on {@link NodeProps} via
- * {@link MeonodeReservedKeys} even when MUI also declares `children`.
+ * `disableEmotion`, and direct themed CSS props when the root supports style tags)
+ * stay on {@link NodeProps} / {@link MeonodeDirectCssProps} — direct CSS always
+ * wins over MUI for the same key at runtime; use `props` to reach MUI without
+ * meonode CSS processing.
  *
  * The Emotion-style `as` prop is explicitly forbidden here (`as?: never`).
  * OverridableComponents are polymorphic via MUI's own `component` prop, which
@@ -77,8 +104,12 @@ type MuiBaseProps<TypeMap extends OverridableTypeMap> = Omit<BaseProps<TypeMap>,
  * @template TypeMap The OverridableTypeMap of the MUI component.
  * @template ComponentType The resolved root element type.
  */
-type MuiNodeProps<TypeMap extends OverridableTypeMap, ComponentType extends ElementType> = Omit<NodeProps<ComponentType>, keyof MuiBaseProps<TypeMap>> &
-  MuiBaseProps<TypeMap> & { as?: never }
+type MuiNodeProps<TypeMap extends OverridableTypeMap, ComponentType extends ElementType> = Omit<
+  NodeProps<ComponentType>,
+  keyof MuiBasePropsForMerge<TypeMap, ComponentType>
+> &
+  MuiBasePropsForMerge<TypeMap, ComponentType> &
+  MeonodeDirectCssProps<ComponentType> & { as?: never }
 
 /**
  * Factory for Material-UI OverridableComponents.
