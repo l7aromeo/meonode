@@ -1,0 +1,73 @@
+{
+  "src/lib/mui.core": [
+    "Backdrop",
+    "Slider"
+  ],
+  "src/lib/mui.x-charts-pro": [
+    "ChartsContainerPro",
+    "ChartsToolbarZoomInTrigger",
+    "ChartsToolbarZoomOutTrigger",
+    "FunnelSection",
+    "FunnelSectionLabel",
+    "PieArcLabel"
+  ],
+  "src/lib/mui.x-charts": [
+    "PieArcLabel"
+  ],
+  "src/lib/mui.x-data-grid-premium": [
+    "DataGridPremium",
+    "GridActionsCellItem",
+    "GridBooleanCell",
+    "GridColumnHeaderItem",
+    "GridColumnHeaderSeparator",
+    "GridColumnHeaderSortIcon",
+    "GridFilterPanel",
+    "GridRowCount",
+    "GridSelectedRowCount",
+    "GridSkeletonCell",
+    "GridToolbarColumnsButton",
+    "GridToolbarDensitySelector",
+    "GridToolbarExportContainer",
+    "PromptField"
+  ],
+  "src/lib/mui.x-data-grid-pro": [
+    "DataGridPro",
+    "GridActionsCellItem",
+    "GridBooleanCell",
+    "GridColumnHeaderItem",
+    "GridColumnHeaderSeparator",
+    "GridColumnHeaderSortIcon",
+    "GridFilterPanel",
+    "GridRowCount",
+    "GridSelectedRowCount",
+    "GridSkeletonCell",
+    "GridToolbarColumnsButton",
+    "GridToolbarDensitySelector",
+    "GridToolbarExportContainer"
+  ],
+  "src/lib/mui.x-data-grid": [
+    "DataGrid",
+    "GridActionsCellItem",
+    "GridBooleanCell",
+    "GridColumnHeaderItem",
+    "GridColumnHeaderSeparator",
+    "GridColumnHeaderSortIcon",
+    "GridFilterPanel",
+    "GridRowCount",
+    "GridSelectedRowCount",
+    "GridSkeletonCell",
+    "GridToolbarColumnsButton",
+    "GridToolbarDensitySelector",
+    "GridToolbarExportContainer"
+  ],
+  "src/lib/mui.x-date-pickers-pro": [
+    "DateTimeRangePickerTabs",
+    "PickersActionBar",
+    "PickersTextField",
+    "TimeRangePickerTabs"
+  ],
+  "src/lib/mui.x-date-pickers": [
+    "PickersActionBar",
+    "PickersTextField"
+  ]
+}
