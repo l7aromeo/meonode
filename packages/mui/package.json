@@ -106,7 +106,7 @@
     }
   },
   "peerDependencies": {
-    "@meonode/ui": "^1.6.0",
+    "@meonode/ui": "^1.6.1",
     "@mui/lab": "^9.0.0-beta.5",
     "@mui/material": "^9.1.2",
     "@mui/material-nextjs": "^9.1.1",
@@ -125,7 +125,7 @@
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.1",
     "@eslint/js": "^10.0.1",
-    "@meonode/ui": "^1.6.0",
+    "@meonode/ui": "^1.6.1",
     "@mui/lab": "^9.0.0-beta.5",
     "@mui/material": "^9.1.2",
     "@mui/material-nextjs": "^9.1.1",

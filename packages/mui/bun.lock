@@ -8,7 +8,7 @@
         "@emotion/react": "^11.14.0",
         "@emotion/styled": "^11.14.1",
         "@eslint/js": "^10.0.1",
-        "@meonode/ui": "^1.6.0",
+        "@meonode/ui": "^1.6.1",
         "@mui/lab": "^9.0.0-beta.5",
         "@mui/material": "^9.1.2",
         "@mui/material-nextjs": "^9.1.1",
@@ -46,7 +46,7 @@
         "typescript-eslint": "^8.62.0",
       },
       "peerDependencies": {
-        "@meonode/ui": "^1.6.0",
+        "@meonode/ui": "^1.6.1",
         "@mui/lab": "^9.0.0-beta.5",
         "@mui/material": "^9.1.2",
         "@mui/material-nextjs": "^9.1.1",
@@ -274,7 +274,7 @@
 
     "@jridgewell/trace-mapping": ["@jridgewell/trace-mapping@0.3.31", "https://registry.npmmirror.com/@jridgewell/trace-mapping/-/trace-mapping-0.3.31.tgz", { "dependencies": { "@jridgewell/resolve-uri": "^3.1.0", "@jridgewell/sourcemap-codec": "^1.4.14" } }, "sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw=="],
 
-    "@meonode/ui": ["@meonode/ui@1.6.0", "https://registry.npmmirror.com/@meonode/ui/-/ui-1.6.0.tgz", { "dependencies": { "@emotion/react": "^11.14.0", "@emotion/serialize": "^1.3.3", "@emotion/utils": "^1.4.2" }, "peerDependencies": { "@emotion/cache": ">=11.14.0", "react": ">=19.2.0", "react-dom": ">=19.2.0" } }, "sha512-oRJF5iXjcOpZtWxFq4gofocInbv3ZBZ4qlEmoeDSA8okvg+4uQYyw3klLla+6b9V5dsHU3shjK+OAF6KsOh89Q=="],
+    "@meonode/ui": ["@meonode/ui@1.6.1", "https://registry.npmmirror.com/@meonode/ui/-/ui-1.6.1.tgz", { "dependencies": { "@emotion/react": "^11.14.0", "@emotion/serialize": "^1.3.3", "@emotion/utils": "^1.4.2" }, "peerDependencies": { "@emotion/cache": ">=11.14.0", "react": ">=19.2.0", "react-dom": ">=19.2.0" } }, "sha512-tO5O+Muoja5pnK/HNONJdHBMfTzD0Vk7RtuFDVZzj9XcoTW7IFWnGcoje2PpAcEzMV+VQt9LLm4SLrVpA3FMrw=="],
 
     "@mui/core-downloads-tracker": ["@mui/core-downloads-tracker@9.1.2", "https://registry.npmmirror.com/@mui/core-downloads-tracker/-/core-downloads-tracker-9.1.2.tgz", {}, "sha512-ZMufoA/YFOEVp48lskcAOTlQYwpdBk4Z++4yUgPDEfuLHIpxBx9g+urGmIBKOtr+7M0ZlYfCxSvrJpEE/S32sg=="],
 
