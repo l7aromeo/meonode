@@ -69,8 +69,5 @@
   "src/lib/mui.x-date-pickers": [
     "PickersActionBar",
     "PickersTextField"
-  ],
-  "src/lib/mui.lab": [
-    "TabList"
   ]
 }
