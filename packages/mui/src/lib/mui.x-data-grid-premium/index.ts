@@ -78,6 +78,7 @@ export { default as GridFilterInputSingleSelect } from './GridFilterInputSingleS
 export { default as GridFilterInputValue } from './GridFilterInputValue.js'
 export { default as GridFilterListIcon } from './GridFilterListIcon.js'
 export { default as GridFilterPanel } from './GridFilterPanel.js'
+export { default as GridFilterPanelBase } from './GridFilterPanelBase.js'
 export { default as GridFooter } from './GridFooter.js'
 export { default as GridFooterContainer } from './GridFooterContainer.js'
 export { default as GridFooterPlaceholder } from './GridFooterPlaceholder.js'
