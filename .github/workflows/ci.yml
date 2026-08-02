@@ -84,6 +84,24 @@ jobs:
           path: packages/compiler/npm/meonode_swc_plugin.wasm
           retention-days: 1
 
+  # Under semantic-release a change that shipped nothing was indistinguishable
+  # from one that simply had a vague title. Here the intent is explicit, so it
+  # can be checked: a pull request touching a published package must say what
+  # release it wants. `changeset add --empty` is the documented way to say
+  # "none", and it leaves that decision in the diff rather than in someone's
+  # memory.
+  changeset:
+    name: Changeset present
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bunx changeset status --since=origin/${{ github.base_ref }}
+
   lint:
     name: Lint
     needs: changes

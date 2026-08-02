@@ -1,0 +1,79 @@
+# Publishing, via Changesets.
+#
+# Replaces three semantic-release setups. semantic-release derived the release
+# from the squashed commit title, which is why the repo needed pr-title.yml to
+# police it; here the intent lives in a committed .changeset/*.md file instead,
+# so a mistyped title can no longer decide whether something ships.
+#
+# On every push to main this opens (or updates) a "Version Packages" pull
+# request containing the version bumps and changelog entries. Merging that PR
+# is what actually publishes: the next run finds no pending changesets, so
+# `changeset publish` pushes the built packages to npm and creates one git tag
+# per released package.
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: Version or publish
+    runs-on: ubuntu-latest
+    environment: Production
+    permissions:
+      contents: write
+      pull-requests: write
+      # Required for npm trusted publishing (OIDC). Without it npm falls back
+      # to looking for a token and the publish fails.
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: lts/*
+          registry-url: https://registry.npmjs.org
+
+      # Trusted publishing needs a modern npm; the one bundled with Node LTS
+      # can lag behind the version that learned to mint OIDC credentials.
+      - name: Use an npm that supports OIDC
+        run: npm install -g npm@latest
+
+      - uses: oven-sh/setup-bun@v2
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip1
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: packages/compiler
+
+      - run: bun install --frozen-lockfile
+
+      # The wasm artifact is gitignored and rebuilt here, so the published
+      # @meonode/compiler always carries a plugin built from this commit.
+      - name: Build all packages
+        run: bun run build
+
+      - name: Verify provenance attestations
+        run: npm audit signatures
+
+      - uses: changesets/action@v1
+        with:
+          version: bun run version
+          publish: bun run release
+          commit: "chore(release): version packages"
+          title: "chore(release): version packages"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

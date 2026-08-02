@@ -1,16 +1,15 @@
 # Validates that a pull request title follows Conventional Commits.
 #
-# This exists because of how squash merging interacts with semantic-release.
-# The repository is set to `squash_merge_commit_title: PR_TITLE`, per
-# semantic-release's guidance for squash workflows, so the PR title *becomes*
-# the commit on `main` — and therefore decides whether a release happens and
-# what kind. A title like "update stuff" silently produces no release; a stray
-# `feat:` produces one nobody intended.
+# This used to be load-bearing: under semantic-release, and with the repository
+# set to `squash_merge_commit_title: PR_TITLE`, the PR title *became* the commit
+# on main and therefore decided whether a release happened and what kind. A
+# title like "update stuff" silently produced no release; a stray `feat:`
+# produced one nobody intended.
 #
-# Without PR_TITLE the behaviour was worse than wrong, it was inconsistent:
-# GitHub's default (`COMMIT_OR_PR_TITLE`) uses the *commit* title for
-# single-commit PRs and the *PR* title otherwise, so the release-triggering
-# text depended on how many commits a branch happened to have.
+# Changesets took that job away — what ships is now decided by the committed
+# .changeset/*.md files, which are reviewable in the diff rather than inferred
+# from a title. The check is kept for the smaller thing it still does well:
+# a readable, uniformly prefixed history on main.
 name: PR Title
 
 on:
