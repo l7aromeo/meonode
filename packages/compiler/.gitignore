@@ -20,3 +20,7 @@ e2e/**/dist-off/
 
 # Transformed sources written by e2e/bench-theme-tokens.mjs so it can import them
 e2e/.bench-tmp/
+
+# Tarball of the workspace @meonode/ui, packed by e2e/scripts/run-e2e.mjs so the
+# fixtures test this checkout rather than the published package.
+e2e/.ui-pack/
