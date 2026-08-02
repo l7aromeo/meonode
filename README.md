@@ -79,7 +79,16 @@ bunx changeset pre exit
 
 ## Dependencies between the packages
 
-`ui`, `mui` and `compiler` reference each other with `workspace:*`, so every
-suite runs against the code in the same commit. mui's `peerDependencies` entry
-for `@meonode/ui` stays a published range and is rewritten automatically when a
-ui release leaves it.
+`ui`, `mui` and `compiler` reference each other by ordinary semver range, not by
+`workspace:*`. The installer still links them to the local packages, so every
+suite runs against the code in the same commit, and Changesets keeps the ranges
+current when a package is bumped.
+
+The reason to avoid the workspace protocol here is that these are
+`devDependencies` and `npm publish` — which is what `changeset publish` calls —
+does not rewrite `workspace:*` into a real version the way pnpm and yarn do. It
+would ship verbatim in the published `package.json`, where nothing can resolve
+it.
+
+mui's `peerDependencies` entry for `@meonode/ui` is a published range too, and is
+rewritten automatically when a ui release leaves it.
