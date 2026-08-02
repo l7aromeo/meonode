@@ -1,6 +1,6 @@
-# Contributing to meonode-ui
+# Contributing to meonode
 
-First off — thank you for considering contributing to meonode-ui! Your help improves the project for everyone. This
+First off — thank you for considering contributing to meonode! Your help improves the project for everyone. This
 document describes how to report issues, propose changes, and contribute code in a way that keeps the project healthy
 and easy to maintain.
 
@@ -86,17 +86,18 @@ Quick start
 
 ```bash
 # clone
-git clone https://github.com/l7aromeo/meonode-ui.git
-cd meonode-ui
+git clone https://github.com/l7aromeo/meonode.git
+cd meonode
 
 # install dependencies
 bun install
 
-# build the project
+# build everything: compiler wasm, then ui, then mui
 bun run build
 
 # run tests
-bun run test
+bun run test:ui        # unit suite, plain and through the real plugin
+bun run test:compiler  # cargo tests plus the wasm ABI smoke test
 
 # lint and format
 bun run lint
@@ -104,10 +105,14 @@ bun run lint
 
 Notes
 
+- This is a workspace. `bun install` at the root installs every package; the fixture apps under
+  `packages/ui/tests/rsc-fixtures` and `packages/compiler/e2e` are deliberately outside it and
+  install their own dependencies.
+- Build order matters: ui's compiled test mode loads the plugin that `build:compiler` produces.
+- The RSC suite needs its fixture installed first:
+  `bun run --filter @meonode/ui prepare:rsc-fixture`.
 - Husky hooks may run on commit (pre-commit / pre-push). If you need to bypass hooks: `git commit --no-verify` (use
   sparingly).
-- The repository includes a prepublish script; if you plan to test publishing locally, inspect `prepublish.sh` before
-  running it.
 
 ---
 
@@ -147,7 +152,7 @@ Before requesting a review, ensure:
 - [ ] TypeScript types are correct and compile.
 - [ ] The PR description explains the rationale and any backward compatibility impacts.
 - [ ] Update docs/README if public APIs changed.
-- [ ] Use conventional commit format for user-facing changes (release notes are auto-generated).
+- [ ] Include a changeset (`bun run changeset`) for anything user-facing, or `bunx changeset add --empty` if the change ships nothing. CI checks for one.
 
 ---
 
@@ -162,12 +167,30 @@ Before requesting a review, ensure:
 
 ## Releasing & changelog
 
-Releases follow semantic versioning via `semantic-release`, triggered on pushes to `main`, `beta`, or `alpha` branches.
-Release notes are auto-generated from conventional commit messages and published to
-[GitHub Releases](https://github.com/l7aromeo/meonode-ui/releases).
+Releases are driven by [Changesets](https://github.com/changesets/changesets), and each package
+(`@meonode/ui`, `@meonode/compiler`, `@meonode/mui`) is versioned independently.
 
-If you contribute a user-facing change, use [Conventional Commits](#branching-and-commit-messages) format — the release
-notes will include your change automatically.
+If your change is user-facing, describe it and pick the bump it deserves:
+
+```bash
+bun run changeset
+```
+
+Commit the generated `.changeset/*.md` file with your code — it is part of the review, so the
+release it implies is visible in the diff rather than inferred from a commit message. For changes
+that ship nothing (CI, internal refactors), record that explicitly:
+
+```bash
+bunx changeset add --empty
+```
+
+Merging to `main` opens a "Version Packages" pull request holding the version bumps and changelog
+entries. Merging *that* publishes to npm and tags each released package as
+`@meonode/<pkg>@<version>`, with notes on
+[GitHub Releases](https://github.com/l7aromeo/meonode/releases).
+
+Bumping `@meonode/ui` past the range `@meonode/mui` declares as a peer dependency updates that
+range and releases mui too, in the same pass.
 
 ---
 
@@ -182,4 +205,4 @@ Maintainers: @l7aromeo
 
 ---
 
-Thank you for helping make meonode-ui better!
+Thank you for helping make meonode better!

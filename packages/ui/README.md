@@ -363,7 +363,7 @@ overhead in production builds.
 ## Contributing
 
 We welcome contributions! Please see
-our [contributing guidelines](https://github.com/l7aromeo/meonode-ui/blob/main/CONTRIBUTING.md).
+our [contributing guidelines](https://github.com/l7aromeo/meonode/blob/main/CONTRIBUTING.md).
 
 ## License
 
@@ -371,5 +371,5 @@ MIT © [Ukasyah Rahmatullah Zada](https://github.com/l7aromeo)
 
 ---
 
-**[📖 Full Documentation](https://ui.meonode.com)** • **[🐛 Issues](https://github.com/l7aromeo/meonode-ui/issues)** • *
-*[💬 Discussions](https://github.com/l7aromeo/meonode-ui/discussions)**
+**[📖 Full Documentation](https://ui.meonode.com)** • **[🐛 Issues](https://github.com/l7aromeo/meonode/issues)** • *
+*[💬 Discussions](https://github.com/l7aromeo/meonode/discussions)**

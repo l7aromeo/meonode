@@ -6,12 +6,13 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/l7aromeo/meonode-mui.git"
+    "url": "git+https://github.com/l7aromeo/meonode.git",
+    "directory": "packages/mui"
   },
   "bugs": {
-    "url": "https://github.com/l7aromeo/meonode-mui/issues"
+    "url": "https://github.com/l7aromeo/meonode/issues"
   },
-  "homepage": "https://github.com/l7aromeo/meonode-mui#readme",
+  "homepage": "https://github.com/l7aromeo/meonode/tree/main/packages/mui#readme",
   "sideEffects": false,
   "publishConfig": {
     "access": "public"

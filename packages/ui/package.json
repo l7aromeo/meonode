@@ -102,11 +102,12 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/l7aromeo/meonode-ui.git"
+    "url": "git+https://github.com/l7aromeo/meonode.git",
+    "directory": "packages/ui"
   },
   "homepage": "https://ui.meonode.com",
   "bugs": {
-    "url": "https://github.com/l7aromeo/meonode-ui/issues"
+    "url": "https://github.com/l7aromeo/meonode/issues"
   },
   "publishConfig": {
     "access": "public",

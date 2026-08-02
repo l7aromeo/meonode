@@ -426,31 +426,32 @@ is caught on every push/PR, not just as a local/manual pre-release step.
 
 ### Publishing
 
-`semantic-release` is wired up (`.releaserc.json` at repo root, `.github/workflows/release.yml`),
-mirroring `@meonode/ui`'s own setup: `@semantic-release/{commit-analyzer,
-release-notes-generator,npm,github}`, tokenless npm OIDC trusted publishing
-(`id-token: write` + `actions/setup-node`'s `registry-url` +
-`npm audit signatures` — no `NPM_TOKEN` secret). One difference from `ui`:
-the publishable package lives in `npm/`, not the repo root, so the npm plugin
-is configured with `pkgRoot: "npm"` — it bumps `npm/package.json`'s version
-and runs `npm publish` from there (which still fires `npm/package.json`'s own
-`prepublishOnly` build step; `release.yml` also builds the wasm explicitly
-beforehand as a belt-and-braces measure). Only `branches: ["main"]` is
-configured — no `beta`/`alpha` prerelease channels, unlike `ui`, since this
-package has no prerelease flow yet.
+Publishing is driven by Changesets from the monorepo root
+(`.changeset/config.json`, `.github/workflows/release.yml`), shared with
+`@meonode/ui` and `@meonode/mui`, each versioned independently.
 
-Publishing is fully automated and armed. Every `feat`/`fix`/etc. conventional
-commit merged to `main` releases — no manual step, no token.
+The publishable package is `npm/`, not this directory — that is why it is its
+own workspace member, so Changesets versions `npm/package.json` and
+`npm publish` runs from there. This directory (`@meonode/compiler-repo`) is
+private and holds the crate, the codegen and the test suites.
+
+Releasing takes two merges. A change lands on `main` with a `.changeset/*.md`
+describing its bump; that opens a "Version Packages" pull request holding the
+version bump and changelog. Merging that publishes and tags
+`@meonode/compiler@<version>`. Prereleases go through
+`changeset pre enter beta` rather than a long-lived branch.
+
+Publishing stays tokenless: npm OIDC trusted publishing (`id-token: write`
+plus `actions/setup-node`'s `registry-url`, no `NPM_TOKEN` secret). Each run
+rebuilds the wasm first, so the published artifact always comes from the
+commit being released.
 
 For historical context: npm requires a package to already exist on the registry
 before trusted publishing can be configured for it, so `0.1.0` was published by
-hand once, after which trusted publishing was configured on npmjs.com (GitHub
-repo `l7aromeo/meonode-compiler`, workflow `release.yml`, environment
-`Production`). That bootstrap is done and does not need repeating.
-
-Each release run builds the wasm, runs `semantic-release`, bumps
-`npm/package.json`'s version, publishes via OIDC trusted publishing (no
-token), and creates the matching GitHub release — no further manual steps.
+hand once. Trusted publishing is configured on npmjs.com against GitHub repo
+`l7aromeo/meonode`, workflow `release.yml`, environment `Production` — it was
+repointed there when the three repositories were merged into the monorepo, and
+needs updating again only if the repository or workflow filename changes.
 
 ## Layout
 
