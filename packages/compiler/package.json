@@ -1,0 +1,37 @@
+{
+  "name": "@meonode/compiler-repo",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Repo-root tooling scripts for @meonode/compiler (codegen, drift checks). Not published \u2014 see npm/package.json for the published package.",
+  "scripts": {
+    "codegen": "bun run scripts/codegen-css-set.ts && bun run scripts/codegen-factories.ts",
+    "check:drift": "bun run scripts/codegen-css-set.ts && bun run scripts/codegen-factories.ts && git diff --exit-code crates/meonode-swc-plugin/src/css_props.rs crates/meonode-swc-plugin/src/factories.rs",
+    "build:wasm": "cargo build --release -p meonode-swc-plugin --target wasm32-wasip1 && cp target/wasm32-wasip1/release/meonode_swc_plugin.wasm npm/meonode_swc_plugin.wasm && cp README.md npm/README.md",
+    "test": "vitest run",
+    "test:e2e": "node e2e/scripts/run-e2e.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "release:dry": "semantic-release --dry-run"
+  },
+  "devDependencies": {
+    "@emotion/cache": "^11.14.0",
+    "@emotion/react": "^11.14.0",
+    "@meonode/ui": "^1.8.6",
+    "@semantic-release/commit-analyzer": "^13.0.1",
+    "@semantic-release/github": "^12.0.9",
+    "@semantic-release/npm": "^13.1.5",
+    "@semantic-release/release-notes-generator": "^14.1.1",
+    "@swc/core": "^1.15",
+    "@types/node": "^26.1.2",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "jsdom": "^29.1.1",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "semantic-release": "^25.0.5",
+    "typescript": "^6.0.3",
+    "vitest": "^4"
+  },
+  "trustedDependencies": [
+    "@swc/core"
+  ]
+}

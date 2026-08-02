@@ -1,0 +1,145 @@
+name: CI
+
+on:
+  push:
+    branches: [main, beta, alpha]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip1
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: cargo test
+        run: cargo test --workspace
+
+      - name: Build wasm32-wasip1 plugin (release)
+        run: cargo build --release --target wasm32-wasip1 -p meonode-swc-plugin
+
+  # CSS prop set + factory table drift check against @meonode/ui
+  # (https://github.com/l7aromeo/meonode-ui, public). Split out from `test`
+  # rather than folded in: crates/meonode-swc-plugin/src/css_props.rs and
+  # .../factories.rs are generated from a sibling @meonode/ui checkout
+  # (scripts/codegen-css-set.ts and scripts/codegen-factories.ts default
+  # MEONODE_UI_DIR to "../ui" relative to this repo's root — see those
+  # scripts), which needs both a `ui` checkout and bun, neither of which
+  # `cargo test` in `test` needs. Keeping them apart means `test` stays a
+  # fast Rust-only job and this one doesn't touch the Rust toolchain at all.
+  #
+  # Checked out at `ref: main`: ui's `export:css-props` script
+  # (scripts/export-css-properties.ts), which this job's `bun run check:drift`
+  # shells out to, now lives on ui's default branch.
+  css-drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: compiler
+
+      # `main`, not `beta`: `beta` is a stale release branch that lags behind
+      # shipped fixes (it was missing 1.7.0's ThemeProvider theme-vars fix),
+      # so drift-checking against it validates the compiler's CSS prop set
+      # against a tree users never receive.
+      - uses: actions/checkout@v4
+        with:
+          repository: l7aromeo/meonode-ui
+          ref: main
+          path: ui
+
+      - name: Install bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install JS dependencies
+        working-directory: compiler
+        run: bun install --frozen-lockfile
+
+      # `bun run check:drift` shells out to `bun run export:css-props` in
+      # ../ui (this job's `ui` checkout, a sibling of `compiler`), which reads
+      # straight from ui's src/constant/css-properties.const.ts via bun's
+      # native tsconfig path-alias resolution — no `bun install`/build needed
+      # in the `ui` checkout itself, unlike the `e2e` job below which needs
+      # ui's actual built package.
+      - name: CSS prop set + factory table drift check
+        working-directory: compiler
+        run: bun run check:drift
+
+      # Vitest strips types without checking them, so nothing else in CI would
+      # notice a type error in the test/codegen sources.
+      - name: Typecheck JS sources
+        working-directory: compiler
+        run: bun run typecheck
+
+  wasm-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip1
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install JS dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build wasm32-wasip1 plugin (release)
+        run: bun run build:wasm
+
+      # Loads the built artifact through @swc/core's real plugin host
+      # (see tests/wasm-smoke.test.ts) — proves the crate's swc_core ABI
+      # is compatible with @swc/core's, which `cargo build` alone can't.
+      - name: WASM artifact smoke tests
+        run: bun run test
+
+  # Task 12: builds the e2e/next-app (Next 16, Turbopack) and e2e/vite-app
+  # fixtures twice each (plugin on/off) and asserts HTML/DOM parity — see
+  # e2e/scripts/run-e2e.mjs. Slow (real bundler builds), so its own job
+  # rather than folded into `wasm-smoke`.
+  #
+  # No @meonode/ui checkout needed here (unlike `css-drift` above): the e2e
+  # fixtures depend on @meonode/ui via an exact npm registry pin
+  # (`1.7.0-beta.1`, the `beta` dist-tag — see e2e/next-app/package.json,
+  # e2e/vite-app/package.json, and the README > Development note on bumping
+  # it), installed like any other dependency by `bun install` inside
+  # e2e/scripts/run-e2e.mjs. Bump that pin (and re-run `bun run test:e2e`
+  # locally) whenever @meonode/ui cuts a new relevant `beta` build.
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip1
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Build wasm32-wasip1 plugin (release)
+        run: bun install --frozen-lockfile && bun run build:wasm
+
+      - name: E2E fixtures (Next Turbopack + Vite parity)
+        run: bun run test:e2e

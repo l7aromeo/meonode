@@ -1,0 +1,22 @@
+/target
+node_modules/
+npm/*.wasm
+npm/README.md
+*.log
+.DS_Store
+.swc/
+tests/.tmp/
+
+# e2e fixtures (Task 12): build outputs and installs, not source
+e2e/**/node_modules/
+e2e/**/.next/
+e2e/**/.next-on/
+e2e/**/.next-off/
+e2e/**/.next-webpack-on/
+e2e/**/.next-webpack-off/
+e2e/**/dist/
+e2e/**/dist-on/
+e2e/**/dist-off/
+
+# Transformed sources written by e2e/bench-theme-tokens.mjs so it can import them
+e2e/.bench-tmp/
