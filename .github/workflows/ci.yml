@@ -107,7 +107,13 @@ jobs:
           fetch-depth: 0
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
+      # Prints what the branch will release, and fails when it releases nothing
+      # at all.
       - run: bunx changeset status --since=origin/${{ github.base_ref }}
+      # `changeset status` is satisfied by *any* changeset, so a branch that
+      # edits mui while declaring only ui passes it and mui silently ships
+      # nothing. This checks each changed package individually.
+      - run: bun run check:changesets origin/${{ github.base_ref }}
 
   lint:
     name: Lint
