@@ -1,0 +1,17 @@
+# Bun switches to its `isolated` linker as soon as a repo declares workspaces,
+# which places every dependency behind a symlink into `node_modules/.bun/`.
+# TypeScript resolves those symlinks to their real paths and then refuses to
+# emit declarations that would have to name them:
+#
+#   error TS2883: The inferred type of 'TreeItemRoot' cannot be named without a
+#   reference to '.bun/@mui+system@9.2.0+4d06ef51cb066146/node_modules/@mui/system'.
+#   This is likely not portable.
+#
+# `hoisted` is the flat, npm-style layout each package was developed and
+# released against, so this keeps the monorepo's builds byte-comparable with
+# the standalone repos rather than making the packages absorb a linker change
+# they never asked for. Moving to `isolated` is worth doing on its own terms —
+# it catches undeclared "phantom" dependencies — but as a deliberate change
+# with its own verification, not as a side effect of the migration.
+[install]
+linker = "hoisted"

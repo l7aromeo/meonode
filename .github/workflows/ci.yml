@@ -1,0 +1,243 @@
+# Single CI workflow for the whole monorepo.
+#
+# Replaces three per-repo workflows (meonode-ui's release.yml checks,
+# meonode-compiler's ci.yml, meonode-mui's release.yml checks). Publishing
+# lives in release.yml; this file only decides whether the tree is sound.
+#
+# Every job is gated on the `changes` job below, so touching a mui wrapper
+# does not spend eight minutes rebuilding the Rust plugin and replaying the
+# RSC fixtures. `paths-filter` is evaluated per job rather than at the
+# workflow level because `on.push.paths` would skip the entire workflow, and
+# a skipped workflow reports no status at all — which branch protection reads
+# as "check missing", not "check passed".
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    name: Detect changed packages
+    runs-on: ubuntu-latest
+    outputs:
+      ui: ${{ steps.filter.outputs.ui }}
+      mui: ${{ steps.filter.outputs.mui }}
+      compiler: ${{ steps.filter.outputs.compiler }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          # `root` entries are repeated into every package rather than kept as
+          # their own output: a change to the root lockfile or workspace layout
+          # can alter what any package resolves, so it has to run everything.
+          filters: |
+            root: &root
+              - 'package.json'
+              - 'bun.lock'
+              - 'bunfig.toml'
+              - '.github/workflows/ci.yml'
+            ui:
+              - *root
+              - 'packages/ui/**'
+              - 'packages/compiler/**'
+            mui:
+              - *root
+              - 'packages/mui/**'
+              - 'packages/ui/**'
+            compiler:
+              - *root
+              - 'packages/compiler/**'
+              - 'packages/ui/src/constant/css-properties.const.ts'
+              - 'packages/ui/scripts/export-css-properties.ts'
+
+  # Built once and shared. Without this, every job that needs the plugin
+  # (ui compiled tests, e2e) would install the Rust toolchain and rebuild it.
+  wasm:
+    name: Build wasm plugin
+    needs: changes
+    if: needs.changes.outputs.ui == 'true' || needs.changes.outputs.compiler == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip1
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: packages/compiler
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun run build:compiler
+      - uses: actions/upload-artifact@v4
+        with:
+          name: meonode-swc-plugin
+          path: packages/compiler/npm/meonode_swc_plugin.wasm
+          retention-days: 1
+
+  lint:
+    name: Lint
+    needs: changes
+    if: needs.changes.outputs.ui == 'true' || needs.changes.outputs.mui == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      # The RSC fixture is deliberately outside the workspace, so its imports
+      # only typecheck once it has its own node_modules.
+      - run: bun run --filter @meonode/ui prepare:rsc-fixture
+      - run: bun run lint
+
+  ui-test:
+    name: Test (ui, ${{ matrix.mode }})
+    needs: [changes, wasm]
+    if: needs.changes.outputs.ui == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [plain, compiled]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: lts/*
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - uses: actions/download-artifact@v4
+        with:
+          name: meonode-swc-plugin
+          path: packages/compiler/npm
+      - run: bun run --filter @meonode/ui ${{ matrix.mode == 'compiled' && 'test:compiled' || 'test' }}
+
+  ui-rsc:
+    name: Test (RSC, ${{ matrix.mode }})
+    needs: [changes, wasm]
+    if: needs.changes.outputs.ui == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [plain, compiled]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: lts/*
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - uses: actions/download-artifact@v4
+        with:
+          name: meonode-swc-plugin
+          path: packages/compiler/npm
+      - run: bunx playwright install --with-deps chromium
+      - run: bun run --filter @meonode/ui ${{ matrix.mode == 'compiled' && 'test:rsc:compiled' || 'test:rsc' }}
+
+  cargo:
+    name: Cargo test
+    needs: changes
+    if: needs.changes.outputs.compiler == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip1
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: packages/compiler
+      - run: cargo test --manifest-path packages/compiler/Cargo.toml --workspace
+
+  wasm-smoke:
+    name: WASM smoke
+    needs: [changes, wasm]
+    if: needs.changes.outputs.compiler == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - uses: actions/download-artifact@v4
+        with:
+          name: meonode-swc-plugin
+          path: packages/compiler/npm
+      # Loads the built artifact through @swc/core's real plugin host, which
+      # proves the crate's swc_core ABI matches @swc/core's — something
+      # `cargo build` alone cannot show.
+      - run: bun run --filter @meonode/compiler-repo test
+
+  css-drift:
+    name: CSS prop + factory drift
+    needs: changes
+    if: needs.changes.outputs.compiler == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      # Previously this job checked out l7aromeo/meonode-ui@main as a sibling
+      # directory, so the generated Rust tables were validated against ui's
+      # default branch rather than against the ui in the same change. In the
+      # monorepo the codegen reads packages/ui directly and the two can no
+      # longer disagree.
+      - run: bun run check:drift
+      # Vitest strips types without checking them, so nothing else notices a
+      # type error in the codegen or test sources.
+      - run: bun run typecheck
+
+  e2e:
+    name: E2E fixtures (Next + Vite)
+    needs: [changes, wasm]
+    if: needs.changes.outputs.compiler == 'true' || needs.changes.outputs.ui == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - uses: actions/download-artifact@v4
+        with:
+          name: meonode-swc-plugin
+          path: packages/compiler/npm
+      - run: bun run test:e2e
+
+  mui-generated-sync:
+    name: mui generated files in sync
+    needs: changes
+    if: needs.changes.outputs.mui == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun run --filter @meonode/mui generate:lib
+      - name: Ensure generated files and generator caches are committed
+        run: |
+          git diff --exit-code
+          test -z "$(git status --porcelain)"
+
+  build:
+    name: Build
+    needs: [changes, wasm]
+    if: always() && !cancelled() && !contains(needs.*.result, 'failure')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - uses: actions/download-artifact@v4
+        with:
+          name: meonode-swc-plugin
+          path: packages/compiler/npm
+        continue-on-error: true
+      - run: bun run build:ui && bun run build:mui

@@ -1,0 +1,45 @@
+{
+  "name": "@meonode/monorepo",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Monorepo for @meonode/ui, @meonode/compiler and @meonode/mui.",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/l7aromeo/meonode.git"
+  },
+  "homepage": "https://ui.meonode.com",
+  "bugs": {
+    "url": "https://github.com/l7aromeo/meonode/issues"
+  },
+  "workspaces": [
+    "packages/ui",
+    "packages/mui",
+    "packages/compiler",
+    "packages/compiler/npm"
+  ],
+  "scripts": {
+    "build:compiler": "bun run --filter @meonode/compiler-repo build:wasm",
+    "build:ui": "bun run --filter @meonode/ui build",
+    "build:mui": "bun run --filter @meonode/mui build",
+    "build": "bun run build:compiler && bun run build:ui && bun run build:mui",
+    "lint": "bun run --filter @meonode/ui lint && bun run --filter @meonode/mui lint",
+    "typecheck": "bun run --filter @meonode/compiler-repo typecheck",
+    "test:ui": "bun run --filter @meonode/ui test && bun run --filter @meonode/ui test:compiled",
+    "test:rsc": "bun run --filter @meonode/ui test:rsc && bun run --filter @meonode/ui test:rsc:compiled",
+    "test:compiler": "cargo test --manifest-path packages/compiler/Cargo.toml --workspace && bun run --filter @meonode/compiler-repo test",
+    "test:e2e": "bun run --filter @meonode/compiler-repo test:e2e",
+    "check:drift": "bun run --filter @meonode/compiler-repo check:drift",
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "husky": "^9.1.7"
+  },
+  "trustedDependencies": [
+    "@swc/core"
+  ],
+  "overrides": {
+    "parse-json": "5.2.0"
+  }
+}

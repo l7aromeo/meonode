@@ -1,7 +1,7 @@
 {
   "name": "@meonode/ui",
   "description": "A structured approach to component composition, direct CSS-first prop styling, built-in theming, smart prop handling (including raw property pass-through), and dynamic children.",
-  "version": "1.2.0",
+  "version": "1.8.6",
   "type": "module",
   "main": "./dist/main.js",
   "types": "./dist/main.d.ts",
@@ -31,7 +31,7 @@
   "scripts": {
     "watch:build": "bunx nodemon --watch src --ext ts,tsx,js,json --exec \"bun run build\"",
     "lint": "eslint --fix && tsc --noEmit",
-    "test": "NODE_OPTIONS='--expose-gc' node --stack-size=10000 --max-old-space-size=8192 ./node_modules/vitest/vitest.mjs run --config vitest.config.ts --exclude tests/rsc-integration.test.ts --exclude tests/build-output.test.ts --exclude tests/theme-length-browser.test.ts",
+    "test": "NODE_OPTIONS='--expose-gc' node --stack-size=10000 --max-old-space-size=8192 \"$(node scripts/vitest-entry.mjs)\" run --config vitest.config.ts --exclude tests/rsc-integration.test.ts --exclude tests/build-output.test.ts --exclude tests/theme-length-browser.test.ts",
     "test:rsc": "NODE_OPTIONS='--experimental-vm-modules' vitest run --config vitest.integration.config.ts",
     "prepare:rsc-fixture": "cd tests/rsc-fixtures/next-app && bun install",
     "verify": "bun run prepare:rsc-fixture && bun run lint && bun run tsc --noEmit && bun run test && bun run test:compiled && bun run test:rsc && bun run test:rsc:compiled",
@@ -39,9 +39,8 @@
     "semantic-release": "semantic-release",
     "release": "semantic-release",
     "release:dry": "semantic-release --dry-run",
-    "prepare": "husky",
     "export:css-props": "bun scripts/export-css-properties.ts",
-    "test:compiled": "NODE_OPTIONS='--expose-gc' node --stack-size=10000 --max-old-space-size=8192 ./node_modules/vitest/vitest.mjs run --config vitest.compiled.config.ts --exclude tests/rsc-integration.test.ts --exclude tests/build-output.test.ts --exclude tests/theme-length-browser.test.ts",
+    "test:compiled": "NODE_OPTIONS='--expose-gc' node --stack-size=10000 --max-old-space-size=8192 \"$(node scripts/vitest-entry.mjs)\" run --config vitest.compiled.config.ts --exclude tests/rsc-integration.test.ts --exclude tests/build-output.test.ts --exclude tests/theme-length-browser.test.ts",
     "test:rsc:compiled": "MEONODE_COMPILED=1 NODE_OPTIONS='--experimental-vm-modules' vitest run --config vitest.integration.config.ts",
     "bench": "NODE_ENV=production node --expose-gc --stack-size=10000 bench/node-construction.mjs && NODE_ENV=production node --expose-gc --stack-size=10000 bench/client-render.mjs && NODE_ENV=production node --expose-gc --stack-size=10000 bench/large-trees.mjs && NODE_ENV=production node --expose-gc --stack-size=10000 bench/react-comparison.mjs && NODE_ENV=production node --expose-gc --stack-size=10000 bench/memory.mjs",
     "export:css-props:length": "bun scripts/export-css-properties.ts --length"
@@ -57,7 +56,7 @@
     "@emotion/jest": "^11.14.2",
     "@emotion/styled": "^11.14.1",
     "@eslint/js": "^10.0.1",
-    "@meonode/compiler": "^0.6.1",
+    "@meonode/compiler": "workspace:*",
     "@mui/material": "^9.1.2",
     "@playwright/test": "^1.61.1",
     "@rollup/plugin-alias": "^6.0.0",
@@ -73,6 +72,7 @@
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
+    "@types/jest": "^30.0.0",
     "@types/node": "^26.1.0",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
@@ -107,9 +107,6 @@
     "@emotion/react": ">=11.14.0",
     "react": ">=19.2.0",
     "react-dom": ">=19.2.0"
-  },
-  "overrides": {
-    "parse-json": "5.2.0"
   },
   "repository": {
     "type": "git",

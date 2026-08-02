@@ -1,8 +1,19 @@
 import { URL } from 'node:url'
 
-// Widen Turbopack's compile scope to the repo root so files under ../../../src are
-// reachable (the webpack equivalent was `experimental.externalDir`).
-const workspaceRoot = new URL('../../..', import.meta.url).pathname
+// Widen Turbopack's compile scope to the repo root so files under
+// packages/ui/src are reachable (the webpack equivalent was
+// `experimental.externalDir`).
+//
+// This has to be the *monorepo* root, not the ui package root. `root` bounds
+// where Turbopack will look for modules, and the installer hoists shared
+// dependencies to the repo-level `node_modules` — so stopping at packages/ui
+// puts ui's own peers out of scope and the dev server fails to start with
+// `Module not found: Can't resolve '@emotion/cache'`.
+//
+// The `resolveAlias` entries below are resolved relative to this fixture
+// directory rather than to `root`, so they are unaffected by how far up this
+// points.
+const workspaceRoot = new URL('../../../../..', import.meta.url).pathname
 
 // Opt the fixture into compiled call sites, so the RSC suite can be run a
 // second time against real plugin output. Off by default: the uncompiled run

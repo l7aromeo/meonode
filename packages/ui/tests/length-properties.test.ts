@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import fs from 'node:fs'
+import { createRequire } from 'node:module'
+import { dirname, join } from 'node:path'
 import unitlessModule from '@emotion/unitless'
 import { isLengthProperty } from '@src/util/css-unit.util.js'
 import CSSPropertySet, { LengthPropertySet } from '@src/constant/css-properties.const.js'
@@ -27,8 +29,18 @@ const CSSTYPE_INTERFACES = [
  * Every property `csstype` parameterises by `TLength`, i.e. every property that
  * accepts a length.
  */
+
+/**
+ * Resolved rather than spelled out as `node_modules/csstype/index.d.ts`: that
+ * literal is relative to the working directory and only finds the file when
+ * csstype sits directly under this package, which stops being true once the
+ * package lives in a workspace and the installer hoists shared dependencies to
+ * the repo root.
+ */
+const csstypeDts = join(dirname(createRequire(import.meta.url).resolve('csstype/package.json')), 'index.d.ts')
+
 const deriveLengthAccepting = (): Set<string> => {
-  const dts = fs.readFileSync('node_modules/csstype/index.d.ts', 'utf8')
+  const dts = fs.readFileSync(csstypeDts, 'utf8')
   const found = new Set<string>()
   for (const name of CSSTYPE_INTERFACES) {
     const start = dts.indexOf(`export interface ${name}<`)
