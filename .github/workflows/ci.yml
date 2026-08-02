@@ -111,6 +111,11 @@ jobs:
       - uses: actions/checkout@v6
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
+      # mui's `tsc --noEmit` imports @meonode/ui, which resolves through ui's
+      # exports map to packages/ui/dist — a directory that does not exist in a
+      # fresh checkout. Linking the workspace package is not enough; it has to
+      # be built.
+      - run: bun run build:ui
       # The RSC fixture is deliberately outside the workspace, so its imports
       # only typecheck once it has its own node_modules.
       - run: bun run --filter @meonode/ui prepare:rsc-fixture
@@ -210,6 +215,9 @@ jobs:
       # monorepo the codegen reads packages/ui directly and the two can no
       # longer disagree.
       - run: bun run check:drift
+      # The compiler's test sources import @meonode/ui, which resolves to
+      # packages/ui/dist — built here rather than assumed present.
+      - run: bun run build:ui
       # Vitest strips types without checking them, so nothing else notices a
       # type error in the codegen or test sources.
       - run: bun run typecheck
@@ -238,6 +246,9 @@ jobs:
       - uses: actions/checkout@v6
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
+      # The generator typechecks the wrappers it emits, and they import
+      # @meonode/ui — so ui has to be built before it runs.
+      - run: bun run build:ui
       - run: bun run --filter @meonode/mui generate:lib
       - name: Ensure generated files and generator caches are committed
         run: |

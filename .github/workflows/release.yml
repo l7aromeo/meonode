@@ -10,10 +10,20 @@
 # is what actually publishes: the next run finds no pending changesets, so
 # `changeset publish` pushes the built packages to npm and creates one git tag
 # per released package.
+#
+# Triggered by CI finishing rather than by the push itself. The three
+# per-repository workflows this replaced each kept their checks and their
+# release in one file, so `needs:` gated publishing on the whole suite;
+# splitting checks into ci.yml would have dropped that gate and let a push
+# publish while its own tests were still running, or after they had failed.
+# `workflow_run` restores it — nothing here starts until CI reports success
+# for that commit.
 name: Release
 
 on:
-  push:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
     branches: [main]
 
 concurrency:
@@ -26,6 +36,9 @@ permissions:
 jobs:
   release:
     name: Version or publish
+    # A failed or cancelled CI run still fires `workflow_run`, so the
+    # conclusion has to be checked explicitly.
+    if: github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     environment: Production
     permissions:
@@ -38,6 +51,10 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          # `workflow_run` checks out the default branch by default, not the
+          # commit that triggered CI. Releasing a different tree than the one
+          # CI approved is the whole thing this trigger exists to prevent.
+          ref: ${{ github.event.workflow_run.head_sha }}
 
       - uses: actions/setup-node@v6
         with:
