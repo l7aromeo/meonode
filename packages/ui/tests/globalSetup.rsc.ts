@@ -1,5 +1,5 @@
 import { execSync, spawn } from 'node:child_process'
-import { writeFileSync, readFileSync, existsSync } from 'node:fs'
+import { writeFileSync, readFileSync, existsSync, copyFileSync } from 'node:fs'
 import { createServer } from 'node:net'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -69,6 +69,27 @@ export async function setup() {
   console.log('[rsc-setup] installing fixture deps…')
   // The linked workspace package can change after dist rebuild; keep fixture install fresh.
   execSync('bun install', { cwd: FIXTURE, stdio: 'inherit' })
+
+  // The fixture resolves `@meonode/ui` from the workspace but installs
+  // `@meonode/compiler` from the registry, so without this the compiled run
+  // would transform call sites with whatever plugin was last published rather
+  // than the one in this checkout — it silently validated 0.4.0 for a while.
+  //
+  // Overwriting the installed copy is deliberate. Linking the workspace
+  // package instead puts packages/compiler/npm inside turbopack's root but
+  // outside any node_modules directory, and turbopack then tries to compile
+  // its package.json as source. This has to happen after the install above,
+  // which is why it lives here rather than in a package.json script.
+  if (process.env.MEONODE_COMPILED === '1') {
+    const built = path.resolve(ROOT, '../compiler/npm/meonode_swc_plugin.wasm')
+    if (!existsSync(built)) {
+      throw new Error(
+        `Compiled RSC mode needs the @meonode/compiler wasm artifact, which is not at ${built}. Run \`bun run build:compiler\` from the repo root first.`,
+      )
+    }
+    copyFileSync(built, path.resolve(FIXTURE, 'node_modules/@meonode/compiler/meonode_swc_plugin.wasm'))
+    console.log('[rsc-setup] copied the freshly built wasm plugin over the fixture’s registry copy')
+  }
 
   const port = await getFreePort()
 

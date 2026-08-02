@@ -38,7 +38,7 @@
     "build": "rm -rf ./dist && rollup -c rollup.config.ts --configPlugin 'typescript={tsconfig:\"./tsconfig.rollup-config.json\"}' && tsc -p tsconfig.build.json --diagnostics && tsc-alias -p tsconfig.build.json",
     "export:css-props": "bun scripts/export-css-properties.ts",
     "test:compiled": "NODE_OPTIONS='--expose-gc' node --stack-size=10000 --max-old-space-size=8192 \"$(node scripts/vitest-entry.mjs)\" run --config vitest.compiled.config.ts --exclude tests/rsc-integration.test.ts --exclude tests/build-output.test.ts --exclude tests/theme-length-browser.test.ts",
-    "test:rsc:compiled": "cp ../compiler/npm/meonode_swc_plugin.wasm tests/rsc-fixtures/next-app/node_modules/@meonode/compiler/meonode_swc_plugin.wasm && MEONODE_COMPILED=1 NODE_OPTIONS='--experimental-vm-modules' vitest run --config vitest.integration.config.ts",
+    "test:rsc:compiled": "MEONODE_COMPILED=1 NODE_OPTIONS='--experimental-vm-modules' vitest run --config vitest.integration.config.ts",
     "bench": "NODE_ENV=production node --expose-gc --stack-size=10000 bench/node-construction.mjs && NODE_ENV=production node --expose-gc --stack-size=10000 bench/client-render.mjs && NODE_ENV=production node --expose-gc --stack-size=10000 bench/large-trees.mjs && NODE_ENV=production node --expose-gc --stack-size=10000 bench/react-comparison.mjs && NODE_ENV=production node --expose-gc --stack-size=10000 bench/memory.mjs",
     "export:css-props:length": "bun scripts/export-css-properties.ts --length"
   },
