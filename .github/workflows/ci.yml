@@ -24,6 +24,13 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  # Every `bun install` below would otherwise re-install the git hooks through
+  # the root `prepare` script. Nothing here commits, so they would not fire —
+  # but the jobs in this file *are* what the hooks exist to approximate, so
+  # installing them is pointless work at best.
+  HUSKY: 0
+
 jobs:
   changes:
     name: Detect changed packages

@@ -33,6 +33,15 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  # Changesets commits the version bump, which fires the pre-commit hook, which
+  # runs the lint and unit suites — inside a job that has no reason to install
+  # the RSC fixture's dependencies, so linting fails on an unresolvable import
+  # and the release dies after building everything successfully. The hook is a
+  # local-dev guard against pushing something broken; by the time this workflow
+  # runs, CI has already run those same suites properly as their own jobs.
+  HUSKY: 0
+
 jobs:
   release:
     name: Version or publish
