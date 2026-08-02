@@ -1,0 +1,17 @@
+{
+  "src/lib/mui.core": [
+    "FormLabelRoot"
+  ],
+  "src/lib/mui.x-data-grid-premium": [
+    "GridGetRowsError",
+    "GridUpdateRowError"
+  ],
+  "src/lib/mui.x-data-grid-pro": [
+    "GridGetRowsError",
+    "GridUpdateRowError"
+  ],
+  "src/lib/mui.x-data-grid": [
+    "GridGetRowsError",
+    "GridUpdateRowError"
+  ]
+}

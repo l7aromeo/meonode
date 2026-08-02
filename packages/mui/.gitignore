@@ -1,0 +1,7 @@
+dist
+node_modules
+.cache
+src-gen
+*.log
+.idea
+.DS_Store

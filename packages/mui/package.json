@@ -1,0 +1,165 @@
+{
+  "name": "@meonode/mui",
+  "version": "1.3.0",
+  "description": "A lightweight wrapper around `@mui/material` components for use with `@meonode/ui` and the BaseNode runtime.",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/l7aromeo/meonode-mui.git"
+  },
+  "bugs": {
+    "url": "https://github.com/l7aromeo/meonode-mui/issues"
+  },
+  "homepage": "https://github.com/l7aromeo/meonode-mui#readme",
+  "sideEffects": false,
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist",
+    "docs",
+    "package.json",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "rm -rf ./dist && rollup -c rollup.config.ts --configPlugin typescript && tsc -p tsconfig.build.json && tsc-alias -p tsconfig.build.json",
+    "generate:lib": "bun scripts/generate-wrapper-lib.js",
+    "lint": "eslint --fix && tsc --noEmit",
+    "release": "semantic-release",
+    "release:dry": "semantic-release --dry-run",
+    "watch:build": "bunx concurrently \"bun run watch:core\" \"bun run watch:src\"",
+    "watch:core": "bunx nodemon --watch $MEONODE/core/dist --ext ts,js,json --exec \"bun add -d @meonode/ui@file:$MEONODE/core\"",
+    "watch:src": "bunx nodemon --watch src --ext ts,js,json --exec \"bun run build\""
+  },
+  "exports": {
+    ".": {
+      "import": "./dist/esm/main.js",
+      "require": "./dist/cjs/main.cjs",
+      "types": "./dist/types/main.d.ts"
+    },
+    "./nextjs13": {
+      "import": "./dist/esm/lib/mui.nextjs13/index.js",
+      "require": "./dist/cjs/lib/mui.nextjs13/index.cjs",
+      "types": "./dist/types/lib/mui.nextjs13/index.d.ts"
+    },
+    "./nextjs14": {
+      "import": "./dist/esm/lib/mui.nextjs14/index.js",
+      "require": "./dist/cjs/lib/mui.nextjs14/index.cjs",
+      "types": "./dist/types/lib/mui.nextjs14/index.d.ts"
+    },
+    "./nextjs15": {
+      "import": "./dist/esm/lib/mui.nextjs15/index.js",
+      "require": "./dist/cjs/lib/mui.nextjs15/index.cjs",
+      "types": "./dist/types/lib/mui.nextjs15/index.d.ts"
+    },
+    "./nextjs16": {
+      "import": "./dist/esm/lib/mui.nextjs16/index.js",
+      "require": "./dist/cjs/lib/mui.nextjs16/index.cjs",
+      "types": "./dist/types/lib/mui.nextjs16/index.d.ts"
+    },
+    "./lab": {
+      "import": "./dist/esm/lib/mui.lab/index.js",
+      "require": "./dist/cjs/lib/mui.lab/index.cjs",
+      "types": "./dist/types/lib/mui.lab/index.d.ts"
+    },
+    "./x-data-grid": {
+      "import": "./dist/esm/lib/mui.x-data-grid/index.js",
+      "require": "./dist/cjs/lib/mui.x-data-grid/index.cjs",
+      "types": "./dist/types/lib/mui.x-data-grid/index.d.ts"
+    },
+    "./x-data-grid-pro": {
+      "import": "./dist/esm/lib/mui.x-data-grid-pro/index.js",
+      "require": "./dist/cjs/lib/mui.x-data-grid-pro/index.cjs",
+      "types": "./dist/types/lib/mui.x-data-grid-pro/index.d.ts"
+    },
+    "./x-data-grid-premium": {
+      "import": "./dist/esm/lib/mui.x-data-grid-premium/index.js",
+      "require": "./dist/cjs/lib/mui.x-data-grid-premium/index.cjs",
+      "types": "./dist/types/lib/mui.x-data-grid-premium/index.d.ts"
+    },
+    "./x-date-pickers": {
+      "import": "./dist/esm/lib/mui.x-date-pickers/index.js",
+      "require": "./dist/cjs/lib/mui.x-date-pickers/index.cjs",
+      "types": "./dist/types/lib/mui.x-date-pickers/index.d.ts"
+    },
+    "./x-tree-view": {
+      "import": "./dist/esm/lib/mui.x-tree-view/index.js",
+      "require": "./dist/cjs/lib/mui.x-tree-view/index.cjs",
+      "types": "./dist/types/lib/mui.x-tree-view/index.d.ts"
+    },
+    "./x-tree-view-pro": {
+      "import": "./dist/esm/lib/mui.x-tree-view-pro/index.js",
+      "require": "./dist/cjs/lib/mui.x-tree-view-pro/index.cjs",
+      "types": "./dist/types/lib/mui.x-tree-view-pro/index.d.ts"
+    },
+    "./x-charts": {
+      "import": "./dist/esm/lib/mui.x-charts/index.js",
+      "require": "./dist/cjs/lib/mui.x-charts/index.cjs",
+      "types": "./dist/types/lib/mui.x-charts/index.d.ts"
+    },
+    "./x-charts-pro": {
+      "import": "./dist/esm/lib/mui.x-charts-pro/index.js",
+      "require": "./dist/cjs/lib/mui.x-charts-pro/index.cjs",
+      "types": "./dist/types/lib/mui.x-charts-pro/index.d.ts"
+    }
+  },
+  "peerDependencies": {
+    "@meonode/ui": "^1.8.5",
+    "@mui/lab": "^9.0.0-beta.6",
+    "@mui/material": "^9.2.0",
+    "@mui/material-nextjs": "^9.1.1",
+    "@mui/x-charts": "9.10.1",
+    "@mui/x-charts-pro": "^9.10.1",
+    "@mui/x-data-grid": "^9.10.1",
+    "@mui/x-data-grid-premium": "^9.10.1",
+    "@mui/x-data-grid-pro": "^9.10.1",
+    "@mui/x-date-pickers": "^9.10.1",
+    "@mui/x-date-pickers-pro": "^9.10.1",
+    "@mui/x-tree-view": "^9.10.1",
+    "@mui/x-tree-view-pro": "^9.10.1",
+    "react": ">=19.2.8"
+  },
+  "devDependencies": {
+    "@emotion/react": "^11.14.0",
+    "@emotion/styled": "^11.14.1",
+    "@eslint/js": "^10.0.1",
+    "@meonode/ui": "^1.8.5",
+    "@mui/lab": "^9.0.0-beta.6",
+    "@mui/material": "^9.2.0",
+    "@mui/material-nextjs": "^9.1.1",
+    "@mui/x-charts": "9.10.1",
+    "@mui/x-charts-pro": "^9.10.1",
+    "@mui/x-data-grid": "^9.10.1",
+    "@mui/x-data-grid-premium": "^9.10.1",
+    "@mui/x-data-grid-pro": "^9.10.1",
+    "@mui/x-date-pickers": "^9.10.1",
+    "@mui/x-date-pickers-pro": "^9.10.1",
+    "@mui/x-tree-view": "^9.10.1",
+    "@mui/x-tree-view-pro": "^9.10.1",
+    "@rollup/plugin-alias": "^6.0.0",
+    "@rollup/plugin-commonjs": "^29.0.3",
+    "@rollup/plugin-node-resolve": "^16.0.3",
+    "@rollup/plugin-typescript": "^12.3.0",
+    "@semantic-release/commit-analyzer": "^13.0.1",
+    "@semantic-release/github": "^12.0.9",
+    "@semantic-release/npm": "^13.1.5",
+    "@semantic-release/release-notes-generator": "^14.1.1",
+    "@types/react": "^19.2.18",
+    "eslint": "^10.8.0",
+    "eslint-plugin-jsdoc": "^63.3.2",
+    "eslint-plugin-prettier": "^5.5.6",
+    "eslint-plugin-unused-imports": "^4.4.1",
+    "globals": "^17.8.0",
+    "prettier": "^3.9.6",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "rollup": "^4.62.4",
+    "rollup-plugin-esbuild": "^6.2.1",
+    "semantic-release": "^25.0.8",
+    "tsc-alias": "^1.9.1",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.65.0"
+  }
+}
