@@ -97,9 +97,17 @@ jobs:
   # release it wants. `changeset add --empty` is the documented way to say
   # "none", and it leaves that decision in the diff rather than in someone's
   # memory.
+  # The version pull request is exempt. `changesets/action` opens it to *apply*
+  # the changesets: it bumps every package they name and deletes the changeset
+  # files in the same commit, so by construction it changes packages and carries
+  # no changeset — precisely what this job exists to reject. Skipping is safe for
+  # branch protection, which reads a skipped job as satisfied (an entirely
+  # skipped *workflow* is what reports nothing at all; see the note at the top of
+  # this file). The branch name is `changeset-release/<base>`, the action's
+  # default.
   changeset:
     name: Changeset present
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' && !startsWith(github.head_ref, 'changeset-release/')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
