@@ -217,32 +217,51 @@ only if compiling wouldn't reorder them relative to each other.
 | Object literal already has a `__meo$` key | No (bail) | `ExistingMarker` — already compiled |
 
 Special keys (`css`, `props`, `ref`, `key`, `children`, `as`, `theme`,
-`disableEmotion`) are always left untouched at the top level of the emitted
-object — they're moved to the tail in their original relative order, but
-never bucketed into `c`/`d`. `key` and `children` in particular keep
+`disableEmotion`) always stay at the top level of the emitted object — they're
+moved to the tail in their original relative order, but never bucketed into
+`c`/`d`. Their values are passed through as written, with one exception: the
+theme tokens inside a `css` object literal are rewritten in place (see below),
+which changes the CSS text the runtime receives but not where or when the prop
+is evaluated. `key` and `children` in particular keep
 `@meonode/ui`'s runtime semantics byte-identical: compiling never changes
 how either is evaluated relative to the rest of the call.
 
 ### Theme token rewriting
 
-Within the `__meo$c`/`__meo$d` buckets, string-literal values have their
-`theme.*` tokens rewritten to `var(--meonode-theme-*)`. The scope is
-deliberately narrow:
+String-literal values have their `theme.*` tokens rewritten to
+`var(--meonode-theme-*)` — in the `__meo$c`/`__meo$d` buckets, and inside a
+`css:` object literal, recursively. Object **keys** are never rewritten:
 
 | Case | Rewritten? | Why |
 |---|---|---|
 | `padding: 'theme.spacing.md'` | Yes | Direct bucketed value |
 | `border: '1px solid theme.base.deep'` | Yes | Rewritten in place, rest of the value preserved |
 | `'data-token': 'theme.primary'` | Yes | The runtime converts tokens in DOM props too |
+| `css: { color: 'theme.primary' }` | Yes | Values inside `css` are rewritten, the block itself stays a special key |
+| `css: { '&:hover': { padding: 'theme.spacing.sm' } }` | Yes | The property comes from the nearest enclosing key, so `padding` still selects the length form |
 | `'@media (max-width: theme.breakpoint.md)': {...}` | **No** | It's a *key*; `var()` is invalid in media features, so the runtime must resolve it concretely |
-| `css: { color: 'theme.primary' }` | **No** | `css` is a special key, never bucketed — left to the runtime |
+| `css: { transition: ['theme.motion.fast'] } ` | **No** | See "arrays" below |
 | `theme: {...}` | **No** | Special key. Rewriting inside a theme *definition* would corrupt it |
 | `` padding: `theme.spacing.${size}` `` | **No** | Not a static string literal |
 
-Skipping nested objects means `css:` blocks are still resolved at runtime. That
-covers less ground than recursing would, but on the `@meonode/ui` docs site only
-42 of 758 token-bearing lines sit inside a nested object, so ~94% of tokens are
-still handled at build time for a fraction of the risk.
+Whether a token takes the paired `--len` form is decided by the CSS property it
+is written against, and inside `css` that property is the nearest enclosing key
+— with selectors and at-rules (`&:hover`, `@media …`) contributing none, since
+they name no property. This mirrors `@meonode/ui`'s own
+`isSelectorOrAtRule(key) ? undefined : key` rule, applied in both of its
+conversion paths.
+
+Two nested shapes are deliberately skipped:
+
+- **Arrays.** `@meonode/ui` converts string items inside arrays on the server
+  (`replaceThemeTokensWithCssVars`) but not on the client
+  (`resolveObjWithTheme` substitutes only nested containers), so a token inside
+  an array already behaves differently on the two sides. Compiling would have to
+  pick one and bake it in.
+- **A `theme.*` token in a non-selector key.** The runtime resolves such a key
+  and then uses the *resolved* text as the property name, which decides the
+  length question. With no theme at build time that name is unknowable, so the
+  whole entry is left alone.
 
 Two runtime quirks are reproduced deliberately, because diverging would make
 compiled and uncompiled call sites disagree:

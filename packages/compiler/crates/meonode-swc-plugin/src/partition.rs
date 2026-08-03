@@ -24,9 +24,12 @@
 //! bail decisions.
 //!
 //! The one value *transformation* it performs is the `theme.*` ->
-//! `var(--meonode-theme-*)` rewrite (see `theme.rs`), applied to bucketed
-//! string-literal values only. Scope is deliberately narrow — see
-//! [`rewrite_theme_tokens_in_buckets`].
+//! `var(--meonode-theme-*)` rewrite (see `theme.rs`), applied to string-literal
+//! values in two places: the `c`/`d` buckets
+//! ([`rewrite_theme_tokens_in_buckets`]) and, recursively, inside a `css:`
+//! object literal ([`rewrite_theme_tokens_in_css_object`]). Object *keys* are
+//! never rewritten in either — they must resolve to concrete values at runtime,
+//! since `var()` is invalid inside media features and selector text.
 
 use std::collections::HashMap;
 use std::mem;
@@ -42,7 +45,7 @@ use crate::effect::is_inline_function;
 use crate::detect::{self, Decision};
 use crate::effect::is_static_literal;
 use crate::keys::{is_special_key, is_stable_key_visible_special, key_name_atom};
-use crate::theme::rewrite_theme_tokens_for;
+use crate::theme::{is_selector_or_at_rule, rewrite_theme_tokens_for};
 
 const MARKER_KEY: &str = "__meo$";
 /// Schema version emitted by this compiler. Schema 1 named its buckets `c`/`d`/
@@ -287,11 +290,9 @@ fn push_dyn_name(dyn_names: &mut Vec<Atom>, name: Atom) {
 ///
 /// - **Special keys are skipped**, because they are never bucketed and so never
 ///   reach this function. That matters most for `theme:` — rewriting tokens
-///   inside a *theme definition* would corrupt it, not optimize it — and it
-///   also means `css: {...}` blocks are left to the runtime. On the real
-///   `@meonode/ui` docs site only 42 of 758 token-bearing lines sit inside a
-///   nested object (`css:`, `props:`, selectors, media queries), so restricting
-///   to direct props still covers ~94% of tokens for a fraction of the surface.
+///   inside a *theme definition* would corrupt it, not optimize it. `css:` is
+///   handled separately and under its own rules, by
+///   [`rewrite_theme_tokens_in_css_prop`].
 ///
 /// - **No recursion into nested object/array literals**, and no template
 ///   literals. A no-substitution template is value-equivalent to a string, but
@@ -344,6 +345,158 @@ fn rewrite_theme_tokens_in_buckets(buckets: [&mut Vec<PropOrSpread>; 2]) {
                 // rewrite.
                 str_lit.raw = None;
             }
+        }
+    }
+}
+
+/// Whether a `css` object entry's string values may be rewritten, and if so
+/// whether the enclosing property takes a length.
+///
+/// `None` means "leave this entry entirely alone" — neither its own value nor
+/// anything nested below it.
+///
+/// Three key shapes produce `None`:
+///
+/// - **Computed, numeric and bigint keys.** The property name is not statically
+///   known, so neither is the length question. (Unlike a props object, a `css`
+///   object is never validated by `detect.rs` — `css` is a special key, so its
+///   contents reach here in whatever shape they were written.)
+///
+/// - **A key whose text cannot be read.** `Str::value` is WTF-8 and may hold a
+///   lone surrogate with no `&str` form.
+///
+/// - **A non-selector key holding a `theme.*` token.** The runtime resolves such
+///   a key against the live theme and then uses the *resolved* text as the
+///   property name (`valueProperty = isSelectorOrAtRule(newKey) ? undefined :
+///   newKey` — note `newKey`, not `key`). This pass has no theme, so it cannot
+///   know what that resolved name is, and therefore cannot decide the length
+///   question the same way. Selector and at-rule keys are exempt because a key
+///   that starts `&`/`@` still starts `&`/`@` after its tokens resolve, so the
+///   `undefined`-property answer is knowable either way.
+fn css_key_context(key: &PropName) -> Option<bool> {
+    let name = match key {
+        PropName::Ident(id) => id.sym.as_ref(),
+        PropName::Str(s) => s.value.as_str()?,
+        _ => return None,
+    };
+    let is_selector = is_selector_or_at_rule(name);
+    if !is_selector && name.contains("theme.") {
+        return None;
+    }
+    Some(!is_selector && is_length_prop(name))
+}
+
+/// Rewrites `theme.*` tokens to `var(--meonode-theme-*)` in the string-literal
+/// **values** of a `css:` object literal, recursing into nested objects.
+///
+/// ## Why `css` needs its own walker
+///
+/// Direct props are flat, so [`rewrite_theme_tokens_in_buckets`] gets the
+/// property name for free from the prop key. A `css` block nests: the property
+/// governing `'theme.spacing.sm'` in
+/// `{ '&:hover': { padding: 'theme.spacing.sm' } }` is `padding`, two levels
+/// down, and the enclosing `&:hover` contributes no property at all. This
+/// mirrors the runtime's rule exactly — `@meonode/ui` derives the property from
+/// the immediately enclosing key and drops it for selectors and at-rules (see
+/// `isSelectorOrAtRule` in `css-unit.util.ts`, applied in both
+/// `resolveObjWithTheme` and `replaceThemeTokensWithCssVars`).
+///
+/// ## What is deliberately left alone
+///
+/// - **Keys.** Same invariant as everywhere else: a token in a key must resolve
+///   to a concrete value, since `var()` is invalid inside media features and
+///   selector text. Only `kv.value` is ever read here.
+///
+/// - **Arrays.** `@meonode/ui`'s two conversion paths disagree about strings
+///   inside arrays: `replaceThemeTokensWithCssVars` converts them (with no
+///   property context), while `resolveObjWithTheme` substitutes only nested
+///   *containers* and lets string items fall straight through. Since the server
+///   reaches `css` through the first and the client through the second, a token
+///   inside an array already renders differently on the two sides. Recursing
+///   here would have to pick one of those behaviors and bake it into the build,
+///   turning a runtime inconsistency into a compiled one. Skipping leaves the
+///   existing behavior exactly as it is.
+///
+/// - **Anything that is not a string literal or an object literal**:
+///   identifiers, calls, template literals, functions. The runtime still
+///   handles whatever this pass leaves behind — including callable theme refs,
+///   which it invokes under `processFunctions` and rewrites afterwards.
+///
+/// ## Why this cannot change anything but the CSS text
+///
+/// `css` is a special key: it is never bucketed, never contributes to `c`/`d`,
+/// and its position in the emitted object is unchanged. A string literal stays
+/// a string literal, so `effect::is_static_literal` returns what it returned
+/// before and `dyn` membership is untouched. The only observable difference is
+/// that the runtime finds `var(...)` where it used to find `theme.*` — and the
+/// conversion it would have performed is byte-for-byte the one performed here,
+/// so the Emotion class hash is identical.
+///
+/// The token-free result is worth more here than in the buckets. `css` reaches
+/// `resolveObjWithTheme`, whose `scanForThemeWork` fast path also inspects
+/// **keys** — so a block with no token-bearing key now scans clean and the whole
+/// copy-on-write walk collapses to `return obj`, rather than merely finding
+/// nothing to replace along the way.
+fn rewrite_theme_tokens_in_css_object(obj: &mut ObjectLit) {
+    for prop_or_spread in obj.props.iter_mut() {
+        // A spread's contents are not visible here. Skipping it is safe
+        // precisely because this pass rewrites values in place and never moves,
+        // adds or drops an entry, so the spread's own merge semantics are
+        // untouched.
+        let PropOrSpread::Prop(prop) = prop_or_spread else {
+            continue;
+        };
+        // Shorthand props carry an identifier value; accessors and methods
+        // carry no literal value at all.
+        let Prop::KeyValue(kv) = &mut **prop else {
+            continue;
+        };
+        // Read (and finish borrowing) the key before the mutable borrow below.
+        let Some(wants_length) = css_key_context(&kv.key) else {
+            continue;
+        };
+
+        match unwrap_parens_mut(&mut kv.value) {
+            Expr::Lit(Lit::Str(str_lit)) => {
+                let rewritten = str_lit
+                    .value
+                    .as_atom()
+                    .and_then(|atom| rewrite_theme_tokens_for(atom, wants_length));
+                if let Some(rewritten) = rewritten {
+                    str_lit.value = rewritten.into();
+                    // `raw` holds the source text verbatim and takes precedence
+                    // over `value` in codegen, so a stale `raw` would silently
+                    // undo the rewrite.
+                    str_lit.raw = None;
+                }
+            }
+            Expr::Object(nested) => rewrite_theme_tokens_in_css_object(nested),
+            _ => {}
+        }
+    }
+}
+
+/// Finds the `css` prop among the collected special props and rewrites the
+/// tokens inside it (see [`rewrite_theme_tokens_in_css_object`]).
+///
+/// Only an object literal is eligible. `css: someVariable` and shorthand `css`
+/// carry an identifier whose contents are unknown here, and both already enter
+/// `dyn` on the non-spread path, so the runtime resolves them as before.
+fn rewrite_theme_tokens_in_css_prop(special_props: &mut [PropOrSpread]) {
+    for prop_or_spread in special_props.iter_mut() {
+        let PropOrSpread::Prop(prop) = prop_or_spread else {
+            continue;
+        };
+        let Prop::KeyValue(kv) = &mut **prop else {
+            continue;
+        };
+        // Every key here survived `detect::validate_object`, so `key_name_atom`
+        // cannot hit its unreachable arm.
+        if key_name_atom(&kv.key).as_ref() != "css" {
+            continue;
+        }
+        if let Expr::Object(obj) = unwrap_parens_mut(&mut kv.value) {
+            rewrite_theme_tokens_in_css_object(obj);
         }
     }
 }
@@ -452,6 +605,7 @@ fn rewrite_object(obj: &mut ObjectLit, filename: &str, span: Span) {
     // it is: a value transformation over the final bucket contents, incapable
     // of influencing any placement decision made above.
     rewrite_theme_tokens_in_buckets([&mut c_props, &mut d_props]);
+    rewrite_theme_tokens_in_css_prop(&mut special_props);
 
     // A spread present means `k`/`dyn` are never emitted (stable-key hazard
     // — see doc comment above), regardless of whether `dyn_names` ended up
@@ -1401,6 +1555,263 @@ mod tests {
         assert!(
             !has_prop(&obj, "__meo$"),
             "Button(...) must not be rewritten without factoryModules configured"
+        );
+    }
+
+    // --- theme tokens inside `css` ---
+
+    /// The name of a key-value prop, whether written as an identifier or as a
+    /// quoted string. `find_prop` only matches identifier keys, which is enough
+    /// for marker props but not for a `css` block, whose keys are mostly quoted
+    /// selectors and at-rules.
+    fn entry_key_name(prop: &PropOrSpread) -> Option<&str> {
+        let PropOrSpread::Prop(prop) = prop else {
+            return None;
+        };
+        let Prop::KeyValue(kv) = &**prop else {
+            return None;
+        };
+        match &kv.key {
+            PropName::Ident(id) => Some(id.sym.as_ref()),
+            PropName::Str(s) => s.value.as_str(),
+            _ => None,
+        }
+    }
+
+    fn entry<'a>(obj: &'a ObjectLit, name: &str) -> &'a Expr {
+        obj.props
+            .iter()
+            .find_map(|p| {
+                if entry_key_name(p) != Some(name) {
+                    return None;
+                }
+                let PropOrSpread::Prop(prop) = p else {
+                    return None;
+                };
+                let Prop::KeyValue(kv) = &**prop else {
+                    return None;
+                };
+                Some(&*kv.value)
+            })
+            .unwrap_or_else(|| panic!("expected entry `{name}` to exist in {obj:#?}"))
+    }
+
+    fn object_entry<'a>(obj: &'a ObjectLit, name: &str) -> &'a ObjectLit {
+        let Expr::Object(nested) = entry(obj, name) else {
+            panic!("expected entry `{name}` to be an object literal");
+        };
+        nested
+    }
+
+    /// The `css` prop of an already-transformed call site.
+    fn css_block(obj: &ObjectLit) -> &ObjectLit {
+        let Expr::Object(css) = find_prop(obj, "css") else {
+            panic!("expected `css` to be an object literal");
+        };
+        css
+    }
+
+    #[test]
+    fn css_values_are_rewritten_with_the_property_length_rule() {
+        let obj = transformed_object(
+            r#"
+            import { Div } from '@meonode/ui';
+            Div({ css: { padding: 'theme.spacing.md', color: 'theme.primary' } });
+            "#,
+            "test.tsx",
+        );
+        let css = css_block(&obj);
+        // `padding` takes a length, so the token references the `--len` variant
+        // with the plain variable as fallback.
+        assert_eq!(
+            str_lit_value(entry(css, "padding")),
+            "var(--meonode-theme-spacing-md--len, var(--meonode-theme-spacing-md))"
+        );
+        // `color` does not, so it keeps the plain variable.
+        assert_eq!(
+            str_lit_value(entry(css, "color")),
+            "var(--meonode-theme-primary)"
+        );
+    }
+
+    #[test]
+    fn css_media_query_key_keeps_its_token_while_its_values_are_rewritten() {
+        let obj = transformed_object(
+            r#"
+            import { Div } from '@meonode/ui';
+            Div({
+                css: {
+                    '@media (max-width: theme.breakpoint.md)': {
+                        padding: 'theme.spacing.sm',
+                    },
+                },
+            });
+            "#,
+            "test.tsx",
+        );
+        let css = css_block(&obj);
+        // The key must survive verbatim: `var()` is invalid inside a media
+        // feature, so only the live theme can resolve it.
+        let media = object_entry(css, "@media (max-width: theme.breakpoint.md)");
+        assert_eq!(
+            str_lit_value(entry(media, "padding")),
+            "var(--meonode-theme-spacing-sm--len, var(--meonode-theme-spacing-sm))"
+        );
+    }
+
+    #[test]
+    fn css_value_directly_under_a_selector_key_uses_the_plain_variable() {
+        let obj = transformed_object(
+            r#"
+            import { Div } from '@meonode/ui';
+            Div({
+                css: {
+                    '&:hover': 'theme.spacing.md',
+                    '&:focus': { padding: 'theme.spacing.md' },
+                },
+            });
+            "#,
+            "test.tsx",
+        );
+        let css = css_block(&obj);
+        // A selector key names no property, so there is nothing to decide the
+        // length question — matching the runtime's `isSelectorOrAtRule(newKey)
+        // ? undefined : newKey`.
+        assert_eq!(
+            str_lit_value(entry(css, "&:hover")),
+            "var(--meonode-theme-spacing-md)"
+        );
+        // One level down, `padding` is back in scope and the length form returns.
+        let focus = object_entry(css, "&:focus");
+        assert_eq!(
+            str_lit_value(entry(focus, "padding")),
+            "var(--meonode-theme-spacing-md--len, var(--meonode-theme-spacing-md))"
+        );
+    }
+
+    #[test]
+    fn css_array_values_are_left_to_the_runtime() {
+        let obj = transformed_object(
+            r#"
+            import { Div } from '@meonode/ui';
+            Div({ css: { transition: ['theme.motion.fast'] } });
+            "#,
+            "test.tsx",
+        );
+        let Expr::Array(arr) = entry(css_block(&obj), "transition") else {
+            panic!("expected `transition` to still be an array literal");
+        };
+        let elem = arr.elems[0].as_ref().expect("no elision expected");
+        assert_eq!(
+            str_lit_value(&elem.expr),
+            "theme.motion.fast",
+            "@meonode/ui's two conversion paths disagree about strings inside \
+             arrays, so compiling must not pick a side"
+        );
+    }
+
+    #[test]
+    fn css_token_bearing_property_key_is_skipped_entirely() {
+        let obj = transformed_object(
+            r#"
+            import { Div } from '@meonode/ui';
+            Div({ css: { 'theme.custom.prop': 'theme.spacing.md' } });
+            "#,
+            "test.tsx",
+        );
+        // The runtime decides the length question from the *resolved* key, which
+        // is unknowable here, so the whole entry is left alone.
+        assert_eq!(
+            str_lit_value(entry(css_block(&obj), "theme.custom.prop")),
+            "theme.spacing.md"
+        );
+    }
+
+    #[test]
+    fn css_computed_key_entry_is_skipped_but_its_siblings_are_not() {
+        let obj = transformed_object(
+            r#"
+            import { Div } from '@meonode/ui';
+            Div({ css: { [dynamicKey]: 'theme.spacing.md', color: 'theme.primary' } });
+            "#,
+            "test.tsx",
+        );
+        let css = css_block(&obj);
+        let computed = css
+            .props
+            .iter()
+            .find_map(|p| {
+                let PropOrSpread::Prop(prop) = p else {
+                    return None;
+                };
+                let Prop::KeyValue(kv) = &**prop else {
+                    return None;
+                };
+                matches!(&kv.key, PropName::Computed(_)).then_some(&*kv.value)
+            })
+            .expect("expected the computed-key entry to survive");
+        assert_eq!(str_lit_value(computed), "theme.spacing.md");
+        assert_eq!(
+            str_lit_value(entry(css, "color")),
+            "var(--meonode-theme-primary)"
+        );
+    }
+
+    #[test]
+    fn css_spread_is_preserved_and_does_not_stop_the_walk() {
+        let obj = transformed_object(
+            r#"
+            import { Div } from '@meonode/ui';
+            Div({ css: { ...base, color: 'theme.primary' } });
+            "#,
+            "test.tsx",
+        );
+        let css = css_block(&obj);
+        assert!(
+            matches!(css.props.first(), Some(PropOrSpread::Spread(_))),
+            "the spread must stay exactly where it was"
+        );
+        assert_eq!(
+            str_lit_value(entry(css, "color")),
+            "var(--meonode-theme-primary)"
+        );
+    }
+
+    #[test]
+    fn non_object_css_value_is_untouched() {
+        let obj = transformed_object(
+            r#"
+            import { Div } from '@meonode/ui';
+            Div({ css: computeCss() });
+            "#,
+            "test.tsx",
+        );
+        assert!(
+            matches!(find_prop(&obj, "css"), Expr::Call(_)),
+            "a dynamic `css` value must be forwarded as written"
+        );
+        // Unchanged from before this pass existed: a dynamic special value still
+        // enters `dyn` so the stable key stays value-sensitive.
+        assert_eq!(dyn_names(&obj), vec!["css"]);
+    }
+
+    #[test]
+    fn theme_prop_is_still_never_rewritten() {
+        let obj = transformed_object(
+            r#"
+            import { Div } from '@meonode/ui';
+            Div({ theme: { system: { primary: 'theme.primary' } }, css: { color: 'theme.primary' } });
+            "#,
+            "test.tsx",
+        );
+        // Rewriting inside a theme *definition* would corrupt it. Only `css` is
+        // walked among the special keys.
+        let theme = object_entry(&obj, "theme");
+        let system = object_entry(theme, "system");
+        assert_eq!(str_lit_value(entry(system, "primary")), "theme.primary");
+        assert_eq!(
+            str_lit_value(entry(css_block(&obj), "color")),
+            "var(--meonode-theme-primary)"
         );
     }
 }

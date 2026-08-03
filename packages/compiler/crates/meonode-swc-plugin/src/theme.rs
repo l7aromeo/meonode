@@ -118,6 +118,18 @@ fn is_theme_path_char(ch: char) -> bool {
     ch.is_ascii_alphanumeric() || ch == '_' || ch == '.' || ch == '-'
 }
 
+/// Mirrors `@meonode/ui`'s `isSelectorOrAtRule`
+/// (`key.startsWith('&') || key.startsWith('@')`).
+///
+/// Such a key names a nested selector or at-rule rather than a CSS property, so
+/// it contributes no property of its own — which is what the runtime's
+/// `valueProperty = isSelectorOrAtRule(newKey) ? undefined : newKey` encodes.
+/// A token written directly under one therefore keeps the plain variable rather
+/// than the `--len` form, since there is no property to decide the question.
+pub fn is_selector_or_at_rule(key: &str) -> bool {
+    key.starts_with('&') || key.starts_with('@')
+}
+
 /// Replaces every `theme.<path>` occurrence in `input` with
 /// `var(--meonode-theme-<path>)`, mirroring `/theme\.([a-zA-Z0-9_.-]+)/g`.
 ///
