@@ -226,6 +226,18 @@ fn transform_theme_length_tokens() {
     run_partition("transform_theme_length_tokens");
 }
 
+/// `css` is a special key, so it is never bucketed — but its string *values*
+/// are rewritten in place, recursively. The property governing a token comes
+/// from the immediately enclosing key, and a selector or at-rule key
+/// contributes none, exactly as the runtime derives it. Keys keep their tokens
+/// (only the live theme can resolve them into a media feature), and arrays are
+/// left alone because `@meonode/ui`'s server and client conversion paths
+/// disagree about strings inside them.
+#[test]
+fn transform_theme_tokens_in_css() {
+    run_partition("transform_theme_tokens_in_css");
+}
+
 #[test]
 fn transform_special_keys() {
     run_partition("transform_special_keys");
