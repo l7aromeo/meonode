@@ -1,5 +1,7 @@
 # @meonode/compiler
 
+**[Documentation](https://ui.meonode.com/docs/getting-started/compiler)** · [MeoNode UI docs](https://ui.meonode.com)
+
 **Experimental.** An SWC WASM plugin (Rust, compiled to `wasm32-wasip1`) that
 rewrites `@meonode/ui` component call sites at build time so the
 `@meonode/ui` runtime can skip its own per-render work.
