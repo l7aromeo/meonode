@@ -4,6 +4,8 @@
 
 > A lightweight wrapper around [@mui/material](https://mui.com/) components for use with [`@meonode/ui`](https://www.npmjs.com/package/@meonode/ui) runtime.
 
+**[Documentation](https://ui.meonode.com/docs/mui-integration)** · [MeoNode UI docs](https://ui.meonode.com)
+
 ---
 
 ## Features
@@ -65,6 +67,10 @@ const MyComponent = () =>
 ```
 
 -----
+
+## Documentation
+
+Full guide, component list and examples: **[ui.meonode.com/docs/mui-integration](https://ui.meonode.com/docs/mui-integration)**
 
 ## License
 
