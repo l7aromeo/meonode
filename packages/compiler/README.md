@@ -432,10 +432,11 @@ bun run test:e2e        # Next Turbopack + Vite real-build parity fixtures (slow
 ```
 
 `@meonode/ui` is a released dependency now that schema 2 runtime support has
-shipped: the root `package.json` tracks `^1.7.4`, while `e2e/next-app` and
-`e2e/vite-app` pin the exact version (`1.7.4`) so real-bundler parity runs stay
-reproducible. Bump the e2e pins deliberately when validating against a newer
-`@meonode/ui`; there is no longer any prerelease or `beta` dist-tag involved.
+shipped: the root `package.json` tracks `^2.0.0-beta.0`, while `e2e/next-app`
+and `e2e/vite-app` pin the exact version (`2.0.0-beta.0`) so real-bundler
+parity runs stay reproducible. Bump the e2e pins deliberately when validating
+against a newer `@meonode/ui` — an exact pin is the point, so they cannot drift
+onto a different runtime than the one the parity run claims to cover.
 
 Test coverage as of this writing: 115 Rust tests (unit + SWC fixture tests),
 24 Vitest tests (9 WASM artifact smoke tests via `@swc/core`'s real plugin
