@@ -8,7 +8,6 @@ import React, {
   type Component,
   type ComponentProps,
   type ExoticComponent,
-  type ReactElement,
 } from 'react'
 import type { NO_STYLE_TAGS, COMPILED_MARKER } from '@src/constant/common.const.js'
 import type { ComponentNodeProps } from '@src/hoc/component.hoc.js'
@@ -91,25 +90,6 @@ export type HasNoStyleProp<E extends NodeElement> = E extends NoStyleTags ? true
 export type NodeInstance<E extends NodeElementType = NodeElementType> = BaseNode<E>
 
 /**
- * Represents an entry in the element cache.
- * Stores the rendered React element and its previous dependencies for memoization.
- */
-export interface ElementCacheEntry<E extends NodeElementType = NodeElementType> {
-  /** The fully rendered React element, ready to be returned by the component. */
-  renderedElement: ReactElement<FinalNodeProps>
-  /** The list of dependencies from the previous render, used for change detection. */
-  prevDeps?: DependencyList
-  /** A weak reference to the `NodeInstance` that owns this cache entry. */
-  nodeRef: WeakRef<NodeInstance<E>>
-  /** Timestamp of when this cache entry was created. */
-  createdAt: number
-  /** Number of times this cache entry has been accessed/reused. */
-  accessCount: number
-  /** Unique identifier of the node instance, used for validation. */
-  instanceId: string
-}
-
-/**
  * Work item for processing queue.
  */
 export interface WorkItem {
@@ -117,17 +97,8 @@ export interface WorkItem {
   node: NodeInstance
   /** Flag indicating if the node has been visited (begin phase) or is being completed (end phase). */
   isProcessed: boolean
-  /** Flag indicating if the node's children should be skipped (blocked) due to memoization. */
-  blocked: boolean
   /** Active inherited theme scope while traversing this subtree (server/runtime propagation). */
   theme?: Theme
-
-  /**
-   * This node's `elementCache` key for the current render, derived from the
-   * parent's key plus this node's position rather than read off the instance.
-   * Undefined when caching does not apply (server, or no signature).
-   */
-  cacheKey?: string
 }
 
 // ============================================================================

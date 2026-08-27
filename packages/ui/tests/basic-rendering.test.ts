@@ -203,7 +203,7 @@ describe('Basic Rendering', () => {
     expect(element).not.toHaveAttribute('nativeProps')
     expect(element).not.toHaveAttribute('props')
     expect(element).not.toHaveAttribute('disableEmotion')
-    expect(element).not.toHaveAttribute('node') // from MeoNodeUnmounter
+    expect(element).not.toHaveAttribute('node') // internal wrapper prop, never a DOM attribute
 
     // Additional check: verify that the element doesn't have any attribute with "[object Object]" value
     // This would indicate a leaked object prop

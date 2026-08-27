@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "@meonode/compiler": "file:../../npm",
-    "@meonode/ui": "1.8.6",
+    "@meonode/ui": "2.0.0-beta.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },

@@ -1,89 +1,106 @@
 // @vitest-environment jsdom
 //
-// The one collision class the identity refactor does NOT fix, pinned so its
-// boundaries are explicit rather than folklore.
+// Collisions across a component boundary, pinned because they were structural
+// for a long time and the fix should not be able to regress quietly.
 //
-// Cache keys are positional, built as `${parentKey}_${index}:${signature}` down
-// from the render root. That chain only spans MeoNode's own children. When a
-// component returns `Div({...}).render()`, React composes the result and the
-// chain restarts — the inner tree has no idea where its component was mounted.
-// So two components rendering structurally identical trees compute identical
-// keys and share cache entries, and the second renders the first's content.
+// Memoized subtrees used to live in one global `Map`, keyed by a string built
+// from each node's props and its position under the render root. React composes
+// what a component returns, so that positional chain restarted at every
+// component boundary: two components rendering structurally identical trees
+// derived identical keys, shared one entry, and the second rendered the first's
+// content.
 //
-// Two things fix it, both verified here:
-//   - `@meonode/compiler`, because `__meo$k` is a source-position hash, so
-//     distinct call sites are distinct by construction
-//   - an explicit `key` on the root of each component's tree, which folds into
-//     the signature via `_withKeyPrefix`
+// `@meonode/compiler` narrowed it — `__meo$k` is a source-position hash, so
+// distinct *call sites* were distinct by construction — but never closed it. Two
+// instances of the *same* component share a source position, so `__meo$k` was
+// identical for both and the collision survived a compiled build.
 //
-// Props are written as plain object literals on purpose. The compiler only
-// marks literal call sites; passing a conditional (`Div(cond ? {..} : {..})`)
-// makes it bail, the node falls back to a prop-derived signature, and the
-// collision returns even in a compiled build. That bailout is asserted below so
-// the limit of the compiler's immunity is recorded rather than assumed.
-import { it } from 'vitest'
+// A memoized subtree now renders inside a `MeoMemo` fiber, so identity comes
+// from React: there is no string to derive and nothing to collide, for plain
+// functions and `Component` alike. Assertions here are behavioural — what each
+// case must render — so they outlive the mechanism.
 import { render, cleanup } from '@testing-library/react'
-import { createElement } from 'react'
-import { Div } from '@src/main.js'
-import { BaseNode } from '@src/core.node.js'
-import { COMPILED_MARKER } from '@src/constant/common.const.js'
+import { act, createElement, useState } from 'react'
+import { Component, Div } from '@src/main.js'
 
-const COMPILED = process.env.MEONODE_COMPILED === '1'
+afterEach(cleanup)
 
-afterEach(() => {
-  cleanup()
-  BaseNode.elementCache.clear()
-})
-
+// Plain function components. These have no boundary the library controls, and
+// were the case no derived key could ever fix.
 const PlainA = () => Div({ children: [Div({ padding: '8px', children: 'AAA' }, [])] }, []).render()
 const PlainB = () => Div({ children: [Div({ padding: '8px', children: 'BBB' }, [])] }, []).render()
 
-const KeyedA = () => Div({ key: 'a', children: [Div({ padding: '8px', children: 'AAA' }, [])] }, []).render()
-const KeyedB = () => Div({ key: 'b', children: [Div({ padding: '8px', children: 'BBB' }, [])] }, []).render()
+// Built with the HOC.
+const HocA = Component(() => Div({ children: [Div({ padding: '8px', children: 'AAA' }, [])] }, []))
+const HocB = Component(() => Div({ children: [Div({ padding: '8px', children: 'BBB' }, [])] }, []))
+
+// One definition, two instances. The differing prop reaches only `children`,
+// which every derived signature deliberately excluded.
+const Titled = Component<{ title: string }>(props => Div({ children: [Div({ padding: '8px', children: props.title }, [])] }, []))
+
+// Instances differing only *inside* an object prop, which a props hash could not
+// see — it hashed objects by key name, never by value.
+const Boxed = Component<{ item: { label: string } }>(props => Div({ children: [Div({ padding: '8px', children: props.item.label }, [])] }, []))
 
 const mount = (a: () => unknown, b: () => unknown) => Div({ children: [createElement(a as never), createElement(b as never)] })
 
 describe('cross-component-boundary collisions', () => {
-  it.skipIf(!COMPILED)('are impossible under the compiler', () => {
-    // `__meo$k` differs per call site, so the two trees never share a key.
+  it('do not occur between two plain function components', () => {
     const { container } = render(mount(PlainA, PlainB).render())
 
     expect(container.textContent).toBe('AAABBB')
-    expect(BaseNode.elementCache.size).toBe(4)
   })
 
-  it.skipIf(COMPILED)('still occur uncompiled without a key', () => {
-    // Documents the limitation honestly. Uncompiled signatures derive from
-    // props, so both components produce the same key chain and collide: the
-    // second renders 'AAA'. If this ever starts passing, the limitation is
-    // gone and the docs recommending `key` should be revisited.
-    const { container } = render(mount(PlainA, PlainB).render())
-
-    expect(container.textContent).toBe('AAAAAA')
-    expect(BaseNode.elementCache.size).toBe(2)
-  })
-
-  it('are fixed by an explicit key on each component root', () => {
-    // The documented workaround, and it must hold in both modes.
-    const { container } = render(mount(KeyedA, KeyedB).render())
+  it('do not occur between two components built with the HOC', () => {
+    const { container } = render(Div({ children: [HocA({}), HocB({})] }).render())
 
     expect(container.textContent).toBe('AAABBB')
-    expect(BaseNode.elementCache.size).toBe(4)
   })
 
-  it.skipIf(!COMPILED)('lose compiler immunity when props are not a literal', () => {
+  it('do not occur between two instances of one component', () => {
+    const { container } = render(Div({ children: [Titled({ title: 'AAA' }), Titled({ title: 'BBB' })] }).render())
+
+    expect(container.textContent).toBe('AAABBB')
+  })
+
+  it('do not occur when instances differ only inside an object prop', () => {
+    const { container } = render(Div({ children: [Boxed({ item: { label: 'AAA' } }), Boxed({ item: { label: 'BBB' } })] }).render())
+
+    expect(container.textContent).toBe('AAABBB')
+  })
+
+  it('do not occur when the props argument is not a literal', () => {
     // The compiler cannot classify a conditional props argument, so it emits no
-    // marker and the node keys off props like an uncompiled one. The collision
-    // is back even though the build is compiled — which is why `key` remains
-    // the general answer rather than "just use the compiler".
+    // marker at all — this used to collide even in a compiled build. Nothing
+    // about the fix depends on the compiler, so it must hold here too.
     const cond = true
     const CondA = () => Div(cond ? { children: [Div({ padding: '8px', children: 'AAA' }, [])] } : { children: [] }, []).render()
     const CondB = () => Div(cond ? { children: [Div({ padding: '8px', children: 'BBB' }, [])] } : { children: [] }, []).render()
 
-    const probe = Div(cond ? { padding: '8px' } : { padding: '0' })
-    expect(COMPILED_MARKER in (probe.rawProps as Record<string, unknown>)).toBe(false)
-
     const { container } = render(mount(CondA, CondB).render())
-    expect(container.textContent).toBe('AAAAAA')
+
+    expect(container.textContent).toBe('AAABBB')
+  })
+})
+
+describe('memoization survives its own instance re-rendering', () => {
+  it('holds a frozen subtree while the parent re-renders with new props', () => {
+    // The other half of the contract. A scope derived from props would change
+    // as an instance's props change, which both defeats `deps` and strands a
+    // memo per distinct props value. Identity does neither: `deps: []` means
+    // frozen, whatever the props do.
+    let setTick: (n: number) => void = () => {}
+    const Harness = () => {
+      const [tick, setState] = useState(0)
+      setTick = setState
+      return Div({ children: [Titled({ title: `t${tick}` })] }).render()
+    }
+
+    const { container } = render(createElement(Harness))
+    expect(container.textContent).toBe('t0')
+
+    for (let i = 1; i <= 20; i++) act(() => setTick(i))
+
+    expect(container.textContent).toBe('t0')
   })
 })

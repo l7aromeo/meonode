@@ -12,8 +12,9 @@
 //   2. Even cast past the types it had no effect. A factory child stays a
 //      BaseNode and is rendered inside its parent's loop unwrapped, so its key
 //      reaches React. A `Component` child has already called `.render()`, so
-//      what lands in the children array is the `MeoNodeUnmounter` wrapper —
-//      which carried no key, leaving React with an unkeyed element.
+//      what landed in the children array was a wrapper element, and the wrapper
+//      carried no key — leaving React with an unkeyed element. `MeoMemo` is the
+//      wrapper today, for any node given `deps`, and it forwards the key.
 import { render } from '@testing-library/react'
 import { createElement } from 'react'
 import { Div, Component } from '@src/main.js'

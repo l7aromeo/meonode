@@ -1,0 +1,15 @@
+{
+  "mode": "exit",
+  "tag": "beta",
+  "initialVersions": {
+    "@meonode/compiler-repo": "0.0.1",
+    "@meonode/compiler": "0.7.0",
+    "@meonode/mui": "1.5.11",
+    "@meonode/ui": "1.8.7"
+  },
+  "changesets": [
+    "great-moons-tickle",
+    "quiet-hoops-smile",
+    "shy-melons-happen"
+  ]
+}
