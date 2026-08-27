@@ -695,3 +695,38 @@ describe('M. Third-party component interop', () => {
     expect(html).toContain('MEO THEME + MUI')
   })
 })
+
+describe('Component HOC across the hydration boundary', () => {
+  it('hydrates a memoized client component built with Component', async () => {
+    // A memoized subtree renders inside a `MeoMemo` fiber, and that fiber is
+    // created on the client only — the server memoizes nothing and emits no
+    // wrapper. So the client tree carries a component the server HTML did not,
+    // and that has to hydrate cleanly.
+    //
+    // Asserted directly rather than by argument: the page interleaves memoized
+    // HOC components with plain client components that render their own
+    // `useId` into visible text. React derives those ids from fiber position,
+    // so a wrapper present on one side only would move them, and the shift
+    // would surface as a text hydration mismatch — which `getPage` fails on.
+    const { status, html } = await getPage('/hoc-client-hydration')
+
+    expect(status).toBe(200)
+    assertNoRscErrors(html)
+
+    // Both instances rendered their own content. The collision this replaced
+    // showed `alpha` twice.
+    expect(html).toContain('hoc-client-label-alpha')
+    expect(html).toContain('hoc-client-label-beta')
+
+    // Every probe emitted a real React id. Read from the hydrated DOM, which is
+    // what `getPage` returns, so these are post-hydration values.
+    const ids = [...html.matchAll(/data-testid="id-probe-value-(before|between|after)"[^>]*>([^<]*)</g)].map(m => [m[1], m[2]] as const)
+    expect(ids.length).toBe(3)
+    for (const [, value] of ids) {
+      expect(value).toMatch(/\S/)
+    }
+    // Distinct positions must produce distinct ids; equal ones would mean the
+    // tree context collapsed.
+    expect(new Set(ids.map(([, v]) => v)).size).toBe(3)
+  })
+})

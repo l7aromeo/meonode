@@ -11,7 +11,6 @@ import {
 import type {
   Children,
   DependencyList,
-  ElementCacheEntry,
   FinalNodeProps,
   HasRequiredProps,
   MergedProps,
@@ -26,20 +25,14 @@ import type {
 import { isFragment, isValidElementType } from '@src/helper/react-is.helper.js'
 import { getComponentType, getElementTypeName, hasNoStyleTag, getGlobalState } from '@src/helper/common.helper.js'
 import StyledRenderer from '@src/components/styled-renderer.client.js'
-import { __DEBUG__, COMPILER_SCHEMA_KEYS, PREFIX_KEY_SCHEMAS } from '@src/constant/common.const.js'
-import { MountTrackerUtil } from '@src/util/mount-tracker.util.js'
-import MeoNodeUnmounter from '@src/components/meonode-unmounter.client.js'
-import { NavigationCacheManagerUtil } from '@src/util/navigation-cache-manager.util.js'
+import MeoMemo from '@src/components/meo-memo.client.js'
 import { NodeUtil } from '@src/util/node.util.js'
 import { compileServerEmotionClassName } from '@src/util/server-emotion.util.js'
 import { getActiveServerTheme, replaceThemeTokensWithCssVars, setActiveServerTheme } from '@src/util/server-theme.util.js'
 import { reportThemeIssues } from '@src/util/theme-diagnostics.util.js'
 import { ThemeUtil } from '@src/util/theme.util.js'
 
-const ELEMENT_CACHE_KEY = Symbol.for('@meonode/ui/BaseNode/elementCache')
-const NAVIGATION_STARTED_KEY = Symbol.for('@meonode/ui/BaseNode/navigationStarted')
 const RENDER_CONTEXT_POOL_KEY = Symbol.for('@meonode/ui/BaseNode/renderContextPool')
-const CACHE_CLEANUP_REGISTRY_KEY = Symbol.for('@meonode/ui/BaseNode/cacheCleanupRegistry')
 
 /**
  * The core abstraction of the MeoNode library. It wraps a React element or component,
@@ -58,54 +51,6 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
 
   private _props?: FinalNodeProps
   private readonly _deps?: DependencyList
-
-  /**
-   * @deprecated Use {@link signature}. Retained because `NodeInstance` is a
-   * public type alias for this class, so removing it would be a breaking change
-   * to the shipped `.d.ts`.
-   *
-   * Was the mutable cache key, stamped in place with positional and scope
-   * prefixes during render. That stamp was destructive — a stamped instance
-   * could not be reused without double-stamping — which is why every child had
-   * to be cloned on every render. Position is now derived during traversal, so
-   * this is simply the node's signature and never changes.
-   */
-  public stableKey?: string
-
-  /**
-   * Immutable identity: element, non-children props, and any React `key`,
-   * computed once at construction and never stamped.
-   *
-   * Deliberately excludes children. `deps` promises that content changes do
-   * not invalidate a memoized node, so anything content-derived is disqualified
-   * from identity.
-   *
-   * `key` *is* folded in — `_getStableKey` returns `_withKeyPrefix(key, ...)` —
-   * because a caller-supplied key is identity, not content.
-   *
-   * This is the input to the render-time cache key computed by
-   * {@link BaseNode._cacheKeyFor}, which replaces positional stamping.
-   * Undefined on the server, mirroring `stableKey`.
-   */
-  public readonly signature?: string
-
-  // Cached reference to the previous props object for cheap identity checks.
-  lastPropsObj?: Record<string, unknown>
-  // The last computed signature for the props object.
-  lastSignature?: string
-
-  public static get elementCache() {
-    return getGlobalState(ELEMENT_CACHE_KEY, () => new Map<string, ElementCacheEntry>())
-  }
-
-  // Navigation tracking
-  private static get _navigationStarted() {
-    return getGlobalState(NAVIGATION_STARTED_KEY, () => ({ value: false })).value
-  }
-
-  private static set _navigationStarted(value: boolean) {
-    getGlobalState(NAVIGATION_STARTED_KEY, () => ({ value: false })).value = value
-  }
 
   // Render Context Pooling
   private static get renderContextPool() {
@@ -162,19 +107,6 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
         setActiveServerTheme(resolvedTheme)
       }
     }
-
-    // Extract commonly handled props; the remaining `propsForSignature` are used to compute a stable hash.
-    const { ref, children, ...props } = rawProps
-
-    // Generate or get cached stable key. Called exactly once — it also primes
-    // `lastPropsObj`/`lastSignature` for the identity-check fast path.
-    this.signature = this._getStableKey(props)
-    this.stableKey = this.signature
-
-    if (!NodeUtil.isServer && !BaseNode._navigationStarted) {
-      NavigationCacheManagerUtil.getInstance().start()
-      BaseNode._navigationStarted = true
-    }
   }
 
   /**
@@ -191,10 +123,10 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
 
   /**
    * Returns the dependency list associated with this node.
-   * Used by the renderer to decide if the node (and subtree) should update.
-   * Mirrors React hook semantics: `undefined` means always update; when an
-   * array is provided a shallow comparison against previous deps determines
-   * whether a re-render is required.
+   * Mirrors React hook semantics, because it is one: the list is handed to
+   * `useMemo` inside the `MeoMemo` fiber that holds this node's subtree.
+   * `undefined` means the node is not memoized at all and is rebuilt with its
+   * parent.
    * @getter deps
    */
   public get dependencies(): DependencyList | undefined {
@@ -202,121 +134,8 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
   }
 
   /**
-   * Generates or returns a cached signature representing the props shape and values.
-   * The signature is used as a stable key for caching prop-derived computations (e.g. CSS extraction).
-   * - Uses a fast reference check to return the previous signature if the same props object is passed.
-   * - For very large prop objects (> 100 keys) it builds a smaller "criticalProps" fingerprint
-   * containing only style-related keys, event handlers, className/css and a `_keyCount` to avoid
-   * expensive serialization of huge objects while still retaining reasonable cache discrimination.
-   * - Stores the last props reference and computed signature to speed up repeated calls with the same object.
-   * @param key Key passed for prefix if exist
-   * @param props The props object to create a signature for.
-   * @returns A compact string signature suitable for use as a cache key.
-   */
-  private _getStableKey({ key, ...props }: Record<string, unknown>): string | undefined {
-    if (NodeUtil.isServer) return undefined
-
-    if (this.lastPropsObj === props) {
-      return this.lastSignature
-    }
-
-    this.lastPropsObj = props
-
-    // --- Compiled Marker Fast Path ---
-    // Trusts the compiler's call-site hash `k` instead of recomputing a full signature.
-    // Skips createPropSignature entirely, so no element.toString() hashing on this path.
-    const compiledSchema = NodeUtil.getCompiledSchema(props)
-    // Schema 3 marks a call site the plugin could not partition: it carries the
-    // source-position key and nothing else. The key is applied as a *prefix* to
-    // the signature computed below rather than replacing it — see the note on
-    // SUPPORTED_COMPILER_SCHEMAS. Captured here, applied at both exits.
-    let callSitePrefix: string | undefined
-
-    if (compiledSchema !== undefined) {
-      const schemaKeys = COMPILER_SCHEMA_KEYS[compiledSchema] ?? COMPILER_SCHEMA_KEYS[1]
-      const k = props[schemaKeys.key]
-      if (typeof k === 'string' && k.length > 0) {
-        if (PREFIX_KEY_SCHEMAS.has(compiledSchema)) {
-          callSitePrefix = k
-        } else {
-          const dyn = props[schemaKeys.dyn] as string[] | undefined
-          this.lastSignature = dyn && dyn.length > 0 ? `${k}:${NodeUtil.hashDynamicValues(props, dyn, compiledSchema)}` : k
-          return this._withKeyPrefix(key, this.lastSignature)
-        }
-      }
-      // Marker present but `k` missing/invalid — fall through to the legacy path below as a safe fallback.
-    }
-
-    const keys = Object.keys(props)
-    const keyCount = keys.length
-
-    if (keyCount > 100) {
-      const criticalProps = NodeUtil.extractCriticalProps(props, keys)
-
-      this.lastSignature = NodeUtil.createPropSignature(this.element, criticalProps)
-
-      if (__DEBUG__ && keyCount > 200) {
-        console.warn(`MeoNode: Large props (${keyCount} keys) on "${getElementTypeName(this.element)}". Consider splitting.`)
-      }
-    } else {
-      this.lastSignature = NodeUtil.createPropSignature(this.element, props)
-    }
-
-    if (callSitePrefix !== undefined) {
-      this.lastSignature = `${callSitePrefix}:${this.lastSignature}`
-    }
-
-    return this._withKeyPrefix(key, this.lastSignature)
-  }
-
-  /**
-   * Prefixes a signature with the user-supplied `key` prop, mirroring React's
-   * own key semantics (`0`/`''` are valid keys, only `undefined`/`null` opt out).
-   * Shared by both the compiled-marker fast path and the legacy signature path
-   * in `_getStableKey` so the prefix rule can't drift between them.
-   * @param key The user-supplied `key` prop value (already destructured off props).
-   * @param signature The computed signature to prefix.
-   * @returns The key-prefixed signature, or the signature unchanged if no key was given.
-   */
-  private _withKeyPrefix(key: unknown, signature: string | undefined): string | undefined {
-    return key !== undefined && key !== null ? `${String(key)}:${signature}` : signature
-  }
-
-  /**
-   * FinalizationRegistry for cleaning up `elementCache` entries when the associated `BaseNode` instance
-   * is garbage-collected. This helps prevent memory leaks by ensuring that cache entries for
-   * unreferenced nodes are eventually removed.
-   *
-   * The held value must include `cacheKey` which is used to identify and delete the corresponding
-   * entry from `BaseNode.elementCache`.
-   * @public
-   */
-
-  public static get cacheCleanupRegistry() {
-    return getGlobalState(
-      CACHE_CLEANUP_REGISTRY_KEY,
-      () =>
-        new FinalizationRegistry<{
-          cacheKey: string
-          instanceId: string
-        }>(heldValue => {
-          const { cacheKey, instanceId } = heldValue
-          const cacheEntry = BaseNode.elementCache.get(cacheKey)
-
-          if (cacheEntry?.instanceId === instanceId) {
-            BaseNode.elementCache.delete(cacheKey)
-          }
-
-          if (MountTrackerUtil.isMounted(cacheKey)) {
-            MountTrackerUtil.untrackMount(cacheKey)
-          }
-        }),
-    )
-  }
-
-  /**
-   * Renders the `BaseNode` and its entire subtree into a ReactElement, with support for opt-in reactivity
-   * via dependency arrays and inherited blocking.
+   * Renders the `BaseNode` and its entire subtree into a ReactElement, with
+   * opt-in memoization via dependency arrays.
    *
    * This method uses an **iterative (non-recursive) approach** with a manual work stack.
    * This is a crucial architectural choice to prevent "Maximum call stack size exceeded" errors
@@ -330,73 +149,21 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
    */
 
   /**
-   * The cache key for a child, derived from its parent's key and its position.
-   *
-   * Shape: `${parentKey}_${index}:${signature}`. A bare single child is
-   * position 0, identical to a single-element array — `_processChildren`
-   * collapses `[x]` to `x`, so the two shapes are indistinguishable by the time
-   * they reach here and must key the same.
-   *
-   * Returns undefined when either side is undefined, which is the server case —
-   * `_getStableKey` bails when `isServer`, so nothing downstream caches.
-   * @param parentKey The parent's own cache key.
-   * @param index Position among the parent's children.
-   * @param signature The child's immutable signature.
-   * @returns The child's cache key, or undefined when caching does not apply.
-   */
-  private static _cacheKeyFor(parentKey: string | undefined, index: number, signature: string | undefined): string | undefined {
-    if (parentKey === undefined || signature === undefined) return undefined
-    return `${parentKey}_${index}:${signature}`
-  }
-
-  /**
-   * The cache key for a render root: its signature, namespaced by the mount's
-   * scope when one is supplied.
-   *
-   * A scope separates two structurally identical trees mounted into different
-   * React roots, which would otherwise occupy the same positions and collide.
-   * Namespacing the root is enough, since every descendant key is built from
-   * it.
-   * @param signature The root node's immutable signature.
-   * @param scope Optional per-mount namespace.
-   * @returns The root cache key, or undefined on the server.
-   */
-  private static _rootCacheKey(signature: string | undefined, scope?: string): string | undefined {
-    if (signature === undefined) return undefined
-    return scope === undefined ? signature : `${scope}@${signature}`
-  }
-
-  /**
    * Renders this node and its subtree to a React element, walking the tree
-   * iteratively and reusing cached elements whose dependencies are unchanged.
-   * @param parentBlocked Whether an ancestor has already decided this subtree need not update.
-   * @param scope Optional cache namespace for this mount point. Supply a value
-   * that is stable across re-renders and distinct per React root — the
-   * `render` helper in `@meonode/ui/client` derives one per container
-   * automatically. Only needed when an app mounts more than one root.
+   * iteratively. A node given `deps` is handed to React as a `MeoMemo` fiber
+   * rather than walked here, so its subtree is rebuilt only when those `deps`
+   * change.
+   * @param memoized Internal. Set by `MeoMemo` when it calls back in, so a
+   * memoized node builds its subtree instead of wrapping itself again.
    * @returns The rendered React element.
    */
-  public render(parentBlocked: boolean = false, scope?: string): ReactElement<FinalNodeProps> {
-    // The root's key for this render. Derived rather than read off the instance:
-    // every descendant key is built from it, so position becomes a value flowing
-    // down the traversal instead of a prefix stamped onto each node.
-    const rootCacheKey = BaseNode._rootCacheKey(this.signature, scope)
-
-    // If this node is eligible for caching, retrieve the cached entry;
-    // otherwise treat as if no cache exists.
-    const cacheEntry = rootCacheKey !== undefined && this._deps ? BaseNode.elementCache.get(rootCacheKey) : undefined
-
-    // Decide whether this node (and its subtree) should update given dependency arrays.
-    const shouldUpdate = NodeUtil.shouldNodeUpdate(cacheEntry?.prevDeps, this._deps, parentBlocked)
-
-    // Fast return: if nothing should update and we have a cached element, reuse it.
-    if (!shouldUpdate && cacheEntry?.renderedElement) {
-      cacheEntry.accessCount += 1
-      return cacheEntry.renderedElement
+  public render(memoized: boolean = false): ReactElement<FinalNodeProps> {
+    // Fiber-backed memoization for a render root. `MeoMemo` calls back in with
+    // `memoized` set, which is what stops this from recursing.
+    if (!NodeUtil.isServer && this._deps && !memoized) {
+      const rootKey = (this.rawProps as { key?: string | number }).key
+      return createElement(MeoMemo, { key: rootKey, node: this, deps: this._deps }) as ReactElement<FinalNodeProps>
     }
-
-    // When this node doesn't need update, its children are considered "blocked" and may be skipped.
-    const childrenBlocked = !shouldUpdate
 
     // Acquire context from pool to reduce allocation pressure
     const ctx = BaseNode.acquireRenderContext()
@@ -422,13 +189,7 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
       }
 
       // Push initial work item
-      workStack[stackPointer++] = {
-        node: this,
-        isProcessed: false,
-        blocked: childrenBlocked,
-        theme: undefined,
-        cacheKey: rootCacheKey,
-      }
+      workStack[stackPointer++] = { node: this, isProcessed: false, theme: undefined }
 
       // Iterative depth-first traversal with explicit begin/complete phases to avoid recursion.
       while (stackPointer > 0) {
@@ -437,7 +198,7 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
           stackPointer--
           continue
         }
-        const { node, isProcessed, blocked, theme: inheritedTheme, cacheKey } = currentWork
+        const { node, isProcessed, theme: inheritedTheme } = currentWork
 
         const getActiveTheme = (props: FinalNodeProps, current?: Theme): Theme | undefined => {
           const candidate = (props as { theme?: unknown }).theme
@@ -469,30 +230,18 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
               const child = childArray[i]
               if (!NodeUtil.isNodeInstance(child)) continue
 
-              // Position-derived key, replacing the prefix stamped onto the instance.
-              const childCacheKey = BaseNode._cacheKeyFor(cacheKey, i, child.signature)
-
-              // Check if the child is eligible for caching and retrieve its cache entry.
-              const childCacheEntry = childCacheKey !== undefined && child.dependencies ? BaseNode.elementCache.get(childCacheKey) : undefined
-
-              // Determine whether the child should update given its deps and the parent's blocked state.
-              const childShouldUpdate = NodeUtil.shouldNodeUpdate(childCacheEntry?.prevDeps, child._deps, blocked)
-
-              // If child doesn't need update and has cached element, reuse it immediately (no push).
-              if (!childShouldUpdate && childCacheEntry?.renderedElement) {
-                renderedElements.set(child, childCacheEntry.renderedElement)
+              // Fiber-backed memoization: hand the subtree to React instead of
+              // deriving a key for it. The child becomes terminal for this walk
+              // — `MeoMemo` re-enters through `child.render()` when its `deps`
+              // say to — so it needs no cache entry, cannot collide with
+              // another subtree, and is released when its fiber unmounts.
+              if (!NodeUtil.isServer && child.dependencies) {
+                const childKey = (child.rawProps as { key?: string | number }).key
+                renderedElements.set(child, createElement(MeoMemo, { key: childKey, node: child, deps: child.dependencies }))
                 continue
               }
 
-              // Otherwise push child for processing; childBlocked inherits parent's blocked state.
-              const childBlocked = blocked || !childShouldUpdate
-              workStack[stackPointer++] = {
-                node: child,
-                isProcessed: false,
-                blocked: childBlocked,
-                theme: activeTheme,
-                cacheKey: childCacheKey,
-              }
+              workStack[stackPointer++] = { node: child, isProcessed: false, theme: activeTheme }
             }
           }
         } else {
@@ -533,7 +282,7 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
               if (NodeUtil.isNodeInstance(child)) {
                 const rendered = renderedElements.get(child)
                 if (!rendered) {
-                  throw new Error(`[MeoNode] Missing rendered element for child node: ${child.stableKey}`)
+                  throw new Error(`[MeoNode] Missing rendered element for child node: ${getElementTypeName(child.element)}`)
                 }
                 finalChildren[i] = rendered
               } else {
@@ -626,82 +375,13 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
             }
           }
 
-          // Cache child nodes (unwrapped) during the render loop
-          // The root node will be cached separately after wrapping
-          if (node !== this && cacheKey !== undefined && node.dependencies) {
-            const existingEntry = BaseNode.elementCache.get(cacheKey)
-
-            if (existingEntry) {
-              // Update existing cache entry (avoid re-registration)
-              existingEntry.prevDeps = node._deps
-              existingEntry.renderedElement = element
-              existingEntry.accessCount += 1
-            } else {
-              // Create new cache entry and register for cleanup
-              const newCacheEntry: ElementCacheEntry = {
-                prevDeps: node._deps,
-                renderedElement: element,
-                nodeRef: new WeakRef(node),
-                createdAt: Date.now(),
-                accessCount: 1,
-                instanceId: node.instanceId,
-              }
-
-              // Set new cache entry
-              BaseNode.elementCache.set(cacheKey, newCacheEntry)
-
-              // Register for automatic cleanup when node is GC'd
-              BaseNode.cacheCleanupRegistry.register(node, { cacheKey, instanceId: node.instanceId }, node)
-            }
-          }
-
           // Store the rendered element so parent nodes can reference it.
           renderedElements.set(node, element)
         }
       }
 
       // Get the final rendered element for the root node of this render cycle.
-      let rootElement = renderedElements.get(this) as ReactElement<FinalNodeProps>
-
-      // Wrap the root element with MeoNodeUnmounter if we need to track it.
-      // The cache key is passed explicitly rather than read from the node: it is
-      // a property of this render's position, not of the instance.
-      //
-      // The React `key` has to be carried onto the wrapper as well. A factory
-      // child stays a BaseNode and is rendered inside its parent's loop
-      // unwrapped, so its key reaches React directly — but anything that has
-      // already called `render()`, such as a `Component`, hands its parent this
-      // wrapper instead. Leaving the wrapper unkeyed made React see an unkeyed
-      // element and lose identity across a reorder.
-      const needsTracking = !NodeUtil.isServer && rootCacheKey !== undefined
-      if (needsTracking) {
-        const rootKey = (this.props as { key?: string | number }).key
-        rootElement = createElement(MeoNodeUnmounter, { key: rootKey, node: this, cacheKey: rootCacheKey }, rootElement)
-      }
-
-      // Cache the WRAPPED element (not the unwrapped one) so we reuse the same MeoNodeUnmounter instance
-      if (rootCacheKey !== undefined && this._deps) {
-        const existingEntry = BaseNode.elementCache.get(rootCacheKey)
-        if (existingEntry) {
-          // Update existing cache entry with the wrapped element
-          existingEntry.prevDeps = this._deps
-          existingEntry.renderedElement = rootElement
-          existingEntry.accessCount += 1
-        } else {
-          // Create new cache entry with the wrapped element
-          const newCacheEntry: ElementCacheEntry = {
-            prevDeps: this._deps,
-            renderedElement: rootElement,
-            nodeRef: new WeakRef(this),
-            createdAt: Date.now(),
-            accessCount: 1,
-            instanceId: this.instanceId,
-          }
-
-          BaseNode.elementCache.set(rootCacheKey, newCacheEntry)
-          BaseNode.cacheCleanupRegistry.register(this, { cacheKey: rootCacheKey, instanceId: this.instanceId }, this)
-        }
-      }
+      const rootElement = renderedElements.get(this) as ReactElement<FinalNodeProps>
 
       return rootElement
     } finally {
@@ -711,56 +391,6 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
         workStack[i] = null as any
       }
       BaseNode.releaseRenderContext({ workStack, renderedElements })
-    }
-  }
-
-  /**
-   * A static method to clear all internal caches.
-   *
-   * This method performs manual cleanup of all cache entries, calling their
-   * `onEvict` callbacks before clearing. Note that FinalizationRegistry entries
-   * are not manually cleared as they will be garbage collected naturally when
-   * the associated nodes are collected.
-   * @method clearCaches
-   */
-  public static clearCaches() {
-    // Collect all cache keys first
-    const allKeys = Array.from(BaseNode.elementCache.keys())
-
-    if (__DEBUG__) {
-      console.log(`[MeoNode] clearCaches: Clearing ${allKeys.length} entries`)
-    }
-
-    // Call onEvict for all entries (idempotent) and clear node properties
-    for (const key of allKeys) {
-      const entry = BaseNode.elementCache.get(key)
-      if (entry) {
-        // Try to unregister from FinalizationRegistry
-        const node = entry.nodeRef?.deref()
-        if (node) {
-          try {
-            BaseNode.cacheCleanupRegistry.unregister(node)
-            // Clear the node's signature properties to ensure clean state
-            node.lastSignature = undefined
-            node.lastPropsObj = undefined
-          } catch {
-            // Unregister might fail if already unregistered, that's fine
-            if (__DEBUG__) {
-              console.warn(`[MeoNode] Could not unregister ${key} from FinalizationRegistry`)
-            }
-          }
-        }
-      }
-    }
-
-    // Clear all caches
-    BaseNode.elementCache.clear()
-
-    // Clear mount tracking
-    MountTrackerUtil.cleanup()
-
-    if (__DEBUG__) {
-      console.log('[MeoNode] All caches cleared')
     }
   }
 
@@ -781,22 +411,6 @@ function Node<AdditionalProps, E extends NodeElementType, ExactProps extends obj
 ): NodeInstance<NoInfer<As>> {
   return new BaseNode(element, props as NodeProps<E>, deps) as unknown as NodeInstance<NoInfer<As>>
 }
-
-/**
- * Static alias on the `Node` factory for clearing all internal caches used by `BaseNode`.
- *
- * Use cases include:
- *   - resetting state between tests,
- *   - hot-module-replacement (HMR) cycles,
- *   - manual resets in development,
- *   - or during SPA navigation to avoid stale cached elements/styles.
- *
- * Notes:
- *   - Clears only internal prop/element caches; does not touch portal infrastructure or external runtime state.
- *   - Safe to call on the server, but most useful on the client.
- * @method Node.clearCaches
- */
-Node.clearCaches = BaseNode.clearCaches
 
 // Export the Node factory as the main export
 export { Node }

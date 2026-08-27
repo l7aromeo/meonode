@@ -37,10 +37,9 @@ Div({
 `@meonode/ui`'s runtime fast path (**requires `@meonode/ui@1.7.0` or later**,
 which understands the schema 2 marker contract) detects the `__meo$` marker and
 uses the namespaced buckets directly instead of re-deriving them, skipping the
-classification and hashing pass entirely. **1.7.4 or later is recommended** — 1.7.1
-and 1.7.2 made the runtime cheaper for exactly the shape this plugin produces,
-roughly doubling the end-to-end gain, and 1.7.4 fixes an element-cache key
-collision (see [measured effect](#measured-effect)).
+classification pass entirely. **`2.0.0-beta` or later is recommended** — it
+removed the derived-key machinery outright, which fixed a class of memoization
+collision the plugin could only narrow (see [measured effect](#measured-effect)).
 
 Note the `padding` value above: alongside partitioning, the plugin also resolves
 `theme.*` token strings to `var(--meonode-theme-*)` at build time. `@meonode/ui`
@@ -53,34 +52,31 @@ CSS variables are invalid in media features and selector text.
 
 ### Measured effect
 
-Two numbers, because they answer different questions:
-
 | Benchmark | Result |
 | --- | --- |
-| Node construction in isolation (`@meonode/ui`'s `bench/`) | **~4x faster** |
-| Client render — mount plus re-renders (`@meonode/ui`'s `bench/`) | **~1.6x faster** |
-| End-to-end SSR, 156-node tree, production React/Emotion (`e2e/bench-theme-tokens.mjs`) | **~29% faster** |
+| Node construction in isolation (`@meonode/ui`'s `bench/`) | **~1.7x faster** |
+| Client render — mount plus re-renders (`@meonode/ui`'s `bench/`) | **~1.06x faster** |
+| End-to-end SSR, 156-node tree, production React/Emotion (`e2e/bench-theme-tokens.mjs`) | *not re-measured since 2.0.0-beta* |
 
-The construction figure covers only prop classification plus stable-key
-hashing, with React, Emotion and the DOM excluded; it is the ceiling on what
-compiling can remove, not what a page render improves by. The other two are
-page-level.
+Both figures are much smaller than they were, and that is not a regression in
+the plugin. Against `@meonode/ui@1.x` they read ~4x and ~1.6x, but most of what
+they measured was the stable-key hashing the runtime no longer does at all:
+uncompiled construction got ~2.4x faster in `2.0.0-beta`, so there is far less
+left for compiling to remove. What remains is prop classification and the
+theme-token rewrite.
 
-The client figure is listed separately because `@meonode/ui` computes stable
-keys **only on the client** — `_getStableKey` returns early when `isServer`. So
-`__meo$k` does nothing during SSR and everything in the browser, and an
-SSR-only benchmark misses that half of the plugin entirely.
+The construction figure excludes React, Emotion and the DOM; it is the ceiling
+on what compiling can remove, not what a page render improves by. The client
+figure is measured separately because it is where the difference used to live —
+`_getStableKey` returned early on the server, so the old `__meo$k` did nothing
+during SSR — and it is now close to noise.
 
-All three are medians of alternating rounds against production React.
-Development builds spend enough time in their own validation to hide the
-difference — measured that way, the client gain reads as 1.03x rather than
-1.6x.
+The end-to-end SSR figure predates `2.0.0-beta` and has not been re-run; treat
+it as unverified rather than current.
 
 Ratios move with machine load, and not evenly: the compiled path is shorter, so
-fixed overhead and GC cost it proportionally more. Across repeated runs on one
-machine, construction ranged 4.0-6.1x and client render 1.4-1.8x. The figures
-above are the conservative end. Reproduce with `bun run bench` in the
-`@meonode/ui` repo.
+fixed overhead and GC cost it proportionally more. Reproduce with
+`bun run bench` in the `@meonode/ui` repo.
 
 The end-to-end number depends on which `@meonode/ui` you run, because 1.7.1 and
 1.7.2 each made the runtime cheaper *specifically for the shape compiled output
@@ -110,15 +106,24 @@ completely untouched (see [What gets compiled](#what-gets-compiled-vs-bailed)
 below) — they keep working exactly as before, through the runtime's normal
 classification path. The plugin is safe to add or remove at any time.
 
-It is mostly a build-time speedup, with one behavioural exception. `__meo$k` is
-derived from the call site's *source position*, whereas an uncompiled call site
-derives its element-cache key from props plus tree position. Two structurally
-identical memoized subtrees (nodes given a `deps` array) therefore compute the
-same key uncompiled, and one can be served the other's rendered output;
-compiled call sites cannot collide that way. This only affects nodes passing
-`deps` — nodes without it are never cached — and a distinct `key` prop is the
-uncompiled workaround. See
-[Memoization keys](https://ui.meonode.com/docs/getting-started/compiler#memoization-keys).
+It is a build-time speedup with no behavioural exception, as of
+`@meonode/ui@2.0.0-beta`.
+
+Before that release, a memoized node's rendered element was held in a global
+map keyed by a string derived from its props and its position, and two nodes
+deriving the same string shared one entry — the second rendering the first's
+content. `__meo$k` is a hash of the call site's *source position*, so compiling
+separated call sites that the derived key could not. It never closed the hole:
+two instances of the *same* component share a source position, so `__meo$k` was
+identical for both and they still collided.
+
+`@meonode/ui@2.0.0-beta` moved memoized subtrees into fibers of their own.
+Identity comes from React, nothing is derived, and nothing can collide — for
+plain functions and `Component` alike. `__meo$k` and `__meo$dyn` are still
+emitted and still accepted, but the runtime no longer reads them.
+
+That is what moves the figures under [Measured effect](#measured-effect): most
+of what compiling bought was the signature hashing it let the runtime skip.
 
 ## Install & configure
 
@@ -288,16 +293,17 @@ across every evaluation of the same call site regardless of what the spread
 happens to contain that time. If `k` were still emitted, two evaluations of
 `Div({ ...props, padding: '8px' })` with *different* `props` contents would
 produce an *identical* `k` (and `dyn` can't help, since a spread's contents
-aren't nameable at compile time). If that node also carries a `deps` array,
-`@meonode/ui`'s `elementCache` is keyed by the stable key derived from `k` —
-so a *stale* cached element (built from an earlier evaluation's props) could
-be returned for a later one with genuinely different spread contents.
-`BaseNode._getStableKey` falls back to its legacy `createPropSignature` path
-whenever `k` is missing (an existing, already-tested runtime fallback — see
-`@meonode/ui`'s own test "marker without k falls back to the legacy
-signature path"), which recomputes the signature at runtime instead.
+aren't nameable at compile time). If that node also carried a `deps` array, `@meonode/ui@1.x` keyed its cached
+element by a signature derived from `k` — so a *stale* element, built from an
+earlier evaluation's props, could be returned for a later one with genuinely
+different spread contents. A missing `k` made the runtime recompute the
+signature from the props instead, which is why omitting it was the safe choice.
 
-That legacy path hashes most top-level prop values directly (primitives
+`@meonode/ui@2.0.0-beta` reads neither `k` nor `dyn`, so that hazard is gone and
+this rule and the one below are now conservative rather than load-bearing. They
+are kept because a compiled bundle must stay correct on `1.x` as well.
+
+That `1.x` fallback hashed most top-level prop values directly (primitives
 inline, functions via a cached `toString` hash, etc.), but any *other*
 object-valued top-level prop only by its key names, not by its nested
 values. That's fine for the spread's own contents (they land as ordinary

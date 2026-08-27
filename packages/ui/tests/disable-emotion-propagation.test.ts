@@ -10,11 +10,10 @@
 // disabled Emotion, was permanently mutated and lost its styling everywhere.
 import { render, cleanup } from '@testing-library/react'
 import { Div } from '@src/main.js'
-import { BaseNode } from '@src/core.node.js'
+import type { BaseNode } from '@src/core.node.js'
 
 afterEach(() => {
   cleanup()
-  BaseNode.elementCache.clear()
 })
 
 describe('disableEmotion propagation', () => {

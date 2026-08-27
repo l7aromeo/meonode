@@ -8,7 +8,6 @@ expect.addSnapshotSerializer(createSerializer())
 
 afterEach(() => {
   cleanup()
-  Node.clearCaches()
   document.head.querySelectorAll('style').forEach(s => s.remove())
 })
 

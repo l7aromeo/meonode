@@ -5,7 +5,6 @@ import createCache from '@emotion/cache'
 
 afterEach(() => {
   cleanup()
-  Node.clearCaches()
   // Clean up style tags injected by Emotion to have a clean state for each test
   document.head.querySelectorAll('style').forEach(s => s.remove())
 })

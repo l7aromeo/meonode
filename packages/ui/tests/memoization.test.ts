@@ -3,8 +3,7 @@ import { act, cleanup, render } from '@testing-library/react'
 import { StrictMode, useEffect, useState } from 'react'
 import React from 'react'
 import { createSerializer, matchers } from '@emotion/jest'
-import { BaseNode, createNode } from '@src/core.node.js'
-import { NavigationCacheManagerUtil } from '@src/util/navigation-cache-manager.util.js'
+import { createNode } from '@src/core.node.js'
 import { FormControlLabel, Radio, RadioGroup } from '@mui/material'
 import { type Mock, vi } from 'vitest'
 
@@ -256,75 +255,6 @@ describe('Dependency and Memoization in a Real-World Scenario', () => {
     expect(userService.fetchUser).toHaveBeenCalledTimes(3)
   })
 
-  it('should clear unmounted component caches on simulated navigation', () => {
-    // This test simulates a real-world SPA navigation scenario to verify
-    // that NavigationCacheManagerUtil and SafeCacheManager work together to evict
-    // caches of unmounted components, preventing memory leaks.
-
-    // 1. Setup: Define components for different "pages"
-    // A shared header component, memoized to persist across pages if not unmounted.
-    const Header = () => Div({ children: 'Shared Header' }).render()
-
-    // A component unique to the Home page, memoized.
-    const HomePageContent = () => P('Welcome to the Home Page').render()
-
-    // A component unique to the About page, memoized.
-    const AboutPageContent = () => P('This is the About Page').render()
-
-    // App component to simulate routing between pages.
-    const App = () => {
-      const [page, setPage] = useState('home')
-
-      // Simulate navigation by changing state. This will cause components to unmount.
-      const navigateTo = (targetPage: string) => {
-        setPage(targetPage)
-        // Manually dispatch a navigation event to trigger cache cleanup,
-        // simulating a URL change in a real router.
-        window.dispatchEvent(new Event('popstate'))
-      }
-
-      return Div({
-        children: [
-          Node(Header, {}, []), // Shared component
-          Node('nav', {
-            children: [
-              Node('button', { onClick: () => navigateTo('home'), children: 'Home' }),
-              Node('button', { onClick: () => navigateTo('about'), children: 'About' }),
-            ],
-          }),
-          page === 'home' ? Node(HomePageContent, {}, []) : Node(AboutPageContent, {}, []),
-        ],
-      }).render()
-    }
-
-    // 2. Initial Render (Home Page)
-    const { getByText, queryByText } = render(Node(App).render())
-    expect(getByText('Welcome to the Home Page')).toBeInTheDocument()
-
-    // 3. Check initial cache state
-    // At this point, Header and HomePageContent should be in the cache.
-    const initialCacheSize = BaseNode.elementCache.size
-    expect(initialCacheSize).toBeGreaterThan(0)
-
-    // 4. Simulate Navigation to About Page
-    act(() => {
-      getByText('About').click()
-    })
-
-    // After navigation, HomePageContent is unmounted, and AboutPageContent is mounted.
-    expect(queryByText('Welcome to the Home Page')).not.toBeInTheDocument()
-    expect(getByText('This is the About Page')).toBeInTheDocument()
-
-    // 5. Check cache - MeoNodeUnmounter should have cleaned up HomePageContent
-    // The cache entry for the unmounted HomePageContent should be gone via MeoNodeUnmounter's cleanup.
-    // The cache for the still-mounted Header and the new AboutPageContent should remain.
-    const cacheSizeAfterNavigation = BaseNode.elementCache.size
-
-    // Note: cleanup happens asynchronously, so we might still see HomePageContent briefly
-    expect(cacheSizeAfterNavigation).toBeGreaterThanOrEqual(initialCacheSize - 1) // At most one removed
-    expect(cacheSizeAfterNavigation).toBeGreaterThan(0) // Ensure the cache for mounted components is not cleared.
-  })
-
   // Test to ensure no cache collision occurs between different components with identical props
   it('prevents cache collision between different components with identical props', () => {
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
@@ -344,52 +274,7 @@ describe('Dependency and Memoization in a Real-World Scenario', () => {
     expect(getByText('A')).toBeInTheDocument()
     expect(getByText('B')).toBeInTheDocument()
 
-    // Cache should have 2 distinct entries
-    const cacheKeys = Array.from(BaseNode.elementCache.keys())
-    const itemKeys = cacheKeys.filter(k => k.includes('item'))
-    expect(itemKeys.length).toBe(2) // Not 1 (collision)
     consoleErrorSpy.mockRestore()
-  })
-
-  // Test to ensure that rapid navigation does not cause cache overflow
-  it('handles rapid navigation without cache overflow', () => {
-    const Page1 = () => P('Page 1').render()
-    const Page2 = () => P('Page 2').render()
-    const Page3 = () => P('Page 3').render()
-
-    const App = () => {
-      const [page, setPage] = useState(1)
-
-      const navigate = (target: number) => {
-        setPage(target)
-      }
-
-      return Div({
-        children: [
-          Node('button', { onClick: () => navigate(1), children: 'Go to Page 1' }),
-          Node('button', { onClick: () => navigate(2), children: 'Go to Page 2' }),
-          Node('button', { onClick: () => navigate(3), children: 'Go to Page 3' }),
-          page === 1 ? Node(Page1, {}, []) : page === 2 ? Node(Page2, {}, []) : Node(Page3, {}, []),
-        ],
-      }).render()
-    }
-
-    const { getByText } = render(Node(App).render())
-    const initialCacheSize = BaseNode.elementCache.size
-
-    // Rapid navigation: 10-page changes - MeoNodeUnmounter should clean up automatically
-    for (let i = 0; i < 10; i++) {
-      act(() => {
-        getByText(`Go to Page ${(i % 3) + 1}`).click()
-      })
-    }
-
-    const finalCacheSize = BaseNode.elementCache.size
-
-    // After rapid navigation, cache should not grow unbounded
-    // MeoNodeUnmounter cleans up old pages immediately on unmount
-    expect(finalCacheSize).toBeLessThan(initialCacheSize * 3)
-    expect(finalCacheSize).toBeGreaterThan(0) // Sanity check - current page should be cached
   })
 
   // Test to ensure compatibility with React 18 Strict Mode
@@ -419,10 +304,6 @@ describe('Dependency and Memoization in a Real-World Scenario', () => {
     // Initial render (Strict Mode doesn't double-mount in test/production mode)
     expect(renderCount).toBe(2)
 
-    // Cache should exist
-    const initialCacheSize = BaseNode.elementCache.size
-    expect(initialCacheSize).toBeGreaterThan(0)
-
     // Toggle parent state - TrackedComponent should NOT re-render (empty deps)
     act(() => {
       getByText('Toggle').click()
@@ -437,89 +318,12 @@ describe('Dependency and Memoization in a Real-World Scenario', () => {
 
     expect(renderCount).toBe(2) // Memoization still working
 
-    // Cache should remain stable
-    expect(BaseNode.elementCache.size).toBe(initialCacheSize)
-
     unmount()
-
-    // After unmount, verify cleanup (cache might still exist briefly)
-    expect(BaseNode.elementCache.size).toBeGreaterThanOrEqual(0)
-  })
-
-  // Test for critical props fingerprinting when object props exceed 100 keys
-  it('uses critical props fingerprint for objects with >100 keys', () => {
-    // Create props object with 150 keys
-    const largeProps: Record<string, any> = {
-      color: 'red',
-      backgroundColor: 'blue',
-      padding: 10,
-    }
-
-    // Add 147 more non-critical keys to exceed threshold
-    for (let i = 0; i < 147; i++) {
-      largeProps[`data${i}`] = i
-    }
-
-    let renderCount = 0
-    const LargePropsComponent = (props: any) => {
-      renderCount++
-      return Div({ ...props, children: 'Large Props Component' }).render()
-    }
-
-    const App = () => {
-      const [trigger, setTrigger] = useState(0)
-      const [propsRef] = useState(largeProps) // Stable reference
-
-      return Div({
-        children: [
-          Node(LargePropsComponent, propsRef, [propsRef.color]), // Dep on critical prop
-          Node('button', {
-            onClick: () => {
-              // Change non-critical prop (outside the 50 critical prop limit)
-              propsRef.data99 = Math.random()
-              setTrigger(t => t + 1)
-            },
-            children: 'Change Non-Critical',
-          }),
-          Node('button', {
-            onClick: () => {
-              // Change critical prop (style-related)
-              propsRef.color = propsRef.color === 'red' ? 'blue' : 'red'
-              setTrigger(t => t + 1)
-            },
-            children: 'Change Critical',
-          }),
-          P(`Trigger: ${trigger}`), // Force parent re-render
-        ],
-      }).render()
-    }
-
-    const { getByText } = render(Node(App).render())
-
-    expect(renderCount).toBe(1)
-
-    // Change non-critical prop - should NOT trigger re-render (deps unchanged)
-    act(() => {
-      getByText('Change Non-Critical').click()
-    })
-
-    expect(getByText('Trigger: 1')).toBeInTheDocument()
-    expect(renderCount).toBe(1) // No re-render, color unchanged
-
-    // Change critical prop - SHOULD trigger re-render (dep changed)
-    act(() => {
-      getByText('Change Critical').click()
-    })
-
-    expect(getByText('Trigger: 2')).toBeInTheDocument()
-    expect(renderCount).toBe(2) // Re-rendered, color changed
   })
 
   // Additional tests can be added here to further validate edge cases and complex scenarios.
 
-  it('maintains cache integrity across mount/unmount/remount cycles', () => {
-    BaseNode.clearCaches()
-
+  it('keeps memoization correct across mount/unmount/remount cycles', () => {
     let renderCount = 0
     const ExpensiveComponent = ({ id }: { id: number }) => {
       renderCount++
@@ -560,7 +364,6 @@ describe('Dependency and Memoization in a Real-World Scenario', () => {
     // Initial mount
     expect(renderCount).toBe(1)
     expect(getByText('Expensive 1')).toBeInTheDocument()
-    const initialCacheSize = BaseNode.elementCache.size
 
     // Unmount component
     act(() => {
@@ -607,77 +410,9 @@ describe('Dependency and Memoization in a Real-World Scenario', () => {
 
     expect(getByText('Expensive 1')).toBeInTheDocument()
     expect(renderCount).toBe(4)
-
-    // Cache should be stable across lifecycle
-    expect(BaseNode.elementCache.size).toBeGreaterThanOrEqual(initialCacheSize)
   })
 
-  it('registers automatic cleanup listeners only once', () => {
-    // Clean slate - must happen BEFORE getInstance() is called
-    delete (window as any).__MEONODE_CLEANUP_REGISTERED
-
-    // Reset the singleton to ensure fresh start
-    ;(NavigationCacheManagerUtil as any)._instance = null
-
-    // Mock document for visibility API
-    Object.defineProperty(document, 'hidden', {
-      writable: true,
-      configurable: true,
-      value: false,
-    })
-
-    // Start multiple times
-    NavigationCacheManagerUtil.getInstance().start()
-    NavigationCacheManagerUtil.getInstance().start()
-    NavigationCacheManagerUtil.getInstance().start()
-
-    // Should only register once
-    expect((window as any).__MEONODE_CLEANUP_REGISTERED).toBe(true)
-
-    // Verify beforeunload listener works
-    const clearSpy = vi.spyOn(BaseNode, 'clearCaches')
-    const stopSpy = vi.spyOn(NavigationCacheManagerUtil.getInstance() as any, '_stop')
-
-    window.dispatchEvent(new Event('beforeunload'))
-
-    expect(stopSpy).toHaveBeenCalled()
-    expect(clearSpy).toHaveBeenCalled()
-
-    clearSpy.mockRestore()
-    stopSpy.mockRestore()
-  })
-
-  it('handles cleanup correctly across multiple navigation events', () => {
-    delete (window as any).__MEONODE_CLEANUP_REGISTERED
-    ;(NavigationCacheManagerUtil as any)._instance = null
-
-    vi.useFakeTimers()
-
-    // Start manager first
-    NavigationCacheManagerUtil.getInstance().start()
-
-    // Populate cache with components
-    const { unmount } = render(Div({ children: [P('Content 1'), P('Content 2'), P('Content 3', {}, [])] }).render())
-
-    const initialCacheSize = BaseNode.elementCache.size
-    expect(initialCacheSize).toBe(1) // Content 3 should be cached
-
-    // Unmount components (they become eligible for cleanup)
-    unmount()
-
-    // Trigger navigation event
-    history.pushState({}, '', '/test')
-
-    // Let debounced cleanup run
-    vi.advanceTimersByTime(150)
-
-    // Cache should be cleaned (unmounted entries removed)
-    expect(BaseNode.elementCache.size).toBeLessThan(initialCacheSize)
-
-    vi.useRealTimers()
-  })
-
-  // Regression test for MeoNodeUnmounter swallowing props injected via React.cloneElement
+  // Regression test for a wrapper swallowing props injected via React.cloneElement
   // This is common in libraries like MUI (RadioGroup injects 'checked' and 'onChange' into Radio)
   it('should forward implicit props from parent to child (MUI integration)', () => {
     const MeoRadioGroup = createNode(RadioGroup)
@@ -749,7 +484,7 @@ describe('Dependency and Memoization in a Real-World Scenario', () => {
       return React.createElement('div', null, 'Expensive')
     }
 
-    // Create node outside to access stableKey
+    // Built outside the component, so the same instance is reused each render.
     const expensiveNode = Node(Expensive, {}, [])
 
     const App = () => {
@@ -760,20 +495,18 @@ describe('Dependency and Memoization in a Real-World Scenario', () => {
     const { getByText } = render(Node(App).render())
 
     expect(renderCount).toBe(1)
-    expect(BaseNode.elementCache.has(expensiveNode.stableKey!)).toBe(true)
 
-    // Trigger update
+    // Two parent updates in a row: the memoized subtree must survive both, so
+    // this catches a memo that is dropped and rebuilt each time as well as one
+    // that never memoized at all.
     act(() => {
       getByText('Update').click()
     })
-
-    // Should hit cache and NOT re-render
-    // If fast return path returns unwrapped element, wrapper unmounts -> deletes cache.
-    // So next render (this one) will be a cache MISS if cache was deleted.
-    // If cache was preserved, it should be 1.
     expect(renderCount).toBe(1)
 
-    // Cache should still exist
-    expect(BaseNode.elementCache.has(expensiveNode.stableKey!)).toBe(true)
+    act(() => {
+      getByText('Update').click()
+    })
+    expect(renderCount).toBe(1)
   })
 })

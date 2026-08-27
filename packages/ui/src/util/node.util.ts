@@ -11,11 +11,9 @@ import type {
   Children,
 } from '@src/types/node.type.js'
 import { isForwardRef, isMemo, isReactClassComponent } from '@src/helper/react-is.helper.js'
-import { getCSSProps, getDOMProps, getElementTypeName, omitUndefined, getGlobalState } from '@src/helper/common.helper.js'
+import { getCSSProps, getDOMProps, getElementTypeName, omitUndefined } from '@src/helper/common.helper.js'
 import { __DEBUG__, COMPILED_MARKER, COMPILER_SCHEMA_KEYS, SUPPORTED_COMPILER_SCHEMAS } from '@src/constant/common.const.js'
 import { BaseNode } from '@src/core.node.js'
-
-const FUNCTION_SIGNATURE_CACHE_KEY = Symbol.for('@meonode/ui/NodeUtil/functionSignatureCache')
 
 /**
  * NodeUtil provides a collection of static utility methods and properties
@@ -40,13 +38,6 @@ export class NodeUtil {
   public static isServer = typeof window === 'undefined'
 
   // Unique ID generation for elements
-  private static get _functionSignatureCache() {
-    return getGlobalState(FUNCTION_SIGNATURE_CACHE_KEY, () => new WeakMap<object, string>())
-  }
-
-  // Critical props for signature generation and shallow comparison
-  private static readonly CRITICAL_PROPS = new Set(['css', 'className', 'disableEmotion', 'props'])
-
   // Keys that stay top-level and must never be shadowed by a marker's c/d bucket
   private static readonly MARKER_SPECIAL_KEYS = new Set(['css', 'props', 'ref', 'key', 'children', 'as', 'theme', 'disableEmotion'])
 
@@ -64,7 +55,6 @@ export class NodeUtil {
   private static readonly DESTRUCTURED_SPECIAL_KEYS = new Set(['ref', 'key', 'children', 'css', 'props', 'disableEmotion'])
 
   // Cache for function prop toString() hashes to avoid repeated expensive serialization
-  private static _propFuncCache = new WeakMap<(...args: any[]) => any, string>()
 
   /**
    * Detects React/Next client reference functions used by RSC.
@@ -198,205 +188,8 @@ export class NodeUtil {
   }
 
   /**
-   * Creates a unique, stable signature from the element type and props.
-   * This signature includes the element's type to prevent collisions between different components
-   * and handles primitive values in arrays and objects for better caching.
-   * On server environments, returns undefined as signatures are not needed for server-side rendering.
-   * @param element The element type to include in the signature.
-   * @param props The props object to include in the signature.
-   * @returns A unique signature string or undefined on the server.
-   */
-  public static createPropSignature(element: NodeElementType, props: Record<string, unknown>): string | undefined {
-    if (NodeUtil.isServer) return undefined
-
-    const elementId = getElementTypeName(element)
-
-    const keys = Object.keys(props)
-    // Optimization: Only sort if there's more than one key to ensure stability
-    if (keys.length > 1) {
-      keys.sort()
-    }
-    const signatureParts: string[] = [`${elementId}:`]
-
-    if (typeof element === 'function') {
-      let funcSignature = NodeUtil._functionSignatureCache.get(element)
-      if (!funcSignature) {
-        funcSignature = NodeUtil.hashString(element.toString())
-        NodeUtil._functionSignatureCache.set(element, funcSignature)
-      }
-      signatureParts.push(funcSignature)
-    }
-
-    for (const key of keys) {
-      signatureParts.push(NodeUtil._serializePropValue(key, props[key]))
-    }
-
-    return NodeUtil.hashString(signatureParts.join(','))
-  }
-
-  /**
-   * Serializes a single prop value into its `key:value;` signature fragment,
-   * using the same per-type rules everywhere a prop value needs hashing
-   * (full signatures via `createPropSignature`, and the compiled marker's
-   * dyn-value hashing via `hashDynamicValues`). Kept as a single source of
-   * truth so both call sites stay byte-identical for the same value.
-   * @param key The prop name.
-   * @param val The prop value.
-   * @returns The `key:value;`-style signature fragment for this prop.
-   */
-  private static _serializePropValue(key: string, val: unknown): string {
-    const valType = typeof val
-    if (valType === 'string' || valType === 'number' || valType === 'boolean') {
-      return `${key}:${val};`
-    } else if (val === null) {
-      return `${key}:null;`
-    } else if (val === undefined) {
-      return `${key}:undefined;`
-    } else if (key === 'css' && typeof val === 'object') {
-      return `css:${NodeUtil.hashCSS(val as Record<string, unknown>)};`
-    } else if (Array.isArray(val)) {
-      // Hash primitive values in arrays for better cache hits
-      const primitives = val.filter(v => {
-        const t = typeof v
-        return t === 'string' || t === 'number' || t === 'boolean' || v === null
-      })
-      if (primitives.length === val.length) {
-        // All primitives - use actual values
-        return `${key}:[${primitives.join(',')}];`
-      }
-      // Mixed or all non-primitives - use structure only
-      return `${key}:[${val.length}];`
-    } else if (val && (val as NodeInstance).isBaseNode) {
-      return `${key}:${(val as NodeInstance).stableKey};`
-    } else if (valType === 'function') {
-      let hash = NodeUtil._propFuncCache.get(val as (...args: any[]) => any)
-      if (!hash) {
-        hash = NodeUtil.hashString(val.toString())
-        NodeUtil._propFuncCache.set(val as (...args: any[]) => any, hash)
-      }
-      return `${key}:${hash};`
-    } else {
-      // Include sorted keys for object structure signature
-      const objKeys = Object.keys(val as Record<string, unknown>).sort()
-      return `${key}:{${objKeys.join(',')}};`
-    }
-  }
-
-  /**
-   * Resolves the value of a `dyn`-named prop for the compiled marker contract.
-   * Compiler-partitioned values live nested under `c` (CSS bucket) or `d` (DOM
-   * bucket) rather than at the top level of `props` — this mirrors that
-   * partitioning, falling back to a top-level lookup for special keys (e.g.
-   * `theme`) that stay outside `c`/`d`.
-   *
-   * Uses `in` checks (not truthiness) at each bucket so a prop legitimately
-   * set to `undefined` doesn't get mistaken for "not found" — only a name
-   * absent as an own key everywhere counts as unresolved, which in debug mode
-   * logs a warning: an unresolved dyn name means the emitted `k`/`dyn` pair
-   * doesn't match the actual props shape, silently producing a stable-but-wrong
-   * key (a masked compiler bug).
-   * @param props The marker props object (containing `c`/`d` buckets).
-   * @param name The dyn prop name to resolve.
-   * @returns The resolved value for the named prop.
-   */
-  private static _resolveDynPropValue(props: Record<string, unknown>, name: string, schema: number): unknown {
-    const schemaKeys = COMPILER_SCHEMA_KEYS[schema] ?? COMPILER_SCHEMA_KEYS[1]
-    const c = props[schemaKeys.css] as Record<string, unknown> | undefined
-    if (c && name in c) return c[name]
-    const d = props[schemaKeys.dom] as Record<string, unknown> | undefined
-    if (d && name in d) return d[name]
-    if (name in props) return props[name]
-
-    if (__DEBUG__) {
-      console.warn(`MeoNode: Compiled marker "dyn" names prop "${name}" but it isn't present in c, d, or top-level props. StableKey may be stale.`)
-    }
-    return undefined
-  }
-
-  /**
-   * Hashes only the values of props named in `dyn` — the compiled marker's list
-   * of props whose values are not literal at the call site. Used by
-   * `BaseNode._getStableKey`'s compiled fast path in place of a full
-   * `createPropSignature` call: the call-site hash `k` already accounts for
-   * everything static, so only dynamic values need representing here.
-   * Serializes each value with the same per-type rules as `createPropSignature`
-   * (via `_serializePropValue`) and joins them in `dyn`'s given order (stable
-   * per call site — the compiler emits it consistently) before hashing.
-   * @param props The marker props object (containing `c`/`d` buckets).
-   * @param dyn Names of props whose values are dynamic.
-   * @returns A hash string representing the dynamic prop values.
-   */
-  public static hashDynamicValues(props: Record<string, unknown>, dyn: string[], schema: number): string {
-    const parts: string[] = new Array(dyn.length)
-    for (let i = 0; i < dyn.length; i++) {
-      const name = dyn[i]
-      parts[i] = NodeUtil._serializePropValue(name, NodeUtil._resolveDynPropValue(props, name, schema))
-    }
-    return NodeUtil.hashString(parts.join(','))
-  }
-
-  /**
-   * Extracts "critical" props from a given set of props. Critical props are those
-   * that are frequently used for styling or event handling, such as `on*` handlers,
-   * `aria-*` attributes, `data-*` attributes, `css`, `className`, and `style`.
-   * This method is used to optimize prop processing by focusing on props that are
-   * most likely to influence rendering or behavior.
-   * @param props The original props object.
-   * @param keys The keys to process from the props object.
-   * @returns An object containing only the critical props with an added count property.
-   */
-  public static extractCriticalProps(props: Record<string, unknown>, keys: string[]): Record<string, unknown> {
-    const critical: Record<string, unknown> = { _keyCount: keys.length }
-    let count = 0
-
-    for (const k of keys) {
-      if (count >= 50) break
-
-      // Fast path: direct Set check first (O(1))
-      if (NodeUtil.CRITICAL_PROPS.has(k)) {
-        critical[k] = props[k]
-        count++
-        continue
-      }
-
-      // Inline prefix checks using charCode (faster than startsWith for short prefixes)
-      const firstChar = k.charCodeAt(0)
-
-      // Check 'on' prefix (111 = 'o', 110 = 'n')
-      if (firstChar === 111 && k.charCodeAt(1) === 110) {
-        critical[k] = props[k]
-        count++
-        continue
-      }
-
-      // Check 'aria' prefix (97 = 'a', 114 = 'r', 105 = 'i')
-      if (firstChar === 97 && k.charCodeAt(1) === 114 && k.charCodeAt(2) === 105 && k.charCodeAt(3) === 97) {
-        critical[k] = props[k]
-        count++
-        continue
-      }
-
-      // Check 'data' prefix (100 = 'd', 97 = 'a', 116 = 't')
-      if (firstChar === 100 && k.charCodeAt(1) === 97 && k.charCodeAt(2) === 116 && k.charCodeAt(3) === 97) {
-        critical[k] = props[k]
-        count++
-        continue
-      }
-
-      // Style prop check last (most expensive), only for smaller objects
-      if (keys.length <= 100 && NodeUtil.isStyleProp(k)) {
-        critical[k] = props[k]
-        count++
-      }
-    }
-
-    return critical
-  }
-
-  /**
-   * The main prop processing pipeline. It separates cacheable and non-cacheable props,
-   * generates a signature for caching, and assembles the final props object.
-   * This method applies optimizations like fast-path for simple props and hybrid caching strategy.
+   * The main prop processing pipeline. It splits style props from the rest and
+   * assembles the final props object, with a fast path for simple props.
    * @param rawProps The original props to process.
    * @returns The processed props object ready for rendering.
    */
@@ -571,8 +364,7 @@ export class NodeUtil {
       }
     }
 
-    // 2. Pass element type to signature generation (still used for stableKey generation elsewhere, but not for caching here)
-    // We removed caching, so we just compute CSS props directly.
+    // 2. CSS props are computed directly — nothing is cached across renders.
     const cachedCssProps = getCSSProps(cacheableProps)
 
     // 3. Process non-cacheable props on every render to ensure correctness for functions and objects.
@@ -624,18 +416,6 @@ export class NodeUtil {
 
     // General case: multiple children
     return children.map(child => NodeUtil.processRawNode(child, disableEmotion))
-  }
-
-  /**
-   * Determines if a given `NodeInstance` should be cached.
-   * Caching is enabled only on the client-side and if the node has both a `stableKey`
-   * (indicating it's a stable, identifiable element) and `dependencies` (suggesting its render
-   * output might be stable across re-renders if dependencies don't change).
-   * @param node The `NodeInstance` to check for cacheability.
-   * @returns `true` if the node should be cached, `false` otherwise.
-   */
-  public static shouldCacheElement<E extends NodeInstance>(node: E): node is E & { stableKey: string; dependencies: DependencyList } {
-    return !NodeUtil.isServer && !!node.stableKey && !!node.dependencies
   }
 
   /**
@@ -691,16 +471,8 @@ export class NodeUtil {
     // Primitives and null/undefined are returned as-is.
     if (node === null || node === undefined || typeof node === 'string' || typeof node === 'number' || typeof node === 'boolean') return node
 
-    // A BaseNode child is passed straight through.
-    //
-    // This used to clone unconditionally, to stamp a positional prefix onto the
-    // clone's `stableKey`. The stamp was destructive, so a stamped instance
-    // could not be reused without double-stamping, and the only way to obtain a
-    // clean key was to rebuild the node — re-running element validation, a
-    // rest-spread, and a full `createPropSignature` whose result was identical
-    // to the one the original already held. Position is now derived during
-    // render from the parent's key and the child's index, so none of that is
-    // needed.
+    // A BaseNode child is passed straight through. It carries no per-render
+    // state, so there is nothing to clone.
     //
     // Propagating `disableEmotion` is the one case still requiring a new
     // instance, and it must not write through to the source node. `BaseNode`
