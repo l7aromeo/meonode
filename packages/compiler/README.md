@@ -300,8 +300,13 @@ different spread contents. A missing `k` made the runtime recompute the
 signature from the props instead, which is why omitting it was the safe choice.
 
 `@meonode/ui@2.0.0-beta` reads neither `k` nor `dyn`, so that hazard is gone and
-this rule and the one below are now conservative rather than load-bearing. They
-are kept because a compiled bundle must stay correct on `1.x` as well.
+this rule and the one below are no longer load-bearing for correctness. They are
+kept for two reasons. A compiled bundle must stay correct on `1.x` — and,
+measured, leaving these props flat is also the *faster* shape: bucketing them
+builds two extra objects for the runtime to merge, which costs more than the
+classification it saves once a spread carries more than a few props. On a
+12-prop spread, bucketing everything measured 0.92-0.94x against leaving it
+flat; on a 4-prop spread the two were indistinguishable.
 
 That `1.x` fallback hashed most top-level prop values directly (primitives
 inline, functions via a cached `toString` hash, etc.), but any *other*
