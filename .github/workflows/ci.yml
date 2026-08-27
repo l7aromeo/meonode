@@ -97,17 +97,29 @@ jobs:
   # release it wants. `changeset add --empty` is the documented way to say
   # "none", and it leaves that decision in the diff rather than in someone's
   # memory.
-  # The version pull request is exempt. `changesets/action` opens it to *apply*
-  # the changesets: it bumps every package they name and deletes the changeset
-  # files in the same commit, so by construction it changes packages and carries
-  # no changeset — precisely what this job exists to reject. Skipping is safe for
-  # branch protection, which reads a skipped job as satisfied (an entirely
-  # skipped *workflow* is what reports nothing at all; see the note at the top of
-  # this file). The branch name is `changeset-release/<base>`, the action's
+  # Two branches are exempt, for the same underlying reason: both carry version
+  # bumps rather than source changes, which is exactly the shape this job is
+  # built to reject.
+  #
+  # The version pull request. `changesets/action` opens it to *apply* the
+  # changesets: it bumps every package they name and deletes the changeset files
+  # in the same commit, so by construction it changes packages and carries no
+  # changeset. The branch name is `changeset-release/<base>`, the action's
   # default.
+  #
+  # The `beta` prerelease line, when it merges back. Versioning happens on that
+  # branch, so by the time it targets `main` a package can differ only by its
+  # `version` field and CHANGELOG entry — `@meonode/mui` did, on the 2.0 merge,
+  # having been majored solely because `@meonode/ui` is a peer dependency taken
+  # out of range. Demanding a changeset there would bump it a second time on top
+  # of the release it is already carrying.
+  #
+  # Skipping is safe for branch protection, which reads a skipped job as
+  # satisfied (an entirely skipped *workflow* is what reports nothing at all;
+  # see the note at the top of this file).
   changeset:
     name: Changeset present
-    if: github.event_name == 'pull_request' && !startsWith(github.head_ref, 'changeset-release/')
+    if: github.event_name == 'pull_request' && !startsWith(github.head_ref, 'changeset-release/') && github.head_ref != 'beta'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
