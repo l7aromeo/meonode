@@ -11,6 +11,14 @@
 # `changeset publish` pushes the built packages to npm and creates one git tag
 # per released package.
 #
+# `beta` is the prerelease line and runs the same way. It has to publish from
+# CI rather than a laptop for a concrete reason: `@meonode/ui` and
+# `@meonode/compiler` set `publishConfig.provenance`, and npm can only mint an
+# attestation from a provider it recognises. Publishing them locally fails with
+# "Automatic provenance generation not supported for provider: null" — after
+# `@meonode/mui`, which sets no provenance, has already gone out. `release:dry`
+# exists to catch exactly that before it happens.
+#
 # Triggered by CI finishing rather than by the push itself. The three
 # per-repository workflows this replaced each kept their checks and their
 # release in one file, so `needs:` gated publishing on the whole suite;
@@ -24,7 +32,7 @@ on:
   workflow_run:
     workflows: [CI]
     types: [completed]
-    branches: [main]
+    branches: [main, beta]
 
 concurrency:
   group: release-${{ github.ref }}
@@ -94,6 +102,14 @@ jobs:
 
       - name: Verify provenance attestations
         run: npm audit signatures
+
+      # Runs here rather than in ci.yml on purpose: it checks whether *this*
+      # environment can mint a provenance attestation, so it is only meaningful
+      # in the job that actually publishes. `npm publish --dry-run` does not
+      # check that — it packs the tarball and reports success regardless — which
+      # is how a release once published one package and failed the other two.
+      - name: Dry-run the release
+        run: bun run release:dry
 
       - uses: changesets/action@v1.9.0
         with:
