@@ -7,16 +7,19 @@
 // Unlike `equivalence.test.ts`/`equivalence.client.test.ts` (which each
 // render a fixture's tree exactly ONCE and compare original-vs-compiled),
 // this test renders the SAME compiled call site TWICE, with different
-// spread contents, into the SAME React root — reproducing the exact
-// "re-render with changed spread contents" shape needed to exercise
-// `BaseNode`'s `elementCache`. A single-render suite structurally cannot
-// catch this: the bug is about what a *second* evaluation returns, not
-// about whether the first one is correct.
+// spread contents, into the SAME React root. The bug was about what a
+// *second* evaluation returns, not whether the first is correct, so a
+// single-render suite structurally cannot catch it.
 //
-// `BaseNode`'s `elementCache`/stable-key machinery only engages on the
-// client (`NodeUtil.isServer` gates both `_getStableKey` and
-// `shouldCacheElement` — see `src/util/node.util.ts`), so this must run
-// under `@vitest-environment jsdom` (where `window` is defined), not the
+// The hazard itself is gone as of `@meonode/ui@2.0.0-beta.0`, which moved
+// memoized subtrees into fibers and removed the derived-key element cache
+// they could collide in. The plugin still withholds `k` on spread-bearing
+// call sites — a compiled bundle has to stay correct on `1.x` too — so this
+// keeps asserting both halves: that the marker is emitted without `k`, and
+// that a second render reflects the new spread contents.
+//
+// Memoization only ever engaged on the client, so this must run under
+// `@vitest-environment jsdom` (where `window` is defined), not the
 // `renderToString` SSR path the other equivalence suites use.
 import { existsSync } from 'node:fs'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
@@ -28,10 +31,6 @@ import { transform } from '@swc/core'
 import { act, createElement } from 'react'
 import { createRoot } from 'react-dom/client'
 import { beforeAll, describe, expect, it } from 'vitest'
-// Imported directly from the real `@meonode/ui` package (not through a
-// compiled fixture) purely to reset `BaseNode`'s process-global caches
-// between test runs — irrelevant to the bug itself, just test hygiene.
-import { Node } from '@meonode/ui'
 
 const WASM_PATH = path.resolve(import.meta.dirname, '../npm/meonode_swc_plugin.wasm')
 const FIXTURES_DIR = path.resolve(import.meta.dirname, 'equivalence-fixtures')
@@ -61,67 +60,76 @@ interface RenderableNode {
 
 type MakeRow = (extra: Record<string, unknown>) => RenderableNode
 
-async function loadMakeRow(code: string, cacheBust: string): Promise<MakeRow> {
+async function loadFixture(code: string, cacheBust: string): Promise<{ makeRow: MakeRow; makeTrackedRow: MakeRow }> {
   const file = path.join(TMP_DIR, `cache-path-spread.compiled.${cacheBust}.mjs`)
   await writeFile(file, code, 'utf8')
-  const mod = (await import(pathToFileURL(file).href)) as { makeRow: MakeRow }
-  return mod.makeRow
+  return (await import(pathToFileURL(file).href)) as { makeRow: MakeRow; makeTrackedRow: MakeRow }
+}
+
+/**
+ * Renders one fixture export twice into the same root with different spread
+ * contents, and returns the HTML after each render.
+ * @param make The compiled fixture export to invoke.
+ * @returns The container HTML after the first and second renders.
+ */
+async function renderTwice(make: MakeRow): Promise<{ first: string; second: string }> {
+  const container = document.createElement('div')
+  document.body.appendChild(container)
+  const cache = createEmotionCache({ key: 'css' })
+  const root = createRoot(container)
+
+  await act(async () => {
+    root.render(createElement(CacheProvider, { value: cache }, make({ id: 'row-red' }).render()))
+  })
+  const first = container.innerHTML
+
+  await act(async () => {
+    root.render(createElement(CacheProvider, { value: cache }, make({ id: 'row-blue' }).render()))
+  })
+  const second = container.innerHTML
+
+  act(() => {
+    root.unmount()
+  })
+  container.remove()
+  return { first, second }
 }
 
 beforeAll(async () => {
   await mkdir(TMP_DIR, { recursive: true })
 })
 
-describe('stable-key hazard: leading spread + deps array cache path', () => {
-  it('reflects new spread contents on a second render, rather than reusing a stale cached element', async () => {
-    // Fresh caches for this test run — `BaseNode`'s caches are process-global
-    // (see `getGlobalState`), so a prior test's cached elements must not
-    // leak in here.
-    Node.clearCaches()
-
+describe('leading spread + deps array', () => {
+  it('withholds the call-site key, and honours deps literally', async () => {
     const fixturePath = path.join(FIXTURES_DIR, 'cache-path-spread.ts')
     const src = await readFile(fixturePath, 'utf8')
     const compiledCode = await compileWithPlugin(src, 'cache-path-spread.ts')
 
-    // Sanity: this call site must actually be compiled (marker present) —
-    // otherwise this test would vacuously pass by exercising the
-    // never-shortcut-taking legacy path regardless of the fix.
+    // Sanity: this call site must actually be compiled, or the assertions
+    // below would pass vacuously against an untouched call site.
     expect(compiledCode).toContain('__meo$')
-    // And, per the fix, `k` must be absent (spread present) — asserting
-    // this pins down *why* the regression is closed, not just *that* it is.
+    // `k` must be absent, because a spread is present. Nothing reads it on a
+    // current runtime, but a compiled bundle still has to be correct on `1.x`,
+    // where an emitted `k` was exactly what made two evaluations of this call
+    // site collide.
     expect(compiledCode).not.toMatch(/\bk:\s*"m/)
 
-    const makeRow = await loadMakeRow(compiledCode, 'run')
+    const { makeRow, makeTrackedRow } = await loadFixture(compiledCode, 'run')
 
-    const container = document.createElement('div')
-    document.body.appendChild(container)
-    const cache = createEmotionCache({ key: 'css' })
-    const root = createRoot(container)
+    // `deps: []` says never rebuild, and that is now taken at its word — the
+    // element is memoized by `useMemo`, which does not care that a prop
+    // changed. `1.x` rebuilt here instead, because a changed prop changed the
+    // derived cache key, which quietly meant `deps: []` never really held.
+    const frozen = await renderTwice(makeRow)
+    expect(frozen.first).toContain('id="row-red"')
+    expect(frozen.second).toContain('id="row-red"')
+    expect(frozen.second).not.toContain('id="row-blue"')
 
-    // First render: spread contributes `id: 'row-red'`. Same (empty, shallow-
-    // equal) `deps` array both times — see `cache-path-spread.ts`'s `makeRow`.
-    await act(async () => {
-      root.render(createElement(CacheProvider, { value: cache }, makeRow({ id: 'row-red' }).render()))
-    })
-    const firstHtml = container.innerHTML
-    expect(firstHtml).toContain('id="row-red"')
-
-    // Second render: SAME call site, DIFFERENT spread contents, into the
-    // SAME root. Before the fix, `k` (identical across both calls — it only
-    // depends on call-site source position) plus a shallow-equal `deps`
-    // array meant `BaseNode.render()` would find and reuse the FIRST
-    // render's cached element here, incorrectly keeping `id="row-red"`.
-    await act(async () => {
-      root.render(createElement(CacheProvider, { value: cache }, makeRow({ id: 'row-blue' }).render()))
-    })
-    const secondHtml = container.innerHTML
-
-    expect(secondHtml).toContain('id="row-blue"')
-    expect(secondHtml).not.toContain('id="row-red"')
-
-    act(() => {
-      root.unmount()
-    })
-    container.remove()
+    // Declaring the spread's contents as a dependency is what makes the row
+    // follow them — the same thing React requires of any `useMemo`.
+    const tracked = await renderTwice(makeTrackedRow)
+    expect(tracked.first).toContain('id="row-red"')
+    expect(tracked.second).toContain('id="row-blue"')
+    expect(tracked.second).not.toContain('id="row-red"')
   })
 })

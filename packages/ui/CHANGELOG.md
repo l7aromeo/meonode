@@ -36,6 +36,21 @@
   | 200 memoized rows x 31 renders | 14.85 ms | 8.74 ms (1.70x)  |
   | entries left after unmount     | 200      | 0                |
 
+  `deps` now means literally what React means by it. Previously the cache key
+  folded in a signature of the node's props, so a prop change invalidated the
+  entry regardless of the dependency list — `deps: []` did not really mean "never
+  rebuild", it meant "rebuild whenever a prop changes". The list is now handed
+  straight to `useMemo`, so `deps: []` freezes the subtree and a node that should
+  follow a value has to declare it:
+  
+  ```js
+  // 1.x rebuilt this when `id` changed. It no longer does.
+  Div({ ...props, padding: '4px' }, [])
+  
+  // Declare what it follows.
+  Div({ ...props, padding: '4px' }, [props.id])
+  ```
+
   Server rendering is untouched: nothing was ever memoized there, and `MeoMemo` is
   client-only and rendered rather than called, so it never crosses an RSC
   boundary.

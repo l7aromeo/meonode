@@ -123,10 +123,17 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
 
   /**
    * Returns the dependency list associated with this node.
+   *
    * Mirrors React hook semantics, because it is one: the list is handed to
    * `useMemo` inside the `MeoMemo` fiber that holds this node's subtree.
    * `undefined` means the node is not memoized at all and is rebuilt with its
    * parent.
+   *
+   * Taken literally, which is a change from the element cache this replaced.
+   * That cache keyed on a signature of the node's props, so a prop change
+   * invalidated the entry whatever the dependency list said — `deps: []` meant
+   * "rebuild whenever a prop changes" rather than "never rebuild". A node that
+   * should follow a value now has to name it, exactly as `useMemo` requires.
    * @getter deps
    */
   public get dependencies(): DependencyList | undefined {
