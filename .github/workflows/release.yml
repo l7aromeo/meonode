@@ -11,8 +11,12 @@
 # `changeset publish` pushes the built packages to npm and creates one git tag
 # per released package.
 #
-# `beta` is the prerelease line and runs the same way. It has to publish from
-# CI rather than a laptop for a concrete reason: `@meonode/ui` and
+# `beta` is the prerelease line and runs the same way. Note that this trigger
+# has to be listed here, on the default branch: GitHub reads a `workflow_run`
+# workflow from the default branch, so editing this file on `beta` alone has no
+# effect and the release simply never fires.
+#
+# It has to publish from CI rather than a laptop for a concrete reason: `@meonode/ui` and
 # `@meonode/compiler` set `publishConfig.provenance`, and npm can only mint an
 # attestation from a provider it recognises. Publishing them locally fails with
 # "Automatic provenance generation not supported for provider: null" — after
