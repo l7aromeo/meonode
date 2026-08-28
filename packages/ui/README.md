@@ -138,8 +138,10 @@ ThemeProvider({
 
 ### Surgical Memoization
 
-Memoize at node-level granularity—not just entire components. Control re-renders with precision by specifying dependency
-arrays directly on individual nodes.
+Memoize at node-level granularity—not just entire components. A node given a dependency array renders inside a React
+fiber of its own, and the array is handed straight to `useMemo`: it means exactly what it means in React, so an empty
+array freezes the subtree and a node that should follow a value has to name it. Nodes without one are not memoized and
+rebuild with their parent.
 
 **Node-Level Memoization:**
 
@@ -149,12 +151,12 @@ const UserCard = ({ user }) =>
     {
       padding: 16,
       children: [
-        H2(user.name), // Re-renders on any prop change
+        H2(user.name),
         Text(user.bio),
       ],
     },
     [user.id],
-  ).render() // Only re-render when user.id changes
+  ).render() // The whole subtree rebuilds only when user.id changes
 ```
 
 **Component-Level Memoization:**
@@ -202,23 +204,22 @@ import { setDebugMode } from '@meonode/ui'
 setDebugMode(true)
 ```
 
-Set it at module scope in your entry file, not in a `useEffect` — a few messages fire when the first node is
-constructed and an effect runs too late to catch them.
+Set it at module scope in your entry file, not in a `useEffect` — theme diagnostics fire as nodes are constructed and
+an effect runs too late to catch the first render's worth.
 
-It surfaces cache eviction and memoization activity, SPA navigation cleanup, oversized prop objects, malformed
-`@meonode/compiler` markers, and errors thrown inside function-as-a-child that are otherwise swallowed. Useful when a
-memoized node renders stale content, memory grows across navigations, or a `deps` array is not behaving.
+It surfaces `theme.*` tokens the active theme does not define, malformed `@meonode/compiler` markers, and errors
+thrown inside function-as-a-child that are otherwise swallowed. Useful when a style silently fails to apply — almost
+always an undefined token, since the browser drops a declaration referencing a variable that does not exist.
 
 The output ships in production builds — the flag is a runtime binding, not a build-time constant, so bundlers cannot
 strip it. That is deliberate: the bugs worth this much logging are usually the ones that only reproduce in production.
-It costs about 0.5 KB gzipped.
 
 📖 [Full list of what it logs](https://ui.meonode.com/docs/getting-started/faq)
 
 ## Performance Benchmarks
 
-MeoNode is built for high-performance applications, featuring an optimized caching system and iterative rendering
-engine.
+MeoNode is built for high-performance applications, with an iterative rendering engine and memoization delegated to
+React's own fibers.
 
 > **How to read these numbers.** They come from `bun run bench`, which runs in **jsdom on Node**, not a browser.
 > They are microbenchmarks against **production** React, and absolute timings move with hardware, Node version and
@@ -249,7 +250,7 @@ Heap growth measured after a forced collection, against the ceiling each check a
 |:-----------------------------------|:------------|:---------|
 | 50 heavy state updates             | **~2.5 MB** | 150 MB   |
 | 200 mounts/unmounts over 20 cycles | ~14 MB      | 20 MB    |
-| 10 navigation cycles               | **~1.6 MB** | 20 MB    |
+| 10 navigation cycles               | **~1 MB**   | 20 MB    |
 
 `bench/memory.mjs` exits non-zero if any ceiling is exceeded, so it works as a leak gate you run deliberately.
 
@@ -262,9 +263,9 @@ Heap growth measured after a forced collection, against the ceiling each check a
 | MeoNode                       | ~41 ms   |
 | **MeoNode+Props**             | ~93 ms   |
 
-> **Read the bold rows.** Bare `React.createElement` does no prop work at all, while MeoNode always classifies props
-> into CSS vs DOM attributes and computes a stable key. Against the like-for-like pair MeoNode is **~1.09x** slower —
-> and roughly at parity (~1.0x) on the 5,000-node nested case.
+> **Read the bold rows.** Bare `React.createElement` does no prop work at all, while MeoNode classifies every prop
+> into CSS vs DOM attributes. Against the like-for-like pair MeoNode is **~1.08x** slower — and roughly at parity
+> (~1.01x) on the 5,000-node nested case.
 >
 > The style object is kept to a single property on purpose. React writes inline style properties onto the DOM node one
 > at a time while MeoNode emits a single Emotion class, so a larger style object inflates React's side — with three
