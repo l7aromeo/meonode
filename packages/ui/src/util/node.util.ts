@@ -6,7 +6,6 @@ import type {
   NodeFunction,
   NodeInstance,
   NodeProps,
-  DependencyList,
   FinalNodeProps,
   Children,
 } from '@src/types/node.type.js'
@@ -110,69 +109,11 @@ export class NodeUtil {
   public static isNodeInstance = (obj: unknown): obj is NodeInstance => obj instanceof BaseNode
 
   /**
-   * Determines if a given string `k` is a valid CSS style property.
-   * This check is performed only on the client-side by checking if the property exists in `document.body.style`.
-   * On the server-side, it always returns `false`.
-   * @param k The string to check.
-   * @returns True if the string is a valid CSS style property, false otherwise.
-   */
-  public static isStyleProp = !NodeUtil.isServer && typeof document !== 'undefined' ? (k: string) => k in document.body.style : () => false
-
-  /**
-   * Combines FNV-1a and djb2 hash functions for a more robust signature.
-   * This hybrid approach provides better distribution than either algorithm alone.
-   * @param str The string to hash.
-   * @returns A combined hash string in base-36 format.
-   */
-  public static hashString(str: string): string {
-    let h1 = 2166136261 // FNV offset basis
-    let h2 = 5381 // djb2 init
-
-    for (let i = 0; i < str.length; i++) {
-      const char = str.charCodeAt(i)
-      // FNV-1a
-      h1 ^= char
-      h1 = Math.imul(h1, 16777619)
-      // djb2
-      h2 = Math.imul(h2, 33) ^ char
-    }
-
-    return `${(h1 >>> 0).toString(36)}_${(h2 >>> 0).toString(36)}`
-  }
-
-  /**
    * Generates a fast structural hash for CSS objects without full serialization.
    * This is an optimized hashing method that samples the first 10 keys for performance.
    * @param css The CSS object to hash.
    * @returns A hash string representing the CSS object structure.
    */
-
-  /**
-   * Generates a fast structural hash for CSS objects without full serialization.
-   * This is an optimized hashing method that samples the first 10 keys for performance.
-   * @param css The CSS object to hash.
-   * @returns A hash string representing the CSS object structure.
-   */
-  private static hashCSS(css: Record<string, unknown>): string {
-    // Fast structural hash without full serialization
-    const keys = Object.keys(css)
-    let hash = keys.length
-
-    for (let i = 0; i < Math.min(keys.length, 10); i++) {
-      // Sample first 10
-      const key = keys[i]
-      const val = css[key]
-      const charCode = key.charCodeAt(0)
-      hash = (hash << 5) - hash + charCode
-      hash = hash & hash // Convert to 32bit int
-
-      if (typeof val === 'string') {
-        hash = (hash << 5) - hash + val.length
-      }
-    }
-
-    return hash.toString(36)
-  }
 
   /**
    * Detects the compiled marker's schema version, if present and supported.
@@ -416,45 +357,6 @@ export class NodeUtil {
 
     // General case: multiple children
     return children.map(child => NodeUtil.processRawNode(child, disableEmotion))
-  }
-
-  /**
-   * Determines if a node should update based on its dependency array.
-   * Uses a shallow comparison, similar to React's `useMemo` and `useCallback`.
-   * On server environments, always returns true since SSR has no concept of re-renders.
-   * @param prevDeps Previous dependency array to compare.
-   * @param newDeps New dependency array to compare.
-   * @param parentBlocked Flag indicating if the parent is blocked from updating.
-   * @returns True if the node should update, false otherwise.
-   */
-  public static shouldNodeUpdate(prevDeps: DependencyList | undefined, newDeps: DependencyList | undefined, parentBlocked: boolean): boolean {
-    // SSR has no concept of re-renders, so deps system doesn't apply
-    if (NodeUtil.isServer) {
-      return true
-    }
-
-    if (parentBlocked) {
-      return false
-    }
-    // No deps array means always update.
-    if (newDeps === undefined) {
-      return true
-    }
-    // First render for this keyed component, or no previous deps.
-    if (prevDeps === undefined) {
-      return true
-    }
-    // Length change means update.
-    if (newDeps.length !== prevDeps.length) {
-      return true
-    }
-    // Shallow compare deps. If any have changed, update.
-    for (let i = 0; i < newDeps.length; i++) {
-      if (!Object.is(newDeps[i], prevDeps[i])) return true
-    }
-
-    // Deps are the same, no update needed.
-    return false
   }
 
   /**
