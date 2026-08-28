@@ -730,3 +730,79 @@ describe('Component HOC across the hydration boundary', () => {
     expect(new Set(ids.map(([, v]) => v)).size).toBe(3)
   })
 })
+
+describe('server style scope under concurrency', () => {
+  // The server Emotion cache is what a render mutates while collecting styles,
+  // and `StyleRegistry` flushes it into the response. When that cache was a
+  // process-global, every request emitted every style the process had ever
+  // rendered: a page needing 32 KB shipped 166 KB on the documentation site,
+  // growing towards the union of every route as more were visited.
+  //
+  // `StyleRegistry` now opens a scope per render. That scope is held in a
+  // module-level binding rather than an `AsyncLocalStorage`, because importing
+  // `node:async_hooks` from a module a client component also imports would pull
+  // a Node builtin into the browser bundle. A single binding is exactly the
+  // part worth testing: it assumes one render at a time, and overlapping
+  // requests are where that assumption would break.
+  //
+  // The assertion is a comparison rather than a threshold. A route is fetched
+  // alone to establish what it should emit, then fetched again while other
+  // routes render alongside it. Both responses must declare the same classes —
+  // more would mean it absorbed a neighbour's styles, fewer would mean a
+  // neighbour took its own.
+
+  /**
+   * The Emotion class ids a response declares, and the ones its markup uses.
+   * @param html The rendered document.
+   * @returns Declared and used id sets.
+   */
+  function emotionIds(html: string): { declared: string[]; used: string[] } {
+    const block = /<style data-emotion="meonode-css ([^"]*)"[^>]*>([\s\S]*?)<\/style>/.exec(html)
+    if (!block) return { declared: [], used: [] }
+    const declared = block[1].split(' ').filter(Boolean)
+    const markup = html.replace(/<style[^>]*>[\s\S]*?<\/style>/g, '')
+    return { declared, used: declared.filter(id => markup.includes(`meonode-css-${id}`)) }
+  }
+
+  const NEIGHBOURS = ['/server-css', '/as-swap', '/link', '/server-component-hoc', '/client-node-server']
+  const SUBJECT = '/styling-parity-theme-server'
+
+  it('emits the same styles whether a route renders alone or alongside others', async () => {
+    const aloneHtml = await (await fetch(`${base()}${SUBJECT}`)).text()
+    const alone = emotionIds(aloneHtml)
+
+    expect(alone.declared.length).toBeGreaterThan(0)
+
+    // Every neighbour in flight at once, with the subject among them.
+    const responses = await Promise.all([SUBJECT, ...NEIGHBOURS].map(async path => [path, await (await fetch(`${base()}${path}`)).text()] as const))
+    const concurrentHtml = responses.find(([path]) => path === SUBJECT)![1]
+    const concurrent = emotionIds(concurrentHtml)
+
+    expect([...concurrent.declared].sort()).toEqual([...alone.declared].sort())
+  })
+
+  it("does not let one route's styles leak into another", async () => {
+    const [a, b] = await Promise.all([SUBJECT, '/interop/mui-meonode'].map(async path => emotionIds(await (await fetch(`${base()}${path}`)).text())))
+
+    // Each response has to carry the styles its own markup references. A leak
+    // shows up as the opposite: ids declared by a page that never uses them.
+    for (const id of a.used) expect(a.declared).toContain(id)
+    for (const id of b.used) expect(b.declared).toContain(id)
+
+    // Neither may be a superset of the union, which is what a shared cache
+    // produced — both pages emitting everything.
+    const union = new Set([...a.declared, ...b.declared])
+    expect(a.declared.length).toBeLessThan(union.size + 1)
+    expect(b.declared.length).toBeLessThan(union.size + 1)
+  })
+
+  it('stays the same size when the same route is fetched repeatedly', async () => {
+    // The clearest symptom of the shared cache: one URL growing between
+    // identical requests because unrelated routes rendered in between.
+    const first = emotionIds(await (await fetch(`${base()}${SUBJECT}`)).text())
+    await Promise.all(NEIGHBOURS.map(path => fetch(`${base()}${path}`).then(r => r.text())))
+    const second = emotionIds(await (await fetch(`${base()}${SUBJECT}`)).text())
+
+    expect(second.declared.length).toBe(first.declared.length)
+  })
+})

@@ -4,12 +4,20 @@ import { CacheProvider } from '@emotion/react'
 import createCache from '@emotion/cache'
 import { Node } from '@src/core.node.js'
 import { useServerInsertedHTML } from 'next/navigation.js'
-import { consumeServerEmotionRules, getServerEmotionCache } from '@src/util/server-emotion.util.js'
+import { beginServerEmotionScope, consumeServerEmotionRules } from '@src/util/server-emotion.util.js'
 
-// Emotion cache setup
+/**
+ * The cache this render collects into.
+ *
+ * On the server this opens a scope so the cache belongs to *this* request.
+ * Sharing one across requests meant `cache.inserted` accumulated every style
+ * the process had ever rendered, and the flush below — which reads all of it —
+ * put the union of the whole site into every response.
+ * @returns A cache scoped to this render.
+ */
 function createEmotionCache() {
   if (typeof window === 'undefined') {
-    return getServerEmotionCache()
+    return beginServerEmotionScope().cache
   }
   return createCache({ key: 'meonode-css' })
 }
