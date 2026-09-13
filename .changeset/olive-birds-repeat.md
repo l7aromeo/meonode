@@ -35,4 +35,8 @@ renders alone or alongside others, two routes rendering together must not
 absorb each other's, and one route fetched twice with traffic in between
 must not grow.
 
-Client rendering is untouched; `bun run bench` is unchanged.
+Client rendering is untouched by *this* change, and `bun run bench` is
+unchanged by it. Other entries in this release do touch the client render
+path — the list diagnostic adds one property read and one falsy test per
+compiled node, short-circuiting before anything else on a call site that is
+not a generated list.

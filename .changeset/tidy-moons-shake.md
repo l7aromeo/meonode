@@ -29,5 +29,6 @@ different component types remounts and rebuilds, and a swap between two of
 the same type keeps the frozen value. `[]` continues to mean freeze, exactly
 as `useMemo([])` does.
 
-Unrelated to list keys: unkeyed lists still reorder and delete exactly as
-they do in React, and still need a `key`.
+This is a separate mechanism from the list diagnostic in this release, and
+does not change it: unkeyed lists still reorder and delete exactly as they do
+in React, and still need a `key`.
