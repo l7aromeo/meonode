@@ -154,8 +154,9 @@ export class NodeUtil {
     // schema 2 namespaces them under the marker prefix.
     //
     // `k` and `dyn` are read by nobody here. The compiler still emits them because
-    // it supports `@meonode/ui` back to 1.7.0, and a 1.x runtime keys its element
-    // cache on them; this runtime memoizes in React fibers instead, so it has no
+    // it supports runtimes back to `@meonode/ui@1.7.0` — the floor for the schemas
+    // that carry these two keys, which is not the floor for every schema — and a
+    // 1.x runtime keys its element cache on them; this runtime memoizes in React fibers instead, so it has no
     // identity to derive and drops them unread. They are stripped for the same
     // reason every marker key is — build-time metadata has no business reaching an
     // element — not because anything downstream consumes them.

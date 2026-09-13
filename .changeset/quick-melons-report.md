@@ -6,7 +6,8 @@ Report an unkeyed list, the way React does.
 
 **Expect new warnings on code that compiles clean today.** Any keyless
 `items.map(fn)` list starts reporting React's own missing-key warning once it is
-built with a compiler that emits the marker. That is the feature working — those
+built with a compiler that emits the marker, and run on a `@meonode/ui` that
+understands it — this release or later. That is the feature working — those
 lists reconcile by position, so a delete or a reorder already hands a row the
 previous row's state — but it is a behaviour change, not a silent fix.
 Development-only, and no runtime cost in production. Adding a `key` to each row
@@ -19,6 +20,21 @@ compiler — which matters here, because this warning only appears for builds th
 use `@meonode/compiler`, while the positional-reconciliation bug it reports is
 there either way. If you are not compiling, you will not see the warning and
 `For` still fixes the problem.
+
+**Both halves are required, and an old pairing is worse than no pairing.** A
+compiler that emits `__meo$list` running against an earlier `@meonode/ui`
+produces no warnings at all — it produces console noise instead. No earlier
+runtime strips the key, so it reaches the element, and React rejects
+`__meo$list` as an attribute name and says so once per render of every marked
+call site, on the same console channel the key warnings would have used.
+Rendering is unaffected and production is untouched, but the diagnostic is not
+merely absent, it is replaced by something louder and less useful.
+
+Test for the capability rather than a version, since it is the capability that
+decides: a runtime understands the key when its `COMPILER_SCHEMA_KEYS` entries
+for schemas 2 and 3 carry a `list` field. That stays true however the version
+numbers land. This is a compatibility requirement of the marker contract, not a
+bug in either half — upgrade both together.
 
 An unkeyed list reconciles by position, so deleting or reordering a row hands
 the next one the row before it — its state, its focus, whatever the user had
