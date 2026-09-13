@@ -10,7 +10,10 @@ built with a compiler that emits the marker, and run on a `@meonode/ui` that
 understands it — this release or later. That is the feature working — those
 lists reconcile by position, so a delete or a reorder already hands a row the
 previous row's state — but it is a behaviour change, not a silent fix.
-Development-only, and no runtime cost in production. Adding a `key` to each row
+The warning itself is development-only. The decision behind it is not free
+in production, but it is close: one property read and one falsy test per
+compiled node, short-circuiting before anything else on a call site whose
+children were not generated. Adding a `key` to each row
 resolves it, and is the fix for the underlying bug too.
 
 `For`, added in this same release, is the ergonomic way to do that: it takes the
