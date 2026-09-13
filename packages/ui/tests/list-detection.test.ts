@@ -22,7 +22,7 @@
 // children-first call.
 import { Div } from '@src/main.js'
 import { cleanup, render } from '@testing-library/react'
-import { createElement } from 'react'
+import { createElement, type ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 // The key the compiler sets on a call site whose `children` expression was
@@ -32,6 +32,16 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 const LIST_MARKER = '__meo$list'
 
 afterEach(cleanup)
+
+// A note both halves of this contract are tested against, learned twice in one
+// day: an assertion about a React *development warning* is only meaningful in
+// the first case that triggers it. React deduplicates each of these, and by
+// different keys — the missing-key report by the name of the parent the list
+// reconciled under, the invalid-attribute-name message by the attribute name,
+// each once per process. A later case asserting a warning appears sees nothing;
+// worse, a later case asserting one does NOT appear passes without proving it.
+// So a new case here has to be read against everything that ran before it, and
+// anything that can be asserted on a value instead of on a warning should be.
 
 const Row = () => createElement('i', null, 'x')
 
@@ -99,6 +109,38 @@ describe('generated children, as marked by the compiler', () => {
     expect(keyReports(as => Div({ as, children: row, [LIST_MARKER]: 1 } as never).render())).toBe(0)
   })
 
+  // An empty generated list — `items.map(fn)` over nothing, as common as lists
+  // get — must reach the element exactly as it did before any of this: passed
+  // as no child arguments at all, not as one argument holding an empty array.
+  //
+  // Asserted on a function component and a void element because a host element
+  // cannot show the difference: `<div>` with `children: []` renders the same as
+  // `<div>` with none, which is why a whole suite of them stays green while this
+  // is broken. What changes is `props.children` — `undefined` becomes `[]`, so
+  // `children ?? fallback` stops firing and `children && ...` starts passing,
+  // both at the exact moment a component wanted its empty state.
+  describe('an empty generated list', () => {
+    it('leaves children undefined, so a component still sees its empty state', () => {
+      let seen: unknown = 'unset'
+      const Probe = ({ children }: { children?: ReactNode }) => {
+        seen = children
+        return createElement('i', null, (children ?? 'EMPTY STATE') as ReactNode)
+      }
+      const view = render(Div({ as: Probe, children: [], [LIST_MARKER]: 1 } as never).render() as never)
+      expect(seen).toBeUndefined()
+      expect(view.container.textContent).toBe('EMPTY STATE')
+    })
+
+    it('does not hand a void element a child argument to reject', () => {
+      expect(() => render(Div({ as: 'img', children: [], [LIST_MARKER]: 1 } as never).render() as never)).not.toThrow()
+    })
+
+    it('is still reported once it has a row', () => {
+      const children = ['only'].map(() => createElement(Row))
+      expect(keyReports(as => Div({ as, children, [LIST_MARKER]: 1 } as never).render())).toBeGreaterThan(0)
+    })
+  })
+
   // Same line, for a generated value that has no key concept at all.
   it('are not reported for generated text', () => {
     expect(keyReports(as => Div({ as, children: 'generated text', [LIST_MARKER]: 1 } as never).render())).toBe(0)
@@ -122,6 +164,13 @@ describe('generated children, as marked by the compiler', () => {
   // has complained about, and the cases above have already rendered marked call
   // sites by the time this one runs, so an unstripped marker would produce no
   // output left to catch. What the element carries has no dedupe in front of it.
+  //
+  // Honest about its reach: for `__meo$list` itself this cannot fail, because
+  // `BaseNode.render` destructures the marker off before `otherProps` is built,
+  // so it is absent from the element whether or not `processProps` stripped it —
+  // and the legacy path deliberately re-adds it to `FinalNodeProps` as the
+  // carrier. What it does catch is a `__meo$` / `c` / `d` / `k` key surviving
+  // the compiled path, which the assertion it replaced caught nothing of.
   it('do not leak the marker into the element, and so never into the DOM', () => {
     const element = Div({ 'data-testid': 'host', children: [Div({ children: 'a' })], [LIST_MARKER]: 1 } as never).render() as {
       props: Record<string, unknown>

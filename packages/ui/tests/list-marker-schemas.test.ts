@@ -17,6 +17,16 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 afterEach(cleanup)
 
+// A note both halves of this contract are tested against, learned twice in one
+// day: an assertion about a React *development warning* is only meaningful in
+// the first case that triggers it. React deduplicates each of these, and by
+// different keys — the missing-key report by the name of the parent the list
+// reconciled under, the invalid-attribute-name message by the attribute name,
+// each once per process. A later case asserting a warning appears sees nothing;
+// worse, a later case asserting one does NOT appear passes without proving it.
+// So a new case here has to be read against everything that ran before it, and
+// anything that can be asserted on a value instead of on a warning should be.
+
 let uid = 0
 
 /**
