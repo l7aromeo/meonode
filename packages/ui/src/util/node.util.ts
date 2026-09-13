@@ -287,11 +287,14 @@ export class NodeUtil {
     // forward compatibility silent instead of noisy.
     //
     // Guarded on a marker being present at all, so uncompiled call sites — the
-    // overwhelming majority — pay a pair of cheap checks and no iteration. The
-    // list marker is checked separately because it can arrive without the schema
-    // field beside it: a call site the plugin could not partition still has a
-    // statically knowable `children` expression, and stripping it here is what
-    // keeps `__meo$list` out of the DOM on that path.
+    // overwhelming majority — pay a pair of cheap checks and no iteration.
+    //
+    // The list marker is tested separately only because this branch does not
+    // require the schema field to be there. The compiler always emits the two
+    // together, so the extra test defends against no shape it currently
+    // produces; what it buys is that the strip has the same precondition as the
+    // read a few lines up, which does not demand a schema either. A marker the
+    // runtime is willing to act on should not be one it declines to strip.
     if (COMPILED_MARKER in restRawProps || generatedChildren) {
       for (const propKey in restRawProps) {
         if (propKey.startsWith(COMPILED_MARKER)) {

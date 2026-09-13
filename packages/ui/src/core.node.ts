@@ -307,13 +307,22 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
           // changes the diagnostic — which is why it can follow the compiler's
           // marker rather than anything about the values.
           //
-          // Only a *generated* multi-child expression takes the array form. A
-          // single child was collapsed out of its array by `_processChildren`
-          // long before this point, and an authored call site is exactly the
-          // case React stays quiet about, so both keep spreading. There is no
-          // runtime test that could replace the marker here: by now a mapped
-          // array and a typed-out one are the same object.
-          const childArguments = generatedChildren && Array.isArray(childrenInProps) ? [finalChildren] : finalChildren
+          // A generated call site takes the array form however few rows it has
+          // today. `_processChildren` collapses a one-element array to the bare
+          // child, so gating on `Array.isArray` here would exempt exactly the
+          // list most worth reporting — `items.map(fn)` over one row, which
+          // grows to three next week and takes the positional-reconciliation
+          // bug with it. React does not make that exemption either: an unkeyed
+          // one-element array reports, a bare child does not. `finalChildren` is
+          // already an array by this point, so the row count never enters into
+          // it. Children that carry no key concept at all, such as a generated
+          // string, stay silent on React's side regardless.
+          //
+          // Authored call sites keep spreading, which is the case React stays
+          // quiet about by design. There is no runtime test that could replace
+          // the marker here: by now a mapped array and a typed-out one are the
+          // same object.
+          const childArguments = generatedChildren ? [finalChildren] : finalChildren
 
           // Merge element props: explicit other props + DOM native props + React key.
           // Then convert any string `theme.*` tokens carried by props (e.g. MUI

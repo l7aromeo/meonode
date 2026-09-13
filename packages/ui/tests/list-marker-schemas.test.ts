@@ -9,7 +9,7 @@
 // code — a call site carrying a schema takes the compiled fast path and never
 // reaches the legacy destructure — so a marker honoured on one says nothing
 // about the other.
-import { Div } from '@src/main.js'
+import { Div, H1 } from '@src/main.js'
 import { COMPILED_MARKER, LIST_MARKER } from '@src/constant/common.const.js'
 import { cleanup, render } from '@testing-library/react'
 import { createElement } from 'react'
@@ -24,16 +24,17 @@ let uid = 0
  * name of the *parent* the list was reconciled under — not by the row type, and
  * not by the owner. Two cases that both render their rows into a `<div>` are one
  * `div` to that cache, so the second is silently dropped however fresh its rows
- * are. Each case below therefore renders under a tag of its own, and this helper
- * hands out both the tag and a matching row type.
+ * are, and a case asserting that nothing is reported passes without proving it.
+ * Each case below therefore renders under a tag of its own.
+ *
+ * A hyphenated name is a custom element to React, which reconciles and reports
+ * exactly as a built-in does, and unlike a fixed list of real tags it cannot run
+ * out as this file grows.
  */
 function reportsMissingKey(build: (ctx: { tag: string; rows: () => unknown[] }) => unknown): boolean {
   const n = ++uid
   const Row = () => createElement('i', null, 'x')
-  Object.defineProperty(Row, 'name', { value: 'SchemaRow' + n })
-  // Three tags that are ordinary block containers, so nothing about the element
-  // itself changes between cases — only the name React dedupes on.
-  const tag = ['section', 'article', 'aside', 'main', 'nav', 'header'][n % 6]
+  const tag = `meo-schema-${n}`
 
   const seen: string[] = []
   const err = vi.spyOn(console, 'error').mockImplementation((...a: unknown[]) => seen.push(a.map(String).join(' ')))
@@ -76,11 +77,61 @@ describe('the list marker beside a compiled schema', () => {
   // Schema 1 does not *read* the marker, but it must still not forward it: the
   // `__meo$` prefix is the compiler's, so no schema has a reason to let a key
   // wearing it reach the element.
-  it('never reaches the DOM, on any schema that carries it', () => {
+  //
+  // Asserted on the element rather than on the markup. The `$` makes the name an
+  // invalid attribute, so React drops it and the DOM comes out clean whether or
+  // not anything stripped it — a markup assertion here passes with no stripping
+  // at all and proves only that React validates attribute names.
+  it('never reaches the element, on any schema that carries it', () => {
     for (const schema of [1, 2, 3]) {
-      const view = render(Div({ [COMPILED_MARKER]: schema, children: [Div({ children: 'a' })], [LIST_MARKER]: 1 } as never).render() as never)
-      expect(view.container.innerHTML).not.toContain('__meo$')
-      cleanup()
+      const element = Div({ [COMPILED_MARKER]: schema, children: [Div({ children: 'a' })], [LIST_MARKER]: 1 } as never).render() as {
+        props: Record<string, unknown>
+      }
+      expect(Object.keys(element.props).filter(k => k.startsWith('__meo$'))).toEqual([])
     }
+  })
+
+  // The object the compiler synthesizes for a children-first call with no props
+  // of its own — `Span(items.map(fn))` — is this and nothing else: schema 3 with
+  // no `__meo$k` and no buckets. It omits the key deliberately, since nothing in
+  // this runtime reads one. Correct today by construction, but the literal is
+  // pinned here so a future change that started reading `k` on schema 3 fails
+  // against the shape that has none rather than silently skipping it.
+  it('is read on a synthesized schema 3 object that carries nothing else', () => {
+    const reported = reportsMissingKey(({ tag, rows }) => Div({ as: tag, [COMPILED_MARKER]: 3, [LIST_MARKER]: 1, children: rows() } as never).render())
+    expect(reported).toBe(true)
+  })
+})
+
+// The children-first factories take their children at argument 0 and their props
+// at argument 1, so the marker describing a list arrives *beside* the list rather
+// than alongside it in one object — and for a call with no props of its own, in
+// an argument the author never wrote, synthesized by the compiler. Worth its own
+// cases because `createChildrenFirstNode` merges as `{ ...initialProps, ...props,
+// children }`: the marker comes in through the spread and the children are
+// appended last, so the two reach `processProps` by different routes.
+describe('the list marker on a children-first call', () => {
+  it('is read when the props argument was written by the author', () => {
+    const reported = reportsMissingKey(({ tag, rows }) =>
+      H1(rows() as never, { as: tag, [COMPILED_MARKER]: 3, [LIST_MARKER]: 1, padding: 8 } as never).render(),
+    )
+    expect(reported).toBe(true)
+  })
+
+  // `Span(items.map(fn))` — the compiler appends an argument that did not exist,
+  // holding the marker and nothing else.
+  it('is read when the props argument was synthesized for it', () => {
+    const reported = reportsMissingKey(({ tag, rows }) => H1(rows() as never, { as: tag, [COMPILED_MARKER]: 3, [LIST_MARKER]: 1 } as never).render())
+    expect(reported).toBe(true)
+  })
+
+  it('stays silent on an unmarked children-first call', () => {
+    const reported = reportsMissingKey(({ tag, rows }) => H1(rows() as never, { as: tag } as never).render())
+    expect(reported).toBe(false)
+  })
+
+  it('never reaches the element from the props argument', () => {
+    const element = H1(['a'] as never, { [COMPILED_MARKER]: 3, [LIST_MARKER]: 1 } as never).render() as { props: Record<string, unknown> }
+    expect(Object.keys(element.props).filter(k => k.startsWith('__meo$'))).toEqual([])
   })
 })
