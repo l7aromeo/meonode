@@ -704,10 +704,14 @@ fn rewrite_object(obj: &mut ObjectLit, filename: &str, span: Span, children: Chi
             new_props.push(dyn_prop(dyn_names));
         }
     }
-    // Unlike `k`/`dyn`, this is emitted whether or not a spread is present.
-    // The stable-key hazard that suppresses those is about values a spread
-    // might carry; this describes the shape of the `children` expression
-    // written at the call site, which a spread cannot change.
+    // Emitted whether or not a spread is present, unlike `k`/`dyn` just
+    // above. Deliberately not inheriting that suppression: whatever a spread
+    // carries, it cannot change the shape of the `children` expression
+    // written at this call site, which is the only thing this key reports.
+    // (The suppression's own stated rationale no longer holds either — it
+    // reasons about `_getStableKey`/`elementCache`, both since deleted — but
+    // that is a separate question from this key, and not one to settle in
+    // passing.)
     if children == ChildrenOrigin::Generated {
         new_props.push(list_prop());
     }

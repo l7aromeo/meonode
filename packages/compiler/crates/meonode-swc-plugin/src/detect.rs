@@ -54,7 +54,9 @@ const MARKER_KEY: &str = "__meo$";
 const NODE_NAME: &str = "Node";
 const CREATE_NODE_NAME: &str = "createNode";
 const CREATE_CHILDREN_FIRST_NODE_NAME: &str = "createChildrenFirstNode";
-/// The props key whose value the list-origin classification reads.
+/// The props key the list-origin classification reads — for every factory
+/// except a children-first one, whose children are argument 0 instead (see
+/// [`call_site_children_origin`]).
 const CHILDREN_KEY: &str = "children";
 
 /// A binding key: an identifier's symbol plus the `SyntaxContext` the
@@ -233,8 +235,13 @@ pub enum Decision {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ChildrenOrigin {
     /// The children are spelled out at the call site — or the call site has
-    /// no `children` property at all. Either way there is no runtime-shaped
-    /// list here, so the marker stays silent.
+    /// no children at all. Either way there is no runtime-shaped list here,
+    /// so the marker stays silent.
+    ///
+    /// Also the inert default recorded on every call site that bails, where
+    /// nothing is emitted and so nothing needs classifying. Read it as "no
+    /// marker" rather than as "the author wrote them out": on a bailing call
+    /// site it is an absence of an answer, not an answer.
     Authored,
     /// The children come out of an expression, so how many there are and in
     /// what order they arrive is only settled once it runs.
@@ -249,10 +256,15 @@ pub enum ChildrenOrigin {
 pub struct CallSiteDecision {
     pub span: Span,
     pub decision: Decision,
-    /// What the source said about this call site's `children`. Orthogonal to
+    /// What the source said about this call site's children. Orthogonal to
     /// `decision`: it describes the shape of one value rather than whether
-    /// the props can be partitioned, and it is recorded for every call site
-    /// whose props are an object literal, including ones that bail.
+    /// the props can be partitioned.
+    ///
+    /// Meaningful on [`Decision::Compilable`], [`Decision::KeyOnly`] and
+    /// [`Decision::SynthesizeProps`] — the three that emit. Every
+    /// [`Decision::Bail`] records [`ChildrenOrigin::Authored`] as an inert
+    /// default, whatever the call site actually wrote, because nothing is
+    /// emitted there; see that variant's doc.
     pub children: ChildrenOrigin,
 }
 
@@ -574,8 +586,11 @@ fn classify_props(
             };
             (decision, children)
         }
-        // Without an object literal there is no `children` property to read,
-        // and nothing is emitted here anyway.
+        // `Authored` here is the inert bail default, not a classification.
+        // A children-first call site *does* have readable children at
+        // argument 0 — `Span(rows, maybeProps)` is a generated list — but
+        // the props argument it was given is not an object literal, so there
+        // is nowhere to put a marker and nothing is emitted.
         _ => (
             Decision::Bail(BailReason::NotObjectLiteral),
             ChildrenOrigin::Authored,
@@ -645,9 +660,12 @@ fn children_first_arg_origin(
     let Some(arg) = call.args.first() else {
         return ChildrenOrigin::Authored;
     };
-    // Unreachable where a props argument exists — a leading spread already
-    // bailed as `SpreadBeforeProps` — but a spread is an unknown number of
-    // children by any route in, so it answers the same way here.
+    // Defensive, and currently unreachable from either caller: both run
+    // after `classify_props`'s leading-spread check, which bails a spread at
+    // argument 0 as `SpreadBeforeProps` whether or not a props argument
+    // follows it. Kept because the answer is right on its own terms — a
+    // spread is an unknown number of children by any route in — so a new
+    // caller cannot get a wrong answer out of it.
     if arg.spread.is_some() {
         return ChildrenOrigin::Generated;
     }
@@ -660,26 +678,48 @@ fn children_first_arg_origin(
 ///
 /// A repeated key resolves the way the object literal itself would —
 /// `{ children: a, children: b }` evaluates to `b` — so the last `children`
-/// property wins.
+/// property wins, and a spread that follows one can replace it outright.
+///
+/// ## The `{ ...rest }` false negative, accepted deliberately
+///
+/// An object with no `children` property at all is [`ChildrenOrigin::Authored`]
+/// even when it spreads something that might carry children, because a spread's
+/// contents are a runtime fact. Calling those generated would mark every
+/// `Div({ ...props })` wrapper in a codebase — an enormous false-positive
+/// surface, and one that would bury the real reports in the console channel
+/// they share. A spread that follows a *written* `children` is the opposite
+/// trade: rare, deliberate, and cheap to be conservative about, so it is.
 fn children_origin(obj: &ObjectLit, factories: &HashMap<BindKey, CandidateKind>) -> ChildrenOrigin {
     let mut origin = ChildrenOrigin::Authored;
+    let mut children_written = false;
+
     for prop_or_spread in obj.props.iter() {
-        let PropOrSpread::Prop(prop) = prop_or_spread else {
-            continue;
-        };
-        match &**prop {
-            // `{ children }` reads a binding that was filled somewhere else,
-            // which is the `children: rows` case written shorter.
-            Prop::Shorthand(ident) if ident.sym.as_ref() == CHILDREN_KEY => {
-                origin = ChildrenOrigin::Generated;
+        match prop_or_spread {
+            // A spread *after* a written `children` can overwrite it with
+            // anything, so what renders is no longer what was written here.
+            // A spread *before* one cannot: the written property is evaluated
+            // later and wins.
+            PropOrSpread::Spread(_) => {
+                if children_written {
+                    origin = ChildrenOrigin::Generated;
+                }
             }
-            Prop::KeyValue(kv) if is_children_key(&kv.key) => {
-                origin = expr_children_origin(&kv.value, factories);
-            }
-            // A getter, setter or method named `children` holds a function
-            // rather than a child list, and such an object never partitions
-            // anyway. There is no list expression here to classify.
-            _ => {}
+            PropOrSpread::Prop(prop) => match &**prop {
+                // `{ children }` reads a binding that was filled somewhere
+                // else, which is the `children: rows` case written shorter.
+                Prop::Shorthand(ident) if ident.sym.as_ref() == CHILDREN_KEY => {
+                    children_written = true;
+                    origin = ChildrenOrigin::Generated;
+                }
+                Prop::KeyValue(kv) if is_children_key(&kv.key) => {
+                    children_written = true;
+                    origin = expr_children_origin(&kv.value, factories);
+                }
+                // A getter, setter or method named `children` holds a
+                // function rather than a child list, and such an object never
+                // partitions anyway. There is no list expression to classify.
+                _ => {}
+            },
         }
     }
     origin
@@ -2189,6 +2229,49 @@ mod tests {
             vec![Decision::Bail(BailReason::ComputedKey)]
         );
         assert_eq!(children_origins_for(src), vec![ChildrenOrigin::Generated]);
+    }
+
+    // ---- spreads around a written `children` -----------------------------
+
+    /// A spread *after* a written `children` can overwrite it with anything,
+    /// so what renders is no longer what was written at this call site. The
+    /// object bails as `TrailingSpread`, which is still key-stampable, so the
+    /// marker really is emitted here and the answer has to be conservative.
+    #[test]
+    fn spread_after_written_children_is_generated() {
+        let src = r#"
+            import { Div } from '@meonode/ui'
+            Div({ children: ['a'], ...rest })
+        "#;
+        assert_eq!(
+            decisions_for(src),
+            vec![Decision::KeyOnly { props_arg_idx: 0 }]
+        );
+        assert_eq!(children_origins_for(src), vec![ChildrenOrigin::Generated]);
+    }
+
+    /// A spread *before* it cannot: the written property is evaluated later
+    /// and wins, so the source still says what renders.
+    #[test]
+    fn spread_before_written_children_is_authored() {
+        let src = r#"
+            import { Div } from '@meonode/ui'
+            Div({ ...rest, children: ['a'] })
+        "#;
+        assert_eq!(children_origins_for(src), vec![ChildrenOrigin::Authored]);
+    }
+
+    /// The accepted false negative, pinned so it is a decision rather than an
+    /// oversight: an object with no `children` of its own stays authored even
+    /// though the spread might carry some. Marking these would flag every
+    /// `Div({ ...props })` wrapper and bury the real reports.
+    #[test]
+    fn spread_without_a_written_children_stays_authored() {
+        let src = r#"
+            import { Div } from '@meonode/ui'
+            Div({ ...rest })
+        "#;
+        assert_eq!(children_origins_for(src), vec![ChildrenOrigin::Authored]);
     }
 
     /// A repeated key resolves the way the object literal itself does: the
