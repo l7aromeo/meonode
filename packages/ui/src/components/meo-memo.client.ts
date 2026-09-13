@@ -31,5 +31,14 @@ export default function MeoMemo({ node, deps }: { node: NodeInstance; deps: Depe
   // `true` marks the subtree as already memoized, so `render` builds it rather
   // than wrapping it in another `MeoMemo` — the node still carries the `deps`
   // that put it here.
-  return useMemo(() => node.render(true), deps)
+  // `node.element` joins the deps because `deps` alone cannot tell two different
+  // subtrees apart. Every memoized node renders as a `MeoMemo` element, so React
+  // sees the same component type at the same position and reuses the fiber rather
+  // than remounting; if the incoming `deps` are equal, `useMemo` then returns the
+  // element built for the *previous* node. A conditional that swaps one subtree
+  // for another while its deps compare equal rendered the old subtree forever.
+  //
+  // The element type is stable for a given call site, so this invalidates on a
+  // genuine swap without weakening memoization for the ordinary case.
+  return useMemo(() => node.render(true), [node.element, ...deps])
 }
