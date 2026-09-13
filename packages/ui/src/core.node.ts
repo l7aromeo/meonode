@@ -26,6 +26,7 @@ import { isFragment, isValidElementType } from '@src/helper/react-is.helper.js'
 import { getComponentType, getElementTypeName, hasNoStyleTag, getGlobalState } from '@src/helper/common.helper.js'
 import StyledRenderer from '@src/components/styled-renderer.client.js'
 import MeoMemo from '@src/components/meo-memo.client.js'
+import { LIST_MARKER } from '@src/constant/common.const.js'
 import { NodeUtil } from '@src/util/node.util.js'
 import { compileServerEmotionClassName } from '@src/util/server-emotion.util.js'
 import { getActiveServerTheme, replaceThemeTokensWithCssVars, setActiveServerTheme } from '@src/util/server-theme.util.js'
@@ -258,7 +259,7 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
           // Extract node props. Non-present props default to undefined via destructuring.
           // `as` is the Emotion-style polymorphic target: it is consumed here (never
           // forwarded to the DOM) and only used to swap the rendered element below.
-          const { children: childrenInProps, key, css, nativeProps, disableEmotion, as: asTarget, ...otherProps } = node.props
+          const { children: childrenInProps, key, css, nativeProps, disableEmotion, as: asTarget, [LIST_MARKER]: generatedChildren, ...otherProps } = node.props
           const activeTheme = getActiveTheme(node.props, inheritedTheme)
 
           // Resolve the element to actually render. `as` swaps the render target
@@ -298,6 +299,22 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
             }
           }
 
+          // How the children reach `createElement` is what decides whether React
+          // asks for keys. Passing them as separate arguments is React's signal
+          // that a human wrote the siblings out, so it marks them validated and
+          // never warns; passing one array is the signal that they came from a
+          // list, so it checks. Both reconcile identically — the choice only
+          // changes the diagnostic — which is why it can follow the compiler's
+          // marker rather than anything about the values.
+          //
+          // Only a *generated* multi-child expression takes the array form. A
+          // single child was collapsed out of its array by `_processChildren`
+          // long before this point, and an authored call site is exactly the
+          // case React stays quiet about, so both keep spreading. There is no
+          // runtime test that could replace the marker here: by now a mapped
+          // array and a typed-out one are the same object.
+          const childArguments = generatedChildren && Array.isArray(childrenInProps) ? [finalChildren] : finalChildren
+
           // Merge element props: explicit other props + DOM native props + React key.
           // Then convert any string `theme.*` tokens carried by props (e.g. MUI
           // `sx`, `style`, third-party CSS-bearing props) to
@@ -333,7 +350,7 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
 
           // Handle fragments specially: create fragment element with key and children.
           if (node.element === Fragment || isFragment(node.element)) {
-            element = createElement(node.element as ExoticComponent<FragmentProps>, { key }, ...finalChildren)
+            element = createElement(node.element as ExoticComponent<FragmentProps>, { key }, ...childArguments)
           } else {
             // StyledRenderer for emotion-based styling unless explicitly disabled or no styles are present.
             // StyledRenderer handles SSR hydration and emotion CSS injection when css prop exists or element has style tags.
@@ -352,7 +369,7 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
               // client runtime's vars-mode resolution keeps the Emotion class
               // hash identical across SSR/CSR.
               const cssForRenderer = NodeUtil.isServer ? replaceThemeTokensWithCssVars(css) : css
-              element = createElement(StyledRenderer, { element: renderTarget, ...elementProps, css: cssForRenderer }, ...finalChildren)
+              element = createElement(StyledRenderer, { element: renderTarget, ...elementProps, css: cssForRenderer }, ...childArguments)
             } else if (isStyledComponent && shouldBypassStyledRendererOnServer && !NodeUtil.acceptsServerCss(renderTarget)) {
               // Emit `var(--meonode-theme-*)` on the server so the generated Emotion class
               // matches the client runtime output — unifies the class hash across SSR/CSR.
@@ -371,14 +388,14 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
               const serverCssClassName = compileServerEmotionClassName(cssWithDefaults)
               const mergedClassName = [elementProps.className, serverCssClassName].filter(Boolean).join(' ') || undefined
               const elementPropsWithClassName = mergedClassName ? { ...elementProps, className: mergedClassName } : elementProps
-              element = createElement(renderTarget, elementPropsWithClassName, ...finalChildren)
+              element = createElement(renderTarget, elementPropsWithClassName, ...childArguments)
             } else {
               // On server function components, keep css support for true server components.
               // For client references (e.g. next/link), do not forward css to avoid leaking
               // unknown attributes like css="[object Object]" into HTML.
               const shouldForwardCssDirectly = isStyledComponent && (!shouldBypassStyledRendererOnServer || NodeUtil.acceptsServerCss(renderTarget))
               const elementPropsWithCss = shouldForwardCssDirectly ? { ...elementProps, css } : elementProps
-              element = createElement(renderTarget, elementPropsWithCss, ...finalChildren)
+              element = createElement(renderTarget, elementPropsWithCss, ...childArguments)
             }
           }
 

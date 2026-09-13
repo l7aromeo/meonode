@@ -67,14 +67,32 @@ export const COMPILED_MARKER = '__meo$'
 export const SUPPORTED_COMPILER_SCHEMAS: ReadonlySet<number> = new Set([1, 2, 3])
 
 /**
+ * Marker key set by the compiler on a call site whose `children` expression was
+ * generated rather than written out — a `.map()`, a spread, an IIFE, a helper
+ * call. Present with the value `1`, absent otherwise.
+ *
+ * Whether children were authored or generated cannot be recovered at runtime:
+ * arguments are evaluated before the callee runs, so `items.map(fn)` has already
+ * collapsed into an ordinary array by the time the node function is entered, and
+ * that array is indistinguishable from one a human typed out. Only the source
+ * answers the question, so the compiler answers it and the runtime reads the
+ * answer — see `BaseNode.render`, which is the sole consumer.
+ */
+export const LIST_MARKER = '__meo$list'
+
+/**
  * Per-schema names of the compiled marker's contract keys. Indexed by the schema
  * version found in {@link COMPILED_MARKER}.
  */
-export const COMPILER_SCHEMA_KEYS: Readonly<Record<number, { css: string; dom: string; key: string; dyn: string }>> = {
+export const COMPILER_SCHEMA_KEYS: Readonly<Record<number, { css: string; dom: string; key: string; dyn: string; list?: string }>> = {
+  // Schema 1 gets no `list` entry, and must not: its bucket names are unprefixed,
+  // so a spread carrying a real prop of the same name would collide with it, the
+  // same hazard that retired `d` (a valid SVG `<path>` attribute). A schema 1 call
+  // site therefore never reports a missing key — it predates the contract.
   1: { css: 'c', dom: 'd', key: 'k', dyn: 'dyn' },
-  2: { css: '__meo$c', dom: '__meo$d', key: '__meo$k', dyn: '__meo$dyn' },
+  2: { css: '__meo$c', dom: '__meo$d', key: '__meo$k', dyn: '__meo$dyn', list: LIST_MARKER },
   // Schema 3 reuses schema 2's names. `css`/`dom`/`dyn` are never present on a
   // schema 3 call site, but naming them keeps the marker-stripping loop in
   // `_processCompiledProps` uniform across schemas.
-  3: { css: '__meo$c', dom: '__meo$d', key: '__meo$k', dyn: '__meo$dyn' },
+  3: { css: '__meo$c', dom: '__meo$d', key: '__meo$k', dyn: '__meo$dyn', list: LIST_MARKER },
 }

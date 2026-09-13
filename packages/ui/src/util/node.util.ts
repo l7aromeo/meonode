@@ -11,7 +11,7 @@ import type {
 } from '@src/types/node.type.js'
 import { isForwardRef, isMemo, isReactClassComponent } from '@src/helper/react-is.helper.js'
 import { getCSSProps, getDOMProps, getElementTypeName, omitUndefined } from '@src/helper/common.helper.js'
-import { __DEBUG__, COMPILED_MARKER, COMPILER_SCHEMA_KEYS, SUPPORTED_COMPILER_SCHEMAS } from '@src/constant/common.const.js'
+import { __DEBUG__, COMPILED_MARKER, COMPILER_SCHEMA_KEYS, LIST_MARKER, SUPPORTED_COMPILER_SCHEMAS } from '@src/constant/common.const.js'
 import { BaseNode } from '@src/core.node.js'
 
 /**
@@ -181,6 +181,11 @@ export class NodeUtil {
         propKey === schemaKeys.dom ||
         propKey === schemaKeys.key ||
         propKey === schemaKeys.dyn ||
+        // Stripped on every schema, read on only some: the `__meo$` prefix is
+        // the compiler's, so no schema has a reason to forward a key wearing it,
+        // and schema 1 declining to *act* on the marker is no reason to let it
+        // out to the element.
+        propKey === LIST_MARKER ||
         NodeUtil.DESTRUCTURED_SPECIAL_KEYS.has(propKey)
       ) {
         continue
@@ -225,6 +230,10 @@ export class NodeUtil {
     result.nativeProps = nativeProps === undefined ? {} : omitUndefined(nativeProps)
     const processedChildren = NodeUtil._processChildren(children, disableEmotion)
     if (processedChildren !== undefined) result.children = processedChildren
+    // Gated on the schema declaring the marker, so schema 1 — frozen legacy
+    // output, which the contract was never extended to — does not start acting
+    // on a key its compiler never emitted.
+    if (schemaKeys.list !== undefined && source[schemaKeys.list]) result[LIST_MARKER] = true
 
     return result as FinalNodeProps
   }
@@ -256,6 +265,16 @@ export class NodeUtil {
       return NodeUtil._processCompiledProps(rawProps, compiledSchema)
     }
 
+    // Read before the destructure for the same reason the schema check above is:
+    // the marker is never one of the destructured specials, so `rawProps` and
+    // `restRawProps` answer identically and this avoids a second lookup. Kept
+    // under the marker's own name on the way out too, rather than given a plain
+    // one like `generatedChildren`: everything on `FinalNodeProps` that is not
+    // consumed by the render loop is forwarded to the element, so a plain name
+    // would silently swallow a user prop that happened to match — the same
+    // collision that retired schema 1's unprefixed buckets.
+    const generatedChildren = (rawProps as Record<string, unknown>)[LIST_MARKER] ? true : undefined
+
     const { ref, key, children, css, props: nativeProps = {}, disableEmotion, ...restRawProps } = rawProps
 
     // A marker whose schema this runtime does not know — output from a newer
@@ -266,9 +285,13 @@ export class NodeUtil {
     // DOM, but it warns once per field per node. Dropping them here keeps
     // forward compatibility silent instead of noisy.
     //
-    // Guarded on the marker being present at all, so uncompiled call sites —
-    // the overwhelming majority — pay a single `in` check and no iteration.
-    if (COMPILED_MARKER in restRawProps) {
+    // Guarded on a marker being present at all, so uncompiled call sites — the
+    // overwhelming majority — pay a pair of cheap checks and no iteration. The
+    // list marker is checked separately because it can arrive without the schema
+    // field beside it: a call site the plugin could not partition still has a
+    // statically knowable `children` expression, and stripping it here is what
+    // keeps `__meo$list` out of the DOM on that path.
+    if (COMPILED_MARKER in restRawProps || generatedChildren) {
       for (const propKey in restRawProps) {
         if (propKey.startsWith(COMPILED_MARKER)) {
           delete (restRawProps as Record<string, unknown>)[propKey]
@@ -282,6 +305,7 @@ export class NodeUtil {
         ref,
         key,
         disableEmotion,
+        [LIST_MARKER]: generatedChildren,
         nativeProps: omitUndefined(nativeProps),
         children: NodeUtil._processChildren(children, disableEmotion),
       })
@@ -325,6 +349,7 @@ export class NodeUtil {
       css: finalCssProps,
       ...domProps,
       disableEmotion,
+      [LIST_MARKER]: generatedChildren,
       nativeProps: omitUndefined(nativeProps),
       children: normalizedChildren,
     })

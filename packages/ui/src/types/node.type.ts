@@ -348,6 +348,20 @@ export type FinalNodeProps = React.Attributes &
     children: Children
 
     /**
+     * True when the compiler marked this call site's `children` expression as
+     * generated — a `.map()`, a spread, an IIFE, a helper call — rather than
+     * written out by hand. Read only by `BaseNode.render`, which hands such
+     * children to `createElement` as one array instead of spreading them, so
+     * React can ask for the keys a list needs. Absent on authored call sites,
+     * which stay silent by design.
+     *
+     * Keeps the marker's own reserved name rather than a plain one, because
+     * anything here that the render loop does not consume is forwarded to the
+     * element, and a plain name could collide with a real prop.
+     */
+    ['__meo$list']: boolean
+
+    /**
      * Index signature to allow for any other properties that might be passed
      * (though strict typing usually catches these at the creation site).
      */
