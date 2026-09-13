@@ -11,7 +11,7 @@ import type {
 } from '@src/types/node.type.js'
 import { isForwardRef, isMemo, isReactClassComponent } from '@src/helper/react-is.helper.js'
 import { getCSSProps, getDOMProps, getElementTypeName, omitUndefined } from '@src/helper/common.helper.js'
-import { __DEBUG__, COMPILED_MARKER, COMPILER_SCHEMA_KEYS, SUPPORTED_COMPILER_SCHEMAS } from '@src/constant/common.const.js'
+import { __DEBUG__, COMPILED_MARKER, COMPILER_SCHEMA_KEYS, LIST_MARKER, SUPPORTED_COMPILER_SCHEMAS } from '@src/constant/common.const.js'
 import { BaseNode } from '@src/core.node.js'
 
 /**
@@ -109,17 +109,9 @@ export class NodeUtil {
   public static isNodeInstance = (obj: unknown): obj is NodeInstance => obj instanceof BaseNode
 
   /**
-   * Generates a fast structural hash for CSS objects without full serialization.
-   * This is an optimized hashing method that samples the first 10 keys for performance.
-   * @param css The CSS object to hash.
-   * @returns A hash string representing the CSS object structure.
-   */
-
-  /**
    * Detects the compiled marker's schema version, if present and supported.
-   * Single source of truth for the marker-detection predicate shared by
-   * `processProps` and `BaseNode._getStableKey`, so both stay in lockstep on
-   * what counts as "a compiled call site".
+   * Single source of truth for what counts as "a compiled call site", so the
+   * decision is made in one place rather than re-spelled at each caller.
    * @param props The raw props object to inspect.
    * @returns The schema version number, or undefined if absent/unsupported.
    */
@@ -159,8 +151,17 @@ export class NodeUtil {
   private static _processCompiledProps(rawProps: Partial<NodeProps>, schema: number): FinalNodeProps {
     // Bucket key names are schema-dependent: schema 1 used bare `c`/`d`/`k`/`dyn`,
     // which a spread could collide with (`d` is a real SVG `<path>` attribute);
-    // schema 2 namespaces them under the marker prefix. The stable-key fields are
-    // consumed by `_getStableKey`, so they are stripped here, never forwarded.
+    // schema 2 namespaces them under the marker prefix.
+    //
+    // `k` and `dyn` are read by nobody here. The compiler still emits them because
+    // it supports `@meonode/ui` back to 1.7.0, and a 1.x runtime keys its element
+    // cache on them; this runtime memoizes in React fibers instead, so it has no
+    // identity to derive and drops them unread. They are stripped for the same
+    // reason every marker key is — build-time metadata has no business reaching an
+    // element — not because anything downstream consumes them.
+    //
+    // `__meo$list` is the exception worth knowing about: it is the one marker key
+    // this runtime acts on, so it is read below before the same loop strips it.
     const schemaKeys = COMPILER_SCHEMA_KEYS[schema]
     const source = rawProps as Record<string, unknown>
     const markerCssProps = source[schemaKeys.css] as Record<string, unknown> | undefined
@@ -181,6 +182,11 @@ export class NodeUtil {
         propKey === schemaKeys.dom ||
         propKey === schemaKeys.key ||
         propKey === schemaKeys.dyn ||
+        // Stripped on every schema, read on only some: the `__meo$` prefix is
+        // the compiler's, so no schema has a reason to forward a key wearing it,
+        // and schema 1 declining to *act* on the marker is no reason to let it
+        // out to the element.
+        propKey === LIST_MARKER ||
         NodeUtil.DESTRUCTURED_SPECIAL_KEYS.has(propKey)
       ) {
         continue
@@ -223,8 +229,13 @@ export class NodeUtil {
     if (markerDomProps !== undefined) NodeUtil._assignDefined(result, markerDomProps)
     if (disableEmotion !== undefined) result.disableEmotion = disableEmotion
     result.nativeProps = nativeProps === undefined ? {} : omitUndefined(nativeProps)
-    const processedChildren = NodeUtil._processChildren(children, disableEmotion)
+    // Gated on the schema declaring the marker, so schema 1 — frozen legacy
+    // output, which the contract was never extended to — does not start acting
+    // on a key its compiler never emitted.
+    const generatedChildren = schemaKeys.list !== undefined && source[schemaKeys.list] ? true : undefined
+    const processedChildren = NodeUtil._processChildren(children, disableEmotion, generatedChildren)
     if (processedChildren !== undefined) result.children = processedChildren
+    if (generatedChildren) result[LIST_MARKER] = true
 
     return result as FinalNodeProps
   }
@@ -256,6 +267,16 @@ export class NodeUtil {
       return NodeUtil._processCompiledProps(rawProps, compiledSchema)
     }
 
+    // Read before the destructure for the same reason the schema check above is:
+    // the marker is never one of the destructured specials, so `rawProps` and
+    // `restRawProps` answer identically and this avoids a second lookup. Kept
+    // under the marker's own name on the way out too, rather than given a plain
+    // one like `generatedChildren`: everything on `FinalNodeProps` that is not
+    // consumed by the render loop is forwarded to the element, so a plain name
+    // would silently swallow a user prop that happened to match — the same
+    // collision that retired schema 1's unprefixed buckets.
+    const generatedChildren = (rawProps as Record<string, unknown>)[LIST_MARKER] ? true : undefined
+
     const { ref, key, children, css, props: nativeProps = {}, disableEmotion, ...restRawProps } = rawProps
 
     // A marker whose schema this runtime does not know — output from a newer
@@ -266,9 +287,16 @@ export class NodeUtil {
     // DOM, but it warns once per field per node. Dropping them here keeps
     // forward compatibility silent instead of noisy.
     //
-    // Guarded on the marker being present at all, so uncompiled call sites —
-    // the overwhelming majority — pay a single `in` check and no iteration.
-    if (COMPILED_MARKER in restRawProps) {
+    // Guarded on a marker being present at all, so uncompiled call sites — the
+    // overwhelming majority — pay a pair of cheap checks and no iteration.
+    //
+    // The list marker is tested separately only because this branch does not
+    // require the schema field to be there. The compiler always emits the two
+    // together, so the extra test defends against no shape it currently
+    // produces; what it buys is that the strip has the same precondition as the
+    // read a few lines up, which does not demand a schema either. A marker the
+    // runtime is willing to act on should not be one it declines to strip.
+    if (COMPILED_MARKER in restRawProps || generatedChildren) {
       for (const propKey in restRawProps) {
         if (propKey.startsWith(COMPILED_MARKER)) {
           delete (restRawProps as Record<string, unknown>)[propKey]
@@ -282,8 +310,9 @@ export class NodeUtil {
         ref,
         key,
         disableEmotion,
+        [LIST_MARKER]: generatedChildren,
         nativeProps: omitUndefined(nativeProps),
-        children: NodeUtil._processChildren(children, disableEmotion),
+        children: NodeUtil._processChildren(children, disableEmotion, generatedChildren),
       })
     }
 
@@ -316,7 +345,7 @@ export class NodeUtil {
     const finalCssProps = { ...cachedCssProps, ...nonCachedCssProps, ...css }
 
     // --- Child Normalization ---
-    const normalizedChildren = NodeUtil._processChildren(children, disableEmotion)
+    const normalizedChildren = NodeUtil._processChildren(children, disableEmotion, generatedChildren)
 
     // --- Final Assembly ---
     return omitUndefined({
@@ -325,6 +354,7 @@ export class NodeUtil {
       css: finalCssProps,
       ...domProps,
       disableEmotion,
+      [LIST_MARKER]: generatedChildren,
       nativeProps: omitUndefined(nativeProps),
       children: normalizedChildren,
     })
@@ -339,19 +369,25 @@ export class NodeUtil {
    * @param parentStableKey The stable key of the parent node, used for generating unique keys for children.
    * @returns The processed children in normalized format.
    */
-  private static _processChildren(children: Children, disableEmotion?: boolean): Children {
+  private static _processChildren(children: Children, disableEmotion?: boolean, keepArray?: boolean): Children {
     if (!children) return undefined
     if (typeof children === 'function') return children
 
-    // Fast path for non-array (single child). Collapsing `[x]` to `x` is why a
-    // bare child and a single-element array must key identically: by the time
-    // the render loop derives positions, the two shapes are indistinguishable.
+    // Fast path for non-array (single child).
     if (!Array.isArray(children)) {
       return NodeUtil.processRawNode(children, disableEmotion)
     }
 
-    // Fast path for single element array
-    if (children.length === 1) {
+    // Fast path for single element array — except on a call site the compiler
+    // marked as generated, where the difference between `[x]` and `x` is the
+    // whole question. React reports an unkeyed one-element array and stays
+    // silent for a bare child, so collapsing here would decide that for it, and
+    // in the wrong direction twice over: a `.map()` returning one row would go
+    // unreported, and `children: row` — a variable holding a single node, which
+    // the compiler must call generated because it cannot see inside it — would
+    // be reported where React says nothing. Keeping the shape the author's
+    // expression actually produced lets React answer for itself.
+    if (children.length === 1 && !keepArray) {
       return NodeUtil.processRawNode(children[0], disableEmotion)
     }
 
