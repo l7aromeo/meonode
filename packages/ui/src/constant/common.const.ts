@@ -76,7 +76,15 @@ export const SUPPORTED_COMPILER_SCHEMAS: ReadonlySet<number> = new Set([1, 2, 3]
  * collapsed into an ordinary array by the time the node function is entered, and
  * that array is indistinguishable from one a human typed out. Only the source
  * answers the question, so the compiler answers it and the runtime reads the
- * answer — see `BaseNode.render`, which is the sole consumer.
+ * answer.
+ *
+ * Read in three places, not one, and changing any of them changes the feature:
+ * `NodeUtil.processProps` carries it onto `FinalNodeProps` on both its compiled
+ * and legacy branches; `NodeUtil._processChildren` takes it as `keepArray` and
+ * stops collapsing a one-element array, which is the whole reason a `.map()`
+ * over a single row is reported at all; and `BaseNode.render` decides the
+ * argument shape handed to `createElement`. A reader who changes the collapse in
+ * `_processChildren` reopens that hole without ever opening `BaseNode.render`.
  */
 export const LIST_MARKER = '__meo$list'
 

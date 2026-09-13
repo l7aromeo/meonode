@@ -20,7 +20,7 @@
 // separate code and is covered in `list-marker-schemas.test.ts`, including the
 // bare `{ __meo$: 3, __meo$list: 1 }` object the compiler synthesizes for a
 // children-first call.
-import { Div } from '@src/main.js'
+import { Div, Section } from '@src/main.js'
 import { cleanup, render } from '@testing-library/react'
 import { createElement, type ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -96,6 +96,21 @@ describe('generated children, as marked by the compiler', () => {
   it('are reported when a generated list holds a single row', () => {
     const children = ['only'].map(() => createElement(Row))
     expect(keyReports(as => Div({ as, children, [LIST_MARKER]: 1 } as never).render())).toBeGreaterThan(0)
+  })
+
+  // `processProps` has a fast path for a call site with nothing left over after
+  // the marker is stripped — `Section({ children, ... })` and no other props —
+  // and it calls `_processChildren` from a second place. Keeping a marked
+  // one-element array is decided at each of those call sites separately, so a
+  // case that reaches one says nothing about the other. Every other case in this
+  // file passes `as` to get its own parent tag, which is itself a leftover prop
+  // and sends them all down the general path; this one cannot do that and stay
+  // on the fast path, so it takes its parent from the factory instead. `section`
+  // is used by no other case here, which is what the custom tags elsewhere are
+  // for — if a second case ever needs it, give one of them a different factory.
+  it('are reported on a one-row list whose call site has no other props', () => {
+    const children = ['only'].map(() => createElement(Row))
+    expect(keyReports(() => Section({ children, [LIST_MARKER]: 1 } as never).render())).toBeGreaterThan(0)
   })
 
   // The other side of that line, and the reason the array is kept rather than
