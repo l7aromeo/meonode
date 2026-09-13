@@ -60,7 +60,7 @@ Every row below was measured against the published tarball, not inferred:
 | --- | --- | --- |
 | Schema 2 marker + `c`/`d`/`k`/`dyn` buckets | `@meonode/ui@1.7.0` | 1.6.2 and earlier have no `COMPILED_MARKER` at all, so every one of the five keys falls through as an ordinary prop — five `Invalid attribute name` lines per call site |
 | Schema 3 marker (call sites the plugin cannot partition) | `@meonode/ui@1.8.0` | 1.7.0–1.7.8 set `SUPPORTED_COMPILER_SCHEMAS` to `{1, 2}`, so the whole marker object falls through as ordinary props — `Invalid attribute name: __meo$`, and again for `__meo$k` |
-| `__meo$list` (generated-children reporting) | **Not yet published** — the next `@meonode/ui` minor (2.1.0 at time of writing) | *Every* version published so far, 1.x and 2.x alike, lacks a `list` entry in `COMPILER_SCHEMA_KEYS`, and the compiled path strips by exact name — `Invalid attribute name: __meo$list`, once per render per marked call site |
+| `__meo$list` (generated-children reporting) | **Not yet published** — the next `@meonode/ui` minor | *Every* version published so far, 1.x and 2.x alike, lacks a `list` entry in `COMPILER_SCHEMA_KEYS`, and the compiled path strips by exact name — `Invalid attribute name: __meo$list`, once per render per marked call site |
 
 **`2.0.0` or later is recommended**: it removed the derived-key machinery
 outright, which fixed a class of memoization collision the plugin could only
@@ -69,9 +69,19 @@ narrow (see [measured effect](#measured-effect)).
 The list-marker row is the one to read carefully, because the version does not
 exist yet: `__meo$list` is consumed by the runtime half that ships alongside
 this change, and as of writing the newest published `@meonode/ui` is 2.0.2,
-which does not have it. Rather than pin a number that has not been cut, test
-the capability — a runtime supports the key when its `COMPILER_SCHEMA_KEYS`
-entry for schemas 2 and 3 carries a `list` field.
+which does not have it.
+
+Rather than pin a number that has not been cut, check the symptom. A runtime
+that does not know the key logs `Invalid attribute name: __meo$list` once per
+render of every call site the plugin marked; a runtime that does know it logs
+nothing, and unkeyed generated lists start reporting React's own missing-key
+warning instead. Those two are mutually exclusive, so whichever the console
+shows tells you which side of the boundary you are on.
+
+There is deliberately no code snippet here. `COMPILER_SCHEMA_KEYS` and the rest
+of the marker contract are internal to `@meonode/ui` and not exported, so a
+feature test written against them would not compile — the console is the only
+check a reader can actually run.
 
 Nothing here is a correctness failure — the leaked keys never reach the DOM,
 because React rejects the name rather than writing the attribute. The cost is

@@ -119,9 +119,12 @@ const BUCKET_DYN_KEY: &str = "__meo$dyn";
 /// has a `list` entry there — not 1.x, and not 2.0.0 through 2.0.2, the newest
 /// at the time of writing. The consumer is the runtime half shipping alongside
 /// this change, whose changeset declares a minor bump. Rather than pin a
-/// version that has not been cut, test the capability: a runtime supports this
-/// key when its schema 2 and 3 entries carry a `list` field. Until then this
-/// key survives into
+/// version that has not been cut: a runtime supports this key when its schema 2
+/// and 3 entries in `COMPILER_SCHEMA_KEYS` carry a `list` field. That is a
+/// source-level check, stated here because this comment's audience can open
+/// `@meonode/ui` and look — the constant is internal and not exported, so it is
+/// deliberately not the advice the published README gives a user, which points
+/// at the console symptom instead. Until then this key survives into
 /// `passthrough`, reaches `getDOMProps` — a denylist, which forwards anything
 /// that is not a CSS property — and React rejects the attribute name, logging
 /// `Invalid attribute name: __meo$list` once per render per marked call site.
