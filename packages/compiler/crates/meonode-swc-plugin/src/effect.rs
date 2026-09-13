@@ -23,6 +23,14 @@
 //!   decide `dyn` membership and flat-vs-bucketed placement. Deliberately
 //!   *not* widened alongside `is_order_inert`: widening it would change what
 //!   gets hashed into the stable key.
+//!
+//! "The stable key" throughout this module means the node identity an
+//! `@meonode/ui` in the 1.7.0–1.x range derives from `__meo$k` and `__meo$dyn`.
+//! 2.0.0 deleted that machinery — it memoizes in React fibers instead and
+//! strips both keys unread — so the symbols named below do not exist in the
+//! runtime vendored in this repository. That absence is a supported older
+//! version, not a dead rule; `partition.rs`'s `BUCKET_SITE_KEY` has the full
+//! account and the compatibility floor to check it against.
 
 use swc_core::ecma::ast::*;
 
@@ -100,14 +108,15 @@ fn unwrap_parens(mut expr: &Expr) -> &Expr {
 /// Whether an expression is an *inline function literal* written directly at
 /// the call site — an arrow or a function expression, not a reference to one.
 ///
-/// Such a value never needs a `dyn` entry. `dyn` exists so the runtime folds a
-/// changing value into the stable key, but `NodeUtil._serializePropValue`
+/// Such a value never needs a `dyn` entry. `dyn` exists so a 1.x runtime folds
+/// a changing value into the stable key, but that runtime's
+/// `NodeUtil._serializePropValue`
 /// hashes a function by its **source text** (`hashString(val.toString())`), and
 /// an inline literal's source is fixed by its call site. It therefore hashes to
 /// the same string on every render, contributing a constant that `__meo$k` —
 /// itself a call-site hash — already encodes.
 ///
-/// Listing it anyway is pure cost: the runtime's function-hash memo is a
+/// Listing it anyway is pure cost: that runtime's function-hash memo is a
 /// `WeakMap` keyed by function *identity*, and an inline literal allocates a new
 /// object every render, so the memo never hits and every render pays
 /// `toString()` plus a hash, per handler, per node.
@@ -141,8 +150,10 @@ pub fn is_static_literal(expr: &Expr) -> bool {
 ///
 /// This is deliberately distinct from [`is_static_literal`], which decides
 /// bucket membership and `dyn` participation in `partition.rs`. Widening that
-/// one would change what gets hashed into the stable key; this predicate only
-/// feeds the evaluation-order analysis in `detect::validate_object`.
+/// one would change what a 1.x runtime hashes into the stable key (see this
+/// module's header); this predicate only feeds the evaluation-order analysis
+/// in `detect::validate_object`, which is a question about this compiler's own
+/// output and holds for every runtime version.
 ///
 /// Beyond static literals, a function or arrow *expression* qualifies: defining
 /// a closure performs no reads and no side effects. It allocates a function
