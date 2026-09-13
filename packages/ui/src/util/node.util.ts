@@ -109,17 +109,9 @@ export class NodeUtil {
   public static isNodeInstance = (obj: unknown): obj is NodeInstance => obj instanceof BaseNode
 
   /**
-   * Generates a fast structural hash for CSS objects without full serialization.
-   * This is an optimized hashing method that samples the first 10 keys for performance.
-   * @param css The CSS object to hash.
-   * @returns A hash string representing the CSS object structure.
-   */
-
-  /**
    * Detects the compiled marker's schema version, if present and supported.
-   * Single source of truth for the marker-detection predicate shared by
-   * `processProps` and `BaseNode._getStableKey`, so both stay in lockstep on
-   * what counts as "a compiled call site".
+   * Single source of truth for what counts as "a compiled call site", so the
+   * decision is made in one place rather than re-spelled at each caller.
    * @param props The raw props object to inspect.
    * @returns The schema version number, or undefined if absent/unsupported.
    */
@@ -159,8 +151,17 @@ export class NodeUtil {
   private static _processCompiledProps(rawProps: Partial<NodeProps>, schema: number): FinalNodeProps {
     // Bucket key names are schema-dependent: schema 1 used bare `c`/`d`/`k`/`dyn`,
     // which a spread could collide with (`d` is a real SVG `<path>` attribute);
-    // schema 2 namespaces them under the marker prefix. The stable-key fields are
-    // consumed by `_getStableKey`, so they are stripped here, never forwarded.
+    // schema 2 namespaces them under the marker prefix.
+    //
+    // `k` and `dyn` are read by nobody here. The compiler still emits them because
+    // it supports `@meonode/ui` back to 1.7.0, and a 1.x runtime keys its element
+    // cache on them; this runtime memoizes in React fibers instead, so it has no
+    // identity to derive and drops them unread. They are stripped for the same
+    // reason every marker key is — build-time metadata has no business reaching an
+    // element — not because anything downstream consumes them.
+    //
+    // `__meo$list` is the exception worth knowing about: it is the one marker key
+    // this runtime acts on, so it is read below before the same loop strips it.
     const schemaKeys = COMPILER_SCHEMA_KEYS[schema]
     const source = rawProps as Record<string, unknown>
     const markerCssProps = source[schemaKeys.css] as Record<string, unknown> | undefined

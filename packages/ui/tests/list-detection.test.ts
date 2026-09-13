@@ -67,8 +67,24 @@ describe('generated children, as marked by the compiler', () => {
     expect(view.getByTestId('row-b').textContent).toBe('b')
   })
 
-  it('do not leak the marker into the DOM', () => {
-    const view = render(Div({ 'data-testid': 'host', children: [Div({ children: 'a' })], [LIST_MARKER]: 1 } as never).render() as never)
+  // Asserted on the element rather than on the rendered markup, because the DOM
+  // cannot tell stripped from unstripped: the `$` makes `__meo$list` an invalid
+  // attribute name, so React drops it and logs `Invalid attribute name` instead.
+  // The markup therefore comes out clean either way, and the real cost of failing
+  // to strip is that console line — on the same channel the key reports use.
+  //
+  // The console is no use as the guard here either. React remembers each bad
+  // attribute name it has complained about and stays quiet afterwards, and the
+  // cases above have already rendered marked call sites by the time this one
+  // runs, so an unstripped marker would produce no output at all to catch. What
+  // the element carries is the one signal with no dedupe in front of it.
+  it('do not leak the marker into the element, and so never into the DOM', () => {
+    const element = Div({ 'data-testid': 'host', children: [Div({ children: 'a' })], [LIST_MARKER]: 1 } as never).render() as {
+      props: Record<string, unknown>
+    }
+    expect(Object.keys(element.props).filter(k => k.startsWith('__meo$'))).toEqual([])
+
+    const view = render(element as never)
     expect(view.getByTestId('host').getAttribute(LIST_MARKER)).toBeNull()
     expect(view.getByTestId('host').outerHTML).not.toContain('__meo$')
   })
