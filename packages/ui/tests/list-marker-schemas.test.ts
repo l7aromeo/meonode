@@ -41,7 +41,7 @@ let uid = 0
  * exactly as a built-in does, and unlike a fixed list of real tags it cannot run
  * out as this file grows.
  */
-function reportsMissingKey(build: (ctx: { tag: string; rows: () => unknown[] }) => unknown): boolean {
+function reportsMissingKey(build: (ctx: { tag: string; rows: (count?: number) => unknown[] }) => unknown): boolean {
   const n = ++uid
   const Row = () => createElement('i', null, 'x')
   const tag = `meo-schema-${n}`
@@ -50,7 +50,7 @@ function reportsMissingKey(build: (ctx: { tag: string; rows: () => unknown[] }) 
   const err = vi.spyOn(console, 'error').mockImplementation((...a: unknown[]) => seen.push(a.map(String).join(' ')))
   const warn = vi.spyOn(console, 'warn').mockImplementation((...a: unknown[]) => seen.push(a.map(String).join(' ')))
   try {
-    render(build({ tag, rows: () => [0, 1, 2].map(() => createElement(Row)) }) as never)
+    render(build({ tag, rows: (count = 3) => Array.from({ length: count }, () => createElement(Row)) }) as never)
   } finally {
     err.mockRestore()
     warn.mockRestore()
@@ -99,6 +99,32 @@ describe('the list marker beside a compiled schema', () => {
       }
       expect(Object.keys(element.props).filter(k => k.startsWith('__meo$'))).toEqual([])
     }
+  })
+
+  // A one-row generated list, on the path real compiler output actually takes.
+  //
+  // Keeping a marked call site's one-element array is decided in three separate
+  // places — `_processChildren` is called once from the compiled branch of
+  // `processProps` and twice from the legacy one — so covering it on one branch
+  // says nothing about the others. Every case in `list-detection.test.ts` sets
+  // the marker without a schema field and therefore exercises only the legacy
+  // branch, while every case in this file used three rows. That left the
+  // compiled branch's `keepArray` argument untested, and it is the branch every
+  // real compiled call site goes through, since real output always carries
+  // `__meo$`. Removing that argument kept all 306 tests green while reopening
+  // the one-row hole for every compiled build.
+  it('is read on schema 2 when the generated list holds a single row', () => {
+    const reported = reportsMissingKey(({ tag, rows }) =>
+      Div({ as: tag, [COMPILED_MARKER]: 2, __meo$c: { padding: '4px' }, children: rows(1), [LIST_MARKER]: 1 } as never).render(),
+    )
+    expect(reported).toBe(true)
+  })
+
+  // The same, on the shape the compiler synthesizes for `Span(items.map(fn))`,
+  // where a `.map()` over one row is as ordinary as it gets.
+  it('is read on a synthesized schema 3 object holding a single row', () => {
+    const reported = reportsMissingKey(({ tag, rows }) => Div({ as: tag, [COMPILED_MARKER]: 3, [LIST_MARKER]: 1, children: rows(1) } as never).render())
+    expect(reported).toBe(true)
   })
 
   // The object the compiler synthesizes for a children-first call with no props

@@ -350,10 +350,14 @@ export type FinalNodeProps = React.Attributes &
     /**
      * True when the compiler marked this call site's `children` expression as
      * generated — a `.map()`, a spread, an IIFE, a helper call — rather than
-     * written out by hand. Read only by `BaseNode.render`, which hands such
-     * children to `createElement` as one array instead of spreading them, so
-     * React can ask for the keys a list needs. Absent on authored call sites,
-     * which stay silent by design.
+     * written out by hand. `BaseNode.render` hands such children to
+     * `createElement` as one array instead of spreading them, so React can ask
+     * for the keys a list needs. Absent on authored call sites, which stay
+     * silent by design.
+     *
+     * Not read only there: `NodeUtil._processChildren` also consumes it, to stop
+     * collapsing a one-element array on a marked call site — without which a
+     * generated list of one row is silently exempt from the report.
      *
      * Keeps the marker's own reserved name rather than a plain one, because
      * anything here that the render loop does not consume is forwarded to the
