@@ -56,11 +56,19 @@ pub fn key_name_atom(key: &PropName) -> Atom {
 /// Special keys that are still visible to `BaseNode._getStableKey`, and so may
 /// legitimately be named in `dyn`.
 ///
+/// The consumer is an `@meonode/ui` in the 1.7.0–1.x range: those versions
+/// derive a node identity from `k` and the values `dyn` names. 2.x deleted
+/// `_getStableKey` along with the rest of the derived-key machinery and now
+/// strips `dyn` unread, so nothing in this repository will show you the
+/// function this predicate is named after. See `partition.rs`'s
+/// `BUCKET_SITE_KEY` — the silence means "older supported version", not
+/// "dead code".
+///
 /// `ref` and `children` are destructured off in the `BaseNode` constructor, and
 /// `key` in `_getStableKey` itself, before the marker props are ever inspected.
-/// Naming any of those three in `dyn` would make it unresolvable at runtime —
-/// tripping the debug "dyn names prop X but it isn't present" warning and
-/// hashing `undefined` instead of a real value.
+/// Naming any of those three in `dyn` would make it unresolvable on such a
+/// runtime — tripping the debug "dyn names prop X but it isn't present"
+/// warning and hashing `undefined` instead of a real value.
 pub fn is_stable_key_visible_special(name: &str) -> bool {
     matches!(name, "css" | "props" | "as" | "theme" | "disableEmotion")
 }

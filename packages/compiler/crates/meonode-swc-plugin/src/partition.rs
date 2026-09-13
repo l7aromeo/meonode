@@ -56,6 +56,40 @@ const MARKER_KEY: &str = "__meo$";
 const MARKER_SCHEMA: f64 = 2.0;
 const BUCKET_CSS_KEY: &str = "__meo$c";
 const BUCKET_DOM_KEY: &str = "__meo$d";
+/// The call-site key. Paired with [`BUCKET_DYN_KEY`], the names of the props
+/// whose values can differ between evaluations of that call site.
+///
+/// ## Who reads these, and why nothing in this repository does
+///
+/// Their consumer is an **older `@meonode/ui`**. From 1.7.0 up to (not
+/// including) 2.0.0, the runtime derives an identity for each memoized node
+/// from `k` plus the values `dyn` names, and keys `BaseNode.elementCache`
+/// with it. The plugin supports that range on purpose: `README.md` sets the
+/// compatibility floor at `@meonode/ui@1.7.0` and *recommends* 2.0.0-beta or
+/// later — a recommendation, not a requirement.
+///
+/// `@meonode/ui` 2.0.0 deleted the derived key outright. Memoized subtrees
+/// moved into fibers of their own, so identity comes from React and nothing
+/// has to be derived; `BaseNode.elementCache`, `_getStableKey`,
+/// `NodeUtil.createPropSignature`, `hashDynamicValues`, `_serializePropValue`
+/// and `shouldCacheElement` went with it (that version's CHANGELOG entry
+/// lists them under "Everything the derived key needed is gone"). The current
+/// runtime accepts `k` and `dyn` and `continue`s past them unread, as
+/// `common.const.ts` says in as many words: "schema 3 emitting a key this
+/// runtime has no use for".
+///
+/// **So grepping this repository for the consumer finds nothing, and that
+/// absence proves nothing.** It means the consumer is a supported older
+/// version, not that the rule is dead. Every doc comment in this crate that
+/// reasons about stable keys — the "Leading spreads and the stable-key
+/// hazard" sections in this module and in `detect.rs`, `keys.rs`'s
+/// `is_stable_key_visible_special`, and the tests that guard them — is
+/// describing 1.7.x behaviour that these keys must still be correct for, and
+/// that no test in this repository can demonstrate, because the `@meonode/ui`
+/// vendored here is 2.x.
+///
+/// Two readers have already drawn the opposite conclusion from that silence.
+/// Check `README.md`'s floor before concluding it a third time.
 const BUCKET_SITE_KEY: &str = "__meo$k";
 
 /// Schema emitted for call sites that get a key but no prop partitioning.
@@ -282,6 +316,11 @@ fn stamp_call_site_key(obj: &mut ObjectLit, filename: &str, span: Span, children
 /// an identifier).
 ///
 /// ## Leading spreads and the stable-key hazard
+///
+/// "The runtime" below means an `@meonode/ui` in the 1.7.0–1.x range, which
+/// is what reads `k` and `dyn`; 2.x accepts and strips them unread, so
+/// nothing in this repository exercises the hazard. See [`BUCKET_SITE_KEY`]
+/// before concluding the rule is dead — two readers already have.
 ///
 /// A spread's own argument contributes no bucketed prop and no `dyn` name —
 /// its contents aren't known until runtime, so `@meonode/ui`'s `processProps`
@@ -676,8 +715,9 @@ fn rewrite_object(obj: &mut ObjectLit, filename: &str, span: Span, children: Chi
     rewrite_theme_tokens_in_css_prop(&mut special_props);
 
     // A spread present means `k`/`dyn` are never emitted (stable-key hazard
-    // — see doc comment above), regardless of whether `dyn_names` ended up
-    // empty anyway.
+    // — see the doc comment above, and [`BUCKET_SITE_KEY`] for which
+    // `@meonode/ui` still reads them), regardless of whether `dyn_names`
+    // ended up empty anyway.
     if has_spread {
         dyn_names.clear();
     }
@@ -705,13 +745,12 @@ fn rewrite_object(obj: &mut ObjectLit, filename: &str, span: Span, children: Chi
         }
     }
     // Emitted whether or not a spread is present, unlike `k`/`dyn` just
-    // above. Deliberately not inheriting that suppression: whatever a spread
-    // carries, it cannot change the shape of the `children` expression
-    // written at this call site, which is the only thing this key reports.
-    // (The suppression's own stated rationale no longer holds either — it
-    // reasons about `_getStableKey`/`elementCache`, both since deleted — but
-    // that is a separate question from this key, and not one to settle in
-    // passing.)
+    // above. Deliberately not inheriting that suppression: it exists because
+    // a spread's *contents* vary between evaluations of one call site and a
+    // 1.x element cache keyed on a position-only `k` would serve a stale
+    // element (see [`BUCKET_SITE_KEY`]). Whatever a spread carries, it cannot
+    // change the shape of the `children` expression written at this call
+    // site, which is the only thing this key reports.
     if children == ChildrenOrigin::Generated {
         new_props.push(list_prop());
     }
@@ -1492,7 +1531,10 @@ mod tests {
         };
     }
 
-    /// The stable-key hazard this test guards against: `k` is a pure
+    /// The stable-key hazard this test guards against, as an `@meonode/ui`
+    /// in the 1.7.0–1.x range sees it — 2.x strips `k` unread, so this
+    /// repository cannot demonstrate the failure, only prevent it (see
+    /// [`BUCKET_SITE_KEY`]). `k` is a pure
     /// function of call-site source position, so if it were emitted here,
     /// two evaluations of this exact call site with *different* `extra`
     /// contents would get an identical stable key — and, combined with a
@@ -1527,10 +1569,12 @@ mod tests {
     /// dynamic) alongside a spread must stay flat/unbucketed rather than
     /// land in `d`: bucketing it would hide its actual value one level
     /// deeper behind `d`'s own structural (key-names-only) hash once `k`
-    /// is omitted and `_getStableKey` falls back to the legacy signature
-    /// path, silently reintroducing the same stable-key collision hazard
-    /// for an ordinary dynamic prop instead of a spread. `padding` (a
-    /// static literal) is unaffected and still bucketed normally.
+    /// is omitted and a 1.x `_getStableKey` falls back to the legacy
+    /// signature path, silently reintroducing the same stable-key collision
+    /// hazard for an ordinary dynamic prop instead of a spread. `padding` (a
+    /// static literal) is unaffected and still bucketed normally. The
+    /// consumer is the older runtime, not the one vendored here — see
+    /// [`BUCKET_SITE_KEY`].
     #[test]
     fn non_static_prop_stays_flat_when_spread_present() {
         let obj = transformed_object(
@@ -2030,10 +2074,11 @@ mod tests {
         assert_eq!(list_marker(&obj), Some(1.0));
     }
 
-    /// A spread suppresses `k` and `dyn` (the stable-key hazard), but that
-    /// hazard is about values a spread might carry. The list marker
-    /// describes the `children` expression written at the call site, which a
-    /// spread cannot change, so it is emitted anyway.
+    /// A spread suppresses `k` and `dyn` (the stable-key hazard, live for a
+    /// 1.x runtime — see [`BUCKET_SITE_KEY`]), but that hazard is about
+    /// values a spread might carry. The list marker describes the `children`
+    /// expression written at the call site, which a spread cannot change, so
+    /// it is emitted anyway.
     #[test]
     fn spread_suppresses_k_but_not_the_list_marker() {
         let obj = transformed_object(

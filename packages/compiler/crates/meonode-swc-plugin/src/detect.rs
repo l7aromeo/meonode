@@ -857,8 +857,10 @@ fn unwrap_parens(mut expr: &Expr) -> &Expr {
 /// the two must never diverge, or this analysis would be judging an emission
 /// shape that isn't the one actually produced.
 ///
-/// `has_spread` and `is_static` encode the stable-key-safety rule (see this
-/// module's doc comment on "Leading spreads and the stable-key hazard"): when
+/// `has_spread` and `is_static` encode the stable-key-safety rule (see
+/// [`validate_object`]'s "Leading spreads and the stable-key hazard", and
+/// `partition.rs`'s `BUCKET_SITE_KEY` for which `@meonode/ui` reads the keys
+/// it protects): when
 /// the object has a leading spread, a non-special prop whose value isn't a
 /// static literal is **not** bucketed into `c`/`d` — it stays flat, at
 /// [`EmitRank::Spread`], same as the spread(s) themselves. `is_static` is
@@ -895,6 +897,14 @@ fn rank_for_prop(name: &str, is_static: bool, has_spread: bool) -> EmitRank {
 /// preserved automatically — nothing here needs to reorder them.
 ///
 /// ## Leading spreads and the stable-key hazard
+///
+/// Everything in this section describes an `@meonode/ui` in the 1.7.0–1.x
+/// range, the versions that actually read `k` and `dyn`. 2.x accepts and
+/// strips both unread, so none of the symbols named below exist in the
+/// runtime vendored in this repository, and no test here can exercise the
+/// failure. That absence is a supported older version, not a dead rule —
+/// `partition.rs`'s `BUCKET_SITE_KEY` has the full account and the
+/// compatibility floor to check it against.
 ///
 /// A spread's contents aren't known until runtime, so `@meonode/ui`'s
 /// `BaseNode._getStableKey` can never safely use the compiled marker's `k` +
