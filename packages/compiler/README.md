@@ -34,12 +34,48 @@ Div({
 })
 ```
 
-`@meonode/ui`'s runtime fast path (**requires `@meonode/ui@1.7.0` or later**,
-which understands the schema 2 marker contract) detects the `__meo$` marker and
-uses the namespaced buckets directly instead of re-deriving them, skipping the
-classification pass entirely. **`2.0.0-beta` or later is recommended** — it
-removed the derived-key machinery outright, which fixed a class of memoization
-collision the plugin could only narrow (see [measured effect](#measured-effect)).
+`__meo$list: 1` joins these on a call site whose `children` expression was
+*generated* rather than written out — a `.map()`, a spread, an identifier, a
+helper call. The example above does not carry it, because `[A, B]` is an array
+the author typed. Whether children were authored or generated cannot be
+recovered at runtime (arguments are evaluated before the callee runs, so
+`items.map(fn)` is an ordinary array by the time the factory is entered), so the
+compiler records the answer and `@meonode/ui` passes generated children to
+`createElement` as one array instead of spreading them, which is what makes
+React ask for the keys a list needs.
+
+`@meonode/ui`'s runtime fast path detects the `__meo$` marker and uses the
+namespaced buckets directly instead of re-deriving them, skipping the
+classification pass entirely.
+
+### Runtime version requirements
+
+Three different floors, because the plugin gained emissions over time and a
+runtime only strips the marker keys its own `COMPILER_SCHEMA_KEYS` names. A key
+the runtime does not know is not ignored — it reaches `getDOMProps`, which is a
+denylist, and React rejects the attribute name once per render per call site.
+Every row below was measured against the published tarball, not inferred:
+
+| Output | Requires | On an older runtime |
+| --- | --- | --- |
+| Schema 2 marker + `c`/`d`/`k`/`dyn` buckets | `@meonode/ui@1.7.0` | 1.6.2 and earlier have no `COMPILED_MARKER` at all, so every one of the five keys falls through as an ordinary prop — five `Invalid attribute name` lines per call site |
+| Schema 3 marker (call sites the plugin cannot partition) | `@meonode/ui@1.8.0` | 1.7.0–1.7.8 set `SUPPORTED_COMPILER_SCHEMAS` to `{1, 2}`, so the whole marker object falls through as ordinary props — `Invalid attribute name: __meo$`, and again for `__meo$k` |
+| `__meo$list` (generated-children reporting) | **Not yet published** — the next `@meonode/ui` minor (2.1.0 at time of writing) | *Every* version published so far, 1.x and 2.x alike, lacks a `list` entry in `COMPILER_SCHEMA_KEYS`, and the compiled path strips by exact name — `Invalid attribute name: __meo$list`, once per render per marked call site |
+
+**`2.0.0` or later is recommended**: it removed the derived-key machinery
+outright, which fixed a class of memoization collision the plugin could only
+narrow (see [measured effect](#measured-effect)).
+
+The list-marker row is the one to read carefully, because the version does not
+exist yet: `__meo$list` is consumed by the runtime half that ships alongside
+this change, and as of writing the newest published `@meonode/ui` is 2.0.2,
+which does not have it. Rather than pin a number that has not been cut, test
+the capability — a runtime supports the key when its `COMPILER_SCHEMA_KEYS`
+entry for schemas 2 and 3 carries a `list` field.
+
+Nothing here is a correctness failure — the leaked keys never reach the DOM,
+because React rejects the name rather than writing the attribute. The cost is
+console noise, on the same channel the missing-key reports use.
 
 Note the `padding` value above: alongside partitioning, the plugin also resolves
 `theme.*` token strings to `var(--meonode-theme-*)` at build time. `@meonode/ui`
