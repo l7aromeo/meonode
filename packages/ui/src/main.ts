@@ -1,6 +1,7 @@
 // Common
 export { setDebugMode } from '@src/constant/common.const.js'
 export { createDataChannel } from '@src/helper/data-channel.helper.js'
+export { For, type ForIdentity } from '@src/helper/for.helper.js'
 
 // Core
 export { Node, createNode, createChildrenFirstNode } from '@src/core.node.js'

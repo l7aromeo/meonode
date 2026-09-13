@@ -29,7 +29,12 @@ import { toLengthVarName, wouldEmotionAddPx as emotionWouldAddPx } from '@src/ut
  * fold away entirely in production builds.
  * @returns `true` when diagnostics should be evaluated.
  */
-const diagnosticsEnabled = (): boolean => {
+
+/**
+ * Shared by every development-only diagnostic in the package, so "are warnings
+ * on?" has one definition rather than one per call site.
+ */
+export const diagnosticsEnabled = (): boolean => {
   if (__DEBUG__) return true
   try {
     return typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production'
