@@ -322,7 +322,10 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
           // Note this is NOT a row count: `_processChildren` deliberately keeps a
           // marked call site's one-element array, so a `.map()` returning one row
           // is still a list and is still reported, exactly as React reports an
-          // unkeyed one-element array and stays silent for a bare child.
+          // unkeyed one-element array and stays silent for a bare child. That
+          // coupling is load-bearing and is newer than this condition: restoring
+          // the collapse for marked call sites would reopen the one-row hole
+          // here, silently, with nothing in this line to suggest why.
           //
           // `finalChildren.length > 0` — whether there is anything to pass. An
           // empty generated list must keep spreading: `...[]` passes no argument

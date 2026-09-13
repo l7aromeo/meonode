@@ -1,8 +1,16 @@
 ---
-'@meonode/ui': patch
+'@meonode/ui': minor
 ---
 
 Report an unkeyed list, the way React does.
+
+**Expect new warnings on code that compiles clean today.** Any keyless
+`items.map(fn)` list starts reporting React's own missing-key warning once it is
+built with a compiler that emits the marker. That is the feature working — those
+lists reconcile by position, so a delete or a reorder already hands a row the
+previous row's state — but it is a behaviour change, not a silent fix.
+Development-only, and no runtime cost in production. Adding a `key` to each row
+resolves it, and is the fix for the underlying bug too.
 
 An unkeyed list reconciles by position, so deleting or reordering a row hands
 the next one the row before it — its state, its focus, whatever the user had
