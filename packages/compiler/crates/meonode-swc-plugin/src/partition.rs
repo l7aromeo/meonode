@@ -172,6 +172,42 @@ fn list_prop() -> PropOrSpread {
     )
 }
 
+/// The whole props argument for a children-first call site that was written
+/// without one — `Span(rows)` — and whose children are generated.
+///
+/// Deliberately carries no `k`. The call-site key exists to give a memoized
+/// node a derived identity, and `@meonode/ui` stopped needing one when
+/// memoized subtrees moved into fibers of their own: `COMPILER_SCHEMA_KEYS`
+/// still names `k`, but `_processCompiledProps` only `continue`s past it and
+/// nothing reads its value (`common.const.ts` says as much — "schema 3
+/// emitting a key this runtime has no use for"). Fabricating one into an
+/// object the author never wrote would be pure bundle cost. Schema 3 is still
+/// the right version: it means "not partitioned", which is exactly true here.
+///
+/// Two number literals with no user value among them, evaluated after
+/// argument 0, so this can neither reorder anything nor observe anything.
+/// `__meo$` makes it read as an existing marker on a recompile, so the call
+/// site is never stamped twice.
+fn synthesized_props_arg() -> ExprOrSpread {
+    ExprOrSpread {
+        spread: None,
+        expr: Box::new(Expr::Object(ObjectLit {
+            span: swc_core::common::DUMMY_SP,
+            props: vec![
+                kv_prop(
+                    MARKER_KEY,
+                    Expr::Lit(Lit::Num(Number {
+                        span: swc_core::common::DUMMY_SP,
+                        value: KEY_ONLY_SCHEMA,
+                        raw: None,
+                    })),
+                ),
+                list_prop(),
+            ],
+        })),
+    }
+}
+
 fn dyn_prop(names: Vec<Atom>) -> PropOrSpread {
     let elems = names
         .into_iter()
@@ -701,6 +737,11 @@ struct Rewriter<'a> {
     /// mapping shape; rewritten by `stamp_call_site_key` instead of
     /// `rewrite_object`.
     key_only: HashMap<(u32, u32), (usize, ChildrenOrigin)>,
+    /// Children-first call sites written with no props argument whose
+    /// children are generated, mapped to the argument index to append one
+    /// at. The children origin is `Generated` by construction, so it isn't
+    /// carried here.
+    synthesize: HashMap<(u32, u32), usize>,
 }
 
 impl VisitMut for Rewriter<'_> {
@@ -714,6 +755,16 @@ impl VisitMut for Rewriter<'_> {
 
         let span = call.span;
         let key = (span.lo.0, span.hi.0);
+        if let Some(&props_arg_idx) = self.synthesize.get(&key) {
+            // Detection only records this when the props position is exactly
+            // one past the last written argument, so pushing fills it without
+            // leaving a hole.
+            if call.args.len() == props_arg_idx {
+                call.args.push(synthesized_props_arg());
+            }
+            return;
+        }
+
         let ((props_arg_idx, children), partition) = match self.compilable.get(&key) {
             Some(&site) => (site, true),
             None => match self.key_only.get(&key) {
@@ -748,6 +799,7 @@ impl VisitMut for Rewriter<'_> {
 pub fn transform_program(program: &mut Program, filename: &str, config: &CompileConfig) {
     let mut compilable: HashMap<(u32, u32), (usize, ChildrenOrigin)> = HashMap::new();
     let mut key_only: HashMap<(u32, u32), (usize, ChildrenOrigin)> = HashMap::new();
+    let mut synthesize: HashMap<(u32, u32), usize> = HashMap::new();
 
     for d in detect::detect(&*program, config) {
         let span_key = (d.span.lo.0, d.span.hi.0);
@@ -758,11 +810,14 @@ pub fn transform_program(program: &mut Program, filename: &str, config: &Compile
             Decision::KeyOnly { props_arg_idx } => {
                 key_only.insert(span_key, (props_arg_idx, d.children));
             }
+            Decision::SynthesizeProps { props_arg_idx } => {
+                synthesize.insert(span_key, props_arg_idx);
+            }
             Decision::Bail(_) => {}
         }
     }
 
-    if compilable.is_empty() && key_only.is_empty() {
+    if compilable.is_empty() && key_only.is_empty() && synthesize.is_empty() {
         return;
     }
 
@@ -770,6 +825,7 @@ pub fn transform_program(program: &mut Program, filename: &str, config: &Compile
         filename,
         compilable,
         key_only,
+        synthesize,
     };
     program.visit_mut_with(&mut rewriter);
 }
@@ -816,6 +872,19 @@ mod tests {
         config: &CompileConfig,
         arg_idx: usize,
     ) -> Vec<ObjectLit> {
+        transformed_objects_at_passes(src, filename, config, arg_idx, 1)
+    }
+
+    /// Like [`transformed_objects_at`], but running the whole transform
+    /// `passes` times over one program — how compiling already-compiled
+    /// output is exercised, which must be a no-op the second time round.
+    fn transformed_objects_at_passes(
+        src: &str,
+        filename: &str,
+        config: &CompileConfig,
+        arg_idx: usize,
+        passes: usize,
+    ) -> Vec<ObjectLit> {
         GLOBALS.set(&Globals::new(), || {
             let cm: Lrc<SourceMap> = Default::default();
             let fm = cm.new_source_file(Lrc::new(FileName::Anon), src.to_string());
@@ -835,7 +904,9 @@ mod tests {
             let top_level_mark = Mark::new();
             program.visit_mut_with(&mut resolver(unresolved_mark, top_level_mark, false));
 
-            transform_program(&mut program, filename, config);
+            for _ in 0..passes {
+                transform_program(&mut program, filename, config);
+            }
 
             struct Collector {
                 arg_idx: usize,
@@ -2064,5 +2135,92 @@ mod tests {
         );
         assert_eq!(objs.len(), 1);
         assert_eq!(list_marker(&objs.remove(0)), None);
+    }
+
+    // ---- synthesized props for a props-less children-first call ----------
+
+    /// `Span(rows)` has no props object, so one is appended holding nothing
+    /// but the marker and the list flag.
+    #[test]
+    fn props_less_children_first_call_gets_a_synthesized_props_object() {
+        let mut objs = transformed_objects_at(
+            r#"
+            import { Span } from '@meonode/ui';
+            Span(items.map(fn));
+            "#,
+            "test.tsx",
+            &CompileConfig::default(),
+            1,
+        );
+        assert_eq!(objs.len(), 1, "expected a props argument to be appended");
+        let obj = objs.remove(0);
+        assert_eq!(list_marker(&obj), Some(1.0));
+        assert_eq!(
+            find_prop(&obj, "__meo$"),
+            &Expr::Lit(Lit::Num(Number {
+                span: swc_core::common::DUMMY_SP,
+                value: 3.0,
+                raw: None,
+            }))
+        );
+        // No `k`: nothing reads it, so fabricating one into an object the
+        // author never wrote would be pure bundle cost.
+        assert!(!has_prop(&obj, "__meo$k"));
+        assert!(!has_prop(&obj, "__meo$dyn"));
+        // Nothing else rides along.
+        assert_eq!(obj.props.len(), 2);
+    }
+
+    /// Authored children leave the call exactly as written — no marker, and
+    /// no argument the author did not ask for.
+    #[test]
+    fn props_less_children_first_call_with_authored_children_keeps_its_arity() {
+        let objs = transformed_objects_at(
+            r#"
+            import { Span } from '@meonode/ui';
+            Span(['a', 'b']);
+            "#,
+            "test.tsx",
+            &CompileConfig::default(),
+            1,
+        );
+        assert!(objs.is_empty(), "no props argument should be appended");
+    }
+
+    /// Compiling already-compiled output must not stamp a second marker. The
+    /// synthesized object carries `__meo$`, so the second pass reads it as an
+    /// existing marker and leaves the call site alone.
+    #[test]
+    fn synthesized_props_object_is_stable_under_a_second_pass() {
+        let mut objs = transformed_objects_at_passes(
+            r#"
+            import { Span } from '@meonode/ui';
+            Span(items.map(fn));
+            "#,
+            "test.tsx",
+            &CompileConfig::default(),
+            1,
+            2,
+        );
+        assert_eq!(objs.len(), 1);
+        let obj = objs.remove(0);
+        assert_eq!(obj.props.len(), 2, "a second pass must add nothing");
+        assert_eq!(list_marker(&obj), Some(1.0));
+    }
+
+    /// A props argument that *was* written but isn't an object literal is
+    /// never replaced — that would discard a value the author wrote.
+    #[test]
+    fn non_literal_props_argument_is_left_untouched() {
+        let objs = transformed_objects_at(
+            r#"
+            import { Span } from '@meonode/ui';
+            Span(items.map(fn), maybeProps);
+            "#,
+            "test.tsx",
+            &CompileConfig::default(),
+            1,
+        );
+        assert!(objs.is_empty(), "the written argument must survive as-is");
     }
 }

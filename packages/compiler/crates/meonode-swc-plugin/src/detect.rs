@@ -199,6 +199,16 @@ pub enum Decision {
     /// prefix, so two structurally identical memoized subtrees written in
     /// different places stop colliding.
     KeyOnly { props_arg_idx: usize },
+    /// A children-first call site that carries a generated list at argument
+    /// 0 but was written with **no props argument at all** — `Span(rows)`.
+    /// There is no object literal to mark, so `partition.rs` appends one
+    /// holding nothing but the marker and the list flag.
+    ///
+    /// Emitted only when the props position is exactly one past the last
+    /// written argument, so appending fills it without leaving a hole, and
+    /// only when the children are [`ChildrenOrigin::Generated`] — a call site
+    /// with nothing to report is left exactly as the author wrote it.
+    SynthesizeProps { props_arg_idx: usize },
     /// This call site is either not a factory call at all, or is one that
     /// can't (or shouldn't) be rewritten. See [`BailReason`] for why.
     Bail(BailReason),
@@ -530,6 +540,15 @@ fn classify_props(
     }
 
     let Some(arg) = call.args.get(props_arg_idx) else {
+        // `Span(rows)` carries its children at argument 0, so it can hold a
+        // generated list even with no props object written. Nothing else
+        // reaches this branch with children to report: every other factory
+        // keeps its children *in* the props object, so a missing props
+        // argument means missing children too.
+        let children = call_site_children_origin_without_props(call, kind, factories);
+        if children == ChildrenOrigin::Generated && call.args.len() == props_arg_idx {
+            return (Decision::SynthesizeProps { props_arg_idx }, children);
+        }
         return (
             Decision::Bail(BailReason::MissingPropsArg),
             ChildrenOrigin::Authored,
@@ -588,18 +607,46 @@ fn call_site_children_origin(
     obj: &ObjectLit,
     factories: &HashMap<BindKey, CandidateKind>,
 ) -> ChildrenOrigin {
-    let CandidateKind::Html {
-        children_first: true,
-    } = kind
-    else {
-        return children_origin(obj, factories);
-    };
+    if is_children_first(kind) {
+        return children_first_arg_origin(call, factories);
+    }
+    children_origin(obj, factories)
+}
+
+/// The same question asked of a call site that has no props object to read —
+/// only a children-first factory can answer it, since every other factory
+/// keeps its children inside the props object that is missing.
+fn call_site_children_origin_without_props(
+    call: &CallExpr,
+    kind: CandidateKind,
+    factories: &HashMap<BindKey, CandidateKind>,
+) -> ChildrenOrigin {
+    if is_children_first(kind) {
+        return children_first_arg_origin(call, factories);
+    }
+    ChildrenOrigin::Authored
+}
+
+fn is_children_first(kind: CandidateKind) -> bool {
+    matches!(
+        kind,
+        CandidateKind::Html {
+            children_first: true
+        }
+    )
+}
+
+/// Classifies argument 0 of a children-first call.
+fn children_first_arg_origin(
+    call: &CallExpr,
+    factories: &HashMap<BindKey, CandidateKind>,
+) -> ChildrenOrigin {
     // `Span()` passes `children: undefined`, which is no list at all.
     let Some(arg) = call.args.first() else {
         return ChildrenOrigin::Authored;
     };
-    // Unreachable in practice — a leading spread already bailed as
-    // `SpreadBeforeProps` above — but a spread is an unknown number of
+    // Unreachable where a props argument exists — a leading spread already
+    // bailed as `SpreadBeforeProps` — but a spread is an unknown number of
     // children by any route in, so it answers the same way here.
     if arg.spread.is_some() {
         return ChildrenOrigin::Generated;
@@ -2258,23 +2305,79 @@ mod tests {
         assert_eq!(children_origins_for(src), vec![ChildrenOrigin::Authored]);
     }
 
-    /// REMAINING GAP, pinned deliberately rather than left to be discovered:
-    /// a children-first call with no props object has nowhere to put the
-    /// marker, so a generated list there goes unreported. Closing it means
-    /// synthesizing an argument the author never wrote, which would newly
-    /// emit `k` at call sites that have none today and so change their
-    /// stable-key behaviour — a separate change from recording an origin.
+    /// A children-first call with no props object still has somewhere to put
+    /// the marker: `partition.rs` appends the argument. The props position is
+    /// exactly one past the last written argument here, so nothing is
+    /// displaced.
     #[test]
-    fn children_first_without_a_props_object_is_not_reported() {
+    fn children_first_without_a_props_object_synthesizes_one() {
         let src = r#"
             import { Span } from '@meonode/ui'
             Span(items.map(fn))
         "#;
         assert_eq!(
             decisions_for(src),
+            vec![Decision::SynthesizeProps { props_arg_idx: 1 }]
+        );
+        assert_eq!(children_origins_for(src), vec![ChildrenOrigin::Generated]);
+    }
+
+    /// The converse, and the reason synthesis is gated on the origin rather
+    /// than on the missing argument: a call site with nothing to report is
+    /// left exactly as the author wrote it, arity included.
+    #[test]
+    fn children_first_without_props_and_authored_children_is_left_alone() {
+        let src = r#"
+            import { Span } from '@meonode/ui'
+            Span(['a', 'b'])
+        "#;
+        assert_eq!(
+            decisions_for(src),
             vec![Decision::Bail(BailReason::MissingPropsArg)]
         );
-        assert_eq!(children_origins_for(src), vec![ChildrenOrigin::Authored]);
+    }
+
+    /// A props argument that *was* written but isn't an object literal is
+    /// never synthesized over — replacing it would discard a value the author
+    /// wrote. `Span(rows, maybeProps)` bails as it always did.
+    #[test]
+    fn children_first_with_a_non_literal_props_argument_is_not_synthesized() {
+        let src = r#"
+            import { Span } from '@meonode/ui'
+            Span(rows, maybeProps)
+        "#;
+        assert_eq!(
+            decisions_for(src),
+            vec![Decision::Bail(BailReason::NotObjectLiteral)]
+        );
+    }
+
+    /// A props-first factory can never reach synthesis: its children live in
+    /// the props object, so a missing props argument means missing children.
+    #[test]
+    fn props_first_factory_with_no_arguments_is_not_synthesized() {
+        let src = r#"
+            import { Div } from '@meonode/ui'
+            Div()
+        "#;
+        assert_eq!(
+            decisions_for(src),
+            vec![Decision::Bail(BailReason::MissingPropsArg)]
+        );
+    }
+
+    /// `Node(element, props, deps)` likewise: argument 0 is an element, never
+    /// children, so `Node(El)` has nothing to report and keeps its arity.
+    #[test]
+    fn node_factory_with_only_an_element_is_not_synthesized() {
+        let src = r#"
+            import { Node } from '@meonode/ui'
+            Node(El)
+        "#;
+        assert_eq!(
+            decisions_for(src),
+            vec![Decision::Bail(BailReason::MissingPropsArg)]
+        );
     }
 
     /// `Node(element, props, deps)` is props-first: its argument 0 is the
