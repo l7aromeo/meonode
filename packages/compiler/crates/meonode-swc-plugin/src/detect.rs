@@ -479,7 +479,7 @@ impl Detector {
             Expr::Ident(id) => {
                 let key = (id.sym.clone(), id.ctxt);
                 if let Some(kind) = self.bindings.get(&key).copied() {
-                    Some(classify_props(call, kind.props_arg_idx(), &self.bindings))
+                    Some(classify_props(call, kind, &self.bindings))
                 } else if self.tracked_syms.contains(&id.sym) {
                     Some((
                         Decision::Bail(BailReason::ShadowedOrUnbound),
@@ -508,9 +508,10 @@ impl Detector {
 
 fn classify_props(
     call: &CallExpr,
-    props_arg_idx: usize,
+    kind: CandidateKind,
     factories: &HashMap<BindKey, CandidateKind>,
 ) -> (Decision, ChildrenOrigin) {
+    let props_arg_idx = kind.props_arg_idx();
     // A spread in any argument *before* the props position means the real
     // runtime argument count isn't statically known, so "the AST argument at
     // index `props_arg_idx`" isn't provably "the runtime props argument" —
@@ -546,7 +547,7 @@ fn classify_props(
             // Read independently of `validate_object`: the two answer
             // different questions, and a call site that only earns
             // `KeyOnly` still emits a marker the list flag belongs in.
-            let children = children_origin(obj, factories);
+            let children = call_site_children_origin(call, kind, obj, factories);
             let decision = match validate_object(obj) {
                 Some(reason) if is_key_stampable(&reason) => Decision::KeyOnly { props_arg_idx },
                 Some(reason) => Decision::Bail(reason),
@@ -561,6 +562,49 @@ fn classify_props(
             ChildrenOrigin::Authored,
         ),
     }
+}
+
+/// Finds where this call site's children actually come from, and classifies
+/// them.
+///
+/// There are two sources, and which one applies is decided by the factory,
+/// not by what the call site happens to write. A children-first factory is
+/// built as
+///
+/// ```text
+/// (children, props, deps) => Node(element, { ...initialProps, ...props, children }, deps)
+/// ```
+///
+/// so its argument 0 is merged in *last* and wins over any `children` the
+/// props object might carry — which is why the props type declares
+/// `children?: never`. Reading the props object for one of these factories
+/// would classify a value the runtime then discards, so argument 0 is the
+/// only source consulted there. Every other factory (`Node(element, props,
+/// deps)` and props-first HTML factories alike) carries its children in the
+/// props object, and argument 0 is the element or the props itself.
+fn call_site_children_origin(
+    call: &CallExpr,
+    kind: CandidateKind,
+    obj: &ObjectLit,
+    factories: &HashMap<BindKey, CandidateKind>,
+) -> ChildrenOrigin {
+    let CandidateKind::Html {
+        children_first: true,
+    } = kind
+    else {
+        return children_origin(obj, factories);
+    };
+    // `Span()` passes `children: undefined`, which is no list at all.
+    let Some(arg) = call.args.first() else {
+        return ChildrenOrigin::Authored;
+    };
+    // Unreachable in practice — a leading spread already bailed as
+    // `SpreadBeforeProps` above — but a spread is an unknown number of
+    // children by any route in, so it answers the same way here.
+    if arg.spread.is_some() {
+        return ChildrenOrigin::Generated;
+    }
+    expr_children_origin(&arg.expr, factories)
 }
 
 /// Classifies the `children` property of a props object literal. A call site
@@ -2124,16 +2168,134 @@ mod tests {
         assert_eq!(children_origins_for(src), vec![ChildrenOrigin::Generated]);
     }
 
-    /// A children-first factory takes its children as argument 0, not as a
-    /// `children` prop, so there is no `children` property to read and the
-    /// marker stays silent. Recorded here so the gap is visible rather than
-    /// accidental.
+    // ---- children-first factories: the children are argument 0 ----------
+    //
+    // `createChildrenFirstNode` builds `(children, props, deps) =>
+    // Node(element, { ...initialProps, ...props, children }, deps)`, so
+    // argument 0 is merged in last and is the only children that survive.
+    // The classification is the same rule, read from a different place.
+
+    /// Asserts that `children_arg`, written as argument 0 of a `Span` call
+    /// that also has a props object, classifies as `expected`.
+    fn assert_children_first(children_arg: &str, expected: ChildrenOrigin) {
+        let src = format!(
+            "import {{ Span, Section }} from '@meonode/ui'\nSpan({children_arg}, {{ padding: 8 }})"
+        );
+        assert_eq!(
+            children_origins_for(&src),
+            vec![expected],
+            "Span({children_arg}, ...)"
+        );
+    }
+
     #[test]
-    fn children_first_arg_is_not_classified() {
+    fn children_first_map_call_arg_is_generated() {
+        assert_children_first("items.map(fn)", ChildrenOrigin::Generated);
+    }
+
+    #[test]
+    fn children_first_identifier_arg_is_generated() {
+        assert_children_first("rows", ChildrenOrigin::Generated);
+    }
+
+    #[test]
+    fn children_first_array_with_spread_arg_is_generated() {
+        assert_children_first("[Header(), ...rows]", ChildrenOrigin::Generated);
+    }
+
+    #[test]
+    fn children_first_array_arg_is_authored() {
+        assert_children_first("['a', 'b']", ChildrenOrigin::Authored);
+    }
+
+    #[test]
+    fn children_first_text_arg_is_authored() {
+        assert_children_first("'hi'", ChildrenOrigin::Authored);
+    }
+
+    /// A local factory derived from `createChildrenFirstNode` reads argument
+    /// 0 the same way a named HTML factory does.
+    #[test]
+    fn derived_children_first_factory_reads_arg_zero() {
         let src = r#"
-            import { Div, createChildrenFirstNode } from '@meonode/ui'
+            import { createChildrenFirstNode } from '@meonode/ui'
             const List = createChildrenFirstNode('ul')
             List(items.map(fn), { padding: 8 })
+        "#;
+        assert_eq!(children_origins_for(src), vec![ChildrenOrigin::Generated]);
+    }
+
+    /// Argument 0 is merged in *after* `...props`, so it wins; the props type
+    /// declares `children?: never` for exactly this reason. Reading the props
+    /// object here would classify a value the runtime discards.
+    #[test]
+    fn children_first_arg_zero_wins_over_a_children_prop() {
+        let src = r#"
+            import { Span } from '@meonode/ui'
+            Span(rows, { children: ['a'] })
+        "#;
+        assert_eq!(children_origins_for(src), vec![ChildrenOrigin::Generated]);
+    }
+
+    /// The same override in the other direction: a dead `children` prop must
+    /// not mark a call site whose real children were written out.
+    #[test]
+    fn children_first_dead_children_prop_does_not_mark_the_call_site() {
+        let src = r#"
+            import { Span } from '@meonode/ui'
+            Span(['a'], { children: rows })
+        "#;
+        assert_eq!(children_origins_for(src), vec![ChildrenOrigin::Authored]);
+    }
+
+    /// `Span()` passes `children: undefined` — no list at all.
+    #[test]
+    fn children_first_with_no_arguments_is_authored() {
+        let src = r#"
+            import { Span } from '@meonode/ui'
+            Span()
+        "#;
+        assert_eq!(children_origins_for(src), vec![ChildrenOrigin::Authored]);
+    }
+
+    /// REMAINING GAP, pinned deliberately rather than left to be discovered:
+    /// a children-first call with no props object has nowhere to put the
+    /// marker, so a generated list there goes unreported. Closing it means
+    /// synthesizing an argument the author never wrote, which would newly
+    /// emit `k` at call sites that have none today and so change their
+    /// stable-key behaviour — a separate change from recording an origin.
+    #[test]
+    fn children_first_without_a_props_object_is_not_reported() {
+        let src = r#"
+            import { Span } from '@meonode/ui'
+            Span(items.map(fn))
+        "#;
+        assert_eq!(
+            decisions_for(src),
+            vec![Decision::Bail(BailReason::MissingPropsArg)]
+        );
+        assert_eq!(children_origins_for(src), vec![ChildrenOrigin::Authored]);
+    }
+
+    /// `Node(element, props, deps)` is props-first: its argument 0 is the
+    /// element, so the props object stays the source of children.
+    #[test]
+    fn node_factory_reads_children_from_props_not_arg_zero() {
+        let src = r#"
+            import { Node } from '@meonode/ui'
+            Node(El, { children: items.map(fn) })
+        "#;
+        assert_eq!(children_origins_for(src), vec![ChildrenOrigin::Generated]);
+    }
+
+    /// The converse, which is what would break if argument 0 were read for
+    /// every factory taking props at index 1: `Node`'s argument 0 is an
+    /// element and must never be classified as children.
+    #[test]
+    fn node_factory_ignores_arg_zero_when_classifying() {
+        let src = r#"
+            import { Node } from '@meonode/ui'
+            Node(rows, { children: ['a'] })
         "#;
         assert_eq!(children_origins_for(src), vec![ChildrenOrigin::Authored]);
     }

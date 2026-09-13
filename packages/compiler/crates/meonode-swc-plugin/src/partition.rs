@@ -803,6 +803,19 @@ mod tests {
         filename: &str,
         config: &CompileConfig,
     ) -> Vec<ObjectLit> {
+        transformed_objects_at(src, filename, config, 0)
+    }
+
+    /// Like [`transformed_objects_with_config`], but collecting the object
+    /// literal at `arg_idx` rather than argument 0. A children-first
+    /// factory's props sit at argument 1 — argument 0 is its children — so
+    /// those call sites need this to see what was emitted.
+    fn transformed_objects_at(
+        src: &str,
+        filename: &str,
+        config: &CompileConfig,
+        arg_idx: usize,
+    ) -> Vec<ObjectLit> {
         GLOBALS.set(&Globals::new(), || {
             let cm: Lrc<SourceMap> = Default::default();
             let fm = cm.new_source_file(Lrc::new(FileName::Anon), src.to_string());
@@ -825,11 +838,12 @@ mod tests {
             transform_program(&mut program, filename, config);
 
             struct Collector {
+                arg_idx: usize,
                 found: Vec<ObjectLit>,
             }
             impl Visit for Collector {
                 fn visit_call_expr(&mut self, call: &CallExpr) {
-                    if let Some(arg) = call.args.first() {
+                    if let Some(arg) = call.args.get(self.arg_idx) {
                         if let Expr::Object(obj) = &*arg.expr {
                             self.found.push(obj.clone());
                         }
@@ -837,7 +851,10 @@ mod tests {
                     call.visit_children_with(self);
                 }
             }
-            let mut collector = Collector { found: Vec::new() };
+            let mut collector = Collector {
+                arg_idx,
+                found: Vec::new(),
+            };
             program.visit_with(&mut collector);
             collector.found
         })
@@ -2014,5 +2031,38 @@ mod tests {
         // collects in source order, so the outer `Div` comes first.
         assert_eq!(list_marker(&objs[0]), None);
         assert_eq!(list_marker(&objs[1]), Some(1.0));
+    }
+
+    /// A children-first factory carries its children at argument 0 and its
+    /// props at argument 1, so the marker lands in the props object while
+    /// the expression it describes sits in the argument before it.
+    #[test]
+    fn children_first_generated_arg_emits_the_list_marker() {
+        let mut objs = transformed_objects_at(
+            r#"
+            import { Span } from '@meonode/ui';
+            Span(items.map(fn), { padding: 8 });
+            "#,
+            "test.tsx",
+            &CompileConfig::default(),
+            1,
+        );
+        assert_eq!(objs.len(), 1);
+        assert_eq!(list_marker(&objs.remove(0)), Some(1.0));
+    }
+
+    #[test]
+    fn children_first_authored_arg_emits_no_list_marker() {
+        let mut objs = transformed_objects_at(
+            r#"
+            import { Span } from '@meonode/ui';
+            Span(['a', 'b'], { padding: 8 });
+            "#,
+            "test.tsx",
+            &CompileConfig::default(),
+            1,
+        );
+        assert_eq!(objs.len(), 1);
+        assert_eq!(list_marker(&objs.remove(0)), None);
     }
 }
