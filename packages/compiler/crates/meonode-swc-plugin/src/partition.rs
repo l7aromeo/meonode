@@ -41,8 +41,8 @@ use swc_core::ecma::visit::{VisitMut, VisitMutWith};
 
 use crate::config::CompileConfig;
 use crate::css_props::{is_css_prop, is_length_prop};
+use crate::detect::{self, ChildrenOrigin, Decision};
 use crate::effect::is_inline_function;
-use crate::detect::{self, Decision};
 use crate::effect::is_static_literal;
 use crate::keys::{is_special_key, is_stable_key_visible_special, key_name_atom};
 use crate::theme::{is_selector_or_at_rule, rewrite_theme_tokens_for};
@@ -61,6 +61,21 @@ const BUCKET_SITE_KEY: &str = "__meo$k";
 /// Schema emitted for call sites that get a key but no prop partitioning.
 const KEY_ONLY_SCHEMA: f64 = 3.0;
 const BUCKET_DYN_KEY: &str = "__meo$dyn";
+
+/// Records that this call site's `children` were produced by an expression
+/// rather than written out (see `detect::ChildrenOrigin` for why only the
+/// compiler can know this). The runtime reads it to tell an unkeyed list
+/// apart from hand-written siblings, which it otherwise cannot do — by the
+/// time `createElement` sees them, both are an ordinary `Array`.
+///
+/// Emitted only alongside schema 2 and schema 3, never schema 1: schema 1's
+/// bucket names sit unprefixed at the top level, where they collide with real
+/// props, and this compiler does not emit that schema at all.
+const BUCKET_LIST_KEY: &str = "__meo$list";
+/// The only value this key ever takes. Authored children emit *no key*
+/// rather than a `0`, so the runtime's check is a presence test and an older
+/// runtime that does not know the key simply ignores an extra prop.
+const LIST_GENERATED: f64 = 1.0;
 
 /// FNV-1a 64-bit hash (the standard offset basis / prime for the 64-bit
 /// variant). Chosen over a crate dependency since it's a handful of lines and
@@ -146,6 +161,17 @@ fn key_prop(filename: &str, span: Span) -> PropOrSpread {
     )
 }
 
+fn list_prop() -> PropOrSpread {
+    kv_prop(
+        BUCKET_LIST_KEY,
+        Expr::Lit(Lit::Num(Number {
+            span: swc_core::common::DUMMY_SP,
+            value: LIST_GENERATED,
+            raw: None,
+        })),
+    )
+}
+
 fn dyn_prop(names: Vec<Atom>) -> PropOrSpread {
     let elems = names
         .into_iter()
@@ -179,7 +205,7 @@ fn dyn_prop(names: Vec<Atom>) -> PropOrSpread {
 /// spread, so a spread can never shadow the marker, and two constant literals
 /// evaluated last change neither evaluation order nor any value — which is what
 /// makes this safe even on a call site that bailed *for* an ordering reason.
-fn stamp_call_site_key(obj: &mut ObjectLit, filename: &str, span: Span) {
+fn stamp_call_site_key(obj: &mut ObjectLit, filename: &str, span: Span, children: ChildrenOrigin) {
     obj.props.push(kv_prop(
         MARKER_KEY,
         Expr::Lit(Lit::Num(Number {
@@ -189,6 +215,12 @@ fn stamp_call_site_key(obj: &mut ObjectLit, filename: &str, span: Span) {
         })),
     ));
     obj.props.push(key_prop(filename, span));
+    // A third constant literal, appended for the same reason the other two
+    // are: it changes no value and no evaluation order, which is what makes
+    // stamping safe even on a call site that bailed *for* an ordering reason.
+    if children == ChildrenOrigin::Generated {
+        obj.props.push(list_prop());
+    }
 }
 
 /// Partitions `obj`'s props into `__meo$`/leading-props/`c`/`d`/`k`/`dyn`
@@ -501,7 +533,7 @@ fn rewrite_theme_tokens_in_css_prop(special_props: &mut [PropOrSpread]) {
     }
 }
 
-fn rewrite_object(obj: &mut ObjectLit, filename: &str, span: Span) {
+fn rewrite_object(obj: &mut ObjectLit, filename: &str, span: Span, children: ChildrenOrigin) {
     let old_props = mem::take(&mut obj.props);
     let has_spread = old_props
         .iter()
@@ -615,7 +647,7 @@ fn rewrite_object(obj: &mut ObjectLit, filename: &str, span: Span) {
     }
 
     let mut new_props = Vec::with_capacity(
-        3 + leading.len()
+        4 + leading.len()
             + c_props.is_empty() as usize
             + d_props.is_empty() as usize
             + dyn_names.is_empty() as usize
@@ -635,6 +667,13 @@ fn rewrite_object(obj: &mut ObjectLit, filename: &str, span: Span) {
         if !dyn_names.is_empty() {
             new_props.push(dyn_prop(dyn_names));
         }
+    }
+    // Unlike `k`/`dyn`, this is emitted whether or not a spread is present.
+    // The stable-key hazard that suppresses those is about values a spread
+    // might carry; this describes the shape of the `children` expression
+    // written at the call site, which a spread cannot change.
+    if children == ChildrenOrigin::Generated {
+        new_props.push(list_prop());
     }
     new_props.extend(special_props);
 
@@ -656,12 +695,12 @@ struct Rewriter<'a> {
     filename: &'a str,
     /// Compilable call spans (as `(lo, hi)` byte offset pairs — `Span`
     /// itself needn't implement `Hash`/`Eq` for this to work) to their
-    /// props argument index.
-    compilable: HashMap<(u32, u32), usize>,
+    /// props argument index and `children` origin.
+    compilable: HashMap<(u32, u32), (usize, ChildrenOrigin)>,
     /// Call sites that cannot be partitioned but can still be keyed. Same
     /// mapping shape; rewritten by `stamp_call_site_key` instead of
     /// `rewrite_object`.
-    key_only: HashMap<(u32, u32), usize>,
+    key_only: HashMap<(u32, u32), (usize, ChildrenOrigin)>,
 }
 
 impl VisitMut for Rewriter<'_> {
@@ -675,10 +714,10 @@ impl VisitMut for Rewriter<'_> {
 
         let span = call.span;
         let key = (span.lo.0, span.hi.0);
-        let (props_arg_idx, partition) = match self.compilable.get(&key) {
-            Some(&idx) => (idx, true),
+        let ((props_arg_idx, children), partition) = match self.compilable.get(&key) {
+            Some(&site) => (site, true),
             None => match self.key_only.get(&key) {
-                Some(&idx) => (idx, false),
+                Some(&site) => (site, false),
                 None => return,
             },
         };
@@ -689,9 +728,9 @@ impl VisitMut for Rewriter<'_> {
             return;
         };
         if partition {
-            rewrite_object(obj, self.filename, span);
+            rewrite_object(obj, self.filename, span, children);
         } else {
-            stamp_call_site_key(obj, self.filename, span);
+            stamp_call_site_key(obj, self.filename, span, children);
         }
     }
 }
@@ -707,17 +746,17 @@ impl VisitMut for Rewriter<'_> {
 /// call sites, so files untouched by @meonode/ui factories pay no additional
 /// traversal cost beyond detection itself.
 pub fn transform_program(program: &mut Program, filename: &str, config: &CompileConfig) {
-    let mut compilable: HashMap<(u32, u32), usize> = HashMap::new();
-    let mut key_only: HashMap<(u32, u32), usize> = HashMap::new();
+    let mut compilable: HashMap<(u32, u32), (usize, ChildrenOrigin)> = HashMap::new();
+    let mut key_only: HashMap<(u32, u32), (usize, ChildrenOrigin)> = HashMap::new();
 
     for d in detect::detect(&*program, config) {
         let span_key = (d.span.lo.0, d.span.hi.0);
         match d.decision {
             Decision::Compilable { props_arg_idx } => {
-                compilable.insert(span_key, props_arg_idx);
+                compilable.insert(span_key, (props_arg_idx, d.children));
             }
             Decision::KeyOnly { props_arg_idx } => {
-                key_only.insert(span_key, props_arg_idx);
+                key_only.insert(span_key, (props_arg_idx, d.children));
             }
             Decision::Bail(_) => {}
         }
@@ -984,7 +1023,9 @@ mod tests {
             .props
             .iter()
             .filter_map(|p| {
-                let PropOrSpread::Prop(prop) = p else { return None };
+                let PropOrSpread::Prop(prop) = p else {
+                    return None;
+                };
                 match &**prop {
                     Prop::KeyValue(kv) => match &kv.key {
                         PropName::Ident(id) => Some(id.sym.as_ref().to_string()),
@@ -1813,5 +1854,165 @@ mod tests {
             str_lit_value(entry(css_block(&obj), "color")),
             "var(--meonode-theme-primary)"
         );
+    }
+
+    // ---- `__meo$list` (the compiled list marker) -------------------------
+
+    /// The value the key carries, as a number. Anything other than `1` is a
+    /// contract violation, so this asserts the number rather than presence.
+    fn list_marker(obj: &ObjectLit) -> Option<f64> {
+        has_prop(obj, "__meo$list").then(|| {
+            let Expr::Lit(Lit::Num(n)) = find_prop(obj, "__meo$list") else {
+                panic!("expected `__meo$list` to be a number literal");
+            };
+            n.value
+        })
+    }
+
+    #[test]
+    fn generated_children_emit_the_list_marker_on_schema_2() {
+        let obj = transformed_object(
+            r#"
+            import { Div } from '@meonode/ui';
+            Div({ padding: 8, children: items.map(fn) });
+            "#,
+            "test.tsx",
+        );
+        assert_eq!(
+            find_prop(&obj, "__meo$"),
+            &Expr::Lit(Lit::Num(Number {
+                span: swc_core::common::DUMMY_SP,
+                value: 2.0,
+                raw: None,
+            }))
+        );
+        assert_eq!(list_marker(&obj), Some(1.0));
+    }
+
+    /// Authored children emit *no key at all* rather than a `0`, so the
+    /// runtime's check stays a presence test.
+    #[test]
+    fn authored_children_emit_no_list_marker() {
+        let obj = transformed_object(
+            r#"
+            import { Div } from '@meonode/ui';
+            Div({ padding: 8, children: ['a', 'b'] });
+            "#,
+            "test.tsx",
+        );
+        assert_eq!(list_marker(&obj), None);
+    }
+
+    #[test]
+    fn call_site_without_children_emits_no_list_marker() {
+        let obj = transformed_object(
+            r#"
+            import { Div } from '@meonode/ui';
+            Div({ padding: 8 });
+            "#,
+            "test.tsx",
+        );
+        assert_eq!(list_marker(&obj), None);
+    }
+
+    /// Schema 3: a call site that cannot be partitioned still carries the
+    /// marker, so the report is not lost just because bucketing was refused.
+    /// A numeric key forces `KeyOnly` here.
+    #[test]
+    fn generated_children_emit_the_list_marker_on_schema_3() {
+        let obj = transformed_object(
+            r#"
+            import { Div } from '@meonode/ui';
+            Div({ 0: 'x', children: items.map(fn) });
+            "#,
+            "test.tsx",
+        );
+        assert_eq!(
+            find_prop(&obj, "__meo$"),
+            &Expr::Lit(Lit::Num(Number {
+                span: swc_core::common::DUMMY_SP,
+                value: 3.0,
+                raw: None,
+            }))
+        );
+        assert_eq!(list_marker(&obj), Some(1.0));
+    }
+
+    /// A spread suppresses `k` and `dyn` (the stable-key hazard), but that
+    /// hazard is about values a spread might carry. The list marker
+    /// describes the `children` expression written at the call site, which a
+    /// spread cannot change, so it is emitted anyway.
+    #[test]
+    fn spread_suppresses_k_but_not_the_list_marker() {
+        let obj = transformed_object(
+            r#"
+            import { Div } from '@meonode/ui';
+            Div({ ...rest, padding: 8, children: items.map(fn) });
+            "#,
+            "test.tsx",
+        );
+        assert!(!has_prop(&obj, "__meo$k"));
+        assert!(!has_prop(&obj, "__meo$dyn"));
+        assert_eq!(list_marker(&obj), Some(1.0));
+    }
+
+    /// Every `__meo$*` key stays ahead of the special keys, so `children`
+    /// remains source-final — the invariant `detect::validate_object`'s
+    /// ordering exception relies on.
+    #[test]
+    fn list_marker_is_emitted_before_the_special_keys() {
+        let obj = transformed_object(
+            r#"
+            import { Div } from '@meonode/ui';
+            Div({ padding: 8, css: { color: 'red' }, children: items.map(fn) });
+            "#,
+            "test.tsx",
+        );
+        let order: Vec<String> = obj
+            .props
+            .iter()
+            .map(|p| {
+                let PropOrSpread::Prop(prop) = p else {
+                    panic!("expected no spread");
+                };
+                let Prop::KeyValue(kv) = &**prop else {
+                    panic!("expected only KeyValue entries");
+                };
+                let PropName::Ident(id) = &kv.key else {
+                    panic!("expected ident key");
+                };
+                id.sym.as_ref().to_string()
+            })
+            .collect();
+        assert_eq!(
+            order,
+            vec![
+                "__meo$",
+                "__meo$c",
+                "__meo$k",
+                "__meo$dyn",
+                "__meo$list",
+                "css",
+                "children"
+            ]
+        );
+    }
+
+    /// The marker is per call site, not per file: a nested generated list
+    /// must not mark the hand-written parent that contains it.
+    #[test]
+    fn list_marker_is_per_call_site() {
+        let objs = transformed_objects(
+            r#"
+            import { Div, Section } from '@meonode/ui';
+            Div({ children: Section({ children: items.map(fn) }) });
+            "#,
+            "test.tsx",
+        );
+        assert_eq!(objs.len(), 2);
+        // Traversal is bottom-up in the rewriter, but `transformed_objects`
+        // collects in source order, so the outer `Div` comes first.
+        assert_eq!(list_marker(&objs[0]), None);
+        assert_eq!(list_marker(&objs[1]), Some(1.0));
     }
 }
