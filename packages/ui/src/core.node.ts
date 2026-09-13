@@ -307,22 +307,25 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
           // changes the diagnostic — which is why it can follow the compiler's
           // marker rather than anything about the values.
           //
-          // A generated call site takes the array form however few rows it has
-          // today. `_processChildren` collapses a one-element array to the bare
-          // child, so gating on `Array.isArray` here would exempt exactly the
-          // list most worth reporting — `items.map(fn)` over one row, which
-          // grows to three next week and takes the positional-reconciliation
-          // bug with it. React does not make that exemption either: an unkeyed
-          // one-element array reports, a bare child does not. `finalChildren` is
-          // already an array by this point, so the row count never enters into
-          // it. Children that carry no key concept at all, such as a generated
-          // string, stay silent on React's side regardless.
+          // A generated call site whose expression produced an array takes the
+          // array form, however few rows are in it — `_processChildren` keeps
+          // that array intact for exactly this reason, so a `.map()` returning
+          // one row today still reports, rather than waiting until it returns
+          // three and has already handed state to the wrong row.
+          //
+          // The array test is not a proxy for "is this a list"; it is the shape
+          // the author's own expression produced, and React draws its line in
+          // the same place — an unkeyed one-element array reports, a bare child
+          // does not. It is what keeps `children: row`, a variable holding a
+          // single node, silent: the compiler cannot see inside the identifier
+          // and must call it generated, and this is where that uncertainty is
+          // resolved by the value rather than guessed at.
           //
           // Authored call sites keep spreading, which is the case React stays
-          // quiet about by design. There is no runtime test that could replace
-          // the marker here: by now a mapped array and a typed-out one are the
-          // same object.
-          const childArguments = generatedChildren ? [finalChildren] : finalChildren
+          // quiet about by design. None of this infers list-ness from the value:
+          // an unmarked array is still spread, and by now a mapped array and a
+          // typed-out one are the same object.
+          const childArguments = generatedChildren && Array.isArray(childrenInProps) ? [finalChildren] : finalChildren
 
           // Merge element props: explicit other props + DOM native props + React key.
           // Then convert any string `theme.*` tokens carried by props (e.g. MUI

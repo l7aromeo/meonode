@@ -81,13 +81,27 @@ describe('generated children, as marked by the compiler', () => {
 
   // A generated list of one still reconciles by position, and still hands its
   // state to whatever takes that position next — it simply has no neighbour to
-  // trade with *yet*. `_processChildren` collapses a one-element array to the
-  // bare child, so nothing downstream can tell this from an authored single
-  // child; only the marker can. React draws the line in the same place: an
-  // unkeyed one-element array is reported, a bare child is not.
+  // trade with *yet*, and has three rows next week. React draws the line in the
+  // same place: an unkeyed one-element array is reported.
   it('are reported when a generated list holds a single row', () => {
     const children = ['only'].map(() => createElement(Row))
     expect(keyReports(as => Div({ as, children, [LIST_MARKER]: 1 } as never).render())).toBeGreaterThan(0)
+  })
+
+  // The other side of that line, and the reason the array is kept rather than
+  // the marker being trusted on its own. `children: row` — a variable holding a
+  // single node — is generated as far as the compiler can tell, because it
+  // cannot see inside an identifier. React says nothing for a bare child, so
+  // neither do we: the marker says the expression was generated, and the value
+  // says what it generated.
+  it('are not reported when the generated expression yielded a single node', () => {
+    const row = createElement(Row)
+    expect(keyReports(as => Div({ as, children: row, [LIST_MARKER]: 1 } as never).render())).toBe(0)
+  })
+
+  // Same line, for a generated value that has no key concept at all.
+  it('are not reported for generated text', () => {
+    expect(keyReports(as => Div({ as, children: 'generated text', [LIST_MARKER]: 1 } as never).render())).toBe(0)
   })
 
   it('are not reported once every row carries a key', () => {

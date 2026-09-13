@@ -229,12 +229,13 @@ export class NodeUtil {
     if (markerDomProps !== undefined) NodeUtil._assignDefined(result, markerDomProps)
     if (disableEmotion !== undefined) result.disableEmotion = disableEmotion
     result.nativeProps = nativeProps === undefined ? {} : omitUndefined(nativeProps)
-    const processedChildren = NodeUtil._processChildren(children, disableEmotion)
-    if (processedChildren !== undefined) result.children = processedChildren
     // Gated on the schema declaring the marker, so schema 1 — frozen legacy
     // output, which the contract was never extended to — does not start acting
     // on a key its compiler never emitted.
-    if (schemaKeys.list !== undefined && source[schemaKeys.list]) result[LIST_MARKER] = true
+    const generatedChildren = schemaKeys.list !== undefined && source[schemaKeys.list] ? true : undefined
+    const processedChildren = NodeUtil._processChildren(children, disableEmotion, generatedChildren)
+    if (processedChildren !== undefined) result.children = processedChildren
+    if (generatedChildren) result[LIST_MARKER] = true
 
     return result as FinalNodeProps
   }
@@ -311,7 +312,7 @@ export class NodeUtil {
         disableEmotion,
         [LIST_MARKER]: generatedChildren,
         nativeProps: omitUndefined(nativeProps),
-        children: NodeUtil._processChildren(children, disableEmotion),
+        children: NodeUtil._processChildren(children, disableEmotion, generatedChildren),
       })
     }
 
@@ -344,7 +345,7 @@ export class NodeUtil {
     const finalCssProps = { ...cachedCssProps, ...nonCachedCssProps, ...css }
 
     // --- Child Normalization ---
-    const normalizedChildren = NodeUtil._processChildren(children, disableEmotion)
+    const normalizedChildren = NodeUtil._processChildren(children, disableEmotion, generatedChildren)
 
     // --- Final Assembly ---
     return omitUndefined({
@@ -368,19 +369,25 @@ export class NodeUtil {
    * @param parentStableKey The stable key of the parent node, used for generating unique keys for children.
    * @returns The processed children in normalized format.
    */
-  private static _processChildren(children: Children, disableEmotion?: boolean): Children {
+  private static _processChildren(children: Children, disableEmotion?: boolean, keepArray?: boolean): Children {
     if (!children) return undefined
     if (typeof children === 'function') return children
 
-    // Fast path for non-array (single child). Collapsing `[x]` to `x` is why a
-    // bare child and a single-element array must key identically: by the time
-    // the render loop derives positions, the two shapes are indistinguishable.
+    // Fast path for non-array (single child).
     if (!Array.isArray(children)) {
       return NodeUtil.processRawNode(children, disableEmotion)
     }
 
-    // Fast path for single element array
-    if (children.length === 1) {
+    // Fast path for single element array — except on a call site the compiler
+    // marked as generated, where the difference between `[x]` and `x` is the
+    // whole question. React reports an unkeyed one-element array and stays
+    // silent for a bare child, so collapsing here would decide that for it, and
+    // in the wrong direction twice over: a `.map()` returning one row would go
+    // unreported, and `children: row` — a variable holding a single node, which
+    // the compiler must call generated because it cannot see inside it — would
+    // be reported where React says nothing. Keeping the shape the author's
+    // expression actually produced lets React answer for itself.
+    if (children.length === 1 && !keepArray) {
       return NodeUtil.processRawNode(children[0], disableEmotion)
     }
 

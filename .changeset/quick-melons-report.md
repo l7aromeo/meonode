@@ -33,10 +33,12 @@ the value would nag in exactly the places React stays quiet. `@meonode/compiler`
 sets `__meo$list` on a generated call site; this release is the half that reads
 it, on marker schemas 2 and 3.
 
-A generated list takes the array form however few rows it holds. React reports
-an unkeyed one-element array and stays quiet for a bare child, and a `.map()`
-over one row is exactly the list that grows to three later, carrying the
-positional-reconciliation bug with it.
+A generated list is reported however few rows it holds — a `.map()` over one row
+is exactly the list that grows to three later, carrying the bug with it. The
+marker says the expression was generated; the value it produced still decides,
+so `children: row`, a variable holding a single node that the compiler cannot
+see inside, stays silent. React draws the line in the same place: an unkeyed
+one-element array is reported, a bare child is not.
 
 Nothing about reconciliation changes. Spread and array reconcile identically —
 both wrong unkeyed, both correct keyed — so this restores a diagnostic and
