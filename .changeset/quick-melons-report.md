@@ -12,6 +12,14 @@ previous row's state — but it is a behaviour change, not a silent fix.
 Development-only, and no runtime cost in production. Adding a `key` to each row
 resolves it, and is the fix for the underlying bug too.
 
+`For`, added in this same release, is the ergonomic way to do that: it takes the
+data rather than the finished rows and keys each one from it, so no key has to be
+threaded through every row by hand. It is a plain runtime helper and needs no
+compiler — which matters here, because this warning only appears for builds that
+use `@meonode/compiler`, while the positional-reconciliation bug it reports is
+there either way. If you are not compiling, you will not see the warning and
+`For` still fixes the problem.
+
 An unkeyed list reconciles by position, so deleting or reordering a row hands
 the next one the row before it — its state, its focus, whatever the user had
 typed into it. React reports that; MeoNode did not, for any list, because
