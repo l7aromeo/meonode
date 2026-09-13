@@ -64,7 +64,13 @@ const BUCKET_DOM_KEY: &str = "__meo$d";
 /// Their consumer is an **older `@meonode/ui`**. From 1.7.0 up to (not
 /// including) 2.0.0, the runtime derives an identity for each memoized node
 /// from `k` plus the values `dyn` names, and keys `BaseNode.elementCache`
-/// with it. The plugin supports that range on purpose: `README.md` sets the
+/// with it. Verified against the published 1.7.0 tarball rather than inferred
+/// from this repository: its `BaseNode._getStableKey` reads
+/// `props[schemaKeys.key]`, takes the fast path only when that is a non-empty
+/// string, and then folds in `props[schemaKeys.dyn]` via `hashDynamicValues`.
+/// (That same guard is why the `k`-less schema 3 object
+/// [`synthesized_props_arg`] emits degrades cleanly on 1.8.x, which does
+/// support schema 3: the key is absent, so the fast path is simply skipped.) The plugin supports that range on purpose: `README.md` sets the
 /// compatibility floor at `@meonode/ui@1.7.0` and *recommends* 2.0.0-beta or
 /// later — a recommendation, not a requirement.
 ///
@@ -105,10 +111,37 @@ const BUCKET_DYN_KEY: &str = "__meo$dyn";
 /// Emitted only alongside schema 2 and schema 3, never schema 1: schema 1's
 /// bucket names sit unprefixed at the top level, where they collide with real
 /// props, and this compiler does not emit that schema at all.
+///
+/// ## No published `@meonode/ui` consumes this yet, and none is silent about it
+///
+/// A runtime strips only the marker keys its own `COMPILER_SCHEMA_KEYS` names,
+/// and the compiled path matches them by exact name. *No published version*
+/// has a `list` entry there — not 1.x, and not 2.0.0 through 2.0.2, the newest
+/// at the time of writing. The consumer is the runtime half shipping alongside
+/// this change, whose changeset declares a minor bump. Rather than pin a
+/// version that has not been cut, test the capability: a runtime supports this
+/// key when its schema 2 and 3 entries carry a `list` field. Until then this
+/// key survives into
+/// `passthrough`, reaches `getDOMProps` — a denylist, which forwards anything
+/// that is not a CSS property — and React rejects the attribute name, logging
+/// `Invalid attribute name: __meo$list` once per render per marked call site.
+///
+/// Measured against the published tarballs, each in its own process because
+/// React deduplicates by attribute name: 1.8.7 (the newest 1.x) logs it on
+/// schema 2 and on schema 3, and the same call site without this key is
+/// silent, so the key is the whole difference. 2.0.x behaves the same way —
+/// it has no `list` entry either. Nothing reaches the DOM —
+/// React refuses to write the attribute rather than writing it — so the cost
+/// is console noise, on the same channel the missing-key reports use.
+///
+/// It is not a workaround to hide the key inside one an older runtime already
+/// strips. Overloading a key that means something else is how the traps in
+/// this file got written in the first place; the floor is declared instead
+/// (see `README.md`'s runtime version requirements, which also record that
+/// schema 3 needs 1.8.0 for a separate and older reason).
 const BUCKET_LIST_KEY: &str = "__meo$list";
-/// The only value this key ever takes. Authored children emit *no key*
-/// rather than a `0`, so the runtime's check is a presence test and an older
-/// runtime that does not know the key simply ignores an extra prop.
+/// The only value this key ever takes. Authored children emit *no key* rather
+/// than a `0`, so the runtime's check is a presence test.
 const LIST_GENERATED: f64 = 1.0;
 
 /// FNV-1a 64-bit hash (the standard offset basis / prime for the 64-bit
