@@ -60,7 +60,7 @@ Every row below was measured against the published tarball, not inferred:
 | --- | --- | --- |
 | Schema 2 marker + `c`/`d`/`k`/`dyn` buckets | `@meonode/ui@1.7.0` | 1.6.2 and earlier have no `COMPILED_MARKER` at all, so every one of the five keys falls through as an ordinary prop — five `Invalid attribute name` lines per call site |
 | Schema 3 marker (call sites the plugin cannot partition) | `@meonode/ui@1.8.0` | 1.7.0–1.7.8 set `SUPPORTED_COMPILER_SCHEMAS` to `{1, 2}`, so the whole marker object falls through as ordinary props — `Invalid attribute name: __meo$`, and again for `__meo$k` |
-| `__meo$list` (generated-children reporting) | **Not yet published** — the next `@meonode/ui` minor (2.1.0 at time of writing) | *Every* version published so far, 1.x and 2.x alike, lacks a `list` entry in `COMPILER_SCHEMA_KEYS`, and the compiled path strips by exact name — `Invalid attribute name: __meo$list`, once per render per marked call site |
+| `__meo$list` (generated-children reporting) | **Not yet published** — the next `@meonode/ui` minor | *Every* version published so far, 1.x and 2.x alike, lacks a `list` entry in `COMPILER_SCHEMA_KEYS`, and the compiled path strips by exact name — `Invalid attribute name: __meo$list`, once per render per marked call site |
 
 **`2.0.0` or later is recommended**: it removed the derived-key machinery
 outright, which fixed a class of memoization collision the plugin could only
