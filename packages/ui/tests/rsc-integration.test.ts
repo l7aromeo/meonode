@@ -871,15 +871,34 @@ describe('the list marker across the RSC boundary', () => {
   })
 
   // The same marker, the same branch, but the host hands children to another
-  // MeoNode node instead of rendering them itself. That inner node carries no
-  // marker, so it spreads them variadically — which is React's signal that a
-  // human wrote them out — and the report is lost before anything reconciles the
-  // array. Measured: plain React in this exact shape reports, and this does not.
+  // MeoNode node instead of rendering them itself. What that does depends on
+  // whether the inner node is marked, and this one fixture is both cases:
   //
-  // Pinned as the defect it is. When the marker survives composition this should
-  // report too, and this expectation is what will say so.
-  it('loses the report when the marked children pass through another node first', async () => {
-    expect(await keyReports(SERVER_PAGE)).toBe(0)
+  //   unmarked — it spreads the children variadically, which is React's signal
+  //     that a human wrote them out, and the report is lost before anything
+  //     reconciles the array. This is the defect worth pinning.
+  //   marked — it takes the list form and the report survives composition.
+  //
+  // Which one it is depends on whether the plugin ran over the fixture, since
+  // `Div({ children })` reads `children` as a bare identifier and the compiler
+  // calls that generated. So both rows are real behaviour of the same code, and
+  // asserting either one alone is wrong in the other mode — which is exactly how
+  // this case broke the compiled RSC suite.
+  //
+  // Not keyed off `MEONODE_COMPILED`: that says the suite is running compiled,
+  // not that this plugin emits the marker, and a plugin predating it would fail
+  // here for the wrong reason. The fixture reports what actually landed on its
+  // own inner call site and the expectation follows from that.
+  it('loses the report only while the inner node is unmarked', async () => {
+    const { html } = await getPage(SERVER_PAGE)
+    const innerMarked = /data-inner-marked="true"/.test(html)
+    const reports = await keyReports(SERVER_PAGE)
+
+    if (innerMarked) {
+      expect(reports).toBeGreaterThan(0)
+    } else {
+      expect(reports).toBe(0)
+    }
   })
 
   // The wrapper's own inner node carries the marker too, which is what a
