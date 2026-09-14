@@ -22,17 +22,17 @@ import { toLengthVarName, wouldEmotionAddPx as emotionWouldAddPx } from '@src/ut
  */
 
 /**
- * Diagnostics run in development, or whenever debug mode is on.
+ * Diagnostics run in development, or whenever debug mode is on. Shared by every
+ * one of them, so "are warnings on?" has a single definition rather than one per
+ * call site.
  *
- * `NODE_ENV` is read defensively: browser bundles may not define `process`, and
- * bundlers commonly replace the expression with a literal, letting these calls
- * fold away entirely in production builds.
+ * `NODE_ENV` is read defensively, since browser bundles may not define
+ * `process`. A bundler that substitutes the expression folds the development
+ * half to `false`, but it does not remove the call or the messages behind it:
+ * measured on a minified esbuild bundle with `process.env.NODE_ENV` defined,
+ * this survives as a runtime call and all eight diagnostic strings ship. That is
+ * deliberate — it is what lets `setDebugMode(true)` work in production.
  * @returns `true` when diagnostics should be evaluated.
- */
-
-/**
- * Shared by every development-only diagnostic in the package, so "are warnings
- * on?" has one definition rather than one per call site.
  */
 export const diagnosticsEnabled = (): boolean => __DEBUG__ || isDevMode()
 
