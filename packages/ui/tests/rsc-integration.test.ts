@@ -806,3 +806,63 @@ describe('server style scope under concurrency', () => {
     expect(second.declared.length).toBe(first.declared.length)
   })
 })
+
+describe('the list marker across the RSC boundary', () => {
+  const SERVER_PAGE = '/list-marker-server'
+  const CLIENT_PAGE = '/list-marker-client'
+
+  /** The rendered `list-host` subtree, which is what server and client must agree on. */
+  function listSubtree(html: string): string {
+    const m = html.match(/<div[^>]*data-testid="list-host"[\s\S]*?<\/div>/)
+    if (!m) throw new Error(`list-host subtree not found in:\n${html.slice(0, 2048)}`)
+    return m[0]
+  }
+
+  // `childArguments` decides whether children reach `createElement` as one array
+  // or as separate arguments, and that decides `props.children`. The fixture is
+  // built to reach the server-only styled branch — a *component* target with a
+  // non-empty `css`, since a `Div` there would take the StyledRenderer branch
+  // instead — so this is the one place where a server render and its hydration
+  // could take different branches for the same node.
+  //
+  // They do not diverge. `childArguments` is computed once, above the branch,
+  // from the props and the resolved children, so both sides build the same shape
+  // whichever branch consumes it.
+  //
+  // Read this as a parity guard, NOT as coverage of that branch. Replacing
+  // `...childArguments` with `...finalChildren` there leaves this test green,
+  // and that was measured rather than assumed: the mutated build serves
+  // byte-identical HTML. Two reasons compound. With two or more children React
+  // collects variadic arguments into an array anyway, so `props.children` is the
+  // same either way and nothing reaches the DOM differently. And the one
+  // behaviour that does differ — React's missing-key report — never fires on
+  // this path: the same marker reports on the client, and plain React reports
+  // from the same position in a server component, but a marked node going
+  // through the server-only styled branch produces nothing, in the browser or
+  // in the server log. Until that is fixed there is no observable difference
+  // for a black-box test to assert on.
+  it('renders a marked generated list identically on the server and after hydration', async () => {
+    const serverHtml = await (await fetch(`${base()}${SERVER_PAGE}`)).text()
+    const { status, html } = await getPage(SERVER_PAGE)
+
+    expect(status).toBe(200)
+    assertNoRscErrors(html)
+    expect(listSubtree(html)).toBe(listSubtree(serverHtml))
+    for (const id of ['alpha', 'beta', 'gamma']) {
+      expect(html).toContain(`data-testid="row-${id}"`)
+    }
+  })
+
+  // Counterpart on the client side, where the same marker does produce React's
+  // report. Kept next to the server case so the pair documents the asymmetry
+  // recorded below rather than leaving it to be rediscovered.
+  it('renders a marked generated list on the client without a hydration mismatch', async () => {
+    const { status, html } = await getPage(CLIENT_PAGE)
+
+    expect(status).toBe(200)
+    assertNoRscErrors(html)
+    for (const id of ['alpha', 'beta', 'gamma']) {
+      expect(html).toContain(`data-testid="crow-${id}"`)
+    }
+  })
+})
