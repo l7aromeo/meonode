@@ -24,6 +24,17 @@ pub struct CompileConfig {
     /// Empty by default: no extra modules are recognized beyond
     /// `@meonode/ui`/`@meonode/ui/client`, matching pre-v0.2 behavior.
     pub factory_modules: Vec<String>,
+    /// Emit `__meo$loc` — the source position of a call site whose `children`
+    /// are generated — alongside the list marker.
+    ///
+    /// Off by default, and deliberately opt-in rather than inferred: the
+    /// plugin has no reliable signal for whether the host is building for
+    /// development or production, so guessing would either ship source paths
+    /// into production bundles or withhold them from the development builds
+    /// that are the entire point. The runtime only prints it behind
+    /// `setDebugMode`, so enabling this costs a string per marked call site
+    /// and nothing else.
+    pub call_site_locations: bool,
 }
 
 impl CompileConfig {

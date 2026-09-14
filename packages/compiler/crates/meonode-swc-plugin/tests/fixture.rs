@@ -62,7 +62,7 @@ struct Partition {
 
 impl Pass for Partition {
     fn process(&mut self, program: &mut Program) {
-        partition::transform_program(program, FIXTURE_FILENAME, &self.config);
+        partition::transform_program(program, FIXTURE_FILENAME, &self.config, None);
     }
 }
 
@@ -388,6 +388,7 @@ fn transform_factory_module_configured() {
         "transform_factory_module_configured",
         CompileConfig {
             factory_modules: vec!["@meonode/mui".to_string()],
+            ..CompileConfig::default()
         },
     );
 }

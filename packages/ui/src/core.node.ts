@@ -5,6 +5,7 @@ import {
   type ExoticComponent,
   Fragment,
   type FragmentProps,
+  isValidElement,
   type ReactElement,
   type ReactNode,
 } from 'react'
@@ -26,7 +27,7 @@ import { isFragment, isValidElementType } from '@src/helper/react-is.helper.js'
 import { getComponentType, getElementTypeName, hasNoStyleTag, getGlobalState } from '@src/helper/common.helper.js'
 import StyledRenderer from '@src/components/styled-renderer.client.js'
 import MeoMemo from '@src/components/meo-memo.client.js'
-import { LIST_MARKER } from '@src/constant/common.const.js'
+import { __DEBUG__, LIST_MARKER, LOCATION_MARKER } from '@src/constant/common.const.js'
 import { NodeUtil } from '@src/util/node.util.js'
 import { compileServerEmotionClassName } from '@src/util/server-emotion.util.js'
 import { getActiveServerTheme, replaceThemeTokensWithCssVars, setActiveServerTheme } from '@src/util/server-theme.util.js'
@@ -307,7 +308,17 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
           // Extract node props. Non-present props default to undefined via destructuring.
           // `as` is the Emotion-style polymorphic target: it is consumed here (never
           // forwarded to the DOM) and only used to swap the rendered element below.
-          const { children: childrenInProps, key, css, nativeProps, disableEmotion, as: asTarget, [LIST_MARKER]: generatedChildren, ...otherProps } = node.props
+          const {
+            children: childrenInProps,
+            key,
+            css,
+            nativeProps,
+            disableEmotion,
+            as: asTarget,
+            [LIST_MARKER]: generatedChildren,
+            [LOCATION_MARKER]: callSiteLocation,
+            ...otherProps
+          } = node.props
           const activeTheme = getActiveTheme(node.props, inheritedTheme)
 
           // Resolve the element to actually render. `as` swaps the render target
@@ -375,6 +386,28 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
           // both precisely when a component wanted its empty state — and on a
           // void element React rejects the child argument outright and throws.
           const childArguments = generatedChildren && Array.isArray(childrenInProps) && finalChildren.length > 0 ? [finalChildren] : finalChildren
+
+          // React's report says a key is missing; it cannot say where. Every
+          // element in the tree is created inside this one `.render()` call, so
+          // React attributes them all to it. `__meo$loc` is the compiler's
+          // record of where the list was actually written, and this prints it
+          // beside React's message rather than instead of it — no React text is
+          // reproduced here.
+          //
+          // Only when something is actually missing a key: a fully keyed list
+          // needs no location, and a line per rendered list would bury the
+          // reports it is meant to help find. This also covers the case where
+          // React says nothing at all — a marked list whose children reach a
+          // host element through an unmarked node is spread variadically there,
+          // which silences React, leaving this as the only signal.
+          if (__DEBUG__ && callSiteLocation && childArguments !== finalChildren) {
+            const missingKey = finalChildren.some(child => isValidElement(child) && child.key == null)
+            if (missingKey) {
+              console.warn(
+                `[MeoNode] A generated list at ${callSiteLocation} has children without a \`key\`. React reports the missing key itself; this names the call site it came from.`,
+              )
+            }
+          }
 
           // Merge element props: explicit other props + DOM native props + React key.
           // Then convert any string `theme.*` tokens carried by props (e.g. MUI

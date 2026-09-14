@@ -806,3 +806,116 @@ describe('server style scope under concurrency', () => {
     expect(second.declared.length).toBe(first.declared.length)
   })
 })
+
+describe('the list marker across the RSC boundary', () => {
+  const SERVER_PAGE = '/list-marker-server'
+  const CLIENT_PAGE = '/list-marker-client'
+
+  /** The rendered `list-host` subtree, which is what server and client must agree on. */
+  function listSubtree(html: string): string {
+    const m = html.match(/<div[^>]*data-testid="list-host"[\s\S]*?<\/div>/)
+    if (!m) throw new Error(`list-host subtree not found in:\n${html.slice(0, 2048)}`)
+    return m[0]
+  }
+
+  // `childArguments` decides whether children reach `createElement` as one array
+  // or as separate arguments, and that decides `props.children`. The fixture is
+  // built to reach the server-only styled branch — a *component* target with a
+  // non-empty `css`, since a `Div` there would take the StyledRenderer branch
+  // instead — so this is the one place where a server render and its hydration
+  // could take different branches for the same node.
+  //
+  // They do not diverge. `childArguments` is computed once, above the branch,
+  // from the props and the resolved children, so both sides build the same shape
+  // whichever branch consumes it.
+  //
+  // Read this as a parity guard, not as coverage of the branch — the case below
+  // covers that.
+  it('renders a marked generated list identically on the server and after hydration', async () => {
+    const serverHtml = await (await fetch(`${base()}${SERVER_PAGE}`)).text()
+    const { status, html } = await getPage(SERVER_PAGE)
+
+    expect(status).toBe(200)
+    assertNoRscErrors(html)
+    expect(listSubtree(html)).toBe(listSubtree(serverHtml))
+    for (const id of ['alpha', 'beta', 'gamma']) {
+      expect(html).toContain(`data-testid="row-${id}"`)
+    }
+  })
+
+  /** Key reports React makes while rendering `pathname`, as seen from the browser. */
+  async function keyReports(pathname: string): Promise<number> {
+    if (!browserContext) throw new Error('Playwright browser context is not initialized')
+    const page = await browserContext.newPage()
+    const seen: string[] = []
+    page.on('console', msg => seen.push(msg.text()))
+    page.on('pageerror', error => seen.push(error.message))
+    try {
+      await page.goto(`${base()}${pathname}`, { waitUntil: 'domcontentloaded' })
+      await page.waitForLoadState('networkidle')
+      return seen.filter(m => /unique "key"|each child in a list/i.test(m)).length
+    } finally {
+      await page.close()
+    }
+  }
+
+  // This is the case that actually covers the server-only branch: replacing
+  // `...childArguments` with `...finalChildren` there drops this to 0, which was
+  // measured both ways rather than assumed.
+  //
+  // It needs a host component that renders `children` itself. React validates
+  // keys when an array is *reconciled*, not when it is created, and a component's
+  // `props.children` is never reconciled — only what the component returns is.
+  it('reports a missing key for a generated list rendered through the server-only branch', async () => {
+    expect(await keyReports('/list-marker-server-plainchild')).toBeGreaterThan(0)
+  })
+
+  // The same marker, the same branch, but the host hands children to another
+  // MeoNode node instead of rendering them itself. That inner node carries no
+  // marker, so it spreads them variadically — which is React's signal that a
+  // human wrote them out — and the report is lost before anything reconciles the
+  // array. Measured: plain React in this exact shape reports, and this does not.
+  //
+  // Pinned as the defect it is. When the marker survives composition this should
+  // report too, and this expectation is what will say so.
+  it('loses the report when the marked children pass through another node first', async () => {
+    expect(await keyReports(SERVER_PAGE)).toBe(0)
+  })
+
+  // The wrapper's own inner node carries the marker too, which is what a
+  // compiled app actually produces: `Div({ children })` reads `children` as a
+  // bare identifier, and the plugin classifies a bare identifier as generated
+  // because it cannot see inside it. So the report survives composition, and
+  // the pass-through over-report is what keeps it alive.
+  //
+  // Renderer-independent — the same result was measured under jsdom — so this
+  // is cheap here but would be cheaper as a unit test.
+  it('keeps the report when the wrapper node is itself marked', async () => {
+    expect(await keyReports('/lm-row3')).toBeGreaterThan(0)
+  })
+
+  // An UNMARKED outer node whose children reach a MARKED wrapper.
+  //
+  // This one is renderer-dependent, which is why it is pinned here rather than
+  // only in a unit test. Under jsdom it reports nothing: the outer node spread
+  // the children variadically, React marked them validated at that point, and
+  // they stay immune downstream. Under Flight, measured on an isolated server
+  // twice, it reports. Whatever makes validation sticky in the client
+  // reconciler does not carry across the RSC boundary here.
+  //
+  // Asserted as the Flight behaviour because that is what this suite runs. If a
+  // change makes the two agree, this is the expectation that will say so.
+  it('still reports when only the wrapper is marked, unlike the client reconciler', async () => {
+    expect(await keyReports('/lm-row5')).toBeGreaterThan(0)
+  })
+
+  it('renders a marked generated list on the client without a hydration mismatch', async () => {
+    const { status, html } = await getPage(CLIENT_PAGE)
+
+    expect(status).toBe(200)
+    assertNoRscErrors(html)
+    for (const id of ['alpha', 'beta', 'gamma']) {
+      expect(html).toContain(`data-testid="crow-${id}"`)
+    }
+  })
+})
