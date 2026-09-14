@@ -36,6 +36,54 @@ import { ThemeUtil } from '@src/util/theme.util.js'
 const RENDER_CONTEXT_POOL_KEY = Symbol.for('@meonode/ui/BaseNode/renderContextPool')
 
 /**
+ * Every `BaseNode` reachable in a children array, including inside nested arrays.
+ *
+ * A nested array is a list of children in its own right, so its members render
+ * like any other child and have to be queued alongside them. Flat arrays — the
+ * overwhelming majority — are returned untouched, so nothing is allocated for
+ * the common shape.
+ * @param children The children array to scan.
+ * @returns The original array when it holds no arrays, otherwise a flat list of
+ * its members with nesting walked through.
+ */
+function collectNodeChildren(children: readonly unknown[]): readonly unknown[] {
+  if (!children.some(Array.isArray)) return children
+  const out: unknown[] = []
+  const seen = new WeakSet<object>()
+  const walk = (list: readonly unknown[]) => {
+    if (seen.has(list)) return
+    seen.add(list)
+    for (const child of list) {
+      if (Array.isArray(child)) walk(child)
+      else out.push(child)
+    }
+  }
+  walk(children)
+  return out
+}
+
+/**
+ * Swaps rendered elements in for `BaseNode` instances, keeping arrays nested.
+ *
+ * The nesting is preserved deliberately: React reads a nested array as a list
+ * whose siblings are not part of it, and flattening here would hand React the
+ * same shape a spread does — which is exactly the shape that loses React's
+ * missing-key exemption for those siblings.
+ * @param child One member of a children array.
+ * @param rendered The map populated during the begin phase.
+ * @returns The member with any node instances replaced by their elements.
+ */
+function resolveChild(child: unknown, rendered: Map<BaseNode, ReactElement>): ReactNode {
+  if (Array.isArray(child)) return child.map(c => resolveChild(c, rendered)) as unknown as ReactNode
+  if (!NodeUtil.isNodeInstance(child)) return child as ReactNode
+  const element = rendered.get(child)
+  if (!element) {
+    throw new Error(`[MeoNode] Missing rendered element for child node: ${getElementTypeName(child.element)}`)
+  }
+  return element
+}
+
+/**
  * The core abstraction of the MeoNode library. It wraps a React element or component,
  * providing a unified interface for processing props, normalizing children, and handling styles.
  * This class is central to the library's ability to offer a JSX-free, fluent API for building UIs.
@@ -226,16 +274,16 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
             // Only consider BaseNode children for further traversal; primitives and React elements are terminal.
             const childArray = Array.isArray(children) ? children : [children]
 
-            // --- Count BaseNode children for capacity check (avoids .filter() allocation) ---
-            let nodeChildCount = 0
-            for (let j = 0; j < childArray.length; j++) {
-              if (NodeUtil.isNodeInstance(childArray[j])) nodeChildCount++
-            }
+            // A `children` array may hold arrays. Their members render like any
+            // other child, so they are collected here — a nested array skipped at
+            // this phase would never reach `renderedElements`, and the complete
+            // phase below would then fail to look it up rather than rendering it.
+            const pending = collectNodeChildren(childArray)
 
-            ensureCapacity(stackPointer + nodeChildCount)
+            ensureCapacity(stackPointer + pending.length)
 
-            for (let i = childArray.length - 1; i >= 0; i--) {
-              const child = childArray[i]
+            for (let i = pending.length - 1; i >= 0; i--) {
+              const child = pending[i]
               if (!NodeUtil.isNodeInstance(child)) continue
 
               // Fiber-backed memoization: hand the subtree to React instead of
@@ -286,16 +334,7 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
             finalChildren = new Array(childCount)
 
             for (let i = 0; i < childCount; i++) {
-              const child = childArray[i]
-              if (NodeUtil.isNodeInstance(child)) {
-                const rendered = renderedElements.get(child)
-                if (!rendered) {
-                  throw new Error(`[MeoNode] Missing rendered element for child node: ${getElementTypeName(child.element)}`)
-                }
-                finalChildren[i] = rendered
-              } else {
-                finalChildren[i] = child
-              }
+              finalChildren[i] = resolveChild(childArray[i], renderedElements)
             }
           }
 
