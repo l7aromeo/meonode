@@ -68,6 +68,28 @@ the only option before, because a nested array used to reach React unrendered an
 
 Nesting is unlimited, and an array that contains itself is dropped rather than left to overflow the stack.
 
+### Keyed Lists with `For()`
+
+React matches children by position unless they carry a `key`, so deleting or reordering an unkeyed list hands each
+surviving row the previous row's fiber — its state, its focus, its half-typed input. `children: items.map(...)`
+inherits that rule in full, and position is the one thing that cannot tell you which row is which after a reorder.
+
+The data can. `For()` takes the data rather than the finished nodes and keys each row from it.
+
+```typescript
+Div({ children: For(todos, todo => TodoRow({ todo })) })
+```
+
+A row is identified by its object reference, which survives the row's contents changing: renaming a row keeps its
+state, where hashing the contents would throw it away on every keystroke. Pass an identity accessor whenever the items
+are rebuilt between renders — a fresh fetch, a `.map()` that spreads — since references cannot see through that.
+
+```typescript
+Div({ children: For(todos, todo => TodoRow({ todo }), todo => todo.id) })
+```
+
+Development says so when it detects that case, rather than letting the list remount silently.
+
 ### Direct CSS-in-Props
 
 Pass CSS properties directly to components. No separate styled-components declarations, no className juggling. All valid
