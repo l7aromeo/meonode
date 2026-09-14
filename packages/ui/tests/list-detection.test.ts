@@ -336,6 +336,14 @@ describe('a generated list inside a generated list', () => {
 //
 //   children: [Span(heading, { ... }), ...(Array.isArray(rows) ? rows : [rows])]
 //
+// In the field no bare sibling was written anywhere. That normalising spread is
+// how a pass-through wrapper accepts one node or many, so a caller handing it a
+// SINGLE node lands that node in the array with no key of its own, while the
+// heading the wrapper does write inline is keyed and safe. Reproduced: one bare
+// node through the prop reports, a keyed array through the same wrapper does
+// not. A less obvious route to the same flat array than a sibling typed out
+// beside the spread, and the one that actually happened.
+//
 // Characterization, not a guard, and deliberately not a behaviour change. React
 // penalises the same flat shape on its own — `createElement(t, null, [authored,
 // ...keyed])` reports too, measured. What the flat form loses is React's
