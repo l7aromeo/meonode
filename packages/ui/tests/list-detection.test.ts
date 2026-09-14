@@ -21,8 +21,8 @@
 // bare `{ __meo$: 3, __meo$list: 1 }` object the compiler synthesizes for a
 // children-first call.
 import { Div, Node, Section, Span } from '@src/main.js'
-import { cleanup, render } from '@testing-library/react'
-import { createElement, Fragment, type ReactNode } from 'react'
+import { act, cleanup, render } from '@testing-library/react'
+import { createElement, Fragment, useState, type ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 // The key the compiler sets on a call site whose `children` expression was
@@ -360,11 +360,17 @@ describe('a generated list inside a generated list', () => {
 // not. A less obvious route to the same flat array than a sibling typed out
 // beside the spread, and the one that actually happened.
 //
-// Characterization, not a guard, and deliberately not a behaviour change. React
-// penalises the same flat shape on its own — `createElement(t, null, [authored,
-// ...keyed])` reports too, measured. What the flat form loses is React's
-// exemption for the authored sibling when the generated part stays a nested
-// array, which is what JSX emits and what we flatten away.
+// The report is correct, and that is settled rather than assumed. Silencing this
+// shape was considered and rejected on a measurement: an unkeyed row in it loses
+// its state when a row ABOVE it is removed, and a keyed row keeps it. The case
+// below demonstrates it, so anyone proposing to silence the shape has to argue
+// with the behaviour rather than with a preference.
+//
+// Not a behaviour change either way. React penalises the same flat shape on its
+// own — `createElement(t, null, [authored, ...keyed])` reports too, measured.
+// What the flat form loses is React's exemption for the authored sibling when
+// the generated part stays a nested array, which is what JSX emits and what the
+// spread flattens away.
 //
 // If the generated segment is ever emitted as its own argument, this pair is
 // what will say so: the first case goes quiet.
@@ -379,6 +385,41 @@ describe('an authored sibling beside a generated segment', () => {
     const keyed = [0, 1, 2].map(i => createElement(Row, { key: `r${i}` }))
     const reports = keyReports(as => Div({ as, [LIST_MARKER]: 1, children: [createElement(Row, { key: 'authored' }), ...keyed] } as never).render())
     expect(reports).toBe(0)
+  })
+})
+
+// The measurement that closed the question above. State belongs to a row's
+// position unless a key says otherwise, so removing a row from ABOVE an unkeyed
+// one hands its state to a different row — which is the bug the report exists to
+// surface, not a false positive worth silencing.
+describe('why the report on that shape is worth having', () => {
+  it('shows state following the row only when the row is keyed', () => {
+    const Stateful = ({ id }: { id: string }) => {
+      const [typed, setTyped] = useState('')
+      return createElement('i', { 'data-testid': id, onClick: () => setTyped('T') }, typed || id)
+    }
+
+    const run = (keyed: boolean) => {
+      // Taken once: called inside `App` it would hand every re-render a new tag,
+      // remounting the subtree and destroying the state this is measuring.
+      const parent = freshParent()
+      const App = ({ ids }: { ids: string[] }) =>
+        Div({
+          as: parent,
+          [LIST_MARKER]: 1,
+          children: [Span('heading', { key: 'h' }), ...ids.map(id => createElement(Stateful, keyed ? { key: id, id } : { id }))],
+        } as never).render() as never
+
+      const view = render(createElement(App, { ids: ['a', 'b', 'c'] }))
+      act(() => view.getByTestId('c').click()) // type into the last row
+      act(() => view.rerender(createElement(App, { ids: ['b', 'c'] }))) // remove the row above it
+      const kept = view.getByTestId('c').textContent === 'T'
+      view.unmount()
+      return kept
+    }
+
+    expect(run(false)).toBe(false) // unkeyed: the typing does not follow the row
+    expect(run(true)).toBe(true) // keyed: it does
   })
 })
 
