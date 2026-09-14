@@ -61,18 +61,19 @@ Every row below was measured against the published tarball, not inferred:
 | Schema 2 marker + `c`/`d`/`k`/`dyn` buckets | `@meonode/ui@1.7.0` | 1.6.2 and earlier have no `COMPILED_MARKER` at all, so every one of the five keys falls through as an ordinary prop — five `Invalid attribute name` lines per call site |
 | Schema 3 marker (call sites the plugin cannot partition) | `@meonode/ui@1.8.0` | 1.7.0–1.7.8 set `SUPPORTED_COMPILER_SCHEMAS` to `{1, 2}`, so the whole marker object falls through as ordinary props — `Invalid attribute name: __meo$`, and again for `__meo$k` |
 | `__meo$list` (generated-children reporting) | `@meonode/ui@2.1.0` | 2.0.2 and earlier lack a `list` entry in `COMPILER_SCHEMA_KEYS`, and the compiled path strips by exact name — `Invalid attribute name: __meo$list`, once per render per marked call site |
-| `__meo$loc` (call-site locations, opt-in) | **Not yet published** — the release this change ships in | 2.1.0 has no `loc` entry, so the key falls through — measured against the 2.1.0 tarball: `Invalid attribute name: __meo$loc`, while `__meo$list` beside it is stripped cleanly. Only reachable with `callSiteLocations` enabled |
+| `__meo$loc` (call-site locations, opt-in) | `@meonode/ui@2.2.0` | 2.1.0 has no `loc` entry, so the key falls through — measured against the 2.1.0 tarball: `Invalid attribute name: __meo$loc`, while `__meo$list` beside it is stripped cleanly. Only reachable with `callSiteLocations` enabled |
 
 **`2.0.0` or later is recommended**: it removed the derived-key machinery
 outright, which fixed a class of memoization collision the plugin could only
 narrow (see [measured effect](#measured-effect)).
 
-The location row is the one to read carefully, because the version does not
-exist yet: `__meo$loc` is consumed by the runtime half that ships alongside
-this change, and as of writing the newest published `@meonode/ui` is 2.1.0,
-which strips `__meo$list` but does not know `__meo$loc`.
+The location row is the one to read carefully, because the two halves ship
+together: `__meo$loc` is emitted by this plugin and consumed by the runtime
+released alongside it. 2.1.0 strips `__meo$list` but has never heard of
+`__meo$loc`, so a new plugin against that runtime is the one combination that
+misbehaves.
 
-Rather than pin a number that has not been cut, check the symptom. A runtime
+The version is in the table, but the symptom is the faster check. A runtime
 that does not know the key logs `Invalid attribute name: __meo$loc` once per
 render of every marked call site; a runtime that does know it logs nothing, and
 an unkeyed generated list instead gets React's own missing-key report with a
