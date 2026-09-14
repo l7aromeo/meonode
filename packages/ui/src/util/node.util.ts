@@ -21,6 +21,16 @@ import { diagnosticsEnabled } from '@src/util/theme-diagnostics.util.js'
  * and stable element ID generation. This centralizes common helper functions,
  * improving modularity and maintainability of the core library.
  */
+
+/**
+ * `children` is an array rather than a single child.
+ *
+ * `Array.isArray`'s own signature narrows to `any[]`, which cannot subtract a
+ * `readonly` array from a union, and `Children` arrays are readonly so that a
+ * caller's `as const` list is still a valid children list.
+ */
+const isChildList = (children: Children): children is readonly Children[] => Array.isArray(children)
+
 export class NodeUtil {
   private constructor() {}
 
@@ -382,8 +392,10 @@ export class NodeUtil {
     if (!children) return undefined
     if (typeof children === 'function') return children
 
-    // Fast path for non-array (single child).
-    if (!Array.isArray(children)) {
+    // Fast path for non-array (single child). `Array.isArray` narrows to `any[]`,
+    // which does not subtract `readonly Children[]` from the union, so the guard
+    // has to say what it proves.
+    if (!isChildList(children)) {
       return NodeUtil.processRawNode(children, disableEmotion)
     }
 
@@ -406,12 +418,15 @@ export class NodeUtil {
     // the compiler must call generated because it cannot see inside it — would
     // be reported where React says nothing. Keeping the shape the author's
     // expression actually produced lets React answer for itself.
+    // The nested branch above has already returned, so nothing left in here is an
+    // array — a fact the element type cannot carry, since `Children` describes any
+    // depth.
     if (children.length === 1 && !keepArray) {
-      return NodeUtil.processRawNode(children[0], disableEmotion)
+      return NodeUtil.processRawNode(children[0] as NodeElement, disableEmotion)
     }
 
     // General case: multiple children
-    return children.map(child => NodeUtil.processRawNode(child, disableEmotion))
+    return children.map(child => NodeUtil.processRawNode(child as NodeElement, disableEmotion))
   }
 
   /**
