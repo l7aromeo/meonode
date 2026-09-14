@@ -74,6 +74,15 @@ let uid = 0
  * than trusting the case to remember. A hyphenated name is a custom element to
  * React, which reconciles and reports exactly as a built-in does, and unlike a
  * list of real tags it cannot run out as this file grows.
+ *
+ * Scoped to the shape in THIS file — a flat list under a host element. A fresh
+ * parent tag does not isolate every shape: a nested array reconciles under an
+ * implicit fiber and shares one budget across all parents, so three identical
+ * cases under three different tags give 1, 0, 0 and the technique buys nothing.
+ * What isolates those is a separate test file. See the header of
+ * `nested-array-children.test.ts`. The safe generalisation is that the budget is
+ * keyed on whatever fiber React reconciles the list under, which is not always
+ * the tag you wrote.
  */
 const freshParent = () => `meo-list-${++uid}`
 
