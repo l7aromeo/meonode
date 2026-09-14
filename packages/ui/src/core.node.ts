@@ -27,11 +27,11 @@ import { isFragment, isValidElementType } from '@src/helper/react-is.helper.js'
 import { getComponentType, getElementTypeName, hasNoStyleTag, getGlobalState } from '@src/helper/common.helper.js'
 import StyledRenderer from '@src/components/styled-renderer.client.js'
 import MeoMemo from '@src/components/meo-memo.client.js'
-import { __DEBUG__, LIST_MARKER, LOCATION_MARKER } from '@src/constant/common.const.js'
+import { LIST_MARKER, LOCATION_MARKER } from '@src/constant/common.const.js'
 import { NodeUtil } from '@src/util/node.util.js'
 import { compileServerEmotionClassName } from '@src/util/server-emotion.util.js'
 import { getActiveServerTheme, replaceThemeTokensWithCssVars, setActiveServerTheme } from '@src/util/server-theme.util.js'
-import { reportThemeIssues } from '@src/util/theme-diagnostics.util.js'
+import { diagnosticsEnabled, reportThemeIssues } from '@src/util/theme-diagnostics.util.js'
 import { ThemeUtil } from '@src/util/theme.util.js'
 
 const RENDER_CONTEXT_POOL_KEY = Symbol.for('@meonode/ui/BaseNode/renderContextPool')
@@ -431,7 +431,19 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
           // React says nothing at all — a marked list whose children reach a
           // host element through an unmarked node is spread variadically there,
           // which silences React, leaving this as the only signal.
-          if (__DEBUG__ && callSiteLocation && childArguments !== finalChildren) {
+          // Gated like every other MeoNode diagnostic rather than behind
+          // `setDebugMode`, so it reaches an ordinary `next dev` run. The person
+          // this exists for has hit a key warning that names no call site and does
+          // not know the feature exists; behind the strict flag it only ever
+          // reached people who already knew to look for it.
+          //
+          // Condition order is deliberate and a tidy-up would undo it.
+          // `diagnosticsEnabled()` is a call with a try/catch and a `process.env`
+          // read, so it goes last, behind two property comparisons.
+          // `callSiteLocation` is undefined unless the plugin ran with
+          // `callSiteLocations` — nearly every build — so almost everyone
+          // short-circuits on the first term and never reaches the call.
+          if (callSiteLocation && childArguments !== finalChildren && diagnosticsEnabled()) {
             const missingKey = finalChildren.some(child => isValidElement(child) && child.key == null)
             if (missingKey) {
               console.warn(

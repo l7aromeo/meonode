@@ -39,25 +39,42 @@ const unkeyed = () => ['a', 'b', 'c'].map(id => Span(id))
 const keyed = () => ['a', 'b', 'c'].map(id => Span(id, { key: id }))
 
 describe('the call-site location line', () => {
-  it('names the call site when a generated list is missing keys', () => {
+  // The whole point of the gate change: this has to reach someone who has hit
+  // an unlocatable key warning and does not know the feature exists. That person
+  // is running `next dev`, not `setDebugMode(true)`.
+  it('names the call site in an ordinary development run, with no flag set', () => {
+    const lines = meoLines(() => Div({ children: unkeyed(), [LIST]: 1, [LOC]: HERE } as never).render())
+    expect(lines.some(m => m.includes(HERE))).toBe(true)
+  })
+
+  it('still names it when debug mode is on', () => {
     setDebugMode(true)
     const lines = meoLines(() => Div({ children: unkeyed(), [LIST]: 1, [LOC]: HERE } as never).render())
     expect(lines.some(m => m.includes(HERE))).toBe(true)
   })
 
   it('stays quiet when every row already carries a key', () => {
-    setDebugMode(true)
     const lines = meoLines(() => Div({ children: keyed(), [LIST]: 1, [LOC]: HERE } as never).render())
     expect(lines.some(m => m.includes(HERE))).toBe(false)
   })
 
-  it('stays quiet unless debug mode is on', () => {
-    const lines = meoLines(() => Div({ children: unkeyed(), [LIST]: 1, [LOC]: HERE } as never).render())
-    expect(lines.some(m => m.includes(HERE))).toBe(false)
+  // `diagnosticsEnabled()` is on whenever NODE_ENV is not production, so an
+  // unset `setDebugMode` no longer expresses "off" — under vitest it is on. A
+  // production build is now the only thing that switches it off, and that is
+  // what this asserts, so the silence is earned rather than free.
+  it('stays quiet in a production build', () => {
+    const env = process.env as Record<string, string | undefined>
+    const previous = env.NODE_ENV
+    env.NODE_ENV = 'production'
+    try {
+      const lines = meoLines(() => Div({ children: unkeyed(), [LIST]: 1, [LOC]: HERE } as never).render())
+      expect(lines.some(m => m.includes(HERE))).toBe(false)
+    } finally {
+      env.NODE_ENV = previous
+    }
   })
 
   it('stays quiet when the plugin emitted no location', () => {
-    setDebugMode(true)
     const lines = meoLines(() => Div({ children: unkeyed(), [LIST]: 1 } as never).render())
     expect(lines.length).toBe(0)
   })
@@ -67,14 +84,12 @@ describe('the call-site location line', () => {
   // node spreads them variadically, which is React's signal that a human wrote
   // them out. Our line is then the only signal there is, so it must still fire.
   it('still names the call site when React has been silenced by composition', () => {
-    setDebugMode(true)
     const Wrapper = ({ children }: { children?: unknown }) => Div({ children } as never).render()
     const lines = meoLines(() => createElement(Wrapper, { children: Div({ children: unkeyed(), [LIST]: 1, [LOC]: HERE } as never).render() }))
     expect(lines.some(m => m.includes(HERE))).toBe(true)
   })
 
   it('never lets the location reach the element', () => {
-    setDebugMode(true)
     const el = Div({ 'data-testid': 'host', children: unkeyed(), [LIST]: 1, [LOC]: HERE } as never).render() as {
       props: Record<string, unknown>
     }
