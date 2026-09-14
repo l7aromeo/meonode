@@ -11,6 +11,7 @@
 // default development build stays quiet until asked, and the key is only emitted at
 // all when the plugin is configured to.
 import { Div, Span, setDebugMode } from '@src/main.js'
+import { refreshDevMode } from '@src/constant/common.const.js'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -66,11 +67,18 @@ describe('the call-site location line', () => {
     const env = process.env as Record<string, string | undefined>
     const previous = env.NODE_ENV
     env.NODE_ENV = 'production'
+    // `NODE_ENV` is read once at module load rather than on every
+    // `diagnosticsEnabled()` call — a per-call `getenv` costs ~112ns and runs at
+    // every recursion level of every styled node. Changing the variable after
+    // load therefore has no effect until the captured value is re-read, in
+    // either direction.
+    refreshDevMode()
     try {
       const lines = meoLines(() => Div({ children: unkeyed(), [LIST]: 1, [LOC]: HERE } as never).render())
       expect(lines.some(m => m.includes(HERE))).toBe(false)
     } finally {
       env.NODE_ENV = previous
+      refreshDevMode()
     }
   })
 
