@@ -1,5 +1,90 @@
 # @meonode/ui
 
+## 2.2.0
+
+### Minor Changes
+
+- [#19](https://github.com/l7aromeo/meonode/pull/19) [`04959df`](https://github.com/l7aromeo/meonode/commit/04959dfbeb0ed34c0d2841e8ce865f5a31e1668e) Thanks [@l7aromeo](https://github.com/l7aromeo)! - Say where an unkeyed list came from.
+
+  React cannot answer that in a MeoNode app. `Div({...})` only builds a node;
+  `createElement` fires later inside `.render()`, so React attributes every element
+  in the tree to that one call — every missing key anywhere in a file reports at
+  the same line, and the owner stack collapses to the same component for the same
+  reason.
+
+  The compiler already computed the call site and discarded it. With the new
+  `callSiteLocations` option it emits the source position, and the runtime names it
+  beside React's own report rather than in place of it:
+
+  ```
+  [MeoNode] A generated list at src/app/page.ts:124:6 has children without a `key`.
+  ```
+
+  It prints only when a child actually lacks a key, so a correctly keyed list stays
+  silent. It also prints in the one case React says nothing at all: a marked list
+  whose children reach a host element through an unmarked wrapper, where the
+  variadic hand-off tells React a human wrote the siblings out.
+
+  Opt in through the plugin options. The locations are absent from any build that
+  does not ask for them; with them on, the whole of a 55-file app grew by 759 bytes
+  gzipped.
+
+- [#19](https://github.com/l7aromeo/meonode/pull/19) [`04959df`](https://github.com/l7aromeo/meonode/commit/04959dfbeb0ed34c0d2841e8ce865f5a31e1668e) Thanks [@l7aromeo](https://github.com/l7aromeo)! - Let a `children` array contain arrays.
+
+  `Div({ children: [Span('a'), items.map(render)] })` used to throw `Objects are
+not valid as a React child`, naming MeoNode's internal fields. The only way to
+  combine siblings you wrote out with a generated list was to spread them into one
+  array — and a spread is the one shape that costs those siblings React's
+  missing-key exemption, because React grants it only while the generated part
+  stays a nested array.
+
+  So the shape that read most clearly was the shape the library then reported on.
+  Nesting now works at any depth, and behaves as React does:
+
+  ```ts
+  // the heading is exempt; the list is still key-checked
+  Div({ children: [Span('heading'), rows.map(r => Row({ key: r.id, ...r }))] })
+  ```
+
+  A children array that contains itself is dropped at the self-reference with a
+  development warning rather than overflowing the stack, and a function child
+  inside a nested array is normalised like any other — it previously went missing
+  from the output with nothing said.
+
+  Flat arrays, which are nearly all of them, skip the new traversal entirely:
+  measured against the previous release, zero allocation difference on the flat,
+  single-child and props-only shapes.
+
+### Patch Changes
+
+- [#19](https://github.com/l7aromeo/meonode/pull/19) [`04959df`](https://github.com/l7aromeo/meonode/commit/04959dfbeb0ed34c0d2841e8ce865f5a31e1668e) Thanks [@l7aromeo](https://github.com/l7aromeo)! - Report a throwing function-as-a-child, and stop paying to ask whether to.
+
+  A function child that threw had its error swallowed and its result replaced with
+  `null`, so the element vanished from the page with nothing printed unless
+  `setDebugMode` happened to be on — and nobody discovers `setDebugMode` from a
+  blank space. The error belongs to the caller, so it now appears in development
+  like any other diagnostic. MeoNode's own recovery paths stay behind
+  `setDebugMode`: a compiled marker bucket collision, a failed prototype probe and
+  a key-name fallback are the library recovering from itself, and nobody outside it
+  can act on them.
+
+  Separately, `diagnosticsEnabled()` read `process.env.NODE_ENV` on every call,
+  which in Node is a native `getenv` rather than a property read — roughly 112ns
+  against 0.9ns for a boolean. It is consulted at every recursion level of the
+  theme diagnostics, once per styled node, on every render, while the function's
+  own documentation claimed production cost a single boolean check. The
+  environment is now read once. `setDebugMode` still takes effect at runtime.
+
+- [#19](https://github.com/l7aromeo/meonode/pull/19) [`04959df`](https://github.com/l7aromeo/meonode/commit/04959dfbeb0ed34c0d2841e8ce865f5a31e1668e) Thanks [@l7aromeo](https://github.com/l7aromeo)! - Catch a node passed as a DOM attribute on a plain HTML tag.
+
+  `Div({ title: Span('x') })` rendered `title="[object Object]"` and said nothing.
+  It now throws, naming the prop and the call site.
+
+  Host tags only. Passing a node in a prop to a _component_ stays supported — the
+  receiver may put it into its own children, where it resolves correctly, and only
+  the receiver knows which was meant. A plain tag has no receiver, so the case is
+  decidable and always wrong.
+
 ## 2.1.0
 
 ### Minor Changes
