@@ -20,7 +20,7 @@
 // separate code and is covered in `list-marker-schemas.test.ts`, including the
 // bare `{ __meo$: 3, __meo$list: 1 }` object the compiler synthesizes for a
 // children-first call.
-import { Div, Node, Section } from '@src/main.js'
+import { Div, Node, Section, Span } from '@src/main.js'
 import { cleanup, render } from '@testing-library/react'
 import { createElement, Fragment, type ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -30,6 +30,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 // runtime exports it, this constant is replaced by that import and the spec
 // starts asserting against the real contract.
 const LIST_MARKER = '__meo$list'
+// The schema field the compiler emits beside it; a children-first call gets schema 3.
+const COMPILED_MARKER = '__meo$'
 
 afterEach(cleanup)
 
@@ -42,6 +44,16 @@ afterEach(cleanup)
 // worse, a later case asserting one does NOT appear passes without proving it.
 // So a new case here has to be read against everything that ran before it, and
 // anything that can be asserted on a value instead of on a warning should be.
+//
+// Scoped to THIS renderer: every budget described here is the client
+// reconciler's, measured under jsdom. The server renderer keeps its own — the
+// same two Fragment-parented lists that give 1 then 0 here give 1 then 1 through
+// `renderToStaticMarkup`. Anything reasoning about these budgets on the server
+// is reasoning from the wrong renderer.
+//
+// The trap is not theoretical: this note was written after one reviewer spent
+// the budget in an earlier case and read the resulting 0/0 as the feature being
+// broken, within minutes of reading the warning above.
 
 const Row = () => createElement('i', null, 'x')
 
@@ -314,5 +326,56 @@ describe('a generated list inside a generated list', () => {
       } as never).render(),
     )
     expect(reports).toBe(1)
+  })
+})
+
+// The shape a real project hit, and the one nothing here pinned. A literal array
+// containing a spread classifies as generated, so the whole array goes to React
+// as one argument and every member is key-checked — including siblings the author
+// wrote out beside the spread:
+//
+//   children: [Span(heading, { ... }), ...(Array.isArray(rows) ? rows : [rows])]
+//
+// Characterization, not a guard, and deliberately not a behaviour change. React
+// penalises the same flat shape on its own — `createElement(t, null, [authored,
+// ...keyed])` reports too, measured. What the flat form loses is React's
+// exemption for the authored sibling when the generated part stays a nested
+// array, which is what JSX emits and what we flatten away.
+//
+// If the generated segment is ever emitted as its own argument, this pair is
+// what will say so: the first case goes quiet.
+describe('an authored sibling beside a generated segment', () => {
+  it('is reported today, even though every generated row is keyed', () => {
+    const keyed = [0, 1, 2].map(i => createElement(Row, { key: `r${i}` }))
+    const reports = keyReports(as => Div({ as, [LIST_MARKER]: 1, children: [createElement(Row), ...keyed] } as never).render())
+    expect(reports).toBe(1)
+  })
+
+  it('goes quiet once the authored sibling carries a key too, which is where the report was pointing', () => {
+    const keyed = [0, 1, 2].map(i => createElement(Row, { key: `r${i}` }))
+    const reports = keyReports(as => Div({ as, [LIST_MARKER]: 1, children: [createElement(Row, { key: 'authored' }), ...keyed] } as never).render())
+    expect(reports).toBe(0)
+  })
+})
+
+// The compiler marks a children-first call whose child is a scalar — the marker
+// says "this call site's children expression was generated", not "this is a
+// list", and a reader who assumes otherwise from the name will be wrong.
+//
+// Documentary, and mutation-tested to establish that rather than assumed.
+// Neither half is a guard: the marker cannot reach the element even with both
+// strips disabled, because `BaseNode.render` destructures it off before
+// `otherProps` exists; and the silence survives forcing every call site to the
+// array form, because a string has no key for React to ask about. It is here to
+// pin the name's misleading half, not to defend anything.
+describe('a marked call site whose child is a scalar', () => {
+  it('reports nothing and keeps the marker off the element', () => {
+    const element = Span(String(42), { [COMPILED_MARKER]: 3, [LIST_MARKER]: 1 } as never).render() as {
+      props: Record<string, unknown>
+    }
+    expect(Object.keys(element.props).filter(k => k.startsWith('__meo$'))).toEqual([])
+
+    const reports = keyReports(as => Div({ as, children: Span(String(42), { [COMPILED_MARKER]: 3, [LIST_MARKER]: 1 } as never) } as never).render())
+    expect(reports).toBe(0)
   })
 })
