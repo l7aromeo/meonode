@@ -11,7 +11,7 @@ import type {
 } from '@src/types/node.type.js'
 import { isForwardRef, isMemo, isReactClassComponent } from '@src/helper/react-is.helper.js'
 import { getCSSProps, getDOMProps, getElementTypeName, omitUndefined } from '@src/helper/common.helper.js'
-import { __DEBUG__, COMPILED_MARKER, COMPILER_SCHEMA_KEYS, LIST_MARKER, SUPPORTED_COMPILER_SCHEMAS } from '@src/constant/common.const.js'
+import { __DEBUG__, COMPILED_MARKER, COMPILER_SCHEMA_KEYS, LIST_MARKER, LOCATION_MARKER, SUPPORTED_COMPILER_SCHEMAS } from '@src/constant/common.const.js'
 import { BaseNode } from '@src/core.node.js'
 
 /**
@@ -188,6 +188,7 @@ export class NodeUtil {
         // and schema 1 declining to *act* on the marker is no reason to let it
         // out to the element.
         propKey === LIST_MARKER ||
+        propKey === LOCATION_MARKER ||
         NodeUtil.DESTRUCTURED_SPECIAL_KEYS.has(propKey)
       ) {
         continue
@@ -237,6 +238,8 @@ export class NodeUtil {
     const processedChildren = NodeUtil._processChildren(children, disableEmotion, generatedChildren)
     if (processedChildren !== undefined) result.children = processedChildren
     if (generatedChildren) result[LIST_MARKER] = true
+    const compiledLocation = schemaKeys.loc === undefined ? undefined : source[schemaKeys.loc]
+    if (typeof compiledLocation === 'string') result[LOCATION_MARKER] = compiledLocation
 
     return result as FinalNodeProps
   }
@@ -277,6 +280,8 @@ export class NodeUtil {
     // would silently swallow a user prop that happened to match — the same
     // collision that retired schema 1's unprefixed buckets.
     const generatedChildren = (rawProps as Record<string, unknown>)[LIST_MARKER] ? true : undefined
+    const rawLocation = (rawProps as Record<string, unknown>)[LOCATION_MARKER]
+    const compiledLocation = typeof rawLocation === 'string' ? rawLocation : undefined
 
     const { ref, key, children, css, props: nativeProps = {}, disableEmotion, ...restRawProps } = rawProps
 
@@ -297,7 +302,7 @@ export class NodeUtil {
     // produces; what it buys is that the strip has the same precondition as the
     // read a few lines up, which does not demand a schema either. A marker the
     // runtime is willing to act on should not be one it declines to strip.
-    if (COMPILED_MARKER in restRawProps || generatedChildren) {
+    if (COMPILED_MARKER in restRawProps || generatedChildren || compiledLocation) {
       for (const propKey in restRawProps) {
         if (propKey.startsWith(COMPILED_MARKER)) {
           delete (restRawProps as Record<string, unknown>)[propKey]
@@ -312,6 +317,7 @@ export class NodeUtil {
         key,
         disableEmotion,
         [LIST_MARKER]: generatedChildren,
+        [LOCATION_MARKER]: compiledLocation,
         nativeProps: omitUndefined(nativeProps),
         children: NodeUtil._processChildren(children, disableEmotion, generatedChildren),
       })
@@ -356,6 +362,7 @@ export class NodeUtil {
       ...domProps,
       disableEmotion,
       [LIST_MARKER]: generatedChildren,
+      [LOCATION_MARKER]: compiledLocation,
       nativeProps: omitUndefined(nativeProps),
       children: normalizedChildren,
     })

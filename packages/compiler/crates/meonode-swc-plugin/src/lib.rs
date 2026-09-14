@@ -83,7 +83,12 @@ pub fn process_transform(
     let filename = resolve_filename(&metadata);
     let plugin_config =
         config::CompileConfig::from_json(metadata.get_transform_plugin_config().as_deref());
-    partition::transform_program(&mut program, &filename, &plugin_config);
+    partition::transform_program(
+        &mut program,
+        &filename,
+        &plugin_config,
+        Some(&metadata.source_map),
+    );
     program
 }
 
