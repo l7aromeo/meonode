@@ -882,6 +882,33 @@ describe('the list marker across the RSC boundary', () => {
     expect(await keyReports(SERVER_PAGE)).toBe(0)
   })
 
+  // The wrapper's own inner node carries the marker too, which is what a
+  // compiled app actually produces: `Div({ children })` reads `children` as a
+  // bare identifier, and the plugin classifies a bare identifier as generated
+  // because it cannot see inside it. So the report survives composition, and
+  // the pass-through over-report is what keeps it alive.
+  //
+  // Renderer-independent — the same result was measured under jsdom — so this
+  // is cheap here but would be cheaper as a unit test.
+  it('keeps the report when the wrapper node is itself marked', async () => {
+    expect(await keyReports('/lm-row3')).toBeGreaterThan(0)
+  })
+
+  // An UNMARKED outer node whose children reach a MARKED wrapper.
+  //
+  // This one is renderer-dependent, which is why it is pinned here rather than
+  // only in a unit test. Under jsdom it reports nothing: the outer node spread
+  // the children variadically, React marked them validated at that point, and
+  // they stay immune downstream. Under Flight, measured on an isolated server
+  // twice, it reports. Whatever makes validation sticky in the client
+  // reconciler does not carry across the RSC boundary here.
+  //
+  // Asserted as the Flight behaviour because that is what this suite runs. If a
+  // change makes the two agree, this is the expectation that will say so.
+  it('still reports when only the wrapper is marked, unlike the client reconciler', async () => {
+    expect(await keyReports('/lm-row5')).toBeGreaterThan(0)
+  })
+
   it('renders a marked generated list on the client without a hydration mismatch', async () => {
     const { status, html } = await getPage(CLIENT_PAGE)
 
