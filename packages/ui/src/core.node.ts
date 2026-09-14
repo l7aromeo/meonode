@@ -260,7 +260,17 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
           // Extract node props. Non-present props default to undefined via destructuring.
           // `as` is the Emotion-style polymorphic target: it is consumed here (never
           // forwarded to the DOM) and only used to swap the rendered element below.
-          const { children: childrenInProps, key, css, nativeProps, disableEmotion, as: asTarget, [LIST_MARKER]: generatedChildren, [LOCATION_MARKER]: callSiteLocation, ...otherProps } = node.props
+          const {
+            children: childrenInProps,
+            key,
+            css,
+            nativeProps,
+            disableEmotion,
+            as: asTarget,
+            [LIST_MARKER]: generatedChildren,
+            [LOCATION_MARKER]: callSiteLocation,
+            ...otherProps
+          } = node.props
           const activeTheme = getActiveTheme(node.props, inheritedTheme)
 
           // Resolve the element to actually render. `as` swaps the render target
@@ -354,7 +364,9 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
           if (__DEBUG__ && callSiteLocation && childArguments !== finalChildren) {
             const missingKey = finalChildren.some(child => isValidElement(child) && child.key == null)
             if (missingKey) {
-              console.warn(`[MeoNode] A generated list at ${callSiteLocation} has children without a \`key\`. React reports the missing key itself; this names the call site it came from.`)
+              console.warn(
+                `[MeoNode] A generated list at ${callSiteLocation} has children without a \`key\`. React reports the missing key itself; this names the call site it came from.`,
+              )
             }
           }
 

@@ -69,9 +69,7 @@ describe('the call-site location line', () => {
   it('still names the call site when React has been silenced by composition', () => {
     setDebugMode(true)
     const Wrapper = ({ children }: { children?: unknown }) => Div({ children } as never).render()
-    const lines = meoLines(() =>
-      createElement(Wrapper, { children: Div({ children: unkeyed(), [LIST]: 1, [LOC]: HERE } as never).render() }),
-    )
+    const lines = meoLines(() => createElement(Wrapper, { children: Div({ children: unkeyed(), [LIST]: 1, [LOC]: HERE } as never).render() }))
     expect(lines.some(m => m.includes(HERE))).toBe(true)
   })
 
