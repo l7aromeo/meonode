@@ -33,12 +33,34 @@ const bytesPer = (fn) => {
   if (sink.length !== N) throw new Error('unreachable')
   return (after - before) / N
 }
+const med = (xs) => [...xs].sort((x, y) => x - y)[Math.floor(xs.length / 2)]
+
+// PAIRED differences, not a difference of medians.
+//
+// Differencing the two medians looked equivalent and is not: each `bytesPer`
+// call leaves the heap in a different state for the next one, so A and B sit at
+// systematically different points in that drift. Validated by pointing both
+// sides at the SAME dist, where the answer must be 0 — difference-of-medians
+// reported a reproducible -26.4 B on flatChildren and +13.7 B on singleChild,
+// stable to 0.1 B across runs. Pairing each A with the B measured beside it
+// cancels the drift and returns that self-comparison to ~0.
+//
+// Always run the self-comparison before trusting a result from this file:
+//   BASE_DIST=X INTG_DIST=X node --expose-gc bench/ab-alloc.mjs
 const out = {}
 for (const [name, mk] of Object.entries(shapes)) {
-  const runs = []
-  for (let r = 0; r < 5; r++) runs.push({ a: bytesPer(mk(base)), b: bytesPer(mk(intg)) })
-  const med = (xs) => [...xs].sort((x, y) => x - y)[Math.floor(xs.length / 2)]
-  const A = med(runs.map(r => r.a)), B = med(runs.map(r => r.b))
-  out[name] = { mainBytes: +A.toFixed(1), integrationBytes: +B.toFixed(1), deltaBytes: +(B - A).toFixed(1), deltaPct: +(((B - A) / A) * 100).toFixed(2) }
+  const a = mk(base)
+  const b = mk(intg)
+  const diffs = []
+  const aVals = []
+  for (let r = 0; r < 7; r++) {
+    // A B B A, so a monotonic drift cancels within the pair.
+    const a1 = bytesPer(a), b1 = bytesPer(b), b2 = bytesPer(b), a2 = bytesPer(a)
+    diffs.push((b1 + b2) / 2 - (a1 + a2) / 2)
+    aVals.push((a1 + a2) / 2)
+  }
+  const A = med(aVals)
+  const delta = med(diffs)
+  out[name] = { mainBytes: +A.toFixed(1), deltaBytes: +delta.toFixed(1), deltaPct: +((delta / A) * 100).toFixed(2) }
 }
 console.log(JSON.stringify(out, null, 1))
