@@ -11,8 +11,9 @@ import type {
 } from '@src/types/node.type.js'
 import { isForwardRef, isMemo, isReactClassComponent } from '@src/helper/react-is.helper.js'
 import { getCSSProps, getDOMProps, getElementTypeName, omitUndefined } from '@src/helper/common.helper.js'
-import { __DEBUG__, COMPILED_MARKER, COMPILER_SCHEMA_KEYS, LIST_MARKER, SUPPORTED_COMPILER_SCHEMAS } from '@src/constant/common.const.js'
+import { __DEBUG__, COMPILED_MARKER, COMPILER_SCHEMA_KEYS, LIST_MARKER, LOCATION_MARKER, SUPPORTED_COMPILER_SCHEMAS } from '@src/constant/common.const.js'
 import { BaseNode } from '@src/core.node.js'
+import { diagnosticsEnabled } from '@src/util/theme-diagnostics.util.js'
 
 /**
  * NodeUtil provides a collection of static utility methods and properties
@@ -188,6 +189,7 @@ export class NodeUtil {
         // and schema 1 declining to *act* on the marker is no reason to let it
         // out to the element.
         propKey === LIST_MARKER ||
+        propKey === LOCATION_MARKER ||
         NodeUtil.DESTRUCTURED_SPECIAL_KEYS.has(propKey)
       ) {
         continue
@@ -237,6 +239,8 @@ export class NodeUtil {
     const processedChildren = NodeUtil._processChildren(children, disableEmotion, generatedChildren)
     if (processedChildren !== undefined) result.children = processedChildren
     if (generatedChildren) result[LIST_MARKER] = true
+    const compiledLocation = schemaKeys.loc === undefined ? undefined : source[schemaKeys.loc]
+    if (typeof compiledLocation === 'string') result[LOCATION_MARKER] = compiledLocation
 
     return result as FinalNodeProps
   }
@@ -277,6 +281,8 @@ export class NodeUtil {
     // would silently swallow a user prop that happened to match — the same
     // collision that retired schema 1's unprefixed buckets.
     const generatedChildren = (rawProps as Record<string, unknown>)[LIST_MARKER] ? true : undefined
+    const rawLocation = (rawProps as Record<string, unknown>)[LOCATION_MARKER]
+    const compiledLocation = typeof rawLocation === 'string' ? rawLocation : undefined
 
     const { ref, key, children, css, props: nativeProps = {}, disableEmotion, ...restRawProps } = rawProps
 
@@ -297,7 +303,7 @@ export class NodeUtil {
     // produces; what it buys is that the strip has the same precondition as the
     // read a few lines up, which does not demand a schema either. A marker the
     // runtime is willing to act on should not be one it declines to strip.
-    if (COMPILED_MARKER in restRawProps || generatedChildren) {
+    if (COMPILED_MARKER in restRawProps || generatedChildren || compiledLocation) {
       for (const propKey in restRawProps) {
         if (propKey.startsWith(COMPILED_MARKER)) {
           delete (restRawProps as Record<string, unknown>)[propKey]
@@ -312,6 +318,7 @@ export class NodeUtil {
         key,
         disableEmotion,
         [LIST_MARKER]: generatedChildren,
+        [LOCATION_MARKER]: compiledLocation,
         nativeProps: omitUndefined(nativeProps),
         children: NodeUtil._processChildren(children, disableEmotion, generatedChildren),
       })
@@ -356,6 +363,7 @@ export class NodeUtil {
       ...domProps,
       disableEmotion,
       [LIST_MARKER]: generatedChildren,
+      [LOCATION_MARKER]: compiledLocation,
       nativeProps: omitUndefined(nativeProps),
       children: normalizedChildren,
     })
@@ -379,6 +387,16 @@ export class NodeUtil {
       return NodeUtil.processRawNode(children, disableEmotion)
     }
 
+    // A nested array is a list of children in its own right — React flattens
+    // `children` arbitrarily, and the shape is load-bearing: React exempts a
+    // sibling standing beside a nested array from its missing-key check and does
+    // not exempt one beside a flat spread. Normalisation therefore has to reach
+    // inside, or anything in there that needs converting — a function child most
+    // visibly — never gets converted and vanishes from the output.
+    if (children.some(Array.isArray)) {
+      return NodeUtil._processNestedChildren(children, disableEmotion, new WeakSet()) as Children
+    }
+
     // Fast path for single element array — except on a call site the compiler
     // marked as generated, where the difference between `[x]` and `x` is the
     // whole question. React reports an unkeyed one-element array and stays
@@ -394,6 +412,35 @@ export class NodeUtil {
 
     // General case: multiple children
     return children.map(child => NodeUtil.processRawNode(child, disableEmotion))
+  }
+
+  /**
+   * Normalises a children array that contains arrays, preserving their nesting.
+   *
+   * The structure is kept rather than flattened because it is what React reads:
+   * a nested array is a list, and its siblings are not part of it. Flattening
+   * here would hand React the same shape a spread does and lose that.
+   * @param children The array to normalise, which may hold further arrays.
+   * @param disableEmotion Forwarded to {@link processRawNode}.
+   * @param seen Arrays already being walked on this path, so a children array
+   * that contains itself ends the walk instead of recurring forever.
+   * @returns The array with every member normalised and nesting intact.
+   */
+  private static _processNestedChildren(children: readonly unknown[], disableEmotion: boolean | undefined, seen: WeakSet<object>): unknown[] {
+    seen.add(children)
+    return children.map(child => {
+      if (!Array.isArray(child)) return NodeUtil.processRawNode(child as NodeElement, disableEmotion)
+      // A cycle cannot render — React would recurse on it just as we would — so
+      // it is dropped here rather than left to overflow the stack somewhere less
+      // legible. Development says so; production keeps rendering the rest.
+      if (seen.has(child)) {
+        if (diagnosticsEnabled()) {
+          console.warn('[MeoNode] A `children` array contains itself. The self-reference is dropped; the rest of the list still renders.')
+        }
+        return undefined
+      }
+      return NodeUtil._processNestedChildren(child, disableEmotion, seen)
+    })
   }
 
   /**
@@ -547,7 +594,13 @@ export class NodeUtil {
       // Execute the render prop function to get its output.
       result = render()
     } catch (error) {
-      if (__DEBUG__) {
+      // The caller's own function threw: they can act on this, and nothing else
+      // tells them — the child is replaced with null, so the element is simply
+      // absent from the page. That is the criterion the other three __DEBUG__
+      // sites here fail: those are the library's introspection hiccupping and
+      // recovering correctly. This path was filed as unreachable-in-practice;
+      // it was gated, not unreachable.
+      if (diagnosticsEnabled()) {
         console.error('MeoNode: Error executing function-as-a-child.', error)
       }
       // If the render function throws, treat its output as null to prevent crashes.

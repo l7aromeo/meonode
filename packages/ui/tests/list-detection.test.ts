@@ -20,9 +20,9 @@
 // separate code and is covered in `list-marker-schemas.test.ts`, including the
 // bare `{ __meo$: 3, __meo$list: 1 }` object the compiler synthesizes for a
 // children-first call.
-import { Div, Section } from '@src/main.js'
-import { cleanup, render } from '@testing-library/react'
-import { createElement, type ReactNode } from 'react'
+import { Div, Node, Section, Span } from '@src/main.js'
+import { act, cleanup, render } from '@testing-library/react'
+import { createElement, Fragment, useState, type ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 // The key the compiler sets on a call site whose `children` expression was
@@ -30,6 +30,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 // runtime exports it, this constant is replaced by that import and the spec
 // starts asserting against the real contract.
 const LIST_MARKER = '__meo$list'
+// The schema field the compiler emits beside it; a children-first call gets schema 3.
+const COMPILED_MARKER = '__meo$'
 
 afterEach(cleanup)
 
@@ -42,6 +44,16 @@ afterEach(cleanup)
 // worse, a later case asserting one does NOT appear passes without proving it.
 // So a new case here has to be read against everything that ran before it, and
 // anything that can be asserted on a value instead of on a warning should be.
+//
+// Scoped to THIS renderer: every budget described here is the client
+// reconciler's, measured under jsdom. The server renderer keeps its own — the
+// same two Fragment-parented lists that give 1 then 0 here give 1 then 1 through
+// `renderToStaticMarkup`. Anything reasoning about these budgets on the server
+// is reasoning from the wrong renderer.
+//
+// The trap is not theoretical: this note was written after one reviewer spent
+// the budget in an earlier case and read the resulting 0/0 as the feature being
+// broken, within minutes of reading the warning above.
 
 const Row = () => createElement('i', null, 'x')
 
@@ -62,8 +74,35 @@ let uid = 0
  * than trusting the case to remember. A hyphenated name is a custom element to
  * React, which reconciles and reports exactly as a built-in does, and unlike a
  * list of real tags it cannot run out as this file grows.
+ *
+ * Scoped to the shape in THIS file — a flat list under a host element. A fresh
+ * parent tag does not isolate every shape: a nested array reconciles under an
+ * implicit fiber and shares one budget across all parents, so the technique
+ * buys nothing there. What isolates those is a separate test file. See the
+ * header of `nested-array-children.test.ts`.
+ *
+ * Measured as a pair, in one process, which is what makes it unambiguous:
+ *
+ *     nested array, three distinct parent tags   [1, 0, 0]
+ *     flat list,    three distinct parent tags   [1, 1, 1]
+ *
+ * The flat row is why this file's technique works; the nested row is why it
+ * does not transfer. Both measured, here and independently by a second reader. The safe generalisation is that the budget is
+ * keyed on whatever fiber React reconciles the list under, which is not always
+ * the tag you wrote.
  */
-const freshParent = () => `meo-list-${++uid}`
+const nextParentTag = () => `meo-list-${++uid}`
+// Named for what it does rather than what it gives you, because the misuse is
+// invisible otherwise. It advances a counter, so calling it from inside a
+// component body hands every RE-RENDER a different tag — the subtree remounts and
+// any state under it is destroyed. "Get a fresh parent" reads correct there;
+// "get the next tag" reads wrong, which is the point of the name.
+//
+// This is a mitigation, not a guarantee: nothing stops the call. It bit the
+// state-follows-the-row case below, where it made a keyed row lose state for a
+// reason unrelated to keys — and it would have "proved" the claim that case
+// exists to test, in the direction we already believed. Take the tag once,
+// outside the component.
 
 /**
  * Renders what `build` returns under a parent no other case has used, and counts
@@ -75,12 +114,12 @@ function keyReports(build: (parentTag: string) => unknown): number {
   const err = vi.spyOn(console, 'error').mockImplementation((...a: unknown[]) => seen.push(a.map(String).join(' ')))
   const warn = vi.spyOn(console, 'warn').mockImplementation((...a: unknown[]) => seen.push(a.map(String).join(' ')))
   try {
-    render(build(freshParent()) as never)
+    render(build(nextParentTag()) as never)
   } finally {
     err.mockRestore()
     warn.mockRestore()
   }
-  return seen.filter(m => /\bkey\b/i.test(m)).length
+  return seen.filter(m => /unique "key"/i.test(m)).length
 }
 
 describe('generated children, as marked by the compiler', () => {
@@ -218,5 +257,201 @@ describe('authored children, unmarked', () => {
   it('are not reported for a single child or for text', () => {
     expect(keyReports(as => Div({ as, children: createElement(Row) } as never).render())).toBe(0)
     expect(keyReports(as => Div({ as, children: 'plain text' } as never).render())).toBe(0)
+  })
+})
+
+// A Fragment reaches a different `createElement` call in `BaseNode.render` from
+// every other node, and rendering a list without a wrapper element is ordinary.
+// That call site had no coverage: spreading `finalChildren` there instead of
+// `childArguments` broke nothing in the suite.
+//
+// Only ONE case here can assert a report. React keys the missing-key budget on
+// the parent's component name, and every Fragment answers to the same one — a
+// second Fragment-parented list is silent however fresh its rows are, which is
+// measured, not assumed. The keyed case is safe in any order because React
+// spends the budget only when it actually reports.
+describe('a generated list under a Fragment', () => {
+  it('is reported when its rows carry no key', () => {
+    const children = [0, 1, 2].map(() => createElement(Row))
+    expect(keyReports(() => Node(Fragment, { children, [LIST_MARKER]: 1 } as never).render())).toBeGreaterThan(0)
+  })
+
+  it('is silent once every row carries a key', () => {
+    const children = ['a', 'b', 'c'].map(id => createElement(Row, { key: id }))
+    expect(keyReports(() => Node(Fragment, { children, [LIST_MARKER]: 1 } as never).render())).toBe(0)
+  })
+
+  it('renders an empty generated list without handing React a child to reject', () => {
+    const view = render(Node(Fragment, { children: [], [LIST_MARKER]: 1 } as never).render() as never)
+    expect(view.container.innerHTML).toBe('')
+  })
+})
+
+// Duplicate keys are where a reader lands after keying by a field that is not
+// unique, and React's response is easy to guess wrong: it complains and renders
+// every row anyway, rather than dropping or merging them.
+//
+// Honest about what this is: a characterization test of React, not a guard on
+// our call sites. Verified by mutation — with the marker never acted on, it
+// still passes, because duplicate detection happens in the reconciler whether
+// children arrived as one array or as separate arguments. It is here so the
+// distinction between the two key warnings is written down and so a future
+// change that started losing rows would be caught, not because it defends the
+// marker.
+describe('duplicate keys on a generated list', () => {
+  it('are reported as duplicates, not as missing, and lose no rows', () => {
+    const seen: string[] = []
+    const err = vi.spyOn(console, 'error').mockImplementation((...a: unknown[]) => seen.push(a.map(String).join(' ')))
+    const warn = vi.spyOn(console, 'warn').mockImplementation((...a: unknown[]) => seen.push(a.map(String).join(' ')))
+    let view
+    try {
+      view = render(
+        Div({
+          as: nextParentTag(),
+          [LIST_MARKER]: 1,
+          children: ['same', 'same', 'other'].map(id => createElement(Row, { key: id })),
+        } as never).render() as never,
+      )
+    } finally {
+      err.mockRestore()
+      warn.mockRestore()
+    }
+    expect(seen.filter(m => /two children with the same key/i.test(m))).not.toEqual([])
+    expect(seen.filter(m => /unique "key"/i.test(m))).toEqual([])
+    expect(view.container.querySelectorAll('i')).toHaveLength(3)
+  })
+})
+
+// Nesting matters because the marker is per call site, and a reader will have
+// one generated list inside another long before they think about it.
+describe('a generated list inside a generated list', () => {
+  it('reports the inner list on its own account', () => {
+    const outer = nextParentTag()
+    const inner = nextParentTag()
+    const reports = keyReports(() =>
+      Div({
+        as: outer,
+        [LIST_MARKER]: 1,
+        children: [0, 1].map(i => Div({ as: inner, key: `o${i}`, [LIST_MARKER]: 1, children: [0, 1].map(() => createElement(Row)) } as never)),
+      } as never).render(),
+    )
+    expect(reports).toBeGreaterThan(0)
+  })
+
+  it('does not let an outer marking reach an inner call site that was authored', () => {
+    const outer = nextParentTag()
+    const inner = nextParentTag()
+    // The outer list is generated and unkeyed, so it reports — once, for its own
+    // parent. The inner children are written out at their own call site and
+    // carry no marker, so they must stay silent. Two reports would mean the
+    // outer marking had been applied to children it does not describe.
+    const reports = keyReports(() =>
+      Div({
+        as: outer,
+        [LIST_MARKER]: 1,
+        children: [0, 1].map(() => Div({ as: inner, children: [createElement(Row), createElement(Row)] } as never)),
+      } as never).render(),
+    )
+    expect(reports).toBe(1)
+  })
+})
+
+// The shape a real project hit, and the one nothing here pinned. A literal array
+// containing a spread classifies as generated, so the whole array goes to React
+// as one argument and every member is key-checked — including siblings the author
+// wrote out beside the spread:
+//
+//   children: [Span(heading, { ... }), ...(Array.isArray(rows) ? rows : [rows])]
+//
+// In the field no bare sibling was written anywhere. That normalising spread is
+// how a pass-through wrapper accepts one node or many, so a caller handing it a
+// SINGLE node lands that node in the array with no key of its own, while the
+// heading the wrapper does write inline is keyed and safe. Reproduced: one bare
+// node through the prop reports, a keyed array through the same wrapper does
+// not. A less obvious route to the same flat array than a sibling typed out
+// beside the spread, and the one that actually happened.
+//
+// The report is correct, and that is settled rather than assumed. Silencing this
+// shape was considered and rejected on a measurement: an unkeyed row in it loses
+// its state when a row ABOVE it is removed, and a keyed row keeps it. The case
+// below demonstrates it, so anyone proposing to silence the shape has to argue
+// with the behaviour rather than with a preference.
+//
+// Not a behaviour change either way. React penalises the same flat shape on its
+// own — `createElement(t, null, [authored, ...keyed])` reports too, measured.
+// What the flat form loses is React's exemption for the authored sibling when
+// the generated part stays a nested array, which is what JSX emits and what the
+// spread flattens away.
+//
+// If the generated segment is ever emitted as its own argument, this pair is
+// what will say so: the first case goes quiet.
+describe('an authored sibling beside a generated segment', () => {
+  it('is reported today, even though every generated row is keyed', () => {
+    const keyed = [0, 1, 2].map(i => createElement(Row, { key: `r${i}` }))
+    const reports = keyReports(as => Div({ as, [LIST_MARKER]: 1, children: [createElement(Row), ...keyed] } as never).render())
+    expect(reports).toBe(1)
+  })
+
+  it('goes quiet once the authored sibling carries a key too, which is where the report was pointing', () => {
+    const keyed = [0, 1, 2].map(i => createElement(Row, { key: `r${i}` }))
+    const reports = keyReports(as => Div({ as, [LIST_MARKER]: 1, children: [createElement(Row, { key: 'authored' }), ...keyed] } as never).render())
+    expect(reports).toBe(0)
+  })
+})
+
+// The measurement that closed the question above. State belongs to a row's
+// position unless a key says otherwise, so removing a row from ABOVE an unkeyed
+// one hands its state to a different row — which is the bug the report exists to
+// surface, not a false positive worth silencing.
+describe('why the report on that shape is worth having', () => {
+  it('shows state following the row only when the row is keyed', () => {
+    const Stateful = ({ id }: { id: string }) => {
+      const [typed, setTyped] = useState('')
+      return createElement('i', { 'data-testid': id, onClick: () => setTyped('T') }, typed || id)
+    }
+
+    const run = (keyed: boolean) => {
+      // Taken once: called inside `App` it would hand every re-render a new tag,
+      // remounting the subtree and destroying the state this is measuring.
+      const parent = nextParentTag()
+      const App = ({ ids }: { ids: string[] }) =>
+        Div({
+          as: parent,
+          [LIST_MARKER]: 1,
+          children: [Span('heading', { key: 'h' }), ...ids.map(id => createElement(Stateful, keyed ? { key: id, id } : { id }))],
+        } as never).render() as never
+
+      const view = render(createElement(App, { ids: ['a', 'b', 'c'] }))
+      act(() => view.getByTestId('c').click()) // type into the last row
+      act(() => view.rerender(createElement(App, { ids: ['b', 'c'] }))) // remove the row above it
+      const kept = view.getByTestId('c').textContent === 'T'
+      view.unmount()
+      return kept
+    }
+
+    expect(run(false)).toBe(false) // unkeyed: the typing does not follow the row
+    expect(run(true)).toBe(true) // keyed: it does
+  })
+})
+
+// The compiler marks a children-first call whose child is a scalar — the marker
+// says "this call site's children expression was generated", not "this is a
+// list", and a reader who assumes otherwise from the name will be wrong.
+//
+// Documentary, and mutation-tested to establish that rather than assumed.
+// Neither half is a guard: the marker cannot reach the element even with both
+// strips disabled, because `BaseNode.render` destructures it off before
+// `otherProps` exists; and the silence survives forcing every call site to the
+// array form, because a string has no key for React to ask about. It is here to
+// pin the name's misleading half, not to defend anything.
+describe('a marked call site whose child is a scalar', () => {
+  it('reports nothing and keeps the marker off the element', () => {
+    const element = Span(String(42), { [COMPILED_MARKER]: 3, [LIST_MARKER]: 1 } as never).render() as {
+      props: Record<string, unknown>
+    }
+    expect(Object.keys(element.props).filter(k => k.startsWith('__meo$'))).toEqual([])
+
+    const reports = keyReports(as => Div({ as, children: Span(String(42), { [COMPILED_MARKER]: 3, [LIST_MARKER]: 1 } as never) } as never).render())
+    expect(reports).toBe(0)
   })
 })

@@ -77,6 +77,19 @@ describe('the list marker beside a compiled schema', () => {
   // spread can carry a real prop of the same name. It is frozen legacy output
   // and deliberately gains nothing new, so a marker-shaped key on it is just a
   // prop, and one the runtime has no reason to trust.
+  //
+  // This case is also the only thing standing under the compiled path's strip of
+  // `__meo$list`, and not for the reason that strip looks like it exists for.
+  // Leaving the key in place does not leak it to the DOM — `BaseNode.render`
+  // destructures the marker off before `otherProps` is built, so nothing reaches
+  // an element either way. What happens instead is that the key survives into
+  // `passthrough`, is classified by `getDOMProps` onto `FinalNodeProps`, and is
+  // then read back as the carrier — so a SCHEMA 1 call site starts taking the
+  // list form and reporting, on a schema the contract was never extended to.
+  //
+  // Established by mutation, after an earlier reading of mine had the strips
+  // down as interchangeable belt-and-braces. Removing this one fails exactly
+  // this case and nothing else.
   it('is ignored on schema 1, which the contract never extended', () => {
     const reported = reportsMissingKey(({ tag, rows }) =>
       Div({ as: tag, [COMPILED_MARKER]: 1, c: { padding: '4px' }, children: rows(), [LIST_MARKER]: 1 } as never).render(),

@@ -1925,6 +1925,7 @@ mod tests {
     fn mui_config() -> CompileConfig {
         CompileConfig {
             factory_modules: vec!["@meonode/mui".to_string()],
+            ..CompileConfig::default()
         }
     }
 
@@ -2030,6 +2031,7 @@ mod tests {
     fn multiple_configured_factory_modules_are_all_tracked() {
         let config = CompileConfig {
             factory_modules: vec!["@meonode/mui".to_string(), "@acme/widgets".to_string()],
+            ..CompileConfig::default()
         };
         let decisions = decisions_for_with_config(
             r#"

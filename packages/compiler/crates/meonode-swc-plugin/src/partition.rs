@@ -34,6 +34,7 @@
 use std::collections::HashMap;
 use std::mem;
 
+use swc_core::common::errors::SourceMapper;
 use swc_core::common::Span;
 use swc_core::ecma::ast::*;
 use swc_core::ecma::atoms::Atom;
@@ -143,6 +144,16 @@ const BUCKET_DYN_KEY: &str = "__meo$dyn";
 /// (see `README.md`'s runtime version requirements, which also record that
 /// schema 3 needs 1.8.0 for a separate and older reason).
 const BUCKET_LIST_KEY: &str = "__meo$list";
+/// The source position of a call site whose children are generated, as
+/// `file:line:column`, emitted only when `callSiteLocations` is enabled.
+///
+/// It answers a question React cannot. `Div({...})` only builds a node;
+/// `createElement` fires later, inside `.render()`, so React attributes every
+/// element in the tree to that one call and its report says "check the
+/// top-level render call" for a list written anywhere in the file. This key is
+/// the only thing that still knows where the list was written, and the runtime
+/// prints it beside React's report rather than in place of it.
+const BUCKET_LOC_KEY: &str = "__meo$loc";
 /// The only value this key ever takes. Authored children emit *no key* rather
 /// than a `0`, so the runtime's check is a presence test.
 const LIST_GENERATED: f64 = 1.0;
@@ -278,6 +289,40 @@ fn synthesized_props_arg() -> ExprOrSpread {
     }
 }
 
+fn loc_prop(location: &str) -> PropOrSpread {
+    kv_prop(
+        BUCKET_LOC_KEY,
+        Expr::Lit(Lit::Str(Str::from(Atom::from(location)))),
+    )
+}
+
+/// What stamping a call site needs beyond the AST node itself.
+struct SiteContext<'a> {
+    filename: &'a str,
+    /// The host's source map. `None` in fixture tests that do not need
+    /// locations, and on any host that provides none.
+    source_map: Option<&'a dyn SourceMapper>,
+    emit_locations: bool,
+}
+
+impl SiteContext<'_> {
+    /// `file:line:column` for `span`, or `None` when locations are switched off
+    /// or there is no source map to resolve against. Columns are 1-based to
+    /// match what an editor shows; `col_display` is 0-based.
+    fn location(&self, span: Span) -> Option<String> {
+        if !self.emit_locations {
+            return None;
+        }
+        let loc = self.source_map?.lookup_char_pos(span.lo);
+        Some(format!(
+            "{}:{}:{}",
+            self.filename,
+            loc.line,
+            loc.col_display + 1
+        ))
+    }
+}
+
 fn dyn_prop(names: Vec<Atom>) -> PropOrSpread {
     let elems = names
         .into_iter()
@@ -311,7 +356,13 @@ fn dyn_prop(names: Vec<Atom>) -> PropOrSpread {
 /// spread, so a spread can never shadow the marker, and two constant literals
 /// evaluated last change neither evaluation order nor any value — which is what
 /// makes this safe even on a call site that bailed *for* an ordering reason.
-fn stamp_call_site_key(obj: &mut ObjectLit, filename: &str, span: Span, children: ChildrenOrigin) {
+fn stamp_call_site_key(
+    obj: &mut ObjectLit,
+    ctx: &SiteContext<'_>,
+    span: Span,
+    children: ChildrenOrigin,
+) {
+    let filename = ctx.filename;
     obj.props.push(kv_prop(
         MARKER_KEY,
         Expr::Lit(Lit::Num(Number {
@@ -326,6 +377,9 @@ fn stamp_call_site_key(obj: &mut ObjectLit, filename: &str, span: Span, children
     // stamping safe even on a call site that bailed *for* an ordering reason.
     if children == ChildrenOrigin::Generated {
         obj.props.push(list_prop());
+        if let Some(location) = ctx.location(span) {
+            obj.props.push(loc_prop(&location));
+        }
     }
 }
 
@@ -644,7 +698,13 @@ fn rewrite_theme_tokens_in_css_prop(special_props: &mut [PropOrSpread]) {
     }
 }
 
-fn rewrite_object(obj: &mut ObjectLit, filename: &str, span: Span, children: ChildrenOrigin) {
+fn rewrite_object(
+    obj: &mut ObjectLit,
+    ctx: &SiteContext<'_>,
+    span: Span,
+    children: ChildrenOrigin,
+) {
+    let filename = ctx.filename;
     let old_props = mem::take(&mut obj.props);
     let has_spread = old_props
         .iter()
@@ -789,6 +849,9 @@ fn rewrite_object(obj: &mut ObjectLit, filename: &str, span: Span, children: Chi
     // site, which is the only thing this key reports.
     if children == ChildrenOrigin::Generated {
         new_props.push(list_prop());
+        if let Some(location) = ctx.location(span) {
+            new_props.push(loc_prop(&location));
+        }
     }
     new_props.extend(special_props);
 
@@ -807,7 +870,7 @@ fn unwrap_parens_mut(mut expr: &mut Expr) -> &mut Expr {
 /// span (byte offsets) since decisions are computed before this pass starts
 /// mutating anything.
 struct Rewriter<'a> {
-    filename: &'a str,
+    ctx: SiteContext<'a>,
     /// Compilable call spans (as `(lo, hi)` byte offset pairs — `Span`
     /// itself needn't implement `Hash`/`Eq` for this to work) to their
     /// props argument index and `children` origin.
@@ -858,9 +921,9 @@ impl VisitMut for Rewriter<'_> {
             return;
         };
         if partition {
-            rewrite_object(obj, self.filename, span, children);
+            rewrite_object(obj, &self.ctx, span, children);
         } else {
-            stamp_call_site_key(obj, self.filename, span, children);
+            stamp_call_site_key(obj, &self.ctx, span, children);
         }
     }
 }
@@ -875,7 +938,12 @@ impl VisitMut for Rewriter<'_> {
 /// No-op (and skips the rewrite pass entirely) if there are no compilable
 /// call sites, so files untouched by @meonode/ui factories pay no additional
 /// traversal cost beyond detection itself.
-pub fn transform_program(program: &mut Program, filename: &str, config: &CompileConfig) {
+pub fn transform_program(
+    program: &mut Program,
+    filename: &str,
+    config: &CompileConfig,
+    source_map: Option<&dyn SourceMapper>,
+) {
     let mut compilable: HashMap<(u32, u32), (usize, ChildrenOrigin)> = HashMap::new();
     let mut key_only: HashMap<(u32, u32), (usize, ChildrenOrigin)> = HashMap::new();
     let mut synthesize: HashMap<(u32, u32), usize> = HashMap::new();
@@ -901,7 +969,11 @@ pub fn transform_program(program: &mut Program, filename: &str, config: &Compile
     }
 
     let mut rewriter = Rewriter {
-        filename,
+        ctx: SiteContext {
+            filename,
+            source_map,
+            emit_locations: config.call_site_locations,
+        },
         compilable,
         key_only,
         synthesize,
@@ -984,7 +1056,7 @@ mod tests {
             program.visit_mut_with(&mut resolver(unresolved_mark, top_level_mark, false));
 
             for _ in 0..passes {
-                transform_program(&mut program, filename, config);
+                transform_program(&mut program, filename, config, Some(&*cm));
             }
 
             struct Collector {
@@ -1738,6 +1810,7 @@ mod tests {
     fn factory_module_call_site_is_rewritten_when_configured() {
         let config = CompileConfig {
             factory_modules: vec!["@meonode/mui".to_string()],
+            ..CompileConfig::default()
         };
         let mut objs = transformed_objects_with_config(
             r#"
@@ -2307,5 +2380,62 @@ mod tests {
             1,
         );
         assert!(objs.is_empty(), "the written argument must survive as-is");
+    }
+    // ---- `__meo$loc`: where the generated list was written ----------------
+
+    fn loc_of(obj: &ObjectLit) -> Option<String> {
+        has_prop(obj, "__meo$loc").then(|| str_lit_value(find_prop(obj, "__meo$loc")))
+    }
+
+    fn with_locations() -> CompileConfig {
+        CompileConfig {
+            call_site_locations: true,
+            ..CompileConfig::default()
+        }
+    }
+
+    /// Off unless asked for: a source path is a real cost in a bundle, and the
+    /// plugin cannot tell a development build from a production one.
+    #[test]
+    fn call_site_location_is_absent_by_default() {
+        let obj = transformed_object(
+            r#"
+            import { Div } from '@meonode/ui';
+            Div({ padding: 8, children: items.map(fn) });
+            "#,
+            "app/page.tsx",
+        );
+        assert_eq!(list_marker(&obj), Some(1.0));
+        assert_eq!(loc_of(&obj), None);
+    }
+
+    /// The whole point: React's report says what is wrong, this says where.
+    #[test]
+    fn call_site_location_names_file_line_and_column_when_enabled() {
+        let mut objs = transformed_objects_with_config(
+            "\nimport { Div } from '@meonode/ui';\nDiv({ children: items.map(fn) });\n",
+            "app/page.tsx",
+            &with_locations(),
+        );
+        assert_eq!(objs.len(), 1);
+        let obj = objs.remove(0);
+        assert_eq!(list_marker(&obj), Some(1.0));
+        // The call starts at the first column of the third line.
+        assert_eq!(loc_of(&obj).as_deref(), Some("app/page.tsx:3:1"));
+    }
+
+    /// Emitted only beside the list marker. An authored call site has nothing
+    /// to report, so paying for its path would be pure bundle cost.
+    #[test]
+    fn call_site_location_is_absent_for_authored_children() {
+        let mut objs = transformed_objects_with_config(
+            "import { Div } from '@meonode/ui';\nDiv({ children: ['a', 'b'] });\n",
+            "app/page.tsx",
+            &with_locations(),
+        );
+        assert_eq!(objs.len(), 1);
+        let obj = objs.remove(0);
+        assert_eq!(list_marker(&obj), None);
+        assert_eq!(loc_of(&obj), None);
     }
 }

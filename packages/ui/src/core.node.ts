@@ -5,6 +5,7 @@ import {
   type ExoticComponent,
   Fragment,
   type FragmentProps,
+  isValidElement,
   type ReactElement,
   type ReactNode,
 } from 'react'
@@ -26,14 +27,80 @@ import { isFragment, isValidElementType } from '@src/helper/react-is.helper.js'
 import { getComponentType, getElementTypeName, hasNoStyleTag, getGlobalState } from '@src/helper/common.helper.js'
 import StyledRenderer from '@src/components/styled-renderer.client.js'
 import MeoMemo from '@src/components/meo-memo.client.js'
-import { LIST_MARKER } from '@src/constant/common.const.js'
+import { LIST_MARKER, LOCATION_MARKER } from '@src/constant/common.const.js'
 import { NodeUtil } from '@src/util/node.util.js'
 import { compileServerEmotionClassName } from '@src/util/server-emotion.util.js'
 import { getActiveServerTheme, replaceThemeTokensWithCssVars, setActiveServerTheme } from '@src/util/server-theme.util.js'
-import { reportThemeIssues } from '@src/util/theme-diagnostics.util.js'
+import { diagnosticsEnabled, reportThemeIssues } from '@src/util/theme-diagnostics.util.js'
 import { ThemeUtil } from '@src/util/theme.util.js'
 
 const RENDER_CONTEXT_POOL_KEY = Symbol.for('@meonode/ui/BaseNode/renderContextPool')
+
+/**
+ * Every `BaseNode` reachable in a children array, including inside nested arrays.
+ *
+ * A nested array is a list of children in its own right, so its members render
+ * like any other child and have to be queued alongside them. Flat arrays — the
+ * overwhelming majority — are returned untouched, so nothing is allocated for
+ * the common shape.
+ * @param children The children array to scan.
+ * @returns The original array when it holds no arrays, otherwise a flat list of
+ * its members with nesting walked through.
+ */
+function collectNodeChildren(children: readonly unknown[]): readonly unknown[] {
+  if (!children.some(Array.isArray)) return children
+  const out: unknown[] = []
+  const seen = new WeakSet<object>()
+  const walk = (list: readonly unknown[]) => {
+    if (seen.has(list)) return
+    seen.add(list)
+    for (const child of list) {
+      if (Array.isArray(child)) walk(child)
+      else out.push(child)
+    }
+  }
+  walk(children)
+  return out
+}
+
+/**
+ * Swaps rendered elements in for `BaseNode` instances, keeping arrays nested.
+ *
+ * The nesting is preserved deliberately: React reads a nested array as a list
+ * whose siblings are not part of it, and flattening here would hand React the
+ * same shape a spread does — which is exactly the shape that loses React's
+ * missing-key exemption for those siblings.
+ * @param child One member of a children array.
+ * @param rendered The map populated during the begin phase.
+ * @returns The member with any node instances replaced by their elements.
+ */
+function assertNoNodeInHostProps(props: Record<string, unknown>, location: unknown): void {
+  for (const key in props) {
+    const value = props[key]
+    if (!NodeUtil.isNodeInstance(value)) continue
+    const where = typeof location === 'string' ? ` at ${location}` : ''
+    throw new Error(
+      `[MeoNode] The \`${key}\` prop${where} was given a node (${getElementTypeName(value.element)}). ` +
+        `This element is a plain HTML tag, so the prop becomes an attribute and the node stringifies to "[object Object]" — ` +
+        `silently, which is why this throws instead. Move it into \`children\`, or call \`.render()\` if you meant to pass an element.`,
+    )
+  }
+}
+
+function resolveChild(child: unknown, rendered: Map<BaseNode, ReactElement>, location: unknown): ReactNode {
+  if (Array.isArray(child)) return child.map(c => resolveChild(c, rendered, location)) as unknown as ReactNode
+  if (!NodeUtil.isNodeInstance(child)) return child as ReactNode
+  const element = rendered.get(child)
+  if (!element) {
+    const where = typeof location === 'string' ? ` at ${location}` : ''
+    throw new Error(
+      `[MeoNode] A child node (${getElementTypeName(child.element)})${where} was not rendered, which should not be reachable — ` +
+        `every node in \`children\`, including inside nested arrays, is collected before this point. ` +
+        `This is a bug in MeoNode rather than in your code; please report it with the call site above.`,
+    )
+  }
+  return element
+}
 
 /**
  * The core abstraction of the MeoNode library. It wraps a React element or component,
@@ -226,16 +293,16 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
             // Only consider BaseNode children for further traversal; primitives and React elements are terminal.
             const childArray = Array.isArray(children) ? children : [children]
 
-            // --- Count BaseNode children for capacity check (avoids .filter() allocation) ---
-            let nodeChildCount = 0
-            for (let j = 0; j < childArray.length; j++) {
-              if (NodeUtil.isNodeInstance(childArray[j])) nodeChildCount++
-            }
+            // A `children` array may hold arrays. Their members render like any
+            // other child, so they are collected here — a nested array skipped at
+            // this phase would never reach `renderedElements`, and the complete
+            // phase below would then fail to look it up rather than rendering it.
+            const pending = collectNodeChildren(childArray)
 
-            ensureCapacity(stackPointer + nodeChildCount)
+            ensureCapacity(stackPointer + pending.length)
 
-            for (let i = childArray.length - 1; i >= 0; i--) {
-              const child = childArray[i]
+            for (let i = pending.length - 1; i >= 0; i--) {
+              const child = pending[i]
               if (!NodeUtil.isNodeInstance(child)) continue
 
               // Fiber-backed memoization: hand the subtree to React instead of
@@ -259,7 +326,18 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
           // Extract node props. Non-present props default to undefined via destructuring.
           // `as` is the Emotion-style polymorphic target: it is consumed here (never
           // forwarded to the DOM) and only used to swap the rendered element below.
-          const { children: childrenInProps, key, css, nativeProps, disableEmotion, as: asTarget, [LIST_MARKER]: generatedChildren, ...otherProps } = node.props
+          const {
+            children: childrenInProps,
+            key,
+            css,
+            nativeProps,
+            disableEmotion,
+            as: asTarget,
+            [LIST_MARKER]: generatedChildren,
+            [LOCATION_MARKER]: callSiteLocation,
+            ...otherProps
+          } = node.props
+
           const activeTheme = getActiveTheme(node.props, inheritedTheme)
 
           // Resolve the element to actually render. `as` swaps the render target
@@ -273,6 +351,18 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
           if (asTarget != null && isValidElementType(asTarget)) {
             renderTarget = asTarget
           }
+          // A node in a prop is a supported pattern — a component can take one and
+          // put it in its own `children`, where the walk resolves it (see
+          // `tests/props-attributes.test.ts`). So this cannot be a general check.
+          //
+          // A plain HTML tag is the one case with no receiver to do that: the prop
+          // becomes an attribute and the node stringifies to `[object Object]`,
+          // silently. That is decidable here, because `renderTarget` is a string,
+          // and it is the only shape where passing a node is unambiguously wrong.
+          if (typeof renderTarget === 'string') {
+            assertNoNodeInHostProps(otherProps as Record<string, unknown>, callSiteLocation)
+          }
+
           let finalChildren: ReactNode[] = []
 
           if (childrenInProps) {
@@ -286,16 +376,7 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
             finalChildren = new Array(childCount)
 
             for (let i = 0; i < childCount; i++) {
-              const child = childArray[i]
-              if (NodeUtil.isNodeInstance(child)) {
-                const rendered = renderedElements.get(child)
-                if (!rendered) {
-                  throw new Error(`[MeoNode] Missing rendered element for child node: ${getElementTypeName(child.element)}`)
-                }
-                finalChildren[i] = rendered
-              } else {
-                finalChildren[i] = child
-              }
+              finalChildren[i] = resolveChild(childArray[i], renderedElements, callSiteLocation)
             }
           }
 
@@ -336,6 +417,40 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
           // both precisely when a component wanted its empty state — and on a
           // void element React rejects the child argument outright and throws.
           const childArguments = generatedChildren && Array.isArray(childrenInProps) && finalChildren.length > 0 ? [finalChildren] : finalChildren
+
+          // React's report says a key is missing; it cannot say where. Every
+          // element in the tree is created inside this one `.render()` call, so
+          // React attributes them all to it. `__meo$loc` is the compiler's
+          // record of where the list was actually written, and this prints it
+          // beside React's message rather than instead of it — no React text is
+          // reproduced here.
+          //
+          // Only when something is actually missing a key: a fully keyed list
+          // needs no location, and a line per rendered list would bury the
+          // reports it is meant to help find. This also covers the case where
+          // React says nothing at all — a marked list whose children reach a
+          // host element through an unmarked node is spread variadically there,
+          // which silences React, leaving this as the only signal.
+          // Gated like every other MeoNode diagnostic rather than behind
+          // `setDebugMode`, so it reaches an ordinary `next dev` run. The person
+          // this exists for has hit a key warning that names no call site and does
+          // not know the feature exists; behind the strict flag it only ever
+          // reached people who already knew to look for it.
+          //
+          // Condition order is deliberate and a tidy-up would undo it.
+          // `diagnosticsEnabled()` is a call with a try/catch and a `process.env`
+          // read, so it goes last, behind two property comparisons.
+          // `callSiteLocation` is undefined unless the plugin ran with
+          // `callSiteLocations` — nearly every build — so almost everyone
+          // short-circuits on the first term and never reaches the call.
+          if (callSiteLocation && childArguments !== finalChildren && diagnosticsEnabled()) {
+            const missingKey = finalChildren.some(child => isValidElement(child) && child.key == null)
+            if (missingKey) {
+              console.warn(
+                `[MeoNode] A generated list at ${callSiteLocation} has children without a \`key\`. React reports the missing key itself; this names the call site it came from.`,
+              )
+            }
+          }
 
           // Merge element props: explicit other props + DOM native props + React key.
           // Then convert any string `theme.*` tokens carried by props (e.g. MUI
