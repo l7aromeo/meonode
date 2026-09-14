@@ -74,12 +74,30 @@ function collectNodeChildren(children: readonly unknown[]): readonly unknown[] {
  * @param rendered The map populated during the begin phase.
  * @returns The member with any node instances replaced by their elements.
  */
-function resolveChild(child: unknown, rendered: Map<BaseNode, ReactElement>): ReactNode {
-  if (Array.isArray(child)) return child.map(c => resolveChild(c, rendered)) as unknown as ReactNode
+function assertNoNodeInHostProps(props: Record<string, unknown>, location: unknown): void {
+  for (const key in props) {
+    const value = props[key]
+    if (!NodeUtil.isNodeInstance(value)) continue
+    const where = typeof location === 'string' ? ` at ${location}` : ''
+    throw new Error(
+      `[MeoNode] The \`${key}\` prop${where} was given a node (${getElementTypeName(value.element)}). ` +
+        `This element is a plain HTML tag, so the prop becomes an attribute and the node stringifies to "[object Object]" — ` +
+        `silently, which is why this throws instead. Move it into \`children\`, or call \`.render()\` if you meant to pass an element.`,
+    )
+  }
+}
+
+function resolveChild(child: unknown, rendered: Map<BaseNode, ReactElement>, location: unknown): ReactNode {
+  if (Array.isArray(child)) return child.map(c => resolveChild(c, rendered, location)) as unknown as ReactNode
   if (!NodeUtil.isNodeInstance(child)) return child as ReactNode
   const element = rendered.get(child)
   if (!element) {
-    throw new Error(`[MeoNode] Missing rendered element for child node: ${getElementTypeName(child.element)}`)
+    const where = typeof location === 'string' ? ` at ${location}` : ''
+    throw new Error(
+      `[MeoNode] A child node (${getElementTypeName(child.element)})${where} was not rendered, which should not be reachable — ` +
+        `every node in \`children\`, including inside nested arrays, is collected before this point. ` +
+        `This is a bug in MeoNode rather than in your code; please report it with the call site above.`,
+    )
   }
   return element
 }
@@ -319,6 +337,7 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
             [LOCATION_MARKER]: callSiteLocation,
             ...otherProps
           } = node.props
+
           const activeTheme = getActiveTheme(node.props, inheritedTheme)
 
           // Resolve the element to actually render. `as` swaps the render target
@@ -332,6 +351,18 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
           if (asTarget != null && isValidElementType(asTarget)) {
             renderTarget = asTarget
           }
+          // A node in a prop is a supported pattern — a component can take one and
+          // put it in its own `children`, where the walk resolves it (see
+          // `tests/props-attributes.test.ts`). So this cannot be a general check.
+          //
+          // A plain HTML tag is the one case with no receiver to do that: the prop
+          // becomes an attribute and the node stringifies to `[object Object]`,
+          // silently. That is decidable here, because `renderTarget` is a string,
+          // and it is the only shape where passing a node is unambiguously wrong.
+          if (typeof renderTarget === 'string') {
+            assertNoNodeInHostProps(otherProps as Record<string, unknown>, callSiteLocation)
+          }
+
           let finalChildren: ReactNode[] = []
 
           if (childrenInProps) {
@@ -345,7 +376,7 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
             finalChildren = new Array(childCount)
 
             for (let i = 0; i < childCount; i++) {
-              finalChildren[i] = resolveChild(childArray[i], renderedElements)
+              finalChildren[i] = resolveChild(childArray[i], renderedElements, callSiteLocation)
             }
           }
 
