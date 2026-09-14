@@ -829,18 +829,8 @@ describe('the list marker across the RSC boundary', () => {
   // from the props and the resolved children, so both sides build the same shape
   // whichever branch consumes it.
   //
-  // Read this as a parity guard, NOT as coverage of that branch. Replacing
-  // `...childArguments` with `...finalChildren` there leaves this test green,
-  // and that was measured rather than assumed: the mutated build serves
-  // byte-identical HTML. Two reasons compound. With two or more children React
-  // collects variadic arguments into an array anyway, so `props.children` is the
-  // same either way and nothing reaches the DOM differently. And the one
-  // behaviour that does differ — React's missing-key report — never fires on
-  // this path: the same marker reports on the client, and plain React reports
-  // from the same position in a server component, but a marked node going
-  // through the server-only styled branch produces nothing, in the browser or
-  // in the server log. Until that is fixed there is no observable difference
-  // for a black-box test to assert on.
+  // Read this as a parity guard, not as coverage of the branch — the case below
+  // covers that.
   it('renders a marked generated list identically on the server and after hydration', async () => {
     const serverHtml = await (await fetch(`${base()}${SERVER_PAGE}`)).text()
     const { status, html } = await getPage(SERVER_PAGE)
@@ -853,9 +843,45 @@ describe('the list marker across the RSC boundary', () => {
     }
   })
 
-  // Counterpart on the client side, where the same marker does produce React's
-  // report. Kept next to the server case so the pair documents the asymmetry
-  // recorded below rather than leaving it to be rediscovered.
+  /** Key reports React makes while rendering `pathname`, as seen from the browser. */
+  async function keyReports(pathname: string): Promise<number> {
+    if (!browserContext) throw new Error('Playwright browser context is not initialized')
+    const page = await browserContext.newPage()
+    const seen: string[] = []
+    page.on('console', msg => seen.push(msg.text()))
+    page.on('pageerror', error => seen.push(error.message))
+    try {
+      await page.goto(`${base()}${pathname}`, { waitUntil: 'domcontentloaded' })
+      await page.waitForLoadState('networkidle')
+      return seen.filter(m => /unique "key"|each child in a list/i.test(m)).length
+    } finally {
+      await page.close()
+    }
+  }
+
+  // This is the case that actually covers the server-only branch: replacing
+  // `...childArguments` with `...finalChildren` there drops this to 0, which was
+  // measured both ways rather than assumed.
+  //
+  // It needs a host component that renders `children` itself. React validates
+  // keys when an array is *reconciled*, not when it is created, and a component's
+  // `props.children` is never reconciled — only what the component returns is.
+  it('reports a missing key for a generated list rendered through the server-only branch', async () => {
+    expect(await keyReports('/list-marker-server-plainchild')).toBeGreaterThan(0)
+  })
+
+  // The same marker, the same branch, but the host hands children to another
+  // MeoNode node instead of rendering them itself. That inner node carries no
+  // marker, so it spreads them variadically — which is React's signal that a
+  // human wrote them out — and the report is lost before anything reconciles the
+  // array. Measured: plain React in this exact shape reports, and this does not.
+  //
+  // Pinned as the defect it is. When the marker survives composition this should
+  // report too, and this expectation is what will say so.
+  it('loses the report when the marked children pass through another node first', async () => {
+    expect(await keyReports(SERVER_PAGE)).toBe(0)
+  })
+
   it('renders a marked generated list on the client without a hydration mismatch', async () => {
     const { status, html } = await getPage(CLIENT_PAGE)
 
