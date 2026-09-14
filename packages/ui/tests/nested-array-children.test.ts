@@ -131,7 +131,7 @@ describe('an authored sibling beside a generated list', () => {
     // which it marks validated and never asks for a key, and the array, which it
     // checks. That mark is the exemption, and it is what this asserts — a warning
     // count cannot tell it apart from a spent budget.
-    const nested = Div({ as: nextParentTag(), children: [createElement('i', null, 'h'), rows()] } as never).render() as {
+    const nested = Div({ as: nextParentTag(), children: [createElement('i', null, 'h'), rows()] } as never).render() as unknown as {
       props: { children: unknown[] }
     }
     expect(validated(nested.props.children[0])).toBe(1)

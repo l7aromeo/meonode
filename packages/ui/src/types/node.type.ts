@@ -65,8 +65,8 @@ export type NodeElementType =
   | (ExoticComponent & { $$typeof?: symbol })
   | (<TProps extends Record<string, unknown> | undefined>(props: ComponentNodeProps<TProps>) => ComponentNode)
 
-/** A single NodeElement or an array of NodeElements */
-export type Children = NodeElement | NodeElement[]
+/** A single NodeElement, or an array of them nested to any depth. */
+export type Children = NodeElement | readonly Children[]
 
 /** List of HTML tags that should not receive style props */
 export type NoStyleTags = (typeof NO_STYLE_TAGS)[number]
