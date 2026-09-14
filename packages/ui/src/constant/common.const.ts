@@ -29,6 +29,44 @@ export type NO_STYLE_TAGS = typeof NO_STYLE_TAGS
 
 export let __DEBUG__ = false
 
+/**
+ * Whether this process is running outside production, captured once.
+ *
+ * `process.env.NODE_ENV` is a native `getenv` on every access in Node, not a
+ * property read — bundlers inline it for the browser, and SSR pays it in full.
+ * Read per call it costs about 112ns; read once it costs about 3.8ns, and
+ * `reportThemeIssues` consults it at every recursion level of every styled node
+ * on every render.
+ *
+ * A `let` rather than a `const` only so {@link refreshDevMode} can re-read it;
+ * nothing else should assign to it.
+ */
+let __DEV_MODE__ = readDevMode()
+
+function readDevMode(): boolean {
+  try {
+    return typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production'
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Re-reads `NODE_ENV` after a test has changed it.
+ *
+ * A value captured at module load cannot see `vi.stubEnv`, so the seam exists
+ * for tests that stub the environment and expect the change to take. It is
+ * called from `__resetThemeDiagnostics`, which those tests already invoke right
+ * after stubbing — so they need no change and there is no second thing to
+ * remember.
+ */
+export const refreshDevMode = (): void => {
+  __DEV_MODE__ = readDevMode()
+}
+
+/** Read by {@link diagnosticsEnabled}; exported so the live binding is visible there. */
+export const isDevMode = (): boolean => __DEV_MODE__
+
 export function setDebugMode(enabled: boolean) {
   __DEBUG__ = enabled
   if (__DEBUG__) {

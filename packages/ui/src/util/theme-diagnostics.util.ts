@@ -1,4 +1,4 @@
-import { __DEBUG__ } from '@src/constant/common.const.js'
+import { __DEBUG__, isDevMode, refreshDevMode } from '@src/constant/common.const.js'
 import type { Theme } from '@src/types/node.type.js'
 import { toLengthVarName, wouldEmotionAddPx as emotionWouldAddPx } from '@src/util/css-unit.util.js'
 
@@ -34,14 +34,7 @@ import { toLengthVarName, wouldEmotionAddPx as emotionWouldAddPx } from '@src/ut
  * Shared by every development-only diagnostic in the package, so "are warnings
  * on?" has one definition rather than one per call site.
  */
-export const diagnosticsEnabled = (): boolean => {
-  if (__DEBUG__) return true
-  try {
-    return typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production'
-  } catch {
-    return false
-  }
-}
+export const diagnosticsEnabled = (): boolean => __DEBUG__ || isDevMode()
 
 /**
  * Resolution runs once per styled node per render, so an unguarded warning
@@ -308,4 +301,11 @@ export const reportThemeIssues = (value: unknown, theme: Theme | undefined, prop
 }
 
 /** Test seam: clears the once-per-problem memo. */
-export const __resetThemeDiagnostics = (): void => reported.clear()
+export const __resetThemeDiagnostics = (): void => {
+  reported.clear()
+  // `NODE_ENV` is captured once at module load, so a test that stubs it needs
+  // the captured value re-read. Routed through this seam because the tests that
+  // stub the environment already call it immediately afterwards — putting the
+  // refresh anywhere else would mean remembering two things instead of one.
+  refreshDevMode()
+}
