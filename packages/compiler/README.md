@@ -50,7 +50,7 @@ classification pass entirely.
 
 ### Runtime version requirements
 
-Three different floors, because the plugin gained emissions over time and a
+Four different floors, because the plugin gained emissions over time and a
 runtime only strips the marker keys its own `COMPILER_SCHEMA_KEYS` names. A key
 the runtime does not know is not ignored — it reaches `getDOMProps`, which is a
 denylist, and React rejects the attribute name once per render per call site.
@@ -60,23 +60,26 @@ Every row below was measured against the published tarball, not inferred:
 | --- | --- | --- |
 | Schema 2 marker + `c`/`d`/`k`/`dyn` buckets | `@meonode/ui@1.7.0` | 1.6.2 and earlier have no `COMPILED_MARKER` at all, so every one of the five keys falls through as an ordinary prop — five `Invalid attribute name` lines per call site |
 | Schema 3 marker (call sites the plugin cannot partition) | `@meonode/ui@1.8.0` | 1.7.0–1.7.8 set `SUPPORTED_COMPILER_SCHEMAS` to `{1, 2}`, so the whole marker object falls through as ordinary props — `Invalid attribute name: __meo$`, and again for `__meo$k` |
-| `__meo$list` (generated-children reporting) | **Not yet published** — the next `@meonode/ui` minor | *Every* version published so far, 1.x and 2.x alike, lacks a `list` entry in `COMPILER_SCHEMA_KEYS`, and the compiled path strips by exact name — `Invalid attribute name: __meo$list`, once per render per marked call site |
+| `__meo$list` (generated-children reporting) | `@meonode/ui@2.1.0` | 2.0.2 and earlier lack a `list` entry in `COMPILER_SCHEMA_KEYS`, and the compiled path strips by exact name — `Invalid attribute name: __meo$list`, once per render per marked call site |
+| `__meo$loc` (call-site locations, opt-in) | **Not yet published** — the release this change ships in | 2.1.0 has no `loc` entry, so the key falls through — measured against the 2.1.0 tarball: `Invalid attribute name: __meo$loc`, while `__meo$list` beside it is stripped cleanly. Only reachable with `callSiteLocations` enabled |
 
 **`2.0.0` or later is recommended**: it removed the derived-key machinery
 outright, which fixed a class of memoization collision the plugin could only
 narrow (see [measured effect](#measured-effect)).
 
-The list-marker row is the one to read carefully, because the version does not
-exist yet: `__meo$list` is consumed by the runtime half that ships alongside
-this change, and as of writing the newest published `@meonode/ui` is 2.0.2,
-which does not have it.
+The location row is the one to read carefully, because the version does not
+exist yet: `__meo$loc` is consumed by the runtime half that ships alongside
+this change, and as of writing the newest published `@meonode/ui` is 2.1.0,
+which strips `__meo$list` but does not know `__meo$loc`.
 
 Rather than pin a number that has not been cut, check the symptom. A runtime
-that does not know the key logs `Invalid attribute name: __meo$list` once per
-render of every call site the plugin marked; a runtime that does know it logs
-nothing, and unkeyed generated lists start reporting React's own missing-key
-warning instead. Those two are mutually exclusive, so whichever the console
-shows tells you which side of the boundary you are on.
+that does not know the key logs `Invalid attribute name: __meo$loc` once per
+render of every marked call site; a runtime that does know it logs nothing, and
+an unkeyed generated list instead gets React's own missing-key report with a
+`[MeoNode]` line beside it naming the call site. Those two are mutually
+exclusive, so whichever the console shows tells you which side of the boundary
+you are on. It only applies at all with `callSiteLocations` enabled — without
+it there is no key to strip or forward.
 
 There is deliberately no code snippet here. `COMPILER_SCHEMA_KEYS` and the rest
 of the marker contract are internal to `@meonode/ui` and not exported, so a
@@ -422,18 +425,63 @@ first argument is never touched. A missing or malformed `factoryModules`
 config is equivalent to omitting it — no extra modules are recognized, and
 the build never fails because of it.
 
+### `callSiteLocations` — where a generated list was written
+
+React's missing-key report says *what* is wrong and cannot say *where*.
+`Div({...})` only builds a node; `createElement` fires later, inside
+`.render()`, so every element in the tree is created by that one call and React
+attributes them all to it. Its report ends "check the top-level render call" for
+a list written anywhere in the file, and its owner stack collapses for the same
+reason — every owner is the component that called `.render()`. The compiler is
+the only thing that still knows where a call site was.
+
+Enabling this emits `__meo$loc` — `file:line:column` — beside `__meo$list`:
+
+```js
+// Next.js
+experimental: {
+  swcPlugins: [['@meonode/compiler', { callSiteLocations: true }]],
+}
+
+// Vite
+react({ plugins: [['@meonode/compiler', { callSiteLocations: true }]] })
+```
+
+`@meonode/ui` prints it *beside* React's report, never instead of it — no React
+message is reproduced — and only when a row is actually missing a key, so a
+fully keyed list stays silent. It is gated on the same
+`diagnosticsEnabled()` as every other MeoNode diagnostic, meaning it appears in
+an ordinary `next dev` run and never in a production build.
+
+**Off by default, and deliberately opt-in rather than inferred.** The plugin has
+no reliable signal for whether the host is building for development or
+production, so guessing would either ship source paths into production bundles
+or withhold them from the builds that want them. A build that does not ask
+carries no locations at all.
+
+Measured on a 55-file application with 17 files containing a marked list, 65
+keys emitted: **+4,747 bytes of transform output (1.44%), +759 bytes gzipped
+(0.92%)**. Locations are emitted only alongside `__meo$list`, never on an
+authored call site, so the cost scales with how many generated lists a codebase
+has rather than with its size.
+
 ## Marker contract
 
-Compiled call sites get a `schema 1` marker object, recognized by the
-`__meo$` key:
+Compiled call sites get a marker object, recognized by the `__meo$` key. This
+plugin emits **schema 2** for a partitioned call site and **schema 3** for one
+it can key but not partition; schema 1 is the retired shape whose bucket names
+were unprefixed, and is documented under [runtime version
+requirements](#runtime-version-requirements) rather than emitted.
 
 | Key | Meaning |
 |---|---|
-| `__meo$` | Marker schema version (currently always `1`). |
-| `c` | Bucket of props recognized as CSS/static props (omitted if empty). |
-| `d` | Bucket of props recognized as dynamic/DOM props (omitted if empty). |
-| `k` | Deterministic call-site key (`m` + base36 FNV-1a64 hash of `filename:span`), used by the runtime to key the generated class name without re-hashing the prop signature. |
-| `dyn` | Names of bucketed props (from `c` or `d`) whose value isn't a plain literal — i.e. props the runtime still needs to treat as reactive/dynamic, in first-occurrence source order (omitted if empty). |
+| `__meo$` | Marker schema version — `2` when the props were partitioned, `3` when only the call-site key was stamped. |
+| `__meo$c` | Bucket of props recognized as CSS/static props (omitted if empty; schema 2 only). |
+| `__meo$d` | Bucket of props recognized as dynamic/DOM props (omitted if empty; schema 2 only). |
+| `__meo$k` | Deterministic call-site key (`m` + base36 FNV-1a64 hash of `filename:span`), used by the runtime to key the generated class name without re-hashing the prop signature. |
+| `__meo$dyn` | Names of bucketed props (from `__meo$c` or `__meo$d`) whose value isn't a plain literal — i.e. props the runtime still needs to treat as reactive/dynamic, in first-occurrence source order (omitted if empty). |
+| `__meo$list` | Present, as `1`, only when this call site's `children` expression was *generated* rather than written out. Absent otherwise — there is no `0`. |
+| `__meo$loc` | `file:line:column` of a call site carrying `__meo$list`, emitted only when [`callSiteLocations`](#callsitelocations--where-a-generated-list-was-written) is enabled. |
 
 Forward-compat policy: the runtime checks `__meo$` against the schema
 version(s) it understands and falls back to its normal classification path
@@ -544,7 +592,7 @@ crates/meonode-swc-plugin/
   src/effect.rs                     side-effect-freedom classifier
   src/order.rs                      evaluation-order safety analysis (v0.2 rule)
   src/keys.rs                       shared special-key / key-name utilities
-  src/config.rs                     plugin config (`factoryModules`)
+  src/config.rs                     plugin config (`factoryModules`, `callSiteLocations`)
   src/partition.rs                  prop partitioning + marker emission
   src/css_props.rs                  @generated — see Development
   src/factories.rs                  @generated — see Development
