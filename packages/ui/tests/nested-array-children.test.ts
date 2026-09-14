@@ -20,7 +20,7 @@
 //
 //     nested array, three distinct parent tags   [1, 0, 0]
 //     flat list,    three distinct parent tags   [1, 1, 1]
-// `freshParent()` does
+// `nextParentTag()` does
 // not isolate them the way it isolates a flat list under a host element, so only
 // the FIRST nested case in this file can asserted a report, and any later case
 // asserting silence proves nothing about its own subject.
@@ -39,7 +39,7 @@ const LIST_MARKER = '__meo$list'
 
 let uid = 0
 /** A parent tag no other case uses — React dedupes its missing-key report per parent. */
-const freshParent = () => `meo-nest-${++uid}`
+const nextParentTag = () => `meo-nest-${++uid}`
 
 function capture(build: (parentTag: string) => unknown) {
   const seen: string[] = []
@@ -47,7 +47,7 @@ function capture(build: (parentTag: string) => unknown) {
   const warn = vi.spyOn(console, 'warn').mockImplementation((...a: unknown[]) => seen.push(a.map(String).join(' ')))
   let html: string
   try {
-    html = render(build(freshParent()) as never).container.innerHTML
+    html = render(build(nextParentTag()) as never).container.innerHTML
   } finally {
     err.mockRestore()
     warn.mockRestore()
@@ -131,7 +131,7 @@ describe('an authored sibling beside a generated list', () => {
     // which it marks validated and never asks for a key, and the array, which it
     // checks. That mark is the exemption, and it is what this asserts — a warning
     // count cannot tell it apart from a spent budget.
-    const nested = Div({ as: freshParent(), children: [createElement('i', null, 'h'), rows()] } as never).render() as {
+    const nested = Div({ as: nextParentTag(), children: [createElement('i', null, 'h'), rows()] } as never).render() as {
       props: { children: unknown[] }
     }
     expect(validated(nested.props.children[0])).toBe(1)
