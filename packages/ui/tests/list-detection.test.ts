@@ -91,7 +91,18 @@ let uid = 0
  * keyed on whatever fiber React reconciles the list under, which is not always
  * the tag you wrote.
  */
-const freshParent = () => `meo-list-${++uid}`
+const nextParentTag = () => `meo-list-${++uid}`
+// Named for what it does rather than what it gives you, because the misuse is
+// invisible otherwise. It advances a counter, so calling it from inside a
+// component body hands every RE-RENDER a different tag — the subtree remounts and
+// any state under it is destroyed. "Get a fresh parent" reads correct there;
+// "get the next tag" reads wrong, which is the point of the name.
+//
+// This is a mitigation, not a guarantee: nothing stops the call. It bit the
+// state-follows-the-row case below, where it made a keyed row lose state for a
+// reason unrelated to keys — and it would have "proved" the claim that case
+// exists to test, in the direction we already believed. Take the tag once,
+// outside the component.
 
 /**
  * Renders what `build` returns under a parent no other case has used, and counts
@@ -103,7 +114,7 @@ function keyReports(build: (parentTag: string) => unknown): number {
   const err = vi.spyOn(console, 'error').mockImplementation((...a: unknown[]) => seen.push(a.map(String).join(' ')))
   const warn = vi.spyOn(console, 'warn').mockImplementation((...a: unknown[]) => seen.push(a.map(String).join(' ')))
   try {
-    render(build(freshParent()) as never)
+    render(build(nextParentTag()) as never)
   } finally {
     err.mockRestore()
     warn.mockRestore()
@@ -296,7 +307,7 @@ describe('duplicate keys on a generated list', () => {
     try {
       view = render(
         Div({
-          as: freshParent(),
+          as: nextParentTag(),
           [LIST_MARKER]: 1,
           children: ['same', 'same', 'other'].map(id => createElement(Row, { key: id })),
         } as never).render() as never,
@@ -315,8 +326,8 @@ describe('duplicate keys on a generated list', () => {
 // one generated list inside another long before they think about it.
 describe('a generated list inside a generated list', () => {
   it('reports the inner list on its own account', () => {
-    const outer = freshParent()
-    const inner = freshParent()
+    const outer = nextParentTag()
+    const inner = nextParentTag()
     const reports = keyReports(() =>
       Div({
         as: outer,
@@ -328,8 +339,8 @@ describe('a generated list inside a generated list', () => {
   })
 
   it('does not let an outer marking reach an inner call site that was authored', () => {
-    const outer = freshParent()
-    const inner = freshParent()
+    const outer = nextParentTag()
+    const inner = nextParentTag()
     // The outer list is generated and unkeyed, so it reports — once, for its own
     // parent. The inner children are written out at their own call site and
     // carry no marker, so they must stay silent. Two reports would mean the
@@ -402,7 +413,7 @@ describe('why the report on that shape is worth having', () => {
     const run = (keyed: boolean) => {
       // Taken once: called inside `App` it would hand every re-render a new tag,
       // remounting the subtree and destroying the state this is measuring.
-      const parent = freshParent()
+      const parent = nextParentTag()
       const App = ({ ids }: { ids: string[] }) =>
         Div({
           as: parent,
