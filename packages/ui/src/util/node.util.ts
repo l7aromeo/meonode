@@ -594,7 +594,13 @@ export class NodeUtil {
       // Execute the render prop function to get its output.
       result = render()
     } catch (error) {
-      if (__DEBUG__) {
+      // The caller's own function threw: they can act on this, and nothing else
+      // tells them — the child is replaced with null, so the element is simply
+      // absent from the page. That is the criterion the other three __DEBUG__
+      // sites here fail: those are the library's introspection hiccupping and
+      // recovering correctly. This path was filed as unreachable-in-practice;
+      // it was gated, not unreachable.
+      if (diagnosticsEnabled()) {
         console.error('MeoNode: Error executing function-as-a-child.', error)
       }
       // If the render function throws, treat its output as null to prevent crashes.
