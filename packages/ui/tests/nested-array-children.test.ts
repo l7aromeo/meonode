@@ -15,8 +15,12 @@
 //
 // A budget fact specific to this shape, measured rather than assumed, and NOT the
 // one that file describes. A nested array reconciles its members under an
-// implicit fiber, so its missing-key budget is shared across every parent — three
-// identical cases under three different tags give 1, 0, 0. `freshParent()` does
+// implicit fiber, so its missing-key budget is shared across every parent.
+// Measured as a pair, in one process, against the shape the other file relies on:
+//
+//     nested array, three distinct parent tags   [1, 0, 0]
+//     flat list,    three distinct parent tags   [1, 1, 1]
+// `freshParent()` does
 // not isolate them the way it isolates a flat list under a host element, so only
 // the FIRST nested case in this file can asserted a report, and any later case
 // asserting silence proves nothing about its own subject.
