@@ -46,6 +46,28 @@ trees with full TypeScript inference.
 Nothing here requires a build step. An optional build-time plugin exists purely as an optimization—see
 [Optional Build-Time Compiler](#optional-build-time-compiler).
 
+### Nested Array Children
+
+A `children` array can hold arrays, and the nesting carries meaning: a nested array is a list, its siblings are not.
+
+```typescript
+Div({
+  children: [
+    H2('Members'), // an authored sibling
+    members.map(member => Row({ key: member.id, children: member.name })), // a list — React checks these for keys
+  ],
+})
+```
+
+React skips the missing-key check on children it receives as separate arguments and runs it on the members of an array
+it receives as one. Nesting keeps those two apart: the heading is exempt, the rows are checked, and a row without a
+`key` is reported. Spreading the rows instead — `...members.map(...)` — makes each one look like an authored sibling,
+so the check never runs and the missing key goes unreported while the rows still remount on every render. Spreading was
+the only option before, because a nested array used to reach React unrendered and throw
+`Objects are not valid as a React child`.
+
+Nesting is unlimited, and an array that contains itself is dropped rather than left to overflow the stack.
+
 ### Direct CSS-in-Props
 
 Pass CSS properties directly to components. No separate styled-components declarations, no className juggling. All valid
@@ -196,7 +218,28 @@ Button('Click Me', {
 
 ### Debug Mode
 
-Every diagnostic in the library sits behind one runtime flag, off by default.
+There are two levels of diagnostics, and only the second needs a flag.
+
+**On in development, nothing to turn on.** Each of these is your own code, and each is actionable:
+
+- a `theme.*` token the active theme does not define — the common cause of a style that silently fails to apply, since
+  the browser drops a declaration referencing a variable no `:root` rule declares
+- the two other shapes that emit invalid CSS: a number written as a string (`padding: '12'`, which Emotion will not add
+  `px` to) and a unitless length in a media query
+- a generated list whose children have no `key`. React reports the missing key itself; this names the call site it came
+  from, which React's own message cannot (needs `@meonode/compiler` with `callSiteLocations`)
+- an error thrown inside a function-as-a-child, which is otherwise swallowed and leaves the element missing with
+  nothing printed
+- `For()` given a list where every item is a fresh object, so reference identity cannot match renders and every row
+  remounts
+- a `children` array that contains itself
+
+**Behind `setDebugMode`, in any environment.** These are MeoNode's own introspection recovering from itself — the
+render is correct afterwards and there is nothing for you to fix, so they are off unless you go looking:
+
+- `@meonode/compiler` marker buckets colliding with reserved keys
+- the `node.prototype.render` probe failing
+- the key-name derivation falling back
 
 ```typescript
 import { setDebugMode } from '@meonode/ui'
@@ -207,12 +250,11 @@ setDebugMode(true)
 Set it at module scope in your entry file, not in a `useEffect` — theme diagnostics fire as nodes are constructed and
 an effect runs too late to catch the first render's worth.
 
-It surfaces `theme.*` tokens the active theme does not define, malformed `@meonode/compiler` markers, and errors
-thrown inside function-as-a-child that are otherwise swallowed. Useful when a style silently fails to apply — almost
-always an undefined token, since the browser drops a declaration referencing a variable that does not exist.
-
-The output ships in production builds — the flag is a runtime binding, not a build-time constant, so bundlers cannot
-strip it. That is deliberate: the bugs worth this much logging are usually the ones that only reproduce in production.
+In a production build the flag also turns the first group back on. That group is quiet there because `NODE_ENV` says
+`production` — read at runtime on Node, or substituted by a bundler, which folds that half of the gate to `false`. The
+messages themselves ship either way: the flag is a runtime binding, not a build-time constant, so bundlers cannot strip
+the text, and a minified bundle built with `process.env.NODE_ENV` substituted still contains every one of them. That is
+deliberate — the bugs worth this much logging are usually the ones that only reproduce in production.
 
 📖 [Full list of what it logs](https://ui.meonode.com/docs/getting-started/faq)
 
