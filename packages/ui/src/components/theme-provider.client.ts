@@ -3,6 +3,7 @@ import { createContext, createElement, type ReactNode, useCallback, useEffect, u
 import type { Children, ResolvedThemeSystem, Theme, ThemeMode, ThemeModePreference, ThemeSystemModes } from '@src/types/node.type.js'
 import { Node } from '@src/core.node.js'
 import { buildThemeVariablesCss } from '@src/util/server-theme.util.js'
+import { diagnosticsEnabled } from '@src/util/theme-diagnostics.util.js'
 
 export interface ThemeContextValue {
   theme: Theme
@@ -175,8 +176,31 @@ function LegacyThemeProvider({ children, theme }: { children?: Children; theme: 
  * React runs, the attribute already holds the answer storage would have given,
  * and reading the DOM cannot disagree with what the reader is looking at.
  */
-function ModeThemeProvider({ children, tokens, modes, defaultMode, system, storageKey = 'theme' }: ThemeModesProviderProps): ReactNode {
+function ModeThemeProvider({
+  children,
+  tokens,
+  modes,
+  defaultMode,
+  system,
+  storageKey = 'theme',
+  theme: ignoredTheme,
+}: ThemeModesProviderProps & { theme?: Theme }): ReactNode {
   const canFollowSystem = system !== undefined
+
+  // `modes` wins when both shapes are passed, because the whole point of this
+  // path is that the document does not carry a per-reader theme. Silently
+  // dropping a prop someone deliberately passed is worth a line.
+  //
+  // In an effect with no dependencies rather than in the render body: the
+  // condition is a property of the call site, so it wants saying once per
+  // provider and not once per render. React's mount-once is what provides that,
+  // which is why there is no counter here to go stale.
+  useEffect(() => {
+    if (ignoredTheme === undefined || !diagnosticsEnabled()) return
+    console.warn('[MeoNode] ThemeProvider: `theme` is ignored when `tokens` and `modes` are given. Remove it, or drop `tokens` to use the theme path.')
+    // Deliberately empty: this reports a fact about the call site, not about any
+    // value it might pass, so it is mount-scoped rather than dependency-scoped.
+  }, [])
 
   const [preference, setPreferenceState] = useState<ThemeModePreference>(() => {
     const stored = readStored(storageKey)
@@ -233,12 +257,28 @@ function ModeThemeProvider({ children, tokens, modes, defaultMode, system, stora
       // Without a mapping there is nothing to translate them into, and guessing
       // that one of the app's modes means "dark" is how a `'sepia'` ends up
       // treated as light.
-      if (next === 'system' && !canFollowSystem) return
+      if (next === 'system' && !canFollowSystem) {
+        if (diagnosticsEnabled()) {
+          console.warn(
+            "[MeoNode] ThemeProvider: 'system' was requested but no `system` mapping was given, so there is nothing to resolve it to. " +
+              "Pass `system: { light: '<mode>', dark: '<mode>' }` to say which of your modes the OS words mean.",
+          )
+        }
+        return
+      }
+      // A mode that was never declared would set `data-theme` to a value no
+      // selector matches, which reads as the whole theme system having failed.
+      if (next !== 'system' && !modes.includes(next)) {
+        if (diagnosticsEnabled()) {
+          console.warn(`[MeoNode] ThemeProvider: '${next}' is not one of the declared modes (${modes.join(', ')}), so it was ignored.`)
+        }
+        return
+      }
       setPreferenceState(next)
       writeStored(storageKey, next)
       applyMode(next === 'system' ? resolveSystemMode() : next)
     },
-    [applyMode, canFollowSystem, resolveSystemMode, storageKey],
+    [applyMode, canFollowSystem, modes, resolveSystemMode, storageKey],
   )
 
   const setMode = useCallback((next: ThemeMode) => setPreference(next), [setPreference])

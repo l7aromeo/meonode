@@ -48,6 +48,15 @@ mode name whatever it is, so a mode called `'sepia'` is no longer treated as
 light. `ThemeProvider({ theme })` keeps its existing behaviour exactly, including
 the class swapping, and is unaffected.
 
+Rejections are explicit rather than silent. A mode that is not in `modes`, and
+`'system'` without the mapping, are both ignored with a development warning
+instead of setting a `data-theme` no selector matches. Passing `theme` alongside
+`tokens` takes the mode path and says so once. A stored value that is not one of
+the declared modes is discarded for `defaultMode`, which is also what makes an
+upgrade safe: the original path writes `localStorage.theme` as a *mode* and this
+one stores a *preference* under the same default key, so a leftover value is
+honoured when it is still a declared mode and dropped otherwise.
+
 `ThemeMode` was `'light' | 'dark' | string`, which collapses to `string` and lost
 even those two from autocomplete. It is now `'light' | 'dark' | (string & {})`,
 which keeps them as hints without closing the set. `MeoTheme` augmentation of
