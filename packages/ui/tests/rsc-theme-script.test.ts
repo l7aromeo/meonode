@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { chromium, type Browser, type BrowserContext } from '@playwright/test'
+import { renderToStaticMarkup } from 'react-dom/server'
 import { themeScript, THEME_SCRIPT_CSP_HASH } from '@src/main.js'
 
 /**
@@ -243,5 +244,50 @@ describe('the pre-paint theme script in a server document', () => {
 
     expect(stale.mode).toBe('morning')
     expect(stale.preference).toBe('morning')
+  })
+})
+
+describe('the published CSP hash, against a browser that enforces it', () => {
+  /**
+   * The claim `THEME_SCRIPT_CSP_HASH` makes is that a policy naming it lets this
+   * script run. Hashing the served bytes, as the case above does, is not the
+   * same claim: it says our arithmetic agrees with itself. What decides is
+   * whether a browser, given that source expression and this element, executes
+   * it — and the failure when it does not is silent, because a blocked pre-paint
+   * script leaves a page that still settles into the right mode after hydration.
+   *
+   * Composed here rather than served by the fixture, because a policy tight
+   * enough to be meaningful — one hash and nothing else — would block every
+   * inline script Next emits and take the page down for reasons unrelated to
+   * this one. The markup comes from React's own serialiser so that nothing in
+   * this file is escaping the attribute on the library's behalf.
+   */
+  const documentWith = (policy: string): string => {
+    const element = renderToStaticMarkup(themeScript(FIXTURE_CONFIG).render() as never)
+    return `<!DOCTYPE html><html><head><meta http-equiv="Content-Security-Policy" content="script-src ${policy}">${element}</head><body>x</body></html>`
+  }
+
+  const modeUnder = async (policy: string): Promise<string | null> => {
+    const context: BrowserContext = await browser!.newContext()
+    try {
+      const page = await context.newPage()
+      await page.setContent(documentWith(policy), { waitUntil: 'domcontentloaded' })
+      return await page.locator('html').getAttribute('data-theme')
+    } finally {
+      await context.close()
+    }
+  }
+
+  it('lets the script run when the policy names it', async () => {
+    expect(await modeUnder(`'${THEME_SCRIPT_CSP_HASH}'`)).toBe('morning')
+  })
+
+  it('does not when the policy names a stale one, which is what proves the case above', async () => {
+    // The control. Without it, the assertion above would pass on a browser that
+    // ignored the policy entirely — and `page.setContent` is exactly the kind of
+    // document where that would be easy to believe.
+    const stale = THEME_SCRIPT_CSP_HASH.replace(/^sha256-../, 'sha256-AA')
+
+    expect(await modeUnder(`'${stale}'`)).toBeNull()
   })
 })
