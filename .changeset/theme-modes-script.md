@@ -24,7 +24,7 @@ Html({
   suppressHydrationWarning: true,
   children: [
     Head({ children: [themeScript(theme), Link({ rel: 'stylesheet', href: '/app.css' })] }),
-    Body({ children: ThemeProvider({ ...theme, tokens, children }) }),
+    Body({ children: ThemeModesProvider({ ...theme, tokens, children }) }),
   ],
 })
 ```
