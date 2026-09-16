@@ -170,18 +170,27 @@ describe('mode-aware provider', () => {
     expect(morning).toContain('--meonode-theme-colors-primary:var(--brand-primary);')
   })
 
-  it('does not write the DOM from the hook: a consumer re-render leaves the attribute where the provider left it', () => {
-    const { getByTestId } = render(modeProvider().render() as never)
-    fireEvent.click(getByTestId('to-night'))
-    expect(root().getAttribute('data-theme')).toBe('night')
+  it('does not write the DOM from the hook: a consumer re-rendering on its own touches nothing', () => {
+    // The provider asserts the attribute whenever *it* renders, which is what
+    // repairs a document that lost it. What must not happen is a write per
+    // consumer: every component calling `useTheme` used to run an effect that
+    // stamped the document, so a provider sitting on its default overwrote a
+    // choice another consumer had just made.
+    const Counter = createNode(function Counter() {
+      const [n, setN] = React.useState(0)
+      useTheme()
+      return React.createElement('button', { type: 'button', 'data-testid': 'bump', onClick: () => setN(n + 1) }, String(n))
+    })
+    const { getByTestId } = render(
+      ThemeModesProvider({ tokens: TOKENS, modes: ['morning', 'night'], defaultMode: 'morning', children: Counter({}) } as never).render() as never,
+    )
+    expect(root().getAttribute('data-theme')).toBe('morning')
 
-    // Something outside MeoNode moves the attribute. Only an explicit setMode
-    // may move it back; a re-render must not.
-    root().setAttribute('data-theme', 'morning')
-    fireEvent.click(getByTestId('to-night'))
-    fireEvent.click(getByTestId('to-night'))
     root().setAttribute('data-theme', 'elsewhere')
-    render(modeProvider().render() as never)
+    fireEvent.click(getByTestId('bump'))
+    fireEvent.click(getByTestId('bump'))
+    // The consumer re-rendered twice and the provider did not, so nothing was
+    // written. A hook that wrote would have put `morning` back.
     expect(root().getAttribute('data-theme')).toBe('elsewhere')
   })
 })
