@@ -51,6 +51,7 @@ const SAFE_NAME = /^[A-Za-z0-9_-]{1,64}$/
 export interface ThemeScriptConfig {
   /** Every mode name the application declares. A stored value outside this list is discarded. */
   modes: readonly ThemeMode[]
+
   /**
    * Where everything lands when it fails: a stored value that is no longer a
    * mode, a `system` preference with no mapping, a `matchMedia` that throws.
@@ -59,6 +60,7 @@ export interface ThemeScriptConfig {
    * page.
    */
   defaultMode: ThemeMode
+
   /**
    * Where a reader starts when they have chosen nothing yet. Defaults to
    * `defaultMode`.
