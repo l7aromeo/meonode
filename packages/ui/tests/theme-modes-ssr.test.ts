@@ -4,13 +4,13 @@
 // server there is no document. `useState` initialisers run there too, so the
 // read has to be conditional rather than merely late.
 import { renderToString } from 'react-dom/server'
-import { Div, ThemeProvider, type Theme } from '@src/main.js'
+import { Div, ThemeModesProvider, ThemeProvider, type Theme } from '@src/main.js'
 import { describe, expect, it } from 'vitest'
 
 const TOKENS = { colors: { primary: 'var(--brand-primary)' }, spacing: { md: '16px' } }
 
 const page = (overrides: Record<string, unknown> = {}) =>
-  ThemeProvider({
+  ThemeModesProvider({
     tokens: TOKENS,
     modes: ['morning', 'night'],
     defaultMode: 'morning',

@@ -51,21 +51,16 @@ export interface ThemeModesProviderProps {
 }
 
 /**
- * Props for the original path.
+ * Props for the original path: one theme object, swapped wholesale.
  *
- * Both shapes are surfaced through one optional-member interface rather than a
- * union, because `createNode` infers a component's props and a union collapses
- * to `never` there — every existing `ThemeProvider({ theme })` call site stops
- * compiling. So the choice between the two is checked where it can be, at
- * runtime, with a message naming what is missing.
+ * Separate from {@link ThemeModesProviderProps} rather than a union of the two,
+ * because `createNode` infers a component's props and a union collapses to
+ * `never` there — every existing call site would stop compiling. Two components
+ * keep each set required where it belongs, so a missing prop is a compile error
+ * rather than a throw.
  */
 export interface ThemeProviderProps {
-  theme?: Theme
-  tokens?: ResolvedThemeSystem
-  modes?: readonly ThemeMode[]
-  defaultMode?: ThemeMode
-  system?: ThemeSystemModes
-  storageKey?: string
+  theme: Theme
   children?: Children
 }
 
@@ -138,7 +133,7 @@ function composeChildren(children: Children | undefined, system: Theme['system']
   return [themeVariablesStyle, ...(Array.isArray(children) ? children : children == null ? [] : [children])] as Children
 }
 
-function LegacyThemeProvider({ children, theme }: { children?: Children; theme: Theme }): ReactNode {
+export default function ThemeProvider({ children, theme }: ThemeProviderProps): ReactNode {
   // Seeded once. `theme` is the *initial* theme, not a controlled prop: passing a
   // different one on a later render changes nothing, because that is what a
   // `useState` initialiser does. Swapping the theme goes through `setTheme`.
@@ -183,31 +178,8 @@ function LegacyThemeProvider({ children, theme }: { children?: Children; theme: 
  * React runs, the attribute already holds the answer storage would have given,
  * and reading the DOM cannot disagree with what the reader is looking at.
  */
-function ModeThemeProvider({
-  children,
-  tokens,
-  modes,
-  defaultMode,
-  system,
-  storageKey = 'theme',
-  theme: ignoredTheme,
-}: ThemeModesProviderProps & { theme?: Theme }): ReactNode {
+export function ThemeModesProvider({ children, tokens, modes, defaultMode, system, storageKey = 'theme' }: ThemeModesProviderProps): ReactNode {
   const canFollowSystem = system !== undefined
-
-  // `modes` wins when both shapes are passed, because the whole point of this
-  // path is that the document does not carry a per-reader theme. Silently
-  // dropping a prop someone deliberately passed is worth a line.
-  //
-  // In an effect with no dependencies rather than in the render body: the
-  // condition is a property of the call site, so it wants saying once per
-  // provider and not once per render. React's mount-once is what provides that,
-  // which is why there is no counter here to go stale.
-  useEffect(() => {
-    if (ignoredTheme === undefined || !diagnosticsEnabled()) return
-    console.warn('[MeoNode] ThemeProvider: `theme` is ignored when `tokens` and `modes` are given. Remove it, or drop `tokens` to use the theme path.')
-    // Deliberately empty: this reports a fact about the call site, not about any
-    // value it might pass, so it is mount-scoped rather than dependency-scoped.
-  }, [])
 
   // Seeded once, like the theme path above: `defaultMode` is the initial mode,
   // not a controlled prop, and passing a different one later changes nothing.
@@ -315,31 +287,11 @@ function ModeThemeProvider({
   return Node(ThemeContext.Provider, { value: contextValue, children: composeChildren(children, tokens) }).render()
 }
 
-/**
- * Provides a theme.
- *
- * Two shapes, and which one an application passes decides how much of the
- * document depends on the reader. `theme` is the original: one theme object,
- * swapped wholesale, with the hook writing `data-theme` and the light/dark
- * classes. `tokens` + `modes` is the cacheable path described on
- * {@link ThemeModesProviderProps}.
- * @param props Either `{ theme }` or the mode-aware set.
- * @returns The provider, with its `:root` variable block.
- */
-export default function ThemeProvider(props: ThemeProviderProps): ReactNode {
-  if (props.tokens !== undefined) {
-    if (!props.modes?.length || !props.defaultMode) {
-      throw new Error('`tokens` needs `modes` and `defaultMode`: the mode names cannot be inferred from a token map')
-    }
-    // Rendered as elements rather than called, so each path is its own fiber and
-    // neither can inherit the other's hook order.
-    return createElement(ModeThemeProvider, props as ThemeModesProviderProps)
-  }
-  if (!props.theme) {
-    throw new Error('`theme` prop must be defined')
-  }
-  return createElement(LegacyThemeProvider, props as { children?: Children; theme: Theme })
-}
-
 ;(ThemeProvider as { __meonodeAcceptsServerCss?: boolean }).__meonodeAcceptsServerCss = true
 ;(ThemeProvider as { __meonodeProvidesServerTheme?: boolean }).__meonodeProvidesServerTheme = true
+// The mode path carries the same two flags. `providesServerTheme` reads
+// `rawProps.theme`, which this path does not have, and that is harmless:
+// server-side `theme.*` resolution and media-query keys both come out identical
+// either way — measured on both paths through `renderToString`.
+;(ThemeModesProvider as { __meonodeAcceptsServerCss?: boolean }).__meonodeAcceptsServerCss = true
+;(ThemeModesProvider as { __meonodeProvidesServerTheme?: boolean }).__meonodeProvidesServerTheme = true

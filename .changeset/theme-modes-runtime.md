@@ -9,11 +9,11 @@ A themed SSR page could not be cached, because the provider rendered its
 picked that theme per reader. Measured on a live site, light and dark differed in
 all 62 theme variables and the documents were different sizes.
 
-`ThemeProvider` gains a second shape where the markup stops depending on the
-mode:
+A second provider, `ThemeModesProvider`, renders markup that does not depend on
+the mode:
 
 ```ts
-ThemeProvider({
+ThemeModesProvider({
   tokens,                                       // one map; values are var() refs
   modes: ['morning', 'night'],
   system: { light: 'morning', dark: 'night' },  // optional
@@ -47,6 +47,20 @@ And the mode is no longer compared against `'dark'` — the attribute is set to 
 mode name whatever it is, so a mode called `'sepia'` is no longer treated as
 light. `ThemeProvider({ theme })` keeps its existing behaviour exactly, including
 the class swapping, and is unaffected.
+
+**`ThemeModesProvider` is the path to build on.** `ThemeProvider` keeps the
+shorter name only because taking it would break every existing application, not
+because it is the better default — a themed page it renders still varies per
+reader. The intended direction is that a future major makes `ThemeProvider` mean
+this behaviour and the theme-swapping shape takes a legacy name or goes.
+
+Two components rather than two shapes on one, because `createNode` infers a
+component's props and a union of the two collapses to `never` there, which stops
+every existing call site compiling. Keeping them separate also means a
+half-configured provider — `tokens` without `modes` — is a compile error rather
+than a throw at render. For the same reason there is no runtime rule about
+passing both: the situation cannot be expressed, since neither component accepts
+the other's props. `ThemeProvider` itself is untouched.
 
 Rejections are explicit rather than silent. A mode that is not in `modes`, and
 `'system'` without the mapping, are both ignored with a development warning
