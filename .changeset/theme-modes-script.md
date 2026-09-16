@@ -85,6 +85,23 @@ cannot express following it: it has to name a mode, and a mode may not be called
 can answer — a blocked storage, a missing `matchMedia`, a stored mode that has
 since been renamed. Omitted, it is `defaultMode`, so nothing existing moves.
 
+**A site that declares its modes gets them checked.** `modes`, `defaultMode`,
+`defaultPreference` and both sides of `system` are typed as `ResolvedThemeMode`,
+which is `MeoTheme['mode']` when a site augments it and the loose `ThemeMode`
+when it does not — so an un-augmented site sees no change at all, and an
+augmented one gets autocomplete for its own names and a compile error on a
+misspelt one. That case is otherwise invisible: a typo in `modes` is consistent
+with itself, so `defaultMode` is still a member of `modes`, every runtime check
+passes, and the only symptom is a stylesheet that matches nothing.
+
+```ts
+declare module '@meonode/ui' {
+  interface MeoTheme {
+    mode: 'morning' | 'night'
+  }
+}
+```
+
 **Three things an application has to do, and the reasons they are not optional:**
 
 - **Put the script as early in `<head>` as the framework allows.** A classic
