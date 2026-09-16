@@ -51,8 +51,29 @@ const SAFE_NAME = /^[A-Za-z0-9_-]{1,64}$/
 export interface ThemeScriptConfig {
   /** Every mode name the application declares. A stored value outside this list is discarded. */
   modes: readonly ThemeMode[]
-  /** The mode to stamp when nothing usable is stored. Must be one of `modes`. */
+  /**
+   * Where everything lands when it fails: a stored value that is no longer a
+   * mode, a `system` preference with no mapping, a `matchMedia` that throws.
+   * Must be one of `modes`, because those paths have nothing left to check it
+   * against and a mode no stylesheet defines reaches the reader as an unstyled
+   * page.
+   */
   defaultMode: ThemeMode
+  /**
+   * Where a reader starts when they have chosen nothing yet. Defaults to
+   * `defaultMode`.
+   *
+   * Separate from it because the two are different questions — where to begin
+   * against where to end up — and only this one can be `'system'`. A first visit
+   * is the case where the OS preference is the only thing known about what this
+   * reader wants, and `defaultMode` cannot express it: it has to name a mode,
+   * and a mode may not be called `system`.
+   *
+   * `'system'` here requires the `system` mapping and throws without it. That is
+   * an authored mistake, unlike a *stored* `'system'` with no mapping, which is
+   * a reader's stale value and degrades quietly to the default.
+   */
+  defaultPreference?: ThemeMode | 'system'
 
   /**
    * Maps the two words `prefers-color-scheme` speaks onto two of `modes`.
@@ -106,8 +127,16 @@ const THEME_SCRIPT_BODY = [
   `var s=document.currentScript||document.querySelector('script[${CONFIG_ATTRIBUTE}]');`,
   'if(!s)return;',
   `var c=JSON.parse(s.getAttribute('${CONFIG_ATTRIBUTE}'));`,
-  'var m=c.modes||[],d=c.default,p=d;',
+  // `d` is the terminal fallback, `f` is where a reader with no stored choice
+  // starts. They are usually the same and do not have to be: a site can want to
+  // begin by asking the OS and still name a mode for when nothing can answer.
+  'var m=c.modes||[],d=c.default,f=c.preference,p=f;',
   "try{var v=localStorage.getItem(c.storageKey);if(typeof v==='string'&&v)p=v;}catch(x){}",
+  // A stored value that is no longer a mode leaves the reader where a first
+  // visit would have started, not at the last resort. The second line only
+  // matters for a hand-written attribute, where `f` itself may be nonsense; `d`
+  // is checked against `modes` when the script is built.
+  `if(p!=='${SYSTEM_PREFERENCE}'&&m.indexOf(p)<0)p=f;`,
   `if(p!=='${SYSTEM_PREFERENCE}'&&m.indexOf(p)<0)p=d;`,
   'var t=p;',
   `if(p==='${SYSTEM_PREFERENCE}'){`,
@@ -121,6 +150,27 @@ const THEME_SCRIPT_BODY = [
   '}catch(x){}',
   '})();',
 ].join('')
+
+/**
+ * The `script-src` source expression for {@link themeScript}'s body.
+ *
+ * Under a hash-only Content Security Policy the header has to name the script
+ * before the request that carries it, so the value has to be available without
+ * rendering anything. It is a literal rather than a digest computed here: a
+ * `crypto` call would need an async, platform-specific API on a path that has
+ * neither, and the body it covers is fixed at build time anyway.
+ *
+ * The constant is checked against the digest of the body it claims to cover in
+ * the test suite, so the two cannot drift apart. Taking it from here rather than
+ * re-deriving it from rendered output is what keeps a consumer's policy correct
+ * across upgrades — a hand-copied digest goes stale the day the body changes,
+ * and the only symptom is a browser refusing to run the script.
+ *
+ * ```ts
+ * headers.set('Content-Security-Policy', `script-src 'self' '${THEME_SCRIPT_CSP_HASH}'`)
+ * ```
+ */
+export const THEME_SCRIPT_CSP_HASH = 'sha256-2mOAnArNYXQNFrAvOndtATVpl0/2Pmg+VkirVRnLkCU='
 
 /** Names the failing field, because the message is the only place this surfaces. */
 function assertSafeName(value: unknown, field: string): asserts value is string {
@@ -178,6 +228,20 @@ export function themeScript(config: ThemeScriptConfig): NodeInstance<'script'> {
         'It is what every failure path falls back to, so it has to name a mode the stylesheets define.',
     )
   }
+  const defaultPreference = config.defaultPreference ?? defaultMode
+  if (defaultPreference !== SYSTEM_PREFERENCE) {
+    if (!modes.includes(defaultPreference)) {
+      throw new Error(
+        `themeScript: \`defaultPreference\` is ${JSON.stringify(defaultPreference)}, which is neither one of \`modes\` (${modes.map(mode => JSON.stringify(mode)).join(', ')}) nor "${SYSTEM_PREFERENCE}". ` +
+          'It is where a reader starts before they have chosen anything.',
+      )
+    }
+  } else if (!system) {
+    throw new Error(
+      `themeScript: \`defaultPreference\` is "${SYSTEM_PREFERENCE}", but no \`system\` mapping says which of \`modes\` the OS's two words mean. ` +
+        'Give the mapping, or start from a mode.',
+    )
+  }
   if (system) {
     for (const word of ['light', 'dark'] as const) {
       if (!modes.includes(system[word])) {
@@ -193,7 +257,7 @@ export function themeScript(config: ThemeScriptConfig): NodeInstance<'script'> {
   // `JSON.stringify` follows insertion order, so a configuration object
   // assembled one way on the server and another on the client would produce a
   // different attribute and a hydration mismatch.
-  const payload: Record<string, unknown> = { modes: [...modes], default: defaultMode }
+  const payload: Record<string, unknown> = { modes: [...modes], default: defaultMode, preference: defaultPreference }
   if (system) payload.system = { light: system.light, dark: system.dark }
   payload.storageKey = storageKey
 
