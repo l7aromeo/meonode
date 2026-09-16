@@ -1,5 +1,5 @@
 import { StyleRegistry } from '@meonode/ui/nextjs-registry'
-import { ThemeProvider, PortalProvider, PortalHost, Html, Body } from '@meonode/ui'
+import { ThemeProvider, PortalProvider, PortalHost, Html, Head, Body, Link, themeScript } from '@meonode/ui'
 import type { ReactNode } from 'react'
 
 const theme = {
@@ -12,18 +12,38 @@ const theme = {
   },
 }
 
+/**
+ * The application's own mode names, which is all the pre-paint script is given.
+ * Nothing about `morning` or `night` is known to the library; the mapping is
+ * what says which of them the OS means by `dark`.
+ */
+const themeModes = {
+  modes: ['morning', 'night'],
+  defaultMode: 'morning',
+  system: { light: 'morning', dark: 'night' },
+} as const
+
 export default function RootLayout({ children }: { children: ReactNode }) {
   return Html({
-    children: Body({
-      children: StyleRegistry({
-        children: ThemeProvider({
-          theme,
-          children: PortalProvider({
-            children: [children, PortalHost()],
+    // The script writes `data-theme` on this element before the first paint, so
+    // the served markup and the hydrating DOM differ here by design.
+    suppressHydrationWarning: true,
+    children: [
+      // The script first, the stylesheet after it. A script that follows a
+      // `<link rel="stylesheet">` cannot run until that sheet has loaded, which
+      // is exactly the delay it exists to avoid, so the order is asserted.
+      Head({ children: [themeScript(themeModes), Link({ rel: 'stylesheet', href: '/theme-fixture.css' })] }),
+      Body({
+        children: StyleRegistry({
+          children: ThemeProvider({
+            theme,
+            children: PortalProvider({
+              children: [children, PortalHost()],
+            }),
           }),
         }),
       }),
-    }),
+    ],
   }).render()
 }
 
