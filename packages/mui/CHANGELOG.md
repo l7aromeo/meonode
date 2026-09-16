@@ -1,5 +1,12 @@
 # @meonode/mui
 
+## 3.0.0
+
+### Patch Changes
+
+- Updated dependencies [[`ddd859e`](https://github.com/l7aromeo/meonode/commit/ddd859eb50d0a5066cf3b582db8936edeb603c1f)]:
+  - @meonode/ui@3.0.0
+
 ## 2.1.0
 
 ### Minor Changes
