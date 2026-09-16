@@ -18,6 +18,7 @@ const theme = {
   modes: ['morning', 'night'],
   defaultMode: 'morning',
   system: { light: 'morning', dark: 'night' }, // optional
+  defaultPreference: 'system', // optional; defaults to defaultMode
 } as const
 
 Html({
@@ -53,6 +54,16 @@ is what keeps a policy correct across upgrades: a hand-copied hash goes stale th
 day the body changes, and the only symptom is a browser refusing to run the
 script.
 
+**`defaultPreference` is where a reader starts; `defaultMode` is where everything
+lands when it fails.** They are usually the same and do not have to be, and only
+the first can be `'system'`. A first visit is the one case where the OS
+preference is all that is known about what the reader wants, and `defaultMode`
+cannot express following it: it has to name a mode, and a mode may not be called
+`system`. So a site that wants to begin by asking the OS says
+`defaultPreference: 'system'`, and still names a `defaultMode` for when nothing
+can answer — a blocked storage, a missing `matchMedia`, a stored mode that has
+since been renamed. Omitted, it is `defaultMode`, so nothing existing moves.
+
 **Three things an application has to do, and the reasons they are not optional:**
 
 - **Put the script as early in `<head>` as the framework allows.** A classic
@@ -86,8 +97,10 @@ back to as well. A stored `system` with no mapping resolves to the default
 instead of stamping the word `system`, which no palette matches.
 
 **A configuration that cannot work throws.** An empty `modes`, a `defaultMode` or
-a `system` value that is not one of them, a mode named `system`, or a name
-outside `[A-Za-z0-9_-]{1,64}`. Not gated on development: the configuration is
+a `system` value that is not one of them, a `defaultPreference` that is neither a
+mode nor `'system'`, a `defaultPreference: 'system'` with no mapping to say what
+the OS's words mean here, a mode named `system`, or a name outside
+`[A-Za-z0-9_-]{1,64}`. Not gated on development: the configuration is
 authored rather than data, so a check that fired only in development would let CI
 pass and production ship a script that stamps a mode no selector matches. The
 name restriction is for the application's sake — a mode name is the one value

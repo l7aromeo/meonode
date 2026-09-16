@@ -56,6 +56,7 @@ const run = (node: unknown, configOverride?: string): void => {
 
 const MODES = { modes: ['morning', 'night'], defaultMode: 'morning' } as const
 const WITH_SYSTEM = { ...MODES, system: { light: 'morning', dark: 'night' } } as const
+const FOLLOW_SYSTEM = { ...WITH_SYSTEM, defaultPreference: 'system' } as const
 
 /**
  * Web Storage, supplied rather than assumed.
@@ -117,6 +118,7 @@ describe('the node it returns', () => {
     expect(JSON.parse(configOf(node))).toEqual({
       modes: ['morning', 'night'],
       default: 'morning',
+      preference: 'morning',
       system: { light: 'morning', dark: 'night' },
       storageKey: 'theme',
     })
@@ -152,7 +154,7 @@ describe('the body is one constant', () => {
       .digest('base64')}`
 
     expect(THEME_SCRIPT_CSP_HASH).toBe(digest)
-    expect(digest).toBe('sha256-VjgrRIgkoFbiLcbmoxDfbf+5fL7BpGm+w6cKK2N2um4=')
+    expect(digest).toBe('sha256-2mOAnArNYXQNFrAvOndtATVpl0/2Pmg+VkirVRnLkCU=')
   })
 
   it('survives React unchanged, which is what keeps the hash stable across versions', () => {
@@ -265,6 +267,76 @@ describe('following the system', () => {
   })
 })
 
+describe('where a reader starts when they have chosen nothing', () => {
+  // The case the whole feature is for. On a first visit the OS preference is the
+  // only thing known about what this reader wants, and it was the one case the
+  // configuration could not reach: `defaultMode` has to name a mode, and a mode
+  // may not be called `system`, so there was no way to say "start by asking".
+  it('follows the OS on a first visit when told to', () => {
+    stubMatchMedia(true)
+    run(themeScript(FOLLOW_SYSTEM))
+
+    expect(root().getAttribute('data-theme')).toBe('night')
+    expect(root().getAttribute('data-theme-preference')).toBe('system')
+  })
+
+  it('follows the OS the other way too', () => {
+    stubMatchMedia(false)
+    run(themeScript(FOLLOW_SYSTEM))
+
+    expect(root().getAttribute('data-theme')).toBe('morning')
+    expect(root().getAttribute('data-theme-preference')).toBe('system')
+  })
+
+  it('starts from a named mode that is not the fallback', () => {
+    // The two are different questions. This one is where to begin; `defaultMode`
+    // is where everything lands when it fails.
+    run(themeScript({ ...MODES, defaultPreference: 'night' }))
+
+    expect(root().getAttribute('data-theme')).toBe('night')
+    expect(root().getAttribute('data-theme-preference')).toBe('night')
+  })
+
+  it('is the default mode when nothing says otherwise, so no existing configuration moves', () => {
+    run(themeScript(WITH_SYSTEM))
+
+    expect(root().getAttribute('data-theme')).toBe('morning')
+    expect(root().getAttribute('data-theme-preference')).toBe('morning')
+  })
+
+  it('yields to a stored choice, which is the reader overruling the site', () => {
+    stubStorage({ theme: 'morning' })
+    stubMatchMedia(true)
+    run(themeScript(FOLLOW_SYSTEM))
+
+    expect(root().getAttribute('data-theme')).toBe('morning')
+    expect(root().getAttribute('data-theme-preference')).toBe('morning')
+  })
+
+  it('is what an unusable stored value falls back to, not the terminal fallback', () => {
+    // A renamed mode should leave the reader where a first-time visitor would
+    // start, which is the configured beginning and not the last-resort mode.
+    stubStorage({ theme: 'twilight' })
+    stubMatchMedia(true)
+    run(themeScript(FOLLOW_SYSTEM))
+
+    expect(root().getAttribute('data-theme')).toBe('night')
+    expect(root().getAttribute('data-theme-preference')).toBe('system')
+  })
+
+  it('still lands somewhere when it says system and the browser cannot answer', () => {
+    run(themeScript(FOLLOW_SYSTEM))
+
+    expect(root().getAttribute('data-theme')).toBe('morning')
+    expect(root().getAttribute('data-theme-preference')).toBe('system')
+  })
+
+  it('travels in the attribute, in the fixed key order', () => {
+    expect(JSON.parse(configOf(themeScript(FOLLOW_SYSTEM))).preference).toBe('system')
+    expect(Object.keys(JSON.parse(configOf(themeScript(FOLLOW_SYSTEM))))).toEqual(['modes', 'default', 'preference', 'system', 'storageKey'])
+  })
+})
+
 describe('when the browser refuses to answer', () => {
   // Not throwing is the easy half. The half that matters is that the document
   // still ends up with a mode: an unstyled page is a worse outcome than a wrong
@@ -341,6 +413,16 @@ describe('a configuration that cannot work fails where the developer can see it'
 
   it('refuses `system` as a mode name, which is the one word a preference already uses', () => {
     expect(() => themeScript({ modes: ['morning', 'system'], defaultMode: 'morning' })).toThrow(/system/)
+  })
+
+  it('refuses to start from the system when nothing says what the OS words mean', () => {
+    // An authored error, unlike a *stored* `system` with no mapping — that is a
+    // reader's stale value and keeps degrading quietly to the default.
+    expect(() => themeScript({ ...MODES, defaultPreference: 'system' })).toThrow(/defaultPreference/)
+  })
+
+  it('refuses a starting preference that is neither a mode nor the system', () => {
+    expect(() => themeScript({ ...WITH_SYSTEM, defaultPreference: 'twilight' })).toThrow(/defaultPreference/)
   })
 
   it('accepts a single mode, which is the no-toggle setup', () => {
