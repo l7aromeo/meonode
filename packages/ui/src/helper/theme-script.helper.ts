@@ -1,5 +1,5 @@
 import { Script } from '@src/components/html.node.js'
-import type { NodeInstance, ThemeMode } from '@src/types/node.type.js'
+import type { NodeInstance, ResolvedThemeMode } from '@src/types/node.type.js'
 
 /**
  * Where the resolved mode is stamped. The provider seeds itself from this
@@ -50,7 +50,7 @@ const SAFE_NAME = /^[A-Za-z0-9_-]{1,64}$/
  */
 export interface ThemeScriptConfig {
   /** Every mode name the application declares. A stored value outside this list is discarded. */
-  modes: readonly ThemeMode[]
+  modes: readonly ResolvedThemeMode[]
 
   /**
    * Where everything lands when it fails: a stored value that is no longer a
@@ -59,7 +59,7 @@ export interface ThemeScriptConfig {
    * against and a mode no stylesheet defines reaches the reader as an unstyled
    * page.
    */
-  defaultMode: ThemeMode
+  defaultMode: ResolvedThemeMode
 
   /**
    * Where a reader starts when they have chosen nothing yet. Defaults to
@@ -75,7 +75,7 @@ export interface ThemeScriptConfig {
    * an authored mistake, unlike a *stored* `'system'` with no mapping, which is
    * a reader's stale value and degrades quietly to the default.
    */
-  defaultPreference?: ThemeMode | 'system'
+  defaultPreference?: ResolvedThemeMode | 'system'
 
   /**
    * Maps the two words `prefers-color-scheme` speaks onto two of `modes`.
@@ -84,7 +84,7 @@ export interface ThemeScriptConfig {
    * Written out rather than named so the provider's own mapping type is
    * accepted by structure, and so neither side has to own a shared declaration.
    */
-  system?: { light: ThemeMode; dark: ThemeMode }
+  system?: { light: ResolvedThemeMode; dark: ResolvedThemeMode }
   /** Where the preference is kept. Defaults to `theme`. */
   storageKey?: string
 }

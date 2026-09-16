@@ -92,6 +92,16 @@ mapping, which is a reader's leftover and degrades quietly. The field is also
 what lets one configuration literal feed both the pre-paint script and the
 provider, which is not possible while only one half declares it.
 
+A site that declares its mode names through `MeoTheme` gets them everywhere. The
+provider's props, the mapping in `system`, and everything `useTheme()` hands back
+— `mode`, `modes`, `setMode`, `setPreference` — take `ResolvedThemeMode`, which
+is `MeoTheme['mode']` when augmented and the loose `ThemeMode` when not, so an
+un-augmented site is unaffected. Augmented, `setMode('nigth')` stops compiling;
+before, every string was accepted and autocomplete offered `'light'` and `'dark'`
+to a site that uses neither. A misspelt mode is consistent with itself, so no
+runtime check can catch it — `defaultMode` is a member of `modes`, every
+validation passes, and no stylesheet matches.
+
 Rejections are explicit rather than silent. A mode that is not in `modes`, and
 `'system'` without the mapping, are both ignored with a development warning
 instead of setting a `data-theme` no selector matches. Passing `theme` alongside

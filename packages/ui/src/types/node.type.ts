@@ -176,8 +176,8 @@ export type ThemeModePreference = 'system' | ThemeMode
  * has not said which is which until it says so here.
  */
 export interface ThemeSystemModes {
-  light: ThemeMode
-  dark: ThemeMode
+  light: ResolvedThemeMode
+  dark: ResolvedThemeMode
 }
 
 /**
@@ -210,6 +210,16 @@ export type ResolvedThemeSystem = MeoTheme extends { system: infer S extends Rec
 
 /** Resolved mode type — user-augmented if provided, else the loose default. */
 export type ResolvedThemeMode = MeoTheme extends { mode: infer M } ? M : ThemeMode
+
+/**
+ * A preference over the modes a site has actually declared.
+ *
+ * The loose {@link ThemeModePreference} accepts any string, so a misspelt mode
+ * compiles and nothing matches it at runtime — a typo is consistent with itself,
+ * which is why no amount of validation catches it. Augmenting `MeoTheme['mode']`
+ * turns that into a compile error.
+ */
+export type ResolvedThemePreference = 'system' | ResolvedThemeMode
 
 /**
  * Recursively builds dotted paths from an object type, stopping at primitives.
