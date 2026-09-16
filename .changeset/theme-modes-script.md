@@ -49,10 +49,31 @@ script without rendering anything first:
 headers.set('Content-Security-Policy', `script-src 'self' '${THEME_SCRIPT_CSP_HASH}'`)
 ```
 
-Taking it from the package rather than copying a digest out of rendered output
-is what keeps a policy correct across upgrades: a hand-copied hash goes stale the
-day the body changes, and the only symptom is a browser refusing to run the
-script.
+Take it from the package rather than copying the digest out of rendered output.
+A copied literal goes stale the first time this body changes, and that failure is
+silent in every way a test usually looks. The policy is still valid, the element
+is still in the document, and the page still settles in the right mode, because
+the provider applies it after hydration. The one symptom is that `data-theme` is
+absent *until* hydration — which is precisely the flash the script exists to
+prevent, and nothing downstream of hydration can observe it.
+
+Three assertions make that visible, and none of them costs anything in the
+script:
+
+- the served `script-src` contains `THEME_SCRIPT_CSP_HASH`. This catches a stale
+  literal exactly, before a browser is involved.
+- no `csp-violation` report arrives. Measured against a deliberately stale
+  hash, a `ReportingObserver` for `csp-violation` with `buffered: true` reports
+  it with `effectiveDirective: 'script-src-elem'` even when it is registered
+  after the page has loaded, which a test usually is. A
+  `securitypolicyviolation` listener has to be in place before the parser
+  reaches the script, so it is the wrong shape for this.
+- `data-theme` is present *before* hydration — read it at `load`, not after.
+  After hydration the provider has written it and the check can no longer fail.
+
+A policy whose hashes are derived from the rendered response, as a hashing proxy
+does, is unaffected: it re-derives the digest per response and never holds a copy
+to go stale.
 
 **`defaultPreference` is where a reader starts; `defaultMode` is where everything
 lands when it fails.** They are usually the same and do not have to be, and only
