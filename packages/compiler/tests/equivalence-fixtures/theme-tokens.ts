@@ -7,19 +7,17 @@
 // is what actually interprets them, identically regardless of whether this
 // call site was compiled.
 import { Div, ThemeProvider } from '@meonode/ui'
-import type { Theme } from '@meonode/ui'
 
-const theme: Theme = {
-  mode: 'light',
-  system: {
-    primary: '#4f46e5',
-    spacing: { md: '16px' },
-  },
+const tokens = {
+  primary: '#4f46e5',
+  spacing: { md: '16px' },
 }
 
 export default function ThemeTokens() {
   return ThemeProvider({
-    theme,
+    tokens,
+    modes: ['light'],
+    defaultMode: 'light',
     children: Div({
       padding: 'theme.spacing.md',
       backgroundColor: 'theme.primary',

@@ -15,7 +15,7 @@ import { act } from 'react'
 import { hydrateRoot } from 'react-dom/client'
 import { renderToString } from 'react-dom/server'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createNode, ThemeModesProvider, useTheme } from '@src/main.js'
+import { createNode, ThemeProvider, useTheme } from '@src/main.js'
 
 // React only reports hydration mismatches synchronously when it knows it is in
 // an act environment. Without this, `act()` warns that it is unsupported, the
@@ -46,7 +46,7 @@ const ModeDependent = createNode(function ModeDependent() {
 })
 
 const tree = () =>
-  ThemeModesProvider({
+  ThemeProvider({
     tokens: TOKENS,
     modes: MODES,
     defaultMode: 'morning',
@@ -129,7 +129,7 @@ afterEach(() => {
 })
 
 const preferenceTree = () =>
-  ThemeModesProvider({
+  ThemeProvider({
     tokens: TOKENS,
     modes: MODES,
     defaultMode: 'morning',
@@ -137,7 +137,7 @@ const preferenceTree = () =>
     children: PreferenceDependent({}),
   } as never).render() as ReactNode
 
-const flagTree = () => ThemeModesProvider({ tokens: TOKENS, modes: MODES, defaultMode: 'morning', children: HydrationFlag({}) } as never).render() as ReactNode
+const flagTree = () => ThemeProvider({ tokens: TOKENS, modes: MODES, defaultMode: 'morning', children: HydrationFlag({}) } as never).render() as ReactNode
 
 describe('hydrating with a non-default mode', () => {
   it('reports hydrated false until the handover, so a consumer can gate on it', () => {

@@ -3,11 +3,10 @@ import { ThemeScopeBlock } from '../../_components/theme-scope-block'
 
 export default function Page() {
   return ThemeProvider({
-    theme: {
-      mode: 'light',
-      system: {
-        primary: { default: 'rgb(0, 128, 0)' },
-      },
+    modes: ['light'],
+    defaultMode: 'light',
+    tokens: {
+      primary: { default: 'rgb(0, 128, 0)' },
     },
     children: ThemeScopeBlock({
       pageTestId: 'theme-children-page',

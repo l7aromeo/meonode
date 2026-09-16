@@ -2,3 +2,21 @@
    script placed after a `<link rel="stylesheet">` cannot run until that sheet
    has loaded, which is the delay the script exists to avoid. */
 :root { --theme-fixture-probe: 1; }
+
+/* The palettes the flicker fixture samples. A mode is a name; this is where its
+   colours live, which is why the served markup never has to carry them. */
+:root,
+[data-theme='morning'] {
+  --fixture-base: rgb(250, 250, 252);
+  --fixture-base-content: rgb(20, 20, 30);
+}
+
+[data-theme='night'] {
+  --fixture-base: rgb(10, 10, 15);
+  --fixture-base-content: rgb(235, 235, 240);
+}
+
+html,
+body {
+  margin: 0;
+}

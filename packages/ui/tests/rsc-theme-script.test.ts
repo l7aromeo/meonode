@@ -81,11 +81,11 @@ declare global {
  * made of it.
  *
  * The mode is read from the *first* write rather than from the element later.
- * This fixture's root layout also mounts the legacy `ThemeProvider`, whose hook
- * stamps its own `data-theme` on mount, so an attribute read after hydration
- * answers a question about that hook and not about this script. An init script
- * — which Playwright runs before any of the page's own — records the first
- * value instead, which is precisely the pre-paint one.
+ * The provider asserts the attribute from its own state once it has adopted, so
+ * an attribute read after hydration answers a question about the provider and
+ * not about this script — and the two agree, which is exactly why reading late
+ * cannot tell them apart. An init script — which Playwright runs before any of
+ * the page's own — records the first value instead, which is the pre-paint one.
  */
 async function serverDocument(stored: string | null, path: string = PAGE): Promise<{ html: string; mode: string | null; preference: string | null }> {
   const context: BrowserContext = await browser!.newContext()

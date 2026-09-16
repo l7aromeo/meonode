@@ -45,7 +45,7 @@ const SAFE_NAME = /^[A-Za-z0-9_-]{1,64}$/
  * ```ts
  * const theme = { modes: ['morning', 'night'], defaultMode: 'morning', system: { light: 'morning', dark: 'night' } } as const
  * themeScript(theme)
- * ThemeModesProvider({ ...theme, tokens, children })
+ * ThemeProvider({ ...theme, tokens, children })
  * ```
  */
 export interface ThemeScriptConfig {

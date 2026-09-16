@@ -1,6 +1,7 @@
 import { Div, type Theme, ThemeProvider } from '@src/main.js'
 import { cleanup, render } from '@testing-library/react'
 import { createSerializer, matchers } from '@emotion/jest'
+import { asThemeProps } from './_theme-props.js'
 
 expect.extend(matchers)
 expect.addSnapshotSerializer(createSerializer())
@@ -19,7 +20,7 @@ describe('Theme Key Resolution', () => {
     }
 
     const App = ThemeProvider({
-      theme: myTheme,
+      ...asThemeProps(myTheme),
       children: Div({
         children: 'Media Query Content',
         css: {
@@ -55,7 +56,7 @@ describe('Theme Key Resolution', () => {
     }
 
     const App = ThemeProvider({
-      theme: myTheme,
+      ...asThemeProps(myTheme),
       children: Div({
         children: 'Complex Media Query Content',
         css: {

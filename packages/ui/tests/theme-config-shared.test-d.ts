@@ -15,7 +15,7 @@
  * prop sets apart; this one holds the provider and the script together.
  */
 import { themeScript, type ThemeScriptConfig } from '@src/main.js'
-import { ThemeModesProvider, type ThemeModesProviderProps } from '@src/components/theme-provider.js'
+import { ThemeProvider, type ThemeProviderProps } from '@src/components/theme-provider.js'
 import type { ThemeSystemModes } from '@src/types/node.type.js'
 
 const TOKENS = { colors: { primary: 'var(--brand-primary)' } }
@@ -28,13 +28,13 @@ const shared = {
 } as const
 
 const forScript: ThemeScriptConfig = shared
-const forProvider: Omit<ThemeModesProviderProps, 'tokens' | 'children'> = shared
+const forProvider: Omit<ThemeProviderProps, 'tokens' | 'children'> = shared
 const mapping: ThemeSystemModes = shared.system
 const scriptTakesTheProvidersMapping: ThemeScriptConfig = { modes: shared.modes, defaultMode: shared.defaultMode, system: mapping }
 
 // The call sites an application writes, from the one literal.
 export const script = themeScript(shared)
-export const provider = ThemeModesProvider({ ...shared, tokens: TOKENS, children: 'x' })
+export const provider = ThemeProvider({ ...shared, tokens: TOKENS, children: 'x' })
 
 void forScript
 void forProvider

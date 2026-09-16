@@ -31,7 +31,9 @@ export default function Page() {
   return Node(MuiThemeProvider, {
     theme: muiTheme,
     children: MeoThemeProvider({
-      theme: meoTheme,
+      modes: [meoTheme.mode],
+      defaultMode: meoTheme.mode,
+      tokens: meoTheme.system,
       children: Column({
         'data-testid': 'interop-mui-theme-nested-page',
         children: [
