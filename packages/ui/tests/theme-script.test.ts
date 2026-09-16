@@ -147,7 +147,9 @@ describe('the body is one constant', () => {
     // The second is a golden value, and it exists to make a change to the body
     // visible. Without it both sides could move together and the suite would
     // stay green while every policy already published went stale.
-    const digest = `sha256-${createHash('sha256').update(bodyOf(themeScript(MODES)), 'utf8').digest('base64')}`
+    const digest = `sha256-${createHash('sha256')
+      .update(bodyOf(themeScript(MODES)), 'utf8')
+      .digest('base64')}`
 
     expect(THEME_SCRIPT_CSP_HASH).toBe(digest)
     expect(digest).toBe('sha256-VjgrRIgkoFbiLcbmoxDfbf+5fL7BpGm+w6cKK2N2um4=')
