@@ -4,7 +4,8 @@
 // server there is no document. `useState` initialisers run there too, so the
 // read has to be conditional rather than merely late.
 import { renderToString } from 'react-dom/server'
-import { Div, ThemeModesProvider, ThemeProvider, type Theme } from '@src/main.js'
+import { createNode, Div, ThemeModesProvider, ThemeProvider, useTheme, type Theme } from '@src/main.js'
+import { createElement } from 'react'
 import { describe, expect, it } from 'vitest'
 
 const TOKENS = { colors: { primary: 'var(--brand-primary)' }, spacing: { md: '16px' } }
@@ -18,7 +19,31 @@ const page = (overrides: Record<string, unknown> = {}) =>
     ...overrides,
   } as never).render() as never
 
+const PreferenceLabel = createNode(function PreferenceLabel() {
+  const { preference } = useTheme() as never as { preference?: string }
+  return createElement('span', { id: 'pref' }, String(preference))
+})
+
 describe('the mode path with no document', () => {
+  it('renders the declared default preference, not the default mode', () => {
+    // The server has no storage and no attribute, so the only thing it can say
+    // is what the application declared — and it has to say that, because the
+    // client's first render says the same and React compares them. Seeding from
+    // `defaultMode` instead is invisible once adoption has run, which is why
+    // this case is here and not in the client suite.
+    const html = renderToString(
+      ThemeModesProvider({
+        tokens: TOKENS,
+        modes: ['morning', 'night'],
+        defaultMode: 'morning',
+        defaultPreference: 'system',
+        system: { light: 'morning', dark: 'night' },
+        children: PreferenceLabel({}),
+      } as never).render() as never,
+    )
+    expect(html).toContain('<span id="pref">system</span>')
+  })
+
   it('renders without touching one', () => {
     expect(typeof document).toBe('undefined')
     expect(() => renderToString(page())).not.toThrow()

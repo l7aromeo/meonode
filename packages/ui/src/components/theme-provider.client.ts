@@ -1,5 +1,5 @@
 'use client'
-import { createContext, createElement, type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
+import { createContext, createElement, type ReactNode, useCallback, useEffect, useLayoutEffect, useState } from 'react'
 import type { Children, ResolvedThemeSystem, Theme, ThemeMode, ThemeModePreference, ThemeSystemModes } from '@src/types/node.type.js'
 import { Node } from '@src/core.node.js'
 import { buildThemeVariablesCss } from '@src/util/server-theme.util.js'
@@ -34,6 +34,17 @@ export interface ThemeContextValue {
   setPreference: (preference: ThemeModePreference) => void
 
   /**
+   * False until the provider has adopted the reader's real mode.
+   *
+   * The first client render must match the server's, so it renders the default
+   * whatever the reader stored. A consumer rendering markup from `mode` — a
+   * toggle position, a different icon — can gate on this to avoid showing the
+   * default for one commit. Always true on the original `theme` path, which has
+   * nothing to adopt.
+   */
+  hydrated: boolean
+
+  /**
    * The declared mode names, and the marker that this is the mode-aware path.
    * `useTheme` reads it to decide whether it owns the DOM write — on the legacy
    * path it does, and consumers depend on that; here the provider does, once,
@@ -59,6 +70,21 @@ export interface ThemeModesProviderProps {
   tokens: ResolvedThemeSystem
   modes: readonly ThemeMode[]
   defaultMode: ThemeMode
+
+  /**
+   * What a reader who has never chosen starts on. Defaults to `defaultMode`.
+   *
+   * Separate from `defaultMode` because the mode cannot express it:
+   * `defaultMode: 'night'` says "dark when nothing is stored", while
+   * `defaultPreference: 'system'` says "follow the OS until told otherwise", and
+   * an application has to be able to say the second.
+   *
+   * `'system'` requires the `system` mapping and throws without it. That is
+   * unlike a *stored* `'system'` with no mapping, which is a reader's leftover
+   * and degrades quietly — this one is in the source, and the person who can fix
+   * it is the person running the build.
+   */
+  defaultPreference?: ThemeModePreference
   /** Maps `prefers-color-scheme` onto two of `modes`. Without it, `'system'` is not offered. */
   system?: ThemeSystemModes
   /** Where the preference is kept. Defaults to `theme`. */
@@ -79,6 +105,15 @@ export interface ThemeProviderProps {
   theme: Theme
   children?: Children
 }
+
+/**
+ * `useLayoutEffect` on the client, `useEffect` on the server.
+ *
+ * A layout effect never runs during server rendering, and React warns when one
+ * is present there. The provider needs layout timing on the client — adoption
+ * has to land before paint — and needs to say nothing at all on the server.
+ */
+const useIsomorphicLayoutEffect = typeof window === 'undefined' ? useEffect : useLayoutEffect
 
 /** Web Storage is absent in some runtimes and throws in others (private mode, disabled site data). */
 function readStored(key: string): string | null {
@@ -180,8 +215,10 @@ export default function ThemeProvider({ children, theme }: ThemeProviderProps): 
     theme: currentTheme,
     setTheme: applyTheme,
     // `mode` is genuinely this theme's own, so a consumer can read the same name
-    // on either path.
+    // on either path. Nothing is adopted after mount here, so `hydrated` is true
+    // from the start.
     mode: currentTheme.mode as ThemeMode,
+    hydrated: true,
     // The other three belong to the mode path and cannot be honoured here.
     // Changing `mode` while keeping `system` is not a mode switch on this path:
     // the palettes are different objects with different values, so it would
@@ -207,23 +244,51 @@ export default function ThemeProvider({ children, theme }: ThemeProviderProps): 
  * The document does not depend on the mode: the `:root` block is built from
  * `tokens` alone, and which palette applies is decided by `data-theme` on the
  * document element, written before the first paint by a blocking script. So this
- * component seeds from that attribute rather than from storage — by the time
- * React runs, the attribute already holds the answer storage would have given,
- * and reading the DOM cannot disagree with what the reader is looking at.
+ * component renders `defaultMode` on its first pass — on the server and on the
+ * client alike — and adopts the reader's real mode in a layout effect.
+ *
+ * It cannot read the attribute or storage while rendering. Both are absent on
+ * the server and present on the client, so doing so makes the two first renders
+ * differ for every reader whose mode is not the default. React requires them to
+ * be identical: a consumer rendering anything from `mode` — a toggle's
+ * `checked`, a different icon, an offset — then throws #418, React discards the
+ * server tree and client-renders the document, and that reset is what wipes the
+ * attributes the script wrote. The attribute loss is the symptom of the
+ * mismatch, not a separate fault.
+ *
+ * The page itself does not flash, because page-level theming is CSS keyed off
+ * the attribute the script already wrote before the first paint. Only React
+ * markup that depends on `mode` takes a second pass, which is the price of that
+ * markup being React's rather than CSS's. `hydrated` is on the context so a
+ * consumer can gate that deliberately.
  */
-export function ThemeModesProvider({ children, tokens, modes, defaultMode, system, storageKey = 'theme' }: ThemeModesProviderProps): ReactNode {
+export function ThemeModesProvider({
+  children,
+  tokens,
+  modes,
+  defaultMode,
+  defaultPreference,
+  system,
+  storageKey = 'theme',
+}: ThemeModesProviderProps): ReactNode {
   const canFollowSystem = system !== undefined
+
+  if (defaultPreference === 'system' && !canFollowSystem) {
+    throw new Error("defaultPreference: 'system' needs a `system` mapping saying which of your modes the OS words mean, e.g. system: { light: '…', dark: '…' }")
+  }
 
   // Seeded once, like the theme path above: `defaultMode` is the initial mode,
   // not a controlled prop, and passing a different one later changes nothing.
   // `tokens` is not state and does flow through on every render, so the variable
   // block follows it.
-  const [preference, setPreferenceState] = useState<ThemeModePreference>(() => {
-    const stored = readStored(storageKey)
-    if (stored === 'system') return canFollowSystem ? 'system' : defaultMode
-    if (stored && modes.includes(stored)) return stored
-    return defaultMode
-  })
+  //
+  // Both pieces of state start at the default and are adopted after mount. No
+  // `document` and no `localStorage` during render — see the note on the
+  // component.
+  // A prop, so both renders agree on it without reading anything the server
+  // cannot see.
+  const [preference, setPreferenceState] = useState<ThemeModePreference>(defaultPreference ?? defaultMode)
+  const [hydrated, setHydrated] = useState(false)
 
   const resolveSystemMode = useCallback((): ThemeMode => {
     if (!system) return defaultMode
@@ -234,24 +299,78 @@ export function ThemeModesProvider({ children, tokens, modes, defaultMode, syste
     }
   }, [defaultMode, system])
 
-  const [mode, setModeState] = useState<ThemeMode>(() => {
-    // The attribute is the pre-paint answer. Trust it when it names a declared
-    // mode; fall back only when nothing has written one yet, as in SSR.
-    const stamped = globalThis.document?.documentElement?.getAttribute('data-theme')
-    if (stamped && modes.includes(stamped)) return stamped
-    if (preference === 'system') return resolveSystemMode()
-    return preference === 'system' ? defaultMode : preference
-  })
+  const [mode, setModeState] = useState<ThemeMode>(defaultMode)
 
-  // Only a change moves the attribute. Writing it on every render is what let a
-  // provider sitting on its default overwrite a choice a consumer had made.
-  const lastWritten = useRef<ThemeMode | null>(null)
-  const applyMode = useCallback((next: ThemeMode) => {
-    setModeState(next)
-    if (lastWritten.current === next) return
-    lastWritten.current = next
-    globalThis.document?.documentElement?.setAttribute('data-theme', next)
+  /** Assert both attributes from the values given. No cache, no comparison. */
+  const writeAttributes = useCallback((nextMode: ThemeMode, nextPreference: ThemeModePreference) => {
+    const element = globalThis.document?.documentElement
+    if (!element) return
+    element.setAttribute('data-theme', nextMode)
+    // Not the same value as the mode: `system` stays `system` here, so a
+    // three-way control can show the position the reader chose rather than the
+    // one it resolved to.
+    element.setAttribute('data-theme-preference', nextPreference)
   }, [])
+
+  const applyMode = useCallback((next: ThemeMode) => setModeState(next), [])
+
+  // Adoption, in a layout effect so it lands in the same commit as hydration and
+  // before anything paints — a passive effect would leave a frame showing the
+  // default.
+  //
+  // The attribute is preferred over raw storage because the script has already
+  // validated it against `modes` and resolved `system` against the OS; storage
+  // is the fallback for a reader whose attribute did not survive, and it is
+  // validated here instead.
+  useIsomorphicLayoutEffect(() => {
+    const stamped = globalThis.document?.documentElement?.getAttribute('data-theme')
+    const stored = readStored(storageKey)
+
+    const fallbackPreference: ThemeModePreference = defaultPreference ?? defaultMode
+    const nextPreference: ThemeModePreference =
+      stored === 'system' && canFollowSystem
+        ? 'system'
+        : stored && modes.includes(stored)
+          ? stored
+          : // Nothing stored: the application's own default outranks the
+            // attribute, since the attribute is the script's rendering of that
+            // same default.
+            fallbackPreference === 'system'
+            ? 'system'
+            : stamped && modes.includes(stamped)
+              ? stamped
+              : fallbackPreference
+
+    const nextMode: ThemeMode =
+      nextPreference === 'system'
+        ? stamped && modes.includes(stamped)
+          ? stamped
+          : resolveSystemMode()
+        : stamped && modes.includes(stamped)
+          ? stamped
+          : nextPreference
+
+    setPreferenceState(nextPreference)
+    setModeState(nextMode)
+    setHydrated(true)
+    writeAttributes(nextMode, nextPreference)
+    // Mount only: this is the handover from the pre-paint script, which happens
+    // once. Everything after it goes through the setters.
+  }, [])
+
+  // Write-through: the document is asserted from state whenever the provider
+  // renders, so anything that discards the attribute — a view transition, an
+  // extension, a framework touching the root — is repaired on the next render
+  // rather than leaving every `[data-theme=…]` selector unmatched.
+  //
+  // Gated on `hydrated` so it cannot run before adoption. Effects belong to the
+  // render that scheduled them, and the mount render still holds the default:
+  // without this gate, the passive effect from that render would write the
+  // default *after* the layout effect had written the reader's real mode.
+  useEffect(() => {
+    if (!hydrated) return
+    writeAttributes(mode, preference)
+  })
 
   useEffect(() => {
     if (preference !== 'system' || !system) return
@@ -292,9 +411,15 @@ export function ThemeModesProvider({ children, tokens, modes, defaultMode, syste
       }
       setPreferenceState(next)
       writeStored(storageKey, next)
-      applyMode(next === 'system' ? resolveSystemMode() : next)
+      const nextMode = next === 'system' ? resolveSystemMode() : next
+      applyMode(nextMode)
+      // Directly as well as through the effect: choosing the mode already in
+      // state is a no-op re-render, so the effect would not run — and that is
+      // exactly the call someone makes when the document has lost the attribute
+      // and the control looks stuck.
+      writeAttributes(nextMode, next)
     },
-    [applyMode, canFollowSystem, modes, resolveSystemMode, storageKey],
+    [applyMode, canFollowSystem, modes, resolveSystemMode, storageKey, writeAttributes],
   )
 
   const setMode = useCallback((next: ThemeMode) => setPreference(next), [setPreference])
@@ -314,6 +439,7 @@ export function ThemeModesProvider({ children, tokens, modes, defaultMode, syste
     preference,
     setMode,
     setPreference,
+    hydrated,
     modes,
   }
 

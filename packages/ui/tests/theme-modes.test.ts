@@ -170,18 +170,27 @@ describe('mode-aware provider', () => {
     expect(morning).toContain('--meonode-theme-colors-primary:var(--brand-primary);')
   })
 
-  it('does not write the DOM from the hook: a consumer re-render leaves the attribute where the provider left it', () => {
-    const { getByTestId } = render(modeProvider().render() as never)
-    fireEvent.click(getByTestId('to-night'))
-    expect(root().getAttribute('data-theme')).toBe('night')
+  it('does not write the DOM from the hook: a consumer re-rendering on its own touches nothing', () => {
+    // The provider asserts the attribute whenever *it* renders, which is what
+    // repairs a document that lost it. What must not happen is a write per
+    // consumer: every component calling `useTheme` used to run an effect that
+    // stamped the document, so a provider sitting on its default overwrote a
+    // choice another consumer had just made.
+    const Counter = createNode(function Counter() {
+      const [n, setN] = React.useState(0)
+      useTheme()
+      return React.createElement('button', { type: 'button', 'data-testid': 'bump', onClick: () => setN(n + 1) }, String(n))
+    })
+    const { getByTestId } = render(
+      ThemeModesProvider({ tokens: TOKENS, modes: ['morning', 'night'], defaultMode: 'morning', children: Counter({}) } as never).render() as never,
+    )
+    expect(root().getAttribute('data-theme')).toBe('morning')
 
-    // Something outside MeoNode moves the attribute. Only an explicit setMode
-    // may move it back; a re-render must not.
-    root().setAttribute('data-theme', 'morning')
-    fireEvent.click(getByTestId('to-night'))
-    fireEvent.click(getByTestId('to-night'))
     root().setAttribute('data-theme', 'elsewhere')
-    render(modeProvider().render() as never)
+    fireEvent.click(getByTestId('bump'))
+    fireEvent.click(getByTestId('bump'))
+    // The consumer re-rendered twice and the provider did not, so nothing was
+    // written. A hook that wrote would have put `morning` back.
     expect(root().getAttribute('data-theme')).toBe('elsewhere')
   })
 })
@@ -366,5 +375,75 @@ describe('nesting and misuse', () => {
     const error = vi.spyOn(console, 'error').mockImplementation(() => {})
     expect(() => render(Orphan({}).render() as never)).toThrow(/useTheme must be used within a ThemeProvider/)
     error.mockRestore()
+  })
+})
+
+describe('defaultPreference', () => {
+  // What the application chooses for a reader who has never chosen. The mode
+  // cannot express it: `defaultMode: 'night'` says "dark when nothing is stored",
+  // while `defaultPreference: 'system'` says "follow the OS until told
+  // otherwise", and those are different products.
+  it('starts a fresh reader on the declared preference', () => {
+    const { getByTestId } = render(modeProvider({ defaultPreference: 'night' }).render() as never)
+    expect(getByTestId('probe').getAttribute('data-preference')).toBe('night')
+    expect(getByTestId('probe').getAttribute('data-mode')).toBe('night')
+  })
+
+  it('resolves a default of system against the OS', () => {
+    stubMatchMedia(true)
+    const { getByTestId } = render(modeProvider({ defaultPreference: 'system', system: { light: 'morning', dark: 'night' } }).render() as never)
+    expect(getByTestId('probe').getAttribute('data-preference')).toBe('system')
+    expect(getByTestId('probe').getAttribute('data-mode')).toBe('night')
+  })
+
+  it('throws when the application asks for system without saying what the OS words mean', () => {
+    // Authored, unlike a *stored* `system` with no mapping, which is a reader's
+    // leftover and degrades quietly. This one is in the source and can be fixed.
+    expect(() => render(modeProvider({ defaultPreference: 'system' }).render() as never)).toThrow(/system/)
+  })
+
+  it('yields to what the reader actually chose', () => {
+    storage.setItem('theme', 'morning')
+    const { getByTestId } = render(modeProvider({ defaultPreference: 'night' }).render() as never)
+    expect(getByTestId('probe').getAttribute('data-preference')).toBe('morning')
+  })
+})
+
+describe('telling a working script from a recovered one', () => {
+  // The repair makes a dead pre-paint script indistinguishable from a live one
+  // once hydration has settled: same mode, same palette, no errors. So the only
+  // thing that can catch a regression killing the script is *when* the attribute
+  // first appears — before React, or not until the provider adopts.
+  const observe = () => {
+    const seen: (string | null)[] = []
+    const Watcher = createNode(function Watcher() {
+      useTheme()
+      // A child's layout effect runs before its parent's, so this fires before
+      // the provider has adopted — which is exactly the window in question.
+      React.useLayoutEffect(() => void seen.push(root().getAttribute('data-theme')), [])
+      return React.createElement('div')
+    })
+    return { seen, Watcher }
+  }
+
+  it('sees the attribute already present when the script ran', () => {
+    storage.setItem('theme', 'night')
+    root().setAttribute('data-theme', 'night')
+    const { seen, Watcher } = observe()
+    render(ThemeModesProvider({ tokens: TOKENS, modes: ['morning', 'night'], defaultMode: 'morning', children: Watcher({}) } as never).render() as never)
+    expect(seen).toEqual(['night'])
+    expect(root().getAttribute('data-theme')).toBe('night')
+  })
+
+  it('sees nothing there when the script did not run, and the end state still matches', () => {
+    storage.setItem('theme', 'night')
+    // No attribute: the script was blocked — by CSP, by a proxy, by being
+    // dropped from the document entirely.
+    const { seen, Watcher } = observe()
+    render(ThemeModesProvider({ tokens: TOKENS, modes: ['morning', 'night'], defaultMode: 'morning', children: Watcher({}) } as never).render() as never)
+    expect(seen).toEqual([null])
+    // Recovered afterwards, which is why nothing downstream of hydration can
+    // tell the two apart.
+    expect(root().getAttribute('data-theme')).toBe('night')
   })
 })

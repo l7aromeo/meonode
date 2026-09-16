@@ -67,6 +67,31 @@ than a throw at render. For the same reason there is no runtime rule about
 passing both: the situation cannot be expressed, since neither component accepts
 the other's props. `ThemeProvider` itself is untouched.
 
+The provider renders `defaultMode` on its first pass — server and client alike —
+and adopts the reader's real mode in a layout effect, exposing `hydrated` on the
+context so a consumer can gate on the handover. Reading the attribute or storage
+while rendering makes the two first renders differ for every reader whose mode is
+not the default, which React requires to be identical. Alone that is invisible;
+combined with a consumer that renders anything from `mode` — a toggle's position,
+a different icon, a component present in only one mode — React throws #418,
+discards the server tree and client-renders the document. The readers who trigger
+it are exactly those who chose a non-default mode, which is rarely whoever is
+testing, so `hydrated` exists to let such a consumer wait for the handover
+deliberately.
+
+The page itself does not flash: page-level theming is CSS keyed off the attribute
+the pre-paint script already wrote. Only React markup that depends on the mode
+takes a second pass.
+
+`defaultPreference` says what a reader who has never chosen starts on, which the
+mode cannot express: `defaultMode: 'night'` means "dark when nothing is stored",
+while `defaultPreference: 'system'` means "follow the OS until told otherwise".
+It defaults to `defaultMode`, a stored choice outranks it, and `'system'` without
+a `system` mapping throws at construction — unlike a *stored* `'system'` with no
+mapping, which is a reader's leftover and degrades quietly. The field is also
+what lets one configuration literal feed both the pre-paint script and the
+provider, which is not possible while only one half declares it.
+
 Rejections are explicit rather than silent. A mode that is not in `modes`, and
 `'system'` without the mapping, are both ignored with a development warning
 instead of setting a `data-theme` no selector matches. Passing `theme` alongside
