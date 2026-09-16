@@ -10,6 +10,15 @@
  *
  * Run: `bun run typecheck:augmented`, which the lint script chains.
  *
+ * The project names this file in `files` rather than `include`, and that is the
+ * floor rather than a style choice. `exclude` is inherited from the config this
+ * extends, which names `tests/augmented` so the main program does not pick the
+ * augmentation up — and `include` does not override an inherited `exclude`, so
+ * the first version of this project compiled 36 source files, read none of this
+ * one, and passed. Every assertion below was correct and none of them could
+ * fail. `files` is not filtered by `exclude`, and a renamed or missing entry is
+ * `TS6053` rather than silence, so the file list itself is now checked.
+ *
  * The `@ts-expect-error` lines are the assertions. If one of these ever starts
  * compiling, the directive goes unused and the build fails — that is what makes
  * them a control rather than a comment.

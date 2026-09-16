@@ -1,9 +1,16 @@
 {
-  // `exclude` is inherited and `include` does not override it: the parent excludes
-  // `tests/augmented` so the rest of the suite is not narrowed by this
-  // augmentation, which would leave this project compiling nothing at all and
-  // every assertion in it passing for that reason.
+  // Every type-level probe is named here rather than matched by a glob.
+  //
+  // `exclude` is inherited and `include` does not override it, so this project
+  // extending a parent that excludes `tests/augmented` -- which it must, to keep
+  // the augmentation out of the main program -- would compile nothing at all,
+  // and every assertion in these files would pass for that reason. `files` is
+  // not filtered by `exclude`, so it cannot be silenced that way.
+  //
+  // Naming each file is also the floor: rename or delete one and tsc reports
+  // TS6053 for the missing entry, instead of quietly checking one file fewer.
+  // An assertion inside a file cannot detect that its own file went unread.
   "extends": "../../tsconfig.json",
-  "exclude": ["dist", "node_modules"],
-  "include": ["../../src", "."]
+  "files": ["theme-modes-narrowing.test-d.ts", "theme-context-narrowing.test-d.ts"],
+  "include": ["../../src"]
 }
