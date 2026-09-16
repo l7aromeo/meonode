@@ -17,8 +17,24 @@ const MODE_ATTRIBUTE = 'data-theme'
  */
 const PREFERENCE_ATTRIBUTE = 'data-theme-preference'
 
+/** Where the body finds its configuration, and how it finds its own element. */
+const CONFIG_ATTRIBUTE = 'data-meonode-theme'
+
 /** The preference that means "follow the OS" rather than naming a mode. */
 const SYSTEM_PREFERENCE = 'system'
+
+/**
+ * What a mode name, a storage key and a system value are allowed to contain.
+ *
+ * Nothing in this library interpolates a mode into anything that parses it —
+ * the theme variables are built from tokens, and every use of the attribute
+ * goes through `setAttribute`, which is not a sink. The restriction is for the
+ * application's sake: a mode name is the one value that crosses from this
+ * configuration into CSS the application writes by hand, as
+ * `[data-theme="…"]`, and a name carrying a quote or a bracket closes that
+ * selector.
+ */
+const SAFE_NAME = /^[A-Za-z0-9_-]{1,64}$/
 
 /**
  * Describes the reader's stored preference to the pre-paint script.
@@ -35,9 +51,8 @@ const SYSTEM_PREFERENCE = 'system'
 export interface ThemeScriptConfig {
   /** Every mode name the application declares. A stored value outside this list is discarded. */
   modes: readonly ThemeMode[]
-  /** The mode to stamp when nothing usable is stored. */
+  /** The mode to stamp when nothing usable is stored. Must be one of `modes`. */
   defaultMode: ThemeMode
-
   /**
    * Maps the two words `prefers-color-scheme` speaks onto two of `modes`.
    * Without it, `system` is not offered.
@@ -51,16 +66,70 @@ export interface ThemeScriptConfig {
 }
 
 /**
- * Encodes a value as a JavaScript literal that is also safe as element content.
+ * The whole script, and the same bytes for every application.
  *
- * `</script` inside a string literal still ends the element as far as the HTML
- * parser is concerned, and the remainder of the source becomes text in the
- * document. Escaping every `<` closes that without changing what the literal
- * evaluates to. Mode names come from the application rather than the reader, so
- * this is not a reader-facing hole — it is the difference between a typo and a
- * broken page.
+ * Nothing an application names appears here. The configuration arrives in a
+ * `data-` attribute and is parsed back out at run time, which is why this is a
+ * constant: an interpolated body would need its own CSP hash per application,
+ * and a new one every time somebody renamed a mode. It also puts script
+ * injection out of reach rather than defending against it — there is no context
+ * for a mode name to escape from, because it is never in source.
+ *
+ * Read the failure paths as the point rather than as noise:
+ *
+ * - `localStorage` throws on *property access*, not just from `getItem`, where
+ *   site data is blocked and in a sandboxed iframe without `allow-same-origin`.
+ *   One `try` around everything would leave those readers with no attribute at
+ *   all, and a page with no `data-theme` is unstyled rather than merely in the
+ *   wrong mode.
+ * - `matchMedia` is missing in older WebViews and throws in some embedded ones.
+ *   It is guarded separately so losing the answer costs the OS preference and
+ *   not the attribute; the fallback is the light name, which is what the
+ *   provider falls back to as well.
+ * - `system` with no mapping resolves to the default. Stamping the word
+ *   `system` would leave every `[data-theme="…"]` selector unmatched.
+ * - The attributes are written only when the value is a string, so a truncated
+ *   configuration cannot produce `data-theme="undefined"`.
+ *
+ * Because every one of those paths can end with no attribute written, an
+ * application's CSS has to carry a usable palette at `:root` with
+ * `[data-theme="…"]` blocks as overrides — not palettes that exist only under
+ * the attribute.
  */
-const literal = (value: unknown): string => JSON.stringify(value).replace(/</g, '\\u003c')
+const THEME_SCRIPT_BODY = [
+  '(function(){',
+  'try{',
+  // `currentScript` is the element being executed, which is this one. The
+  // selector is the fallback for a body that did not arrive by parser, and
+  // `getAttribute` rather than `dataset` sidesteps the camelCase mapping.
+  `var s=document.currentScript||document.querySelector('script[${CONFIG_ATTRIBUTE}]');`,
+  'if(!s)return;',
+  `var c=JSON.parse(s.getAttribute('${CONFIG_ATTRIBUTE}'));`,
+  'var m=c.modes||[],d=c.default,p=d;',
+  'try{var v=localStorage.getItem(c.storageKey);if(typeof v===\'string\'&&v)p=v;}catch(x){}',
+  `if(p!=='${SYSTEM_PREFERENCE}'&&m.indexOf(p)<0)p=d;`,
+  'var t=p;',
+  `if(p==='${SYSTEM_PREFERENCE}'){`,
+  'var y=c.system;',
+  "if(y){t=y.light;try{if(matchMedia('(prefers-color-scheme: dark)').matches)t=y.dark;}catch(x){}}",
+  'else{p=d;t=d;}',
+  '}',
+  'var r=document.documentElement;',
+  `if(r&&typeof t==='string')r.setAttribute('${MODE_ATTRIBUTE}',t);`,
+  `if(r&&typeof p==='string')r.setAttribute('${PREFERENCE_ATTRIBUTE}',p);`,
+  '}catch(x){}',
+  '})();',
+].join('')
+
+/** Names the failing field, because the message is the only place this surfaces. */
+function assertSafeName(value: unknown, field: string): asserts value is string {
+  if (typeof value !== 'string' || !SAFE_NAME.test(value)) {
+    throw new Error(
+      `themeScript: ${field} is ${JSON.stringify(value)}, which is not a usable name. ` +
+        `Use letters, digits, \`-\` or \`_\`, up to 64 characters — an application writes these into \`[${MODE_ATTRIBUTE}="…"]\` selectors by hand.`,
+    )
+  }
+}
 
 /**
  * Builds the pre-paint script for a mode-aware theme, as a node for `<head>`.
@@ -73,54 +142,65 @@ const literal = (value: unknown): string => JSON.stringify(value).replace(/</g, 
  * the resolved mode on `<html>`. There is no flicker because there was never a
  * wrong first paint to correct.
  *
- * The source it emits is a pure function of `config`, byte for byte. That is not
- * tidiness: under a hash-only CSP the `script-src 'sha256-…'` is computed ahead
- * of the request, and a single byte of drift between that computation and the
- * rendered document makes the browser refuse to run the script — leaving the
- * page painted in the wrong mode with nothing able to correct it.
+ * Place it first in `<head>`, ahead of any stylesheet: a script that follows a
+ * `<link rel="stylesheet">` cannot run until that sheet has loaded, which is
+ * the delay this exists to avoid. The element it writes to needs
+ * `suppressHydrationWarning`, since the attribute is not in the server markup.
  *
- * A stored value that is not a declared mode is discarded rather than stamped,
- * because the provider discards it too; agreeing here is what keeps a reader
- * whose stored mode has since been renamed from seeing the attribute rewritten
- * after hydration.
+ * A configuration that cannot work throws here rather than emitting a script
+ * that stamps a mode nothing matches. That failure is invisible to the
+ * developer and reaches the reader as an unstyled page, and the configuration
+ * is authored rather than data, so the check is deterministic and is not gated
+ * on diagnostics — a check that fired in development only would let CI pass and
+ * production ship the broken page.
  * @param config The application's mode names, its default, and optionally what the OS's two words mean here.
- * @returns A plain inline `<script>` node to place in `<head>`.
+ * @returns A plain inline `<script>` node to place first in `<head>`.
  */
 export function themeScript(config: ThemeScriptConfig): NodeInstance<'script'> {
   const { modes, defaultMode, system, storageKey = 'theme' } = config
 
-  const fallback = literal(defaultMode)
-  // A preference that no longer names a mode is as unusable as no preference at
-  // all. Without a mapping `system` is one of those: the media query answers in
-  // the OS's words, and nothing has said what they mean here.
-  const stored = system ? `if(p!==${literal(SYSTEM_PREFERENCE)}&&m.indexOf(p)<0)p=${fallback};` : `if(m.indexOf(p)<0)p=${fallback};`
+  if (!Array.isArray(modes) || modes.length === 0) {
+    throw new Error('themeScript: `modes` is empty, so there is no mode to apply. List the names the application declares, for example `[\'light\', \'dark\']`.')
+  }
+  for (const mode of modes) {
+    assertSafeName(mode, '`modes` contains a name that')
+    if (mode === SYSTEM_PREFERENCE) {
+      throw new Error(
+        `themeScript: \`modes\` contains "${SYSTEM_PREFERENCE}", which is the word a preference already uses for "follow the OS". A mode cannot also be called that.`,
+      )
+    }
+  }
+  assertSafeName(storageKey, '`storageKey`')
+  if (!modes.includes(defaultMode)) {
+    throw new Error(
+      `themeScript: \`defaultMode\` is ${JSON.stringify(defaultMode)}, which is not one of \`modes\` (${modes.map(mode => JSON.stringify(mode)).join(', ')}). ` +
+        'It is what every failure path falls back to, so it has to name a mode the stylesheets define.',
+    )
+  }
+  if (system) {
+    for (const word of ['light', 'dark'] as const) {
+      if (!modes.includes(system[word])) {
+        throw new Error(
+          `themeScript: \`system.${word}\` is ${JSON.stringify(system[word])}, which is not one of \`modes\` (${modes.map(mode => JSON.stringify(mode)).join(', ')}). ` +
+            'The mapping says which of this application\'s modes the OS means, so both sides of it have to be modes.',
+        )
+      }
+    }
+  }
 
-  // Without a mapping the preference is already the mode, so nothing is
-  // computed and nothing is stored to compute it into. This runs blocking in
-  // `<head>`; every statement that does not have to be there is paid for on
-  // every page load.
-  const resolved = system
-    ? `var t=p===${literal(SYSTEM_PREFERENCE)}?(matchMedia("(prefers-color-scheme: dark)").matches?${literal(system.dark)}:${literal(system.light)}):p;`
-    : ''
-  const mode = system ? 't' : 'p'
-
-  // Storage throws outright in private mode and where site data is blocked, and
-  // `matchMedia` is absent in some embedded webviews. Either one unhandled is an
-  // uncaught error in a blocking script in `<head>`, which is the one place it
-  // can stop the document. Bailing leaves the attribute unwritten and the
-  // provider falls back to `defaultMode`, which is the pre-existing behaviour.
-  const source =
-    'try{' +
-    `var m=${literal([...modes])},p=localStorage.getItem(${literal(storageKey)});` +
-    stored +
-    resolved +
-    'var d=document.documentElement;' +
-    `d.setAttribute(${literal(MODE_ATTRIBUTE)},${mode});` +
-    `d.setAttribute(${literal(PREFERENCE_ATTRIBUTE)},p);` +
-    '}catch(e){}'
+  // Written key by key in a fixed sequence rather than stringifying the config.
+  // `JSON.stringify` follows insertion order, so a configuration object
+  // assembled one way on the server and another on the client would produce a
+  // different attribute and a hydration mismatch.
+  const payload: Record<string, unknown> = { modes: [...modes], default: defaultMode }
+  if (system) payload.system = { light: system.light, dark: system.dark }
+  payload.storageKey = storageKey
 
   // Deliberately a plain inline script with no `src`. A `src` would make this a
   // resource React hoists and may defer, which moves it out of the window the
-  // whole design depends on.
-  return Script({ dangerouslySetInnerHTML: { __html: source } })
+  // whole design depends on. `dangerouslySetInnerHTML` rather than a text
+  // child, because React runs text children of `<script>` through its own
+  // escaper and an escaper that changed between versions would change the CSP
+  // hash of a body that is otherwise fixed forever.
+  return Script({ [CONFIG_ATTRIBUTE]: JSON.stringify(payload), dangerouslySetInnerHTML: { __html: THEME_SCRIPT_BODY } })
 }

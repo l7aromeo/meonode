@@ -1,5 +1,5 @@
 import { StyleRegistry } from '@meonode/ui/nextjs-registry'
-import { ThemeProvider, PortalProvider, PortalHost, Html, Head, Body, themeScript } from '@meonode/ui'
+import { ThemeProvider, PortalProvider, PortalHost, Html, Head, Body, Link, themeScript } from '@meonode/ui'
 import type { ReactNode } from 'react'
 
 const theme = {
@@ -29,7 +29,10 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     // the served markup and the hydrating DOM differ here by design.
     suppressHydrationWarning: true,
     children: [
-      Head({ children: themeScript(themeModes) }),
+      // The script first, the stylesheet after it. A script that follows a
+      // `<link rel="stylesheet">` cannot run until that sheet has loaded, which
+      // is exactly the delay it exists to avoid, so the order is asserted.
+      Head({ children: [themeScript(themeModes), Link({ rel: 'stylesheet', href: '/theme-fixture.css' })] }),
       Body({
         children: StyleRegistry({
           children: ThemeProvider({

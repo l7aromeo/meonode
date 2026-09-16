@@ -1,0 +1,4 @@
+/* Exists so the pre-paint script has a stylesheet to be ordered against. A
+   script placed after a `<link rel="stylesheet">` cannot run until that sheet
+   has loaded, which is the delay the script exists to avoid. */
+:root { --theme-fixture-probe: 1; }

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { chromium, type Browser, type BrowserContext } from '@playwright/test'
 import { themeScript } from '@src/main.js'
 
@@ -36,9 +37,21 @@ const FIXTURE_CONFIG = {
  */
 const stable = (html: string): string => html.replace(/self\.__next_r="[^"]*"/g, 'self.__next_r="<per-request>"')
 
-const expectedSource = (): string => {
+/** The page whose markup legitimately varies per reader, and only exists to prove the comparison can fail. */
+const VARYING_PAGE = '/theme-script-varying'
+
+const expectedBody = (): string => {
   const node = themeScript(FIXTURE_CONFIG) as unknown as { rawProps: Record<string, unknown> }
   return (node.rawProps.dangerouslySetInnerHTML as { __html: string }).__html
+}
+
+const sha256 = (value: string): string => `sha256-${createHash('sha256').update(value, 'utf8').digest('base64')}`
+
+/** The script element as served, body and configuration attribute together. */
+const servedScript = (html: string): { tag: string; body: string; index: number } => {
+  const match = html.match(/<script data-meonode-theme=(?:"[^"]*"|'[^']*')>([\s\S]*?)<\/script>/)
+  if (!match) throw new Error(`no pre-paint script in the served head:\n${html.slice(0, 1024)}`)
+  return { tag: match[0], body: match[1], index: match.index! }
 }
 
 let browser: Browser | null = null
@@ -73,7 +86,7 @@ declare global {
  * — which Playwright runs before any of the page's own — records the first
  * value instead, which is precisely the pre-paint one.
  */
-async function serverDocument(stored: string | null): Promise<{ html: string; mode: string | null; preference: string | null }> {
+async function serverDocument(stored: string | null, path: string = PAGE): Promise<{ html: string; mode: string | null; preference: string | null }> {
   const context: BrowserContext = await browser!.newContext()
   try {
     // Seeded as a cookie as well as in storage, and that is the half that can
@@ -111,7 +124,7 @@ async function serverDocument(stored: string | null): Promise<{ html: string; mo
     }, stored)
 
     const page = await context.newPage()
-    const response = await page.goto(`${base()}${PAGE}`, { waitUntil: 'domcontentloaded' })
+    const response = await page.goto(`${base()}${path}`, { waitUntil: 'domcontentloaded' })
     const html = await response!.text()
     const first = await page.evaluate(() => window.__firstTheme ?? { mode: null, preference: null })
     return { html, ...first }
@@ -128,16 +141,59 @@ describe('the pre-paint theme script in a server document', () => {
     // Not `toContain` on the whole document: the point is the position. React
     // hoists a `<script src>` and may defer it, which would move it out of the
     // window between the document element existing and the first paint.
-    expect(head).toContain(expectedSource())
-    expect(head).not.toMatch(/<script[^>]*data-theme[^>]*src=/)
+    expect(head).toContain(servedScript(html).tag)
+    expect(servedScript(html).tag).not.toMatch(/\ssrc=/)
+  })
+
+  it('is served ahead of the stylesheet, which would otherwise block it from running', async () => {
+    // Authored in that order in the root layout. Asserted because neither React
+    // nor Next promises to keep it: a stylesheet hoisted above this script would
+    // delay it until that sheet loaded, and the delay is the whole thing the
+    // script avoids.
+    //
+    // React does put a `<link rel="preload" as="style">` for the same sheet
+    // ahead of the script. That is not the same element and does not block
+    // execution, so the match is on `rel="stylesheet"` and not on the filename —
+    // matching the filename finds the preload and reports a problem that is not
+    // there.
+    const html = await (await fetch(`${base()}${PAGE}`)).text()
+    const stylesheet = html.indexOf('<link rel="stylesheet" href="/theme-fixture.css"')
+
+    expect(stylesheet).toBeGreaterThan(-1)
+    expect(servedScript(html).index).toBeLessThan(stylesheet)
+  })
+
+  it('serves a body that is one constant, at the hash a CSP would be published with', async () => {
+    // End to end rather than in a unit test: what a CSP hashes is the bytes in
+    // the document, after React has serialised them and Next has streamed them.
+    // Anything in that path that re-encoded the body would invalidate a header
+    // already published, and nothing earlier in the pipeline would notice.
+    const html = await (await fetch(`${base()}${PAGE}`)).text()
+
+    expect(servedScript(html).body).toBe(expectedBody())
+    expect(sha256(servedScript(html).body)).toBe('sha256-VjgrRIgkoFbiLcbmoxDfbf+5fL7BpGm+w6cKK2N2um4=')
+  })
+
+  it('keeps the application names out of the body and in the attribute', async () => {
+    // The reason the body is constant: nothing an application names is ever
+    // interpolated into source, so there is no context for a mode name to
+    // escape from and no per-application hash.
+    const { tag, body } = servedScript(await (await fetch(`${base()}${PAGE}`)).text())
+
+    expect(body).not.toContain('morning')
+    expect(body).not.toContain('night')
+    expect(tag).toContain('morning')
+    // The attribute value alone, not the tag: React escapes what it puts there,
+    // so nothing the configuration carries can reach the document as markup.
+    const value = tag.slice(tag.indexOf('=') + 2, tag.indexOf('>') - 1)
+    expect(value).toContain('&quot;')
+    expect(value).not.toContain('<')
   })
 
   it('serves the same script on every render, which is what a hash-only CSP requires', async () => {
     const [first, second] = await Promise.all([(await fetch(`${base()}${PAGE}`)).text(), (await fetch(`${base()}${PAGE}`)).text()])
-    const extract = (html: string) => html.match(/<script>try\{var m=[\s\S]*?<\/script>/)?.[0]
 
-    expect(extract(first)).toBeDefined()
-    expect(extract(second)).toBe(extract(first))
+    expect(servedScript(second).tag).toBe(servedScript(first).tag)
   })
 
   it('sends the same bytes to two readers who stored different modes', async () => {
@@ -161,6 +217,18 @@ describe('the pre-paint theme script in a server document', () => {
     expect(morning.mode).toBe('morning')
     expect(night.mode).toBe('night')
     expect(night.mode).not.toBe(morning.mode)
+  })
+
+  it('tells two readers apart when the markup really does differ', async () => {
+    // The negative control for the comparison itself. `/theme-script-varying`
+    // reads the cookie on the server and renders it, so its documents are
+    // genuinely different. If this passed, the assertion above would only be
+    // telling us the comparison never ran — which is the shape of failure that
+    // has caught this project before.
+    const morning = await serverDocument('morning', VARYING_PAGE)
+    const night = await serverDocument('night', VARYING_PAGE)
+
+    expect(stable(night.html)).not.toBe(stable(morning.html))
   })
 
   it('records the preference as stored, not as resolved, so following the system stays possible', async () => {

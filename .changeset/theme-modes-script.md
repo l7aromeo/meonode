@@ -22,23 +22,51 @@ const theme = {
 
 Html({
   suppressHydrationWarning: true,
-  children: [Head({ children: themeScript(theme) }), Body({ children: ThemeProvider({ ...theme, tokens, children }) })],
+  children: [
+    Head({ children: [themeScript(theme), Link({ rel: 'stylesheet', href: '/app.css' })] }),
+    Body({ children: ThemeProvider({ ...theme, tokens, children }) }),
+  ],
 })
 ```
 
 The field names are the provider's, so one object feeds both and the two cannot
-drift. `suppressHydrationWarning` belongs on the element the script writes to:
-the served markup and the hydrating DOM differ there by design.
+drift.
 
-The emitted source is a pure function of the config, byte for byte, which is what
-lets a hash-only CSP work — `script-src 'sha256-…'` is computed ahead of the
-request, and a byte of drift makes the browser refuse to run the script, leaving
-the page in the wrong mode with nothing able to correct it.
+**The configuration travels in an attribute; the body is a constant.** The
+element is `<script data-meonode-theme='{…}'>` with a fixed body that reads that
+attribute back and parses it. Nothing an application names is ever interpolated
+into JavaScript, so a mode called `a</script>…` has no context to escape from —
+the injection class is absent rather than defended against. It also means the
+body is the same bytes for every application and every configuration, so under a
+hash-only CSP its `script-src 'sha256-…'` is one value that never changes, rather
+than one per application that moves whenever somebody renames a mode.
 
-`system` is emitted only when the mapping is given: `prefers-color-scheme`
-answers in the OS's two words, and an application whose modes are `morning` and
-`night` has not said which is which until it says so. A stored value that is not
-a declared mode is discarded rather than stamped, since the provider discards it
-too. The whole body is wrapped in `try`/`catch` — storage throws in private mode
-and where site data is blocked, and a blocking script in `<head>` is the one
-place an uncaught error can stop the document.
+**Three things an application has to do, and the reasons they are not optional:**
+
+- **Put the script first in `<head>`, ahead of every stylesheet.** A classic
+  inline script that follows a `<link rel="stylesheet">` cannot execute until
+  that sheet has loaded, which is the delay the script exists to avoid.
+- **Define a usable palette at `:root`, with `[data-theme="…"]` blocks as
+  overrides.** Every failure path — blocked storage, a sandboxed frame, a missing
+  `matchMedia` — ends with no `data-theme` written. Palettes that exist only
+  under the attribute leave those readers with an unstyled page, which is a worse
+  outcome than the wrong mode.
+- **Set `suppressHydrationWarning` on the element the script writes to.** The
+  attribute is not in the server markup, which is the definition of a mismatch.
+
+**Failures are contained where containing them helps.** `localStorage` throws on
+property access, not merely from `getItem`, where site data is blocked and in a
+sandboxed iframe without `allow-same-origin`; that read is guarded on its own so
+those readers still get the default rather than nothing. `matchMedia` is guarded
+separately too, falling back to the light name, which is what the provider falls
+back to as well. A stored `system` with no mapping resolves to the default
+instead of stamping the word `system`, which no palette matches.
+
+**A configuration that cannot work throws.** An empty `modes`, a `defaultMode` or
+a `system` value that is not one of them, a mode named `system`, or a name
+outside `[A-Za-z0-9_-]{1,64}`. Not gated on development: the configuration is
+authored rather than data, so a check that fired only in development would let CI
+pass and production ship a script that stamps a mode no selector matches. The
+name restriction is for the application's sake — a mode name is the one value
+that crosses from this configuration into `[data-theme="…"]` selectors written by
+hand.
