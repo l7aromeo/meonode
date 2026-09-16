@@ -53,6 +53,7 @@ export interface ThemeScriptConfig {
   modes: readonly ThemeMode[]
   /** The mode to stamp when nothing usable is stored. Must be one of `modes`. */
   defaultMode: ThemeMode
+
   /**
    * Maps the two words `prefers-color-scheme` speaks onto two of `modes`.
    * Without it, `system` is not offered.
@@ -106,7 +107,7 @@ const THEME_SCRIPT_BODY = [
   'if(!s)return;',
   `var c=JSON.parse(s.getAttribute('${CONFIG_ATTRIBUTE}'));`,
   'var m=c.modes||[],d=c.default,p=d;',
-  'try{var v=localStorage.getItem(c.storageKey);if(typeof v===\'string\'&&v)p=v;}catch(x){}',
+  "try{var v=localStorage.getItem(c.storageKey);if(typeof v==='string'&&v)p=v;}catch(x){}",
   `if(p!=='${SYSTEM_PREFERENCE}'&&m.indexOf(p)<0)p=d;`,
   'var t=p;',
   `if(p==='${SYSTEM_PREFERENCE}'){`,
@@ -160,7 +161,7 @@ export function themeScript(config: ThemeScriptConfig): NodeInstance<'script'> {
   const { modes, defaultMode, system, storageKey = 'theme' } = config
 
   if (!Array.isArray(modes) || modes.length === 0) {
-    throw new Error('themeScript: `modes` is empty, so there is no mode to apply. List the names the application declares, for example `[\'light\', \'dark\']`.')
+    throw new Error("themeScript: `modes` is empty, so there is no mode to apply. List the names the application declares, for example `['light', 'dark']`.")
   }
   for (const mode of modes) {
     assertSafeName(mode, '`modes` contains a name that')
@@ -182,7 +183,7 @@ export function themeScript(config: ThemeScriptConfig): NodeInstance<'script'> {
       if (!modes.includes(system[word])) {
         throw new Error(
           `themeScript: \`system.${word}\` is ${JSON.stringify(system[word])}, which is not one of \`modes\` (${modes.map(mode => JSON.stringify(mode)).join(', ')}). ` +
-            'The mapping says which of this application\'s modes the OS means, so both sides of it have to be modes.',
+            "The mapping says which of this application's modes the OS means, so both sides of it have to be modes.",
         )
       }
     }

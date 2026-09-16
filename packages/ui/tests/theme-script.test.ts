@@ -20,7 +20,9 @@ import { createHash } from 'node:crypto'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { themeScript } from '@src/main.js'
 
-type Emitted = { rawProps: Record<string, unknown> }
+interface Emitted {
+  rawProps: Record<string, unknown>
+}
 
 /** The constant body the node carries. */
 const bodyOf = (node: unknown): string => ((node as Emitted).rawProps.dangerouslySetInnerHTML as { __html: string }).__html
@@ -139,7 +141,9 @@ describe('the body is one constant', () => {
     // drift and the browser refuses to run the script, leaving the page in the
     // wrong mode with nothing able to correct it. This test is what stands
     // between a published header and that outcome.
-    const digest = createHash('sha256').update(bodyOf(themeScript(MODES)), 'utf8').digest('base64')
+    const digest = createHash('sha256')
+      .update(bodyOf(themeScript(MODES)), 'utf8')
+      .digest('base64')
 
     expect(`sha256-${digest}`).toBe('sha256-VjgrRIgkoFbiLcbmoxDfbf+5fL7BpGm+w6cKK2N2um4=')
   })
