@@ -444,10 +444,23 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
           // `callSiteLocations` — nearly every build — so almost everyone
           // short-circuits on the first term and never reaches the call.
           if (callSiteLocation && childArguments !== finalChildren && diagnosticsEnabled()) {
-            const missingKey = finalChildren.some(child => isValidElement(child) && child.key == null)
+            const elements = finalChildren.filter(isValidElement)
+            const missingKey = elements.some(child => child.key == null)
             if (missingKey) {
+              // A list where *some* rows carry keys and others do not is almost
+              // always a generated list spread in beside children the author
+              // wrote out: the `.map()` supplied keys, the heading beside it did
+              // not, and React then names the heading. The reader goes looking
+              // for the bug in the rows, which are the innocent half. Saying so
+              // is worth a clause, and the fix is different from the
+              // all-unkeyed case — nest the list rather than add a key to the
+              // heading.
+              const mixed = elements.some(child => child.key != null)
               console.warn(
-                `[MeoNode] A generated list at ${callSiteLocation} has children without a \`key\`. React reports the missing key itself; this names the call site it came from.`,
+                `[MeoNode] A generated list at ${callSiteLocation} has children without a \`key\`. React reports the missing key itself; this names the call site it came from.` +
+                  (mixed
+                    ? ' Some children here do have keys: a spread puts a generated list and the siblings written beside it into one list, so React asks those siblings for keys too. Nest the generated part instead of spreading it.'
+                    : ''),
               )
             }
           }
