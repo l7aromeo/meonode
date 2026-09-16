@@ -1,0 +1,207 @@
+// The mode-aware provider path, which exists so a themed SSR document does not
+// vary per reader.
+//
+// The document stops depending on the mode: token values are `var()` references,
+// the palettes live in CSS keyed by `[data-theme="…"]`, and a blocking script
+// sets that attribute before the first paint. The server then renders one
+// document for everyone, and there is no flicker because there was never a wrong
+// first paint to correct.
+//
+// The property that design rests on — the SSR bytes are identical whatever the
+// reader stored — cannot be asserted here. jsdom sees a client render, not a
+// document. What is checkable here is its unit-level half: the emitted `:root`
+// block is a pure function of `tokens` and does not move with the mode. The
+// whole-document claim belongs to the RSC suite.
+import React from 'react'
+import { createNode, ThemeProvider, useTheme, type Theme } from '@src/main.js'
+import { act, cleanup, fireEvent, render } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+const TOKENS = {
+  colors: { primary: 'var(--brand-primary)', bg: 'var(--brand-bg)' },
+  spacing: { md: '16px' },
+}
+
+const root = () => document.documentElement
+
+/**
+ * jsdom here has no Web Storage, and the library guards for exactly that, so the
+ *  tests supply one rather than assuming the environment does.
+ */
+function stubStorage() {
+  const map = new Map<string, string>()
+  const storage = {
+    getItem: (k: string) => map.get(k) ?? null,
+    setItem: (k: string, v: string) => void map.set(k, v),
+    removeItem: (k: string) => void map.delete(k),
+    clear: () => map.clear(),
+  }
+  vi.stubGlobal('localStorage', storage)
+  return storage
+}
+let storage: ReturnType<typeof stubStorage>
+const styleTag = () => document.querySelector('style[data-meonode-theme-vars]')
+
+/** Every `matchMedia` listener registered while this stands, so a change can be delivered. */
+function stubMatchMedia(matchesDark: boolean) {
+  const listeners = new Set<(event: { matches: boolean }) => void>()
+  let matches = matchesDark
+  vi.stubGlobal('matchMedia', (query: string) => ({
+    media: query,
+    get matches() {
+      return matches
+    },
+    addEventListener: (_: string, fn: (event: { matches: boolean }) => void) => listeners.add(fn),
+    removeEventListener: (_: string, fn: (event: { matches: boolean }) => void) => listeners.delete(fn),
+  }))
+  return {
+    emit(next: boolean) {
+      matches = next
+      act(() => listeners.forEach(fn => fn({ matches: next })))
+    },
+    get listenerCount() {
+      return listeners.size
+    },
+  }
+}
+
+/** Reports what the hook hands back, and offers the two setters as buttons. */
+const Probe = createNode(function Probe() {
+  const { mode, preference, setMode, setPreference } = useTheme() as never as {
+    mode: string
+    preference: string
+    setMode: (mode: string) => void
+    setPreference: (preference: string) => void
+  }
+  return React.createElement(
+    'div',
+    { 'data-testid': 'probe', 'data-mode': mode, 'data-preference': preference },
+    React.createElement('button', { type: 'button', 'data-testid': 'to-night', onClick: () => setMode('night') }, 'night'),
+    React.createElement('button', { type: 'button', 'data-testid': 'to-system', onClick: () => setPreference('system') }, 'system'),
+  )
+})
+
+const modeProvider = (overrides: Record<string, unknown> = {}) =>
+  ThemeProvider({
+    tokens: TOKENS,
+    modes: ['morning', 'night'],
+    defaultMode: 'morning',
+    children: Probe({}),
+    ...overrides,
+  } as never)
+
+afterEach(() => {
+  cleanup()
+  vi.unstubAllGlobals()
+  document.querySelectorAll('style[data-meonode-theme-vars]').forEach(node => node.remove())
+  root().removeAttribute('data-theme')
+  root().className = ''
+})
+
+beforeEach(() => {
+  storage = stubStorage()
+  root().removeAttribute('data-theme')
+})
+
+describe('mode-aware provider', () => {
+  it('seeds the mode from an existing data-theme attribute, which the pre-paint script wrote', () => {
+    root().setAttribute('data-theme', 'night')
+    const { getByTestId } = render(modeProvider().render() as never)
+    expect(getByTestId('probe').getAttribute('data-mode')).toBe('night')
+  })
+
+  it('falls back to defaultMode when nothing has been written yet', () => {
+    const { getByTestId } = render(modeProvider().render() as never)
+    expect(getByTestId('probe').getAttribute('data-mode')).toBe('morning')
+  })
+
+  it('carries a mode name that is neither light nor dark all the way to the attribute', () => {
+    const { getByTestId } = render(modeProvider({ modes: ['morning', 'sepia'], defaultMode: 'morning' }).render() as never)
+    fireEvent.click(getByTestId('to-night'))
+    expect(root().getAttribute('data-theme')).toBe('night')
+    expect(getByTestId('probe').getAttribute('data-mode')).toBe('night')
+    // One attribute is the whole contract on this path; `[data-theme='night']` is
+    // the selector, so there are no classes to keep in step with it.
+    expect(root().className).toBe('')
+  })
+
+  it('stores the preference rather than the resolved mode, so following the system stays possible', () => {
+    const media = stubMatchMedia(false)
+    const { getByTestId } = render(modeProvider({ system: { light: 'morning', dark: 'night' } }).render() as never)
+
+    fireEvent.click(getByTestId('to-system'))
+    expect(storage.getItem('theme')).toBe('system')
+    expect(getByTestId('probe').getAttribute('data-mode')).toBe('morning')
+
+    media.emit(true)
+    expect(getByTestId('probe').getAttribute('data-mode')).toBe('night')
+    expect(root().getAttribute('data-theme')).toBe('night')
+  })
+
+  it('offers system only when the mapping says what the OS words mean here', () => {
+    const media = stubMatchMedia(true)
+    const { getByTestId } = render(modeProvider().render() as never)
+
+    fireEvent.click(getByTestId('to-system'))
+    // No mapping, so `prefers-color-scheme: dark` cannot be translated into one
+    // of this app's mode names and the request is refused rather than guessed.
+    expect(getByTestId('probe').getAttribute('data-preference')).not.toBe('system')
+    expect(media.listenerCount).toBe(0)
+  })
+
+  it('persists an explicit choice under the storage key', () => {
+    const { getByTestId } = render(modeProvider({ storageKey: 'ui-mode' }).render() as never)
+    fireEvent.click(getByTestId('to-night'))
+    expect(storage.getItem('ui-mode')).toBe('night')
+    expect(storage.getItem('theme')).toBeNull()
+  })
+
+  it('emits the same :root block whatever the mode, which is what makes the document cacheable', () => {
+    root().setAttribute('data-theme', 'morning')
+    render(modeProvider().render() as never)
+    const morning = styleTag()?.textContent
+    cleanup()
+    document.querySelectorAll('style[data-meonode-theme-vars]').forEach(node => node.remove())
+
+    root().setAttribute('data-theme', 'night')
+    render(modeProvider().render() as never)
+    expect(styleTag()?.textContent).toBe(morning)
+    expect(morning).toContain('--meonode-theme-colors-primary:var(--brand-primary);')
+  })
+
+  it('does not write the DOM from the hook: a consumer re-render leaves the attribute where the provider left it', () => {
+    const { getByTestId } = render(modeProvider().render() as never)
+    fireEvent.click(getByTestId('to-night'))
+    expect(root().getAttribute('data-theme')).toBe('night')
+
+    // Something outside MeoNode moves the attribute. Only an explicit setMode
+    // may move it back; a re-render must not.
+    root().setAttribute('data-theme', 'morning')
+    fireEvent.click(getByTestId('to-night'))
+    fireEvent.click(getByTestId('to-night'))
+    root().setAttribute('data-theme', 'elsewhere')
+    render(modeProvider().render() as never)
+    expect(root().getAttribute('data-theme')).toBe('elsewhere')
+  })
+})
+
+describe('the legacy theme path', () => {
+  const LEGACY: Theme = { mode: 'dark', system: { colors: { primary: 'rgb(1, 2, 3)' } } }
+  const Reader = createNode(function Reader() {
+    const { theme } = useTheme()
+    return React.createElement('div', { 'data-testid': 'reader', 'data-mode': String(theme.mode) }, 'x')
+  })
+
+  it('still stamps the attribute and the classes from the hook', () => {
+    render(ThemeProvider({ theme: LEGACY, children: Reader({}) }).render() as never)
+    expect(root().getAttribute('data-theme')).toBe('dark')
+    expect(root().classList.contains('dark-theme')).toBe(true)
+    expect(root().classList.contains('light-theme')).toBe(false)
+    expect(storage.getItem('theme')).toBe('dark')
+  })
+
+  it('still resolves tokens into the :root block', () => {
+    render(ThemeProvider({ theme: LEGACY, children: Reader({}) }).render() as never)
+    expect(styleTag()?.textContent).toContain('--meonode-theme-colors-primary:rgb(1, 2, 3);')
+  })
+})

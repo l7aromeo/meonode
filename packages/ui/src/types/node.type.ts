@@ -150,9 +150,35 @@ export type ValidateComponentProps<E extends NodeElementType, P> = E extends key
 // ============================================================================
 
 /**
- * Theme mode - light or dark theme variant
+ * Theme mode — `'light'` and `'dark'` are offered as hints, not as the whole set.
+ *
+ * `'light' | 'dark' | string` collapses to plain `string`, which loses even those
+ * two from autocomplete. `(string & {})` keeps the union open while the literals
+ * survive the widening, so an app naming its modes `'morning'` and `'night'`
+ * types fine and one that uses the usual two still gets told what they are.
  */
-export type ThemeMode = 'light' | 'dark' | string
+export type ThemeMode = 'light' | 'dark' | (string & {})
+
+/**
+ * What the reader chose, which is not the same as what they see: `'system'` means
+ * "follow the OS", and the mode is computed from it on every change.
+ *
+ * Storing the resolved mode instead would make following the OS impossible — the
+ * first toggle would pin it forever.
+ */
+export type ThemeModePreference = 'system' | ThemeMode
+
+/**
+ * Maps the two words `prefers-color-scheme` speaks onto this app's mode names.
+ *
+ * Required before `'system'` is offered at all. The media query answers `dark` or
+ * `light`, which are OS words; an app whose modes are `'morning'` and `'night'`
+ * has not said which is which until it says so here.
+ */
+export interface ThemeSystemModes {
+  light: ThemeMode
+  dark: ThemeMode
+}
 
 /**
  * System theme configuration with base colors and semantic tokens
