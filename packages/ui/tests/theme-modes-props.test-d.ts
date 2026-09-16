@@ -29,6 +29,23 @@ export const withSystem = ThemeModesProvider({
   children: 'x',
 })
 
+// --- The field a site configures both halves with, which must be assignable
+//     here as well: `createNode` narrows an unknown prop to `never`, so a
+//     literal that feeds the script's config and the provider's props cannot be
+//     shared until both declare it.
+export const withDefaultPreference = ThemeModesProvider({
+  tokens: TOKENS,
+  modes: ['morning', 'night'],
+  defaultMode: 'morning',
+  defaultPreference: 'system',
+  system: { light: 'morning', dark: 'night' },
+  children: 'x',
+})
+export const sharedConfig = ThemeModesProvider({
+  ...({ tokens: TOKENS, modes: ['morning', 'night'], defaultMode: 'morning', defaultPreference: 'night', storageKey: 'theme' } as const),
+  children: 'x',
+})
+
 // --- Half-configured, which is the case that used to throw at render ---
 // @ts-expect-error tokens without modes
 export const noModes = ThemeModesProvider({ tokens: TOKENS, defaultMode: 'morning', children: 'x' })

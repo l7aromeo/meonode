@@ -83,6 +83,15 @@ The page itself does not flash: page-level theming is CSS keyed off the attribut
 the pre-paint script already wrote. Only React markup that depends on the mode
 takes a second pass.
 
+`defaultPreference` says what a reader who has never chosen starts on, which the
+mode cannot express: `defaultMode: 'night'` means "dark when nothing is stored",
+while `defaultPreference: 'system'` means "follow the OS until told otherwise".
+It defaults to `defaultMode`, a stored choice outranks it, and `'system'` without
+a `system` mapping throws at construction — unlike a *stored* `'system'` with no
+mapping, which is a reader's leftover and degrades quietly. The field is also
+what lets one configuration literal feed both the pre-paint script and the
+provider, which is not possible while only one half declares it.
+
 Rejections are explicit rather than silent. A mode that is not in `modes`, and
 `'system'` without the mapping, are both ignored with a development warning
 instead of setting a `data-theme` no selector matches. Passing `theme` alongside

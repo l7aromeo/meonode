@@ -70,6 +70,21 @@ export interface ThemeModesProviderProps {
   tokens: ResolvedThemeSystem
   modes: readonly ThemeMode[]
   defaultMode: ThemeMode
+
+  /**
+   * What a reader who has never chosen starts on. Defaults to `defaultMode`.
+   *
+   * Separate from `defaultMode` because the mode cannot express it:
+   * `defaultMode: 'night'` says "dark when nothing is stored", while
+   * `defaultPreference: 'system'` says "follow the OS until told otherwise", and
+   * an application has to be able to say the second.
+   *
+   * `'system'` requires the `system` mapping and throws without it. That is
+   * unlike a *stored* `'system'` with no mapping, which is a reader's leftover
+   * and degrades quietly — this one is in the source, and the person who can fix
+   * it is the person running the build.
+   */
+  defaultPreference?: ThemeModePreference
   /** Maps `prefers-color-scheme` onto two of `modes`. Without it, `'system'` is not offered. */
   system?: ThemeSystemModes
   /** Where the preference is kept. Defaults to `theme`. */
@@ -247,8 +262,20 @@ export default function ThemeProvider({ children, theme }: ThemeProviderProps): 
  * markup being React's rather than CSS's. `hydrated` is on the context so a
  * consumer can gate that deliberately.
  */
-export function ThemeModesProvider({ children, tokens, modes, defaultMode, system, storageKey = 'theme' }: ThemeModesProviderProps): ReactNode {
+export function ThemeModesProvider({
+  children,
+  tokens,
+  modes,
+  defaultMode,
+  defaultPreference,
+  system,
+  storageKey = 'theme',
+}: ThemeModesProviderProps): ReactNode {
   const canFollowSystem = system !== undefined
+
+  if (defaultPreference === 'system' && !canFollowSystem) {
+    throw new Error("defaultPreference: 'system' needs a `system` mapping saying which of your modes the OS words mean, e.g. system: { light: '…', dark: '…' }")
+  }
 
   // Seeded once, like the theme path above: `defaultMode` is the initial mode,
   // not a controlled prop, and passing a different one later changes nothing.
@@ -258,7 +285,9 @@ export function ThemeModesProvider({ children, tokens, modes, defaultMode, syste
   // Both pieces of state start at the default and are adopted after mount. No
   // `document` and no `localStorage` during render — see the note on the
   // component.
-  const [preference, setPreferenceState] = useState<ThemeModePreference>(defaultMode)
+  // A prop, so both renders agree on it without reading anything the server
+  // cannot see.
+  const [preference, setPreferenceState] = useState<ThemeModePreference>(defaultPreference ?? defaultMode)
   const [hydrated, setHydrated] = useState(false)
 
   const resolveSystemMode = useCallback((): ThemeMode => {
@@ -297,8 +326,20 @@ export function ThemeModesProvider({ children, tokens, modes, defaultMode, syste
     const stamped = globalThis.document?.documentElement?.getAttribute('data-theme')
     const stored = readStored(storageKey)
 
+    const fallbackPreference: ThemeModePreference = defaultPreference ?? defaultMode
     const nextPreference: ThemeModePreference =
-      stored === 'system' && canFollowSystem ? 'system' : stored && modes.includes(stored) ? stored : stamped && modes.includes(stamped) ? stamped : defaultMode
+      stored === 'system' && canFollowSystem
+        ? 'system'
+        : stored && modes.includes(stored)
+          ? stored
+          : // Nothing stored: the application's own default outranks the
+            // attribute, since the attribute is the script's rendering of that
+            // same default.
+            fallbackPreference === 'system'
+            ? 'system'
+            : stamped && modes.includes(stamped)
+              ? stamped
+              : fallbackPreference
 
     const nextMode: ThemeMode =
       nextPreference === 'system'
