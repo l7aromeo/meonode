@@ -139,6 +139,13 @@ function composeChildren(children: Children | undefined, system: Theme['system']
 }
 
 function LegacyThemeProvider({ children, theme }: { children?: Children; theme: Theme }): ReactNode {
+  // Seeded once. `theme` is the *initial* theme, not a controlled prop: passing a
+  // different one on a later render changes nothing, because that is what a
+  // `useState` initialiser does. Swapping the theme goes through `setTheme`.
+  //
+  // Long-standing behaviour, and surprising enough to be worth the line — an
+  // application that re-renders this with a new `theme` sees its prop ignored
+  // with nothing said about it.
   const [currentTheme, setTheme] = useState<Theme>(theme)
 
   if (!theme) {
@@ -202,6 +209,10 @@ function ModeThemeProvider({
     // value it might pass, so it is mount-scoped rather than dependency-scoped.
   }, [])
 
+  // Seeded once, like the theme path above: `defaultMode` is the initial mode,
+  // not a controlled prop, and passing a different one later changes nothing.
+  // `tokens` is not state and does flow through on every render, so the variable
+  // block follows it.
   const [preference, setPreferenceState] = useState<ThemeModePreference>(() => {
     const stored = readStored(storageKey)
     if (stored === 'system') return canFollowSystem ? 'system' : defaultMode
