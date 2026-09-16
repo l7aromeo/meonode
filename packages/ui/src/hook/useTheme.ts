@@ -30,7 +30,13 @@ export const useTheme = () => {
     // Apply theme to document root
     const root = document.documentElement
 
-    if (theme.mode === 'dark') {
+    // Compared as a string, because a site that has declared its own mode names
+    // through `MeoTheme` narrows `theme.mode` to those names and `'dark'` is not
+    // one of them. This branch is the legacy path's `dark-theme`/`light-theme`
+    // classes, which only mean anything for that naming; for any other, the
+    // comparison is simply false and the light branch applies, which is the
+    // behaviour this path has always had for a mode it did not recognise.
+    if ((theme.mode as string) === 'dark') {
       root.setAttribute('data-theme', 'dark')
       root.classList.add('dark-theme')
       root.classList.remove('light-theme')
