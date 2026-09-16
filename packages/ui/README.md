@@ -180,6 +180,50 @@ ThemeProvider({
 })
 ```
 
+### Theme Modes Without a Flash
+
+`ThemeProvider` takes a whole theme object, so a server-rendered page has to know which one to send — from a cookie,
+or by guessing. A cookie makes the response depend on who asked for it, so no cache can share it; a guess is a flash
+of the wrong theme for everyone it got wrong.
+
+`ThemeModesProvider` splits it. Colours are `var()` references, so one token object serves every mode and the server
+sends the same bytes to every reader. Which palette applies is decided by `data-theme` on `<html>`, written by
+`themeScript` **before the first paint** — there is no flash because there was never a wrong first paint to correct.
+
+```typescript
+import { Body, Head, Html, themeScript, ThemeModesProvider, type ThemeScriptConfig } from '@meonode/ui'
+
+// Mode names are yours -- `light` and `dark` are not required.
+const themeConfig = {
+  modes: ['morning', 'night'],
+  defaultMode: 'morning',       // where everything falls back to when nothing else answers
+  defaultPreference: 'system',  // where a reader who has chosen nothing starts
+  system: { light: 'morning', dark: 'night' },
+} satisfies ThemeScriptConfig
+
+// Place the script first in <head>, ahead of any stylesheet.
+Html({
+  lang: 'en',
+  suppressHydrationWarning: true,
+  children: [
+    Head({ key: 'theme', children: themeScript(themeConfig) }),
+    Body({ key: 'body', children: ThemeModesProvider({ ...themeConfig, tokens, children }) }),
+  ],
+})
+```
+
+Spreading one literal into both halves is the point: a mode added in one place reaches the script and the provider
+together. Augment `MeoTheme` with `mode: 'morning' | 'night'` and `setMode` autocompletes your names and rejects a
+typo.
+
+If your Content-Security-Policy pins hashes, import `THEME_SCRIPT_CSP_HASH` rather than copying the value — a copied
+literal goes stale the first time the body changes, and it fails silently.
+
+> Do not render markup from `mode`. The server cannot know it, so a component that branches on it disagrees with the
+> server during hydration for every reader not on the default, and React answers that by re-rendering the whole page
+> on the client — which clears the attributes the script wrote. Key the CSS off `[data-theme='…']`, or gate on
+> `hydrated` from `useTheme()`.
+
 ### Surgical Memoization
 
 Memoize at node-level granularity—not just entire components. A node given a dependency array renders inside a React
