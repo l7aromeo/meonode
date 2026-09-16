@@ -13,7 +13,7 @@
 // block is a pure function of `tokens` and does not move with the mode. The
 // whole-document claim belongs to the RSC suite.
 import React from 'react'
-import { createNode, ThemeProvider, useTheme, type Theme } from '@src/main.js'
+import { createNode, ThemeModesProvider, ThemeProvider, useTheme, type Theme } from '@src/main.js'
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -83,7 +83,7 @@ const Probe = createNode(function Probe() {
 })
 
 const modeProvider = (overrides: Record<string, unknown> = {}) =>
-  ThemeProvider({
+  ThemeModesProvider({
     tokens: TOKENS,
     modes: ['morning', 'night'],
     defaultMode: 'morning',
@@ -242,32 +242,6 @@ describe('state the provider did not choose', () => {
     // Degrades to "works, without persistence" — the likeliest misconfiguration
     // in the wild, and not a crash.
   })
-
-  it('takes modes over theme when both are passed, and says so once', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const { getByTestId, rerender } = render(
-      ThemeProvider({
-        theme: { mode: 'dark', system: { colors: { primary: 'red' } } } as Theme,
-        tokens: TOKENS,
-        modes: ['morning', 'night'],
-        defaultMode: 'morning',
-        children: Probe({}),
-      } as never).render() as never,
-    )
-    expect(getByTestId('probe').getAttribute('data-mode')).toBe('morning')
-    rerender(
-      ThemeProvider({
-        theme: { mode: 'dark', system: { colors: { primary: 'red' } } } as Theme,
-        tokens: TOKENS,
-        modes: ['morning', 'night'],
-        defaultMode: 'morning',
-        children: Probe({}),
-      } as never).render() as never,
-    )
-    const ours = warn.mock.calls.filter(call => String(call[0]).includes('`theme` is ignored'))
-    expect(ours).toHaveLength(1)
-    warn.mockRestore()
-  })
 })
 
 describe('rejections', () => {
@@ -351,11 +325,11 @@ describe('nesting and misuse', () => {
       return React.createElement('div', { 'data-testid': 'inner', 'data-mode': mode })
     })
     const { getByTestId } = render(
-      ThemeProvider({
+      ThemeModesProvider({
         tokens: TOKENS,
         modes: ['morning', 'night'],
         defaultMode: 'morning',
-        children: ThemeProvider({ tokens: TOKENS, modes: ['morning', 'night'], defaultMode: 'morning', children: Inner({}) } as never),
+        children: ThemeModesProvider({ tokens: TOKENS, modes: ['morning', 'night'], defaultMode: 'morning', children: Inner({}) } as never),
       } as never).render() as never,
     )
     expect(getByTestId('inner').getAttribute('data-mode')).toBe('night')
