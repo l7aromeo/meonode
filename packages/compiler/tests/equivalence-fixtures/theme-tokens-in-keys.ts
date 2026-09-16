@@ -32,21 +32,19 @@
 //     defines `--meonode-theme-mode`. Both variants must be equally undefined:
 //     the point is that compiling changes nothing, not that the reference works.
 import { Div, ThemeProvider } from '@meonode/ui'
-import type { Theme } from '@meonode/ui'
 
-const theme: Theme = {
-  mode: 'light',
-  system: {
-    base: { default: '#ffffff', deep: '#0b1724', content: '#111827' },
-    primary: { default: '#4f46e5', content: '#ffffff' },
-    spacing: { sm: '8px', md: '16px' },
-    breakpoint: { md: '768px' },
-  },
+const tokens = {
+  base: { default: '#ffffff', deep: '#0b1724', content: '#111827' },
+  primary: { default: '#4f46e5', content: '#ffffff' },
+  spacing: { sm: '8px', md: '16px' },
+  breakpoint: { md: '768px' },
 }
 
 export default function ThemeTokensInKeys() {
   return ThemeProvider({
-    theme,
+    tokens,
+    modes: ['light'],
+    defaultMode: 'light',
     children: Div({
       // Bucketed values: all of these must come out as var() references.
       padding: 'theme.spacing.md',

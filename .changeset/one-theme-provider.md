@@ -37,6 +37,13 @@ provider, `setTheme` could only honour the mode a theme object named and
 discarded its palette silently, so a caller got a theme claiming one mode while
 emitting another's variables.
 
+One RSC fixture changes what it demonstrates rather than what it asserts. Its
+wrapper read storage, chose between two whole theme objects and handed one to the
+provider — the pattern this release removes — so it now picks a mode and the
+provider owns the rest. What the fixture exists to prove, MUI interop across a
+client boundary, is unchanged; the runtime theme swap it also happened to show is
+gone because an application no longer does that.
+
 `useTheme()` returns `theme`, `mode`, `preference`, `modes`, `setMode`,
 `setPreference` and `hydrated`. `hydrated` is false until the provider has
 adopted the reader's real mode: the first client render must match the server's,
