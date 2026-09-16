@@ -18,7 +18,8 @@
 // preference — is a whole-document property and lives in the RSC suite.
 import { createHash } from 'node:crypto'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { themeScript } from '@src/main.js'
+import { renderToStaticMarkup } from 'react-dom/server'
+import { Script, themeScript } from '@src/main.js'
 
 interface Emitted {
   rawProps: Record<string, unknown>
@@ -370,15 +371,45 @@ describe('names that would be a problem somewhere else', () => {
 })
 
 describe('the attribute cannot carry markup out of the element', () => {
-  it('keeps a hostile name inert through a real parser', () => {
-    // Belt and braces. The names above are refused, so this asserts the second
-    // line of defence: even if one got through, the value is an attribute and
-    // not source, and `<` never reaches the document raw.
-    const node = themeScript({ modes: ['morning', 'night'], defaultMode: 'morning' })
-    const html = `<head><script data-meonode-theme="${configOf(node).replace(/"/g, '&quot;')}">${bodyOf(node)}</script></head>`
-    const parsed = new DOMParser().parseFromString(html, 'text/html')
+  // The second line of defence, and the reason the configuration moved out of
+  // the source in the first place. The names above are refused, so nothing
+  // hostile reaches this path through `themeScript` — what is asserted here is
+  // that the mechanism itself is inert, by pushing a payload the library would
+  // never emit through React's own serialiser and a real parser.
+  const HOSTILE = JSON.stringify({
+    modes: ['morning', 'a</script><script>window.PWNED=1</script>'],
+    default: 'morning',
+    storageKey: 'theme',
+  })
+
+  const served = (): string =>
+    renderToStaticMarkup(Script({ 'data-meonode-theme': HOSTILE, dangerouslySetInnerHTML: { __html: bodyOf(themeScript(MODES)) } }).render() as never)
+
+  it('round-trips a hostile value byte for byte', () => {
+    // Byte for byte, not merely "escaped": a value that came back altered would
+    // mean the body parsed a different configuration from the one written, and
+    // the attribute is the only channel between them.
+    const parsed = new DOMParser().parseFromString(`<head>${served()}</head>`, 'text/html')
+
+    expect(parsed.querySelector('script')!.getAttribute('data-meonode-theme')).toBe(HOSTILE)
+  })
+
+  it('yields exactly one script element, with nothing escaping into the document', () => {
+    const parsed = new DOMParser().parseFromString(`<head>${served()}</head>`, 'text/html')
 
     expect(parsed.querySelectorAll('script')).toHaveLength(1)
     expect(parsed.body.textContent).toBe('')
+    expect(parsed.body.querySelector('script')).toBeNull()
+  })
+
+  it('puts no raw angle bracket from the value into the markup', () => {
+    // The property this rests on is React's, not ours, so it is asserted rather
+    // than assumed: if React ever stopped escaping attribute values, everything
+    // above would still pass while the document became injectable.
+    const markup = served()
+    const attribute = markup.slice(markup.indexOf('data-meonode-theme="') + 20, markup.indexOf('">'))
+
+    expect(attribute).not.toContain('<')
+    expect(attribute).toContain('&lt;')
   })
 })
