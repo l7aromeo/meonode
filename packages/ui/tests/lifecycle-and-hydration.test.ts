@@ -154,7 +154,21 @@ describe(`hydration under ${COMPILED ? 'COMPILED' : 'uncompiled'} call sites`, (
     const spy = vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
       messages.push(args.map(String).join(' '))
     })
-    return { messages, restore: () => spy.mockRestore() }
+
+    // The console is only half the channel. React 19 routes recoverable errors
+    // -- which is what a hydration mismatch is, since it recovers by rendering
+    // the subtree on the client -- to `onRecoverableError`, and for some
+    // mismatches it reports there and nowhere else. Watching the console alone
+    // therefore reports clean for a tree that genuinely mismatched.
+    const recoverableMessages: string[] = []
+    const recoverable = {
+      messages: recoverableMessages,
+      collect: (error: unknown) => {
+        recoverableMessages.push(error instanceof Error ? error.message : String(error))
+      },
+    }
+
+    return { messages, recoverable, restore: () => spy.mockRestore() }
   }
 
   const HYDRATION_MARKERS = [/did not match/i, /hydration failed/i, /server rendered/i, /text content does not match/i, /server html/i]
@@ -165,13 +179,13 @@ describe(`hydration under ${COMPILED ? 'COMPILED' : 'uncompiled'} call sites`, (
     container.innerHTML = html
     document.body.appendChild(container)
 
-    const { messages, restore } = captureHydrationErrors()
+    const { messages, recoverable, restore } = captureHydrationErrors()
     let root: ReturnType<typeof hydrateRoot>
     act(() => {
-      root = hydrateRoot(container, tree())
+      root = hydrateRoot(container, tree(), { onRecoverableError: recoverable.collect })
     })
     restore()
-    const offending = messages.filter(m => HYDRATION_MARKERS.some(p => p.test(m)))
+    const offending = [...messages, ...recoverable.messages].filter(m => HYDRATION_MARKERS.some(p => p.test(m)))
     return {
       html,
       container,
@@ -182,6 +196,36 @@ describe(`hydration under ${COMPILED ? 'COMPILED' : 'uncompiled'} call sites`, (
       },
     }
   }
+
+  it('reports a mismatch planted in the server markup', () => {
+    // The control for every "no mismatch" assertion in this file. React 19
+    // hands recoverable hydration errors to `onRecoverableError` and recovers;
+    // for a text mismatch it may say nothing on the console at all. So a helper
+    // watching only the console reports clean for a tree that genuinely
+    // mismatched, and every case relying on it is weaker than it reads.
+    //
+    // This plants the mismatch in the server HTML rather than branching on the
+    // environment, so the divergence is real bytes and not a render-time trick.
+    const tree = (text: string) => () => Div({ 'data-testid': 'root', children: Span(text) }).render() as ReactNode
+
+    const html = renderToString(tree('server')())
+    const container = document.createElement('div')
+    container.innerHTML = html
+    document.body.appendChild(container)
+
+    const { messages, recoverable, restore } = captureHydrationErrors()
+    let root: ReturnType<typeof hydrateRoot>
+    act(() => {
+      root = hydrateRoot(container, tree('client')(), { onRecoverableError: recoverable.collect })
+    })
+    restore()
+
+    const offending = [...messages, ...recoverable.messages].filter(m => HYDRATION_MARKERS.some(p => p.test(m)))
+    expect(offending.length).toBeGreaterThan(0)
+
+    act(() => root.unmount())
+    container.remove()
+  })
 
   it('hydrates a themed tree with no mismatch', () => {
     const tree = () =>

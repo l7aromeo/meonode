@@ -3,8 +3,17 @@ import { useContext, useEffect } from 'react'
 import { ThemeContext } from '@src/components/theme-provider.client.js'
 
 /**
- * A hook that provides access to the theme context.
- * It also handles side effects like updating localStorage and applying the theme to the document root.
+ * Access to the theme context.
+ *
+ * On the original `theme` path this also writes the document: `data-theme`, the
+ * light/dark classes and `localStorage`. That is load-bearing for existing
+ * consumers, so it stays exactly as it was.
+ *
+ * On the mode-aware path it writes nothing. Every consumer runs this hook, so a
+ * write here is a write per reader of the theme — which is how a provider
+ * sitting on its default came to overwrite a choice a consumer had just made.
+ * There, the provider owns the attribute and moves it only when something
+ * actually changes.
  * @returns {ThemeContextValue} The theme context value.
  * @throws {Error} If used outside a ThemeProvider.
  */
@@ -15,9 +24,12 @@ export const useTheme = () => {
     throw new Error('useTheme must be used within a ThemeProvider')
   }
 
-  const { theme } = context
+  const { theme, modes } = context
+  const ownsDocument = modes === undefined
 
   useEffect(() => {
+    if (!ownsDocument) return
+
     // Guard non-browser-like runtimes where localStorage can be undefined or non-WebStorage.
     const storage = globalThis.localStorage
     if (storage && typeof storage.getItem === 'function' && typeof storage.setItem === 'function') {
@@ -30,7 +42,13 @@ export const useTheme = () => {
     // Apply theme to document root
     const root = document.documentElement
 
-    if (theme.mode === 'dark') {
+    // Compared as a string, because a site that has declared its own mode names
+    // through `MeoTheme` narrows `theme.mode` to those names and `'dark'` is not
+    // one of them. This branch is the legacy path's `dark-theme`/`light-theme`
+    // classes, which only mean anything for that naming; for any other, the
+    // comparison is simply false and the light branch applies, which is the
+    // behaviour this path has always had for a mode it did not recognise.
+    if ((theme.mode as string) === 'dark') {
       root.setAttribute('data-theme', 'dark')
       root.classList.add('dark-theme')
       root.classList.remove('light-theme')
@@ -39,7 +57,7 @@ export const useTheme = () => {
       root.classList.add('light-theme')
       root.classList.remove('dark-theme')
     }
-  }, [theme.mode, theme.system])
+  }, [ownsDocument, theme.mode, theme.system])
 
   return context
 }

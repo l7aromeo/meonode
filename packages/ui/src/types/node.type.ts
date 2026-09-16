@@ -150,9 +150,35 @@ export type ValidateComponentProps<E extends NodeElementType, P> = E extends key
 // ============================================================================
 
 /**
- * Theme mode - light or dark theme variant
+ * Theme mode — `'light'` and `'dark'` are offered as hints, not as the whole set.
+ *
+ * `'light' | 'dark' | string` collapses to plain `string`, which loses even those
+ * two from autocomplete. `(string & {})` keeps the union open while the literals
+ * survive the widening, so an app naming its modes `'morning'` and `'night'`
+ * types fine and one that uses the usual two still gets told what they are.
  */
-export type ThemeMode = 'light' | 'dark' | string
+export type ThemeMode = 'light' | 'dark' | (string & {})
+
+/**
+ * What the reader chose, which is not the same as what they see: `'system'` means
+ * "follow the OS", and the mode is computed from it on every change.
+ *
+ * Storing the resolved mode instead would make following the OS impossible — the
+ * first toggle would pin it forever.
+ */
+export type ThemeModePreference = 'system' | ThemeMode
+
+/**
+ * Maps the two words `prefers-color-scheme` speaks onto this app's mode names.
+ *
+ * Required before `'system'` is offered at all. The media query answers `dark` or
+ * `light`, which are OS words; an app whose modes are `'morning'` and `'night'`
+ * has not said which is which until it says so here.
+ */
+export interface ThemeSystemModes {
+  light: ResolvedThemeMode
+  dark: ResolvedThemeMode
+}
 
 /**
  * System theme configuration with base colors and semantic tokens
@@ -184,6 +210,16 @@ export type ResolvedThemeSystem = MeoTheme extends { system: infer S extends Rec
 
 /** Resolved mode type — user-augmented if provided, else the loose default. */
 export type ResolvedThemeMode = MeoTheme extends { mode: infer M } ? M : ThemeMode
+
+/**
+ * A preference over the modes a site has actually declared.
+ *
+ * The loose {@link ThemeModePreference} accepts any string, so a misspelt mode
+ * compiles and nothing matches it at runtime — a typo is consistent with itself,
+ * which is why no amount of validation catches it. Augmenting `MeoTheme['mode']`
+ * turns that into a compile error.
+ */
+export type ResolvedThemePreference = 'system' | ResolvedThemeMode
 
 /**
  * Recursively builds dotted paths from an object type, stopping at primitives.
