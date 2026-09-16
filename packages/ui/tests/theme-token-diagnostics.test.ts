@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { Div, ThemeProvider, setDebugMode } from '@src/main.js'
 import { __resetThemeDiagnostics } from '@src/util/theme-diagnostics.util.js'
+import { asThemeProps } from './_theme-props.js'
 
 /**
  * A token that resolves to nothing, or to a bare number used as a length,
@@ -40,7 +41,7 @@ afterEach(() => {
   console.warn = originalWarn
 })
 
-const render = (props: Record<string, unknown>) => renderToStaticMarkup(ThemeProvider({ theme, children: Div(props) }).render())
+const render = (props: Record<string, unknown>) => renderToStaticMarkup(ThemeProvider({ ...asThemeProps(theme), children: Div(props) }).render())
 
 describe('theme token diagnostics', () => {
   it('warns when a token path is not defined by the theme', () => {

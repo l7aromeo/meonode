@@ -5,6 +5,7 @@ import { Div, ThemeProvider } from '@src/main.js'
 import { ThemeUtil } from '@src/util/theme.util.js'
 import { buildThemeVariablesCss } from '@src/util/server-theme.util.js'
 import { isLengthProperty } from '@src/util/css-unit.util.js'
+import { asThemeProps } from './_theme-props.js'
 
 /**
  * Properties that accept a length **and** a bare number, where the bare number
@@ -111,13 +112,18 @@ describe('dual-unit properties through real call sites', () => {
   }
 
   it.each(DUAL_UNIT_PROPERTIES)('`%s` emits the plain variable, compiled or not', property => {
-    const { getByText } = render(ThemeProvider({ theme, children: Div({ [property]: 'theme.dual.bare', children: 'dual' } as never) }).render() as never)
+    const { getByText } = render(
+      ThemeProvider({ ...asThemeProps(theme), children: Div({ [property]: 'theme.dual.bare', children: 'dual' } as never) }).render() as never,
+    )
     expect(getByText('dual')).toHaveStyleRule(KEBAB[property], 'var(--meonode-theme-dual-bare)')
   })
 
   it('a length property alongside them still gets the unit', () => {
     const { getByText } = render(
-      ThemeProvider({ theme, children: Div({ lineHeight: 'theme.dual.bare', padding: 'theme.dual.bare', children: 'mixed' }) }).render() as never,
+      ThemeProvider({
+        ...asThemeProps(theme),
+        children: Div({ lineHeight: 'theme.dual.bare', padding: 'theme.dual.bare', children: 'mixed' }),
+      }).render() as never,
     )
     const el = getByText('mixed')
     expect(el).toHaveStyleRule('line-height', 'var(--meonode-theme-dual-bare)')

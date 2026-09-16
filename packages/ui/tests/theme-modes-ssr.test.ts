@@ -4,14 +4,14 @@
 // server there is no document. `useState` initialisers run there too, so the
 // read has to be conditional rather than merely late.
 import { renderToString } from 'react-dom/server'
-import { createNode, Div, ThemeModesProvider, ThemeProvider, useTheme, type Theme } from '@src/main.js'
+import { createNode, Div, ThemeProvider, useTheme } from '@src/main.js'
 import { createElement } from 'react'
 import { describe, expect, it } from 'vitest'
 
 const TOKENS = { colors: { primary: 'var(--brand-primary)' }, spacing: { md: '16px' } }
 
 const page = (overrides: Record<string, unknown> = {}) =>
-  ThemeModesProvider({
+  ThemeProvider({
     tokens: TOKENS,
     modes: ['morning', 'night'],
     defaultMode: 'morning',
@@ -32,7 +32,7 @@ describe('the mode path with no document', () => {
     // `defaultMode` instead is invisible once adoption has run, which is why
     // this case is here and not in the client suite.
     const html = renderToString(
-      ThemeModesProvider({
+      ThemeProvider({
         tokens: TOKENS,
         modes: ['morning', 'night'],
         defaultMode: 'morning',
@@ -71,10 +71,8 @@ describe('the mode path with no document', () => {
     expect(renderToString(page({ defaultMode: 'night' }))).toBe(renderToString(page({ defaultMode: 'morning' })))
   })
 
-  it('still renders the legacy theme path server-side', () => {
-    const html = renderToString(
-      ThemeProvider({ theme: { mode: 'dark', system: TOKENS } as Theme, children: Div({ id: 'h', children: 'x' }) }).render() as never,
-    )
+  it('emits every token it was given, whatever the mode names are', () => {
+    const html = renderToString(page({ modes: ['dawn', 'dusk'], defaultMode: 'dawn' }))
     expect(html).toContain('--meonode-theme-spacing-md:16px;')
   })
 })

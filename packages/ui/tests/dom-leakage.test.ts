@@ -25,6 +25,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { vi } from 'vitest'
 import { Div, ThemeProvider, type Theme } from '@src/main.js'
 import { COMPILED_MARKER, COMPILER_SCHEMA_KEYS } from '@src/constant/common.const.js'
+import { asThemeProps } from './_theme-props.js'
 
 const S2 = COMPILER_SCHEMA_KEYS[2]
 const THEME: Theme = { mode: 'light', system: { colors: { primary: 'rgb(1, 2, 3)' } } }
@@ -95,7 +96,7 @@ describe('MeoNode config props never reach the DOM', () => {
     // ThemeProvider must still receive it and resolve tokens.
     const out = renderToStaticMarkup(
       ThemeProvider({
-        theme: THEME,
+        ...asThemeProps(THEME),
         children: Div({ id: 'h', color: 'theme.colors.primary', children: 'x' }),
       }).render() as never,
     )

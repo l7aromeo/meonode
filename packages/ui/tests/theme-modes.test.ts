@@ -13,7 +13,7 @@
 // block is a pure function of `tokens` and does not move with the mode. The
 // whole-document claim belongs to the RSC suite.
 import React from 'react'
-import { createNode, ThemeModesProvider, ThemeProvider, useTheme, type Theme } from '@src/main.js'
+import { createNode, ThemeProvider, useTheme } from '@src/main.js'
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -83,7 +83,7 @@ const Probe = createNode(function Probe() {
 })
 
 const modeProvider = (overrides: Record<string, unknown> = {}) =>
-  ThemeModesProvider({
+  ThemeProvider({
     tokens: TOKENS,
     modes: ['morning', 'night'],
     defaultMode: 'morning',
@@ -182,7 +182,7 @@ describe('mode-aware provider', () => {
       return React.createElement('button', { type: 'button', 'data-testid': 'bump', onClick: () => setN(n + 1) }, String(n))
     })
     const { getByTestId } = render(
-      ThemeModesProvider({ tokens: TOKENS, modes: ['morning', 'night'], defaultMode: 'morning', children: Counter({}) } as never).render() as never,
+      ThemeProvider({ tokens: TOKENS, modes: ['morning', 'night'], defaultMode: 'morning', children: Counter({}) } as never).render() as never,
     )
     expect(root().getAttribute('data-theme')).toBe('morning')
 
@@ -192,68 +192,6 @@ describe('mode-aware provider', () => {
     // The consumer re-rendered twice and the provider did not, so nothing was
     // written. A hook that wrote would have put `morning` back.
     expect(root().getAttribute('data-theme')).toBe('elsewhere')
-  })
-})
-
-describe('the legacy theme path', () => {
-  const LEGACY: Theme = { mode: 'dark', system: { colors: { primary: 'rgb(1, 2, 3)' } } }
-  const Reader = createNode(function Reader() {
-    const { theme } = useTheme()
-    return React.createElement('div', { 'data-testid': 'reader', 'data-mode': String(theme.mode) }, 'x')
-  })
-
-  it('still stamps the attribute and the classes from the hook', () => {
-    render(ThemeProvider({ theme: LEGACY, children: Reader({}) }).render() as never)
-    expect(root().getAttribute('data-theme')).toBe('dark')
-    expect(root().classList.contains('dark-theme')).toBe(true)
-    expect(root().classList.contains('light-theme')).toBe(false)
-    expect(storage.getItem('theme')).toBe('dark')
-  })
-
-  it('still rewrites the attribute from the hook, which the new path deliberately does not', () => {
-    const Switcher = createNode(function Switcher() {
-      const { theme, setTheme } = useTheme()
-      return React.createElement('button', { type: 'button', 'data-testid': 'to-light', onClick: () => setTheme({ ...theme, mode: 'light' }) }, 'light')
-    })
-    const { getByTestId } = render(ThemeProvider({ theme: LEGACY, children: Switcher({}) }).render() as never)
-
-    // The inverse of the mode path's guarantee. Here the consumer's own effect
-    // owns the attribute, so a theme change stamps over whatever else put a
-    // value there — the behaviour existing applications are built on. The new
-    // path refuses to do this, which is why the same assertion cannot pass on
-    // both.
-    root().setAttribute('data-theme', 'elsewhere')
-    fireEvent.click(getByTestId('to-light'))
-    expect(root().getAttribute('data-theme')).toBe('light')
-    expect(root().classList.contains('light-theme')).toBe(true)
-    expect(root().classList.contains('dark-theme')).toBe(false)
-  })
-
-  it('refuses the mode-path setters instead of half-applying a theme', () => {
-    // `setMode` on this path could only keep the current `system` while changing
-    // `mode`, and here the two palettes are different objects with different
-    // values — so it produced a theme claiming dark while emitting light's
-    // variables, and the hook then stamped `data-theme="dark"` over it. A
-    // consumer reaching for the obvious method got a half-applied theme and no
-    // error. Swapping a whole theme is what `setTheme` is for.
-    const api: Record<string, unknown> = {}
-    const Grab = createNode(function Grab() {
-      Object.assign(api, useTheme())
-      return React.createElement('div')
-    })
-    render(ThemeProvider({ theme: LEGACY, children: Grab({}) }).render() as never)
-
-    expect(() => (api.setMode as (mode: string) => void)('light')).toThrow(/ThemeModesProvider/)
-    expect(() => (api.setPreference as (preference: string) => void)('system')).toThrow(/ThemeModesProvider/)
-    // No preference concept exists here, so reporting one would be a fabrication.
-    expect(api.preference).toBeUndefined()
-    // The mode is genuinely the theme's own, and stays.
-    expect(api.mode).toBe('dark')
-  })
-
-  it('still resolves tokens into the :root block', () => {
-    render(ThemeProvider({ theme: LEGACY, children: Reader({}) }).render() as never)
-    expect(styleTag()?.textContent).toContain('--meonode-theme-colors-primary:rgb(1, 2, 3);')
   })
 })
 
@@ -356,11 +294,11 @@ describe('nesting and misuse', () => {
       return React.createElement('div', { 'data-testid': 'inner', 'data-mode': mode })
     })
     const { getByTestId } = render(
-      ThemeModesProvider({
+      ThemeProvider({
         tokens: TOKENS,
         modes: ['morning', 'night'],
         defaultMode: 'morning',
-        children: ThemeModesProvider({ tokens: TOKENS, modes: ['morning', 'night'], defaultMode: 'morning', children: Inner({}) } as never),
+        children: ThemeProvider({ tokens: TOKENS, modes: ['morning', 'night'], defaultMode: 'morning', children: Inner({}) } as never),
       } as never).render() as never,
     )
     expect(getByTestId('inner').getAttribute('data-mode')).toBe('night')
@@ -430,7 +368,7 @@ describe('telling a working script from a recovered one', () => {
     storage.setItem('theme', 'night')
     root().setAttribute('data-theme', 'night')
     const { seen, Watcher } = observe()
-    render(ThemeModesProvider({ tokens: TOKENS, modes: ['morning', 'night'], defaultMode: 'morning', children: Watcher({}) } as never).render() as never)
+    render(ThemeProvider({ tokens: TOKENS, modes: ['morning', 'night'], defaultMode: 'morning', children: Watcher({}) } as never).render() as never)
     expect(seen).toEqual(['night'])
     expect(root().getAttribute('data-theme')).toBe('night')
   })
@@ -440,7 +378,7 @@ describe('telling a working script from a recovered one', () => {
     // No attribute: the script was blocked — by CSP, by a proxy, by being
     // dropped from the document entirely.
     const { seen, Watcher } = observe()
-    render(ThemeModesProvider({ tokens: TOKENS, modes: ['morning', 'night'], defaultMode: 'morning', children: Watcher({}) } as never).render() as never)
+    render(ThemeProvider({ tokens: TOKENS, modes: ['morning', 'night'], defaultMode: 'morning', children: Watcher({}) } as never).render() as never)
     expect(seen).toEqual([null])
     // Recovered afterwards, which is why nothing downstream of hydration can
     // tell the two apart.

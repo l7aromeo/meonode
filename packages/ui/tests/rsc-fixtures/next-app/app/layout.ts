@@ -36,7 +36,11 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       Body({
         children: StyleRegistry({
           children: ThemeProvider({
-            theme,
+            // One literal feeds the script and the provider, which is the
+            // pattern both are shaped for: two readers of the same declaration
+            // cannot disagree about what the modes are.
+            ...themeModes,
+            tokens: theme.system,
             children: PortalProvider({
               children: [children, PortalHost()],
             }),

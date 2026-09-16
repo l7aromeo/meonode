@@ -1,6 +1,7 @@
 import { Div, Node, type Theme, ThemeProvider } from '@src/main.js'
 import { cleanup, render } from '@testing-library/react'
 import { createSerializer, matchers } from '@emotion/jest'
+import { asThemeProps } from './_theme-props.js'
 
 expect.extend(matchers)
 expect.addSnapshotSerializer(createSerializer())
@@ -51,7 +52,7 @@ describe('Styling and Theming', () => {
     }
 
     const App = ThemeProvider({
-      theme: myTheme,
+      ...asThemeProps(myTheme),
       children: Div({
         children: 'Raw Value Content',
         backgroundColor: 'red',
@@ -81,7 +82,7 @@ describe('Styling and Theming', () => {
     // Create an App component using ThemeProvider to set the theme,
     // and a child Div that consumes theme values for its styles.
     const App = ThemeProvider({
-      theme: myTheme,
+      ...asThemeProps(myTheme),
       children: Div({
         children: Div({
           backgroundColor: ({ system }) => system.primary.default, // Theme value from function
@@ -113,7 +114,7 @@ describe('Styling and Theming', () => {
 
     // Create an App component using ThemeProvider, with a child Div consuming multiple theme values.
     const App = ThemeProvider({
-      theme: myTheme,
+      ...asThemeProps(myTheme),
       children: Div({
         children: Div({
           padding: 'theme.spacing.md',
@@ -150,7 +151,7 @@ describe('Styling and Theming', () => {
     // Create an App with ThemeProvider and a child Div using theme values in its `css` prop,
     // both as a string path and as a function.
     const App = ThemeProvider({
-      theme: myTheme,
+      ...asThemeProps(myTheme),
       children: Div({
         children: 'Themed Function Content',
         css: {

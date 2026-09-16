@@ -6,30 +6,33 @@ import { buildThemeVariablesCss } from '@src/util/server-theme.util.js'
 import { diagnosticsEnabled } from '@src/util/theme-diagnostics.util.js'
 
 export interface ThemeContextValue {
+  /**
+   * The resolved theme, as the styled renderer consumes it: the mode in force
+   * and the token map.
+   *
+   * Read-only. There is no `setTheme`: a theme object cannot be swapped here,
+   * because the palettes are CSS keyed by `[data-theme="…"]` and the document
+   * only ever carries token references. `setMode` names a mode instead.
+   */
   theme: Theme
-  setTheme: (theme: Theme | ((theme: Theme) => Theme)) => void
   /** The mode in force, already resolved — never `'system'`. */
   mode: ResolvedThemeMode
 
   /**
    * What the reader chose. `'system'` when they asked to follow the OS.
    *
-   * Absent on `ThemeProvider`, which has no preference concept — the theme
-   * object is the choice there.
+   * `'system'` when the reader asked to follow the OS, so a three-way control
+   * can show the position they chose rather than the one it resolved to.
    */
   preference?: ResolvedThemePreference
 
   /**
    * Choose a mode outright, which also stops following the OS.
-   *
-   * Throws on `ThemeProvider`: a mode is not separable from the theme there.
    */
   setMode: (mode: ResolvedThemeMode) => void
 
   /**
    * Choose a mode or `'system'`; `'system'` is refused unless a mapping was given.
-   *
-   * Throws on `ThemeProvider`, which stores no preference.
    */
   setPreference: (preference: ResolvedThemePreference) => void
 
@@ -39,18 +42,16 @@ export interface ThemeContextValue {
    * The first client render must match the server's, so it renders the default
    * whatever the reader stored. A consumer rendering markup from `mode` — a
    * toggle position, a different icon — can gate on this to avoid showing the
-   * default for one commit. Always true on the original `theme` path, which has
-   * nothing to adopt.
+   * default for one commit.
+   *
+   * Page-level theming does not need it: CSS keyed off `[data-theme="…"]` is
+   * correct from the first painted frame, because the pre-paint script sets the
+   * attribute before anything renders. This is for markup React owns.
    */
   hydrated: boolean
 
-  /**
-   * The declared mode names, and the marker that this is the mode-aware path.
-   * `useTheme` reads it to decide whether it owns the DOM write — on the legacy
-   * path it does, and consumers depend on that; here the provider does, once,
-   * and only when something actually changes.
-   */
-  modes?: readonly ResolvedThemeMode[]
+  /** The mode names this site declared, as given to the provider. */
+  modes: readonly ResolvedThemeMode[]
 }
 
 /**
@@ -66,9 +67,33 @@ export interface ThemeContextValue {
  * CSS keyed by `[data-theme="…"]`, which is what makes one document correct for
  * every reader.
  */
-export interface ThemeModesProviderProps {
+
+/**
+ * Props for the theme provider.
+ *
+ * One token map plus the mode names a site declares. Values in `tokens` are
+ * `var(--…)` references whose palettes live in CSS keyed by `[data-theme="…"]`,
+ * which is what lets the server render one document for every reader: the markup
+ * does not depend on the mode, so it cannot vary with it.
+ *
+ * Flat rather than a union of two prop shapes. `createNode` infers a component's
+ * props and a union collapses to `never` there, which is what made an
+ * either/or API need two components; a single interface keeps every required
+ * prop required.
+ */
+export interface ThemeProviderProps {
   tokens: ResolvedThemeSystem
+
+  /** Every mode this site has. `[data-theme="…"]` takes one of these names. */
   modes: readonly ResolvedThemeMode[]
+
+  /**
+   * The terminal fallback: what applies when storage is blocked, `matchMedia`
+   * throws, or a stored mode is no longer declared.
+   *
+   * Required and explicit rather than `modes[0]`, because an implicit default
+   * makes reordering an array a behaviour change and nothing in review shows it.
+   */
   defaultMode: ResolvedThemeMode
 
   /**
@@ -76,33 +101,20 @@ export interface ThemeModesProviderProps {
    *
    * Separate from `defaultMode` because the mode cannot express it:
    * `defaultMode: 'night'` says "dark when nothing is stored", while
-   * `defaultPreference: 'system'` says "follow the OS until told otherwise", and
-   * an application has to be able to say the second.
+   * `defaultPreference: 'system'` says "follow the OS until told otherwise".
    *
-   * `'system'` requires the `system` mapping and throws without it. That is
-   * unlike a *stored* `'system'` with no mapping, which is a reader's leftover
-   * and degrades quietly — this one is in the source, and the person who can fix
-   * it is the person running the build.
+   * `'system'` requires the `system` mapping and throws without it — unlike a
+   * stored* `'system'` with no mapping, which is a reader's leftover and
+   * degrades quietly.
    */
   defaultPreference?: ResolvedThemePreference
+
   /** Maps `prefers-color-scheme` onto two of `modes`. Without it, `'system'` is not offered. */
   system?: ThemeSystemModes
+
   /** Where the preference is kept. Defaults to `theme`. */
   storageKey?: string
-  children?: Children
-}
 
-/**
- * Props for the original path: one theme object, swapped wholesale.
- *
- * Separate from {@link ThemeModesProviderProps} rather than a union of the two,
- * because `createNode` infers a component's props and a union collapses to
- * `never` there — every existing call site would stop compiling. Two components
- * keep each set required where it belongs, so a missing prop is a compile error
- * rather than a throw.
- */
-export interface ThemeProviderProps {
-  theme: Theme
   children?: Children
 }
 
@@ -203,78 +215,7 @@ function composeChildren(children: Children | undefined, system: Theme['system']
   return [themeVariablesStyle, ...(Array.isArray(children) ? children : children == null ? [] : [children])] as Children
 }
 
-export default function ThemeProvider({ children, theme }: ThemeProviderProps): ReactNode {
-  // Seeded once. `theme` is the *initial* theme, not a controlled prop: passing a
-  // different one on a later render changes nothing, because that is what a
-  // `useState` initialiser does. Swapping the theme goes through `setTheme`.
-  //
-  // Long-standing behaviour, and surprising enough to be worth the line — an
-  // application that re-renders this with a new `theme` sees its prop ignored
-  // with nothing said about it.
-  const [currentTheme, setTheme] = useState<Theme>(theme)
-
-  if (!theme) {
-    throw new Error('`theme` prop must be defined')
-  }
-
-  const applyTheme = (next: Theme | ((theme: Theme) => Theme)) => {
-    const resolved = typeof next === 'function' ? next(currentTheme) : next
-    document.cookie = `theme=${resolved.mode}; path=/;`
-    setTheme(resolved)
-  }
-
-  const contextValue: ThemeContextValue = {
-    theme: currentTheme,
-    setTheme: applyTheme,
-    // `mode` is genuinely this theme's own, so a consumer can read the same name
-    // on either path. Nothing is adopted after mount here, so `hydrated` is true
-    // from the start.
-    mode: currentTheme.mode as ResolvedThemeMode,
-    hydrated: true,
-    // The other three belong to the mode path and cannot be honoured here.
-    // Changing `mode` while keeping `system` is not a mode switch on this path:
-    // the palettes are different objects with different values, so it would
-    // produce a theme claiming one mode while emitting the other's variables,
-    // and the hook would then stamp the attribute over the top. Swapping a whole
-    // theme is what `setTheme` is for.
-    setMode: () => {
-      throw new Error('setMode is not available on ThemeProvider: swap the theme with setTheme, or use ThemeModesProvider for named modes')
-    },
-    setPreference: () => {
-      throw new Error('setPreference is not available on ThemeProvider: there is no preference to store here — use ThemeModesProvider')
-    },
-    // `preference` is left undefined rather than echoing the mode: this path has
-    // no preference concept, and reporting one would be a fabrication.
-  }
-
-  return Node(ThemeContext.Provider, { value: contextValue, children: composeChildren(children, currentTheme.system, currentTheme.mode) }).render()
-}
-
-/**
- * The mode-aware path.
- *
- * The document does not depend on the mode: the `:root` block is built from
- * `tokens` alone, and which palette applies is decided by `data-theme` on the
- * document element, written before the first paint by a blocking script. So this
- * component renders `defaultMode` on its first pass — on the server and on the
- * client alike — and adopts the reader's real mode in a layout effect.
- *
- * It cannot read the attribute or storage while rendering. Both are absent on
- * the server and present on the client, so doing so makes the two first renders
- * differ for every reader whose mode is not the default. React requires them to
- * be identical: a consumer rendering anything from `mode` — a toggle's
- * `checked`, a different icon, an offset — then throws #418, React discards the
- * server tree and client-renders the document, and that reset is what wipes the
- * attributes the script wrote. The attribute loss is the symptom of the
- * mismatch, not a separate fault.
- *
- * The page itself does not flash, because page-level theming is CSS keyed off
- * the attribute the script already wrote before the first paint. Only React
- * markup that depends on `mode` takes a second pass, which is the price of that
- * markup being React's rather than CSS's. `hydrated` is on the context so a
- * consumer can gate that deliberately.
- */
-export function ThemeModesProvider({
+export default function ThemeProvider({
   children,
   tokens,
   modes,
@@ -282,7 +223,7 @@ export function ThemeModesProvider({
   defaultPreference,
   system,
   storageKey = 'theme',
-}: ThemeModesProviderProps): ReactNode {
+}: ThemeProviderProps): ReactNode {
   const canFollowSystem = system !== undefined
 
   if (defaultPreference === 'system' && !canFollowSystem) {
@@ -431,13 +372,6 @@ export function ThemeModesProvider({
 
   const contextValue: ThemeContextValue = {
     theme,
-    // Kept so a consumer written against the legacy hook still works. A whole
-    // theme cannot be swapped here — that is the point of the path — so only the
-    // mode it names is honoured.
-    setTheme: next => {
-      const resolved = typeof next === 'function' ? next(theme) : next
-      setPreference(resolved.mode as ResolvedThemeMode)
-    },
     mode,
     preference,
     setMode,
@@ -449,11 +383,9 @@ export function ThemeModesProvider({
   return Node(ThemeContext.Provider, { value: contextValue, children: composeChildren(children, tokens, mode as Theme['mode']) }).render()
 }
 
-;(ThemeProvider as { __meonodeAcceptsServerCss?: boolean }).__meonodeAcceptsServerCss = true
-;(ThemeProvider as { __meonodeProvidesServerTheme?: boolean }).__meonodeProvidesServerTheme = true
 // The mode path carries the same two flags. `providesServerTheme` reads
 // `rawProps.theme`, which this path does not have, and that is harmless:
 // server-side `theme.*` resolution and media-query keys both come out identical
 // either way — measured on both paths through `renderToString`.
-;(ThemeModesProvider as { __meonodeAcceptsServerCss?: boolean }).__meonodeAcceptsServerCss = true
-;(ThemeModesProvider as { __meonodeProvidesServerTheme?: boolean }).__meonodeProvidesServerTheme = true
+;(ThemeProvider as { __meonodeAcceptsServerCss?: boolean }).__meonodeAcceptsServerCss = true
+;(ThemeProvider as { __meonodeProvidesServerTheme?: boolean }).__meonodeProvidesServerTheme = true

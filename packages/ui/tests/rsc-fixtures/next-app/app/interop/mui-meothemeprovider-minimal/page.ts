@@ -14,41 +14,52 @@ const lightTheme: Theme = {
   },
 }
 
-const darkTheme: Theme = {
-  mode: 'dark',
-  system: {
-    primary: { default: 'rgb(255, 107, 107)', content: '#fff' },
-    base: { default: '#121212', content: '#eee' },
-    neutral: { default: '#222', content: '#aaa' },
-    secondary: { default: '#1d1d1d', content: '#ddd' },
-  },
-}
+// There is no second theme object any more. A mode is a name, and its palette
+// lives in CSS keyed by `[data-theme="…"]`; the provider carries one token map
+// of `var(--…)` references, which is what keeps a server-rendered document the
+// same for every reader. This fixture is about MUI interop, so it declares the
+// two mode names and one map.
 
 const features = ['Daily check-in', 'Redeem codes', 'Profile cards', 'Build showcase']
 
-function ThemeLikeWrapper({ children, theme }: { children: Children; theme: Theme }) {
-  const [loadedTheme, setLoadedTheme] = useState<Theme>(theme)
+/**
+ * The shape a consumer used to write by hand: read storage, pick a palette, hand
+ * the provider a whole theme object.
+ *
+ * It now picks a *mode* and the provider owns the rest. The provider does this
+ * itself — storage, the OS mapping, the pre-paint attribute — so a wrapper like
+ * this is no longer how an application chooses; it is kept because what this
+ * fixture asserts is MUI interop, not theme selection, and the wrapper is what
+ * puts a client boundary between the two providers.
+ */
+function ThemeLikeWrapper({ children, mode }: { children: Children; mode: string }) {
+  const [loadedMode, setLoadedMode] = useState<string>(mode)
 
   useEffect(() => {
-    if (!theme) {
+    if (!mode) {
       const stored = localStorage.getItem('theme')
       if (!stored) {
         const isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
-        setLoadedTheme(isDark ? darkTheme : lightTheme)
+        setLoadedMode(isDark ? 'dark' : 'light')
       } else {
-        setLoadedTheme(stored === 'dark' ? darkTheme : lightTheme)
+        setLoadedMode(stored)
       }
     }
-  }, [theme])
+  }, [mode])
 
-  return MeoThemeProvider({ theme: loadedTheme, children }).render()
+  return MeoThemeProvider({
+    modes: ['light', 'dark'],
+    defaultMode: loadedMode,
+    tokens: lightTheme.system,
+    children,
+  }).render()
 }
 
 export default function Page() {
-  const theme = useMemo<Theme>(() => lightTheme, [])
+  const mode = useMemo(() => 'light', [])
 
   return Node(ThemeLikeWrapper, {
-    theme,
+    mode,
     children: Column({
       'data-testid': 'interop-mui-meothemeprovider-page',
       padding: 20,

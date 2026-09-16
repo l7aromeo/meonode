@@ -22,6 +22,7 @@ import { act } from 'react'
 import { vi } from 'vitest'
 import { Div, Input, Button, Span, ThemeProvider, type Theme } from '@src/main.js'
 import { COMPILED_MARKER } from '@src/constant/common.const.js'
+import { asThemeProps } from './_theme-props.js'
 
 const COMPILED = process.env.MEONODE_COMPILED === '1'
 
@@ -230,7 +231,7 @@ describe(`hydration under ${COMPILED ? 'COMPILED' : 'uncompiled'} call sites`, (
   it('hydrates a themed tree with no mismatch', () => {
     const tree = () =>
       ThemeProvider({
-        theme: THEME,
+        ...asThemeProps(THEME),
         children: Div({
           padding: 'theme.spacing.md',
           color: 'theme.colors.primary',
