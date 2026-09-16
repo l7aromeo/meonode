@@ -122,6 +122,27 @@ const THEME_SCRIPT_BODY = [
   '})();',
 ].join('')
 
+/**
+ * The `script-src` source expression for {@link themeScript}'s body.
+ *
+ * Under a hash-only Content Security Policy the header has to name the script
+ * before the request that carries it, so the value has to be available without
+ * rendering anything. It is a literal rather than a digest computed here: a
+ * `crypto` call would need an async, platform-specific API on a path that has
+ * neither, and the body it covers is fixed at build time anyway.
+ *
+ * The constant is checked against the digest of the body it claims to cover in
+ * the test suite, so the two cannot drift apart. Taking it from here rather than
+ * re-deriving it from rendered output is what keeps a consumer's policy correct
+ * across upgrades — a hand-copied digest goes stale the day the body changes,
+ * and the only symptom is a browser refusing to run the script.
+ *
+ * ```ts
+ * headers.set('Content-Security-Policy', `script-src 'self' '${THEME_SCRIPT_CSP_HASH}'`)
+ * ```
+ */
+export const THEME_SCRIPT_CSP_HASH = 'sha256-VjgrRIgkoFbiLcbmoxDfbf+5fL7BpGm+w6cKK2N2um4='
+
 /** Names the failing field, because the message is the only place this surfaces. */
 function assertSafeName(value: unknown, field: string): asserts value is string {
   if (typeof value !== 'string' || !SAFE_NAME.test(value)) {

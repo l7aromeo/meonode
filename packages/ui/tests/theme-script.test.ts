@@ -19,7 +19,7 @@
 import { createHash } from 'node:crypto'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { Script, themeScript } from '@src/main.js'
+import { Script, themeScript, THEME_SCRIPT_CSP_HASH } from '@src/main.js'
 
 interface Emitted {
   rawProps: Record<string, unknown>
@@ -136,17 +136,21 @@ describe('the body is one constant', () => {
     expect(b).toBe(a)
   })
 
-  it('hashes to the value a hash-only CSP is published with', () => {
-    // A golden value on purpose. Under `script-src 'sha256-…'` the hash is
-    // written into a header ahead of the request; one newline of indentation
-    // drift and the browser refuses to run the script, leaving the page in the
-    // wrong mode with nothing able to correct it. This test is what stands
-    // between a published header and that outcome.
-    const digest = createHash('sha256')
-      .update(bodyOf(themeScript(MODES)), 'utf8')
-      .digest('base64')
+  it('hashes to the value the package publishes for a CSP', () => {
+    // Two assertions, and they are not the same one twice.
+    //
+    // The first is what makes `THEME_SCRIPT_CSP_HASH` trustworthy: it is a
+    // literal, so nothing but this check stops it describing a body it no
+    // longer covers, and a consumer whose policy names it would then watch the
+    // browser refuse to run the script.
+    //
+    // The second is a golden value, and it exists to make a change to the body
+    // visible. Without it both sides could move together and the suite would
+    // stay green while every policy already published went stale.
+    const digest = `sha256-${createHash('sha256').update(bodyOf(themeScript(MODES)), 'utf8').digest('base64')}`
 
-    expect(`sha256-${digest}`).toBe('sha256-VjgrRIgkoFbiLcbmoxDfbf+5fL7BpGm+w6cKK2N2um4=')
+    expect(THEME_SCRIPT_CSP_HASH).toBe(digest)
+    expect(digest).toBe('sha256-VjgrRIgkoFbiLcbmoxDfbf+5fL7BpGm+w6cKK2N2um4=')
   })
 
   it('survives React unchanged, which is what keeps the hash stable across versions', () => {

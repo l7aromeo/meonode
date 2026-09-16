@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { chromium, type Browser, type BrowserContext } from '@playwright/test'
-import { themeScript } from '@src/main.js'
+import { themeScript, THEME_SCRIPT_CSP_HASH } from '@src/main.js'
 
 /**
  * The pre-paint theme script, through a real server render.
@@ -171,7 +171,7 @@ describe('the pre-paint theme script in a server document', () => {
     const html = await (await fetch(`${base()}${PAGE}`)).text()
 
     expect(servedScript(html).body).toBe(expectedBody())
-    expect(sha256(servedScript(html).body)).toBe('sha256-VjgrRIgkoFbiLcbmoxDfbf+5fL7BpGm+w6cKK2N2um4=')
+    expect(sha256(servedScript(html).body)).toBe(THEME_SCRIPT_CSP_HASH)
   })
 
   it('keeps the application names out of the body and in the attribute', async () => {

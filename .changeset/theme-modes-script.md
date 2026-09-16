@@ -41,6 +41,18 @@ body is the same bytes for every application and every configuration, so under a
 hash-only CSP its `script-src 'sha256-…'` is one value that never changes, rather
 than one per application that moves whenever somebody renames a mode.
 
+`THEME_SCRIPT_CSP_HASH` is exported alongside it, so a policy can name the
+script without rendering anything first:
+
+```ts
+headers.set('Content-Security-Policy', `script-src 'self' '${THEME_SCRIPT_CSP_HASH}'`)
+```
+
+Taking it from the package rather than copying a digest out of rendered output
+is what keeps a policy correct across upgrades: a hand-copied hash goes stale the
+day the body changes, and the only symptom is a browser refusing to run the
+script.
+
 **Three things an application has to do, and the reasons they are not optional:**
 
 - **Put the script first in `<head>`, ahead of every stylesheet.** A classic
