@@ -443,24 +443,33 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
           // `callSiteLocation` is undefined unless the plugin ran with
           // `callSiteLocations` — nearly every build — so almost everyone
           // short-circuits on the first term and never reaches the call.
-          if (callSiteLocation && childArguments !== finalChildren && diagnosticsEnabled()) {
+          if (childArguments !== finalChildren && diagnosticsEnabled()) {
             const elements = finalChildren.filter(isValidElement)
             const missingKey = elements.some(child => child.key == null)
-            if (missingKey) {
-              // A list where *some* rows carry keys and others do not is almost
-              // always a generated list spread in beside children the author
-              // wrote out: the `.map()` supplied keys, the heading beside it did
-              // not, and React then names the heading. The reader goes looking
-              // for the bug in the rows, which are the innocent half. Saying so
-              // is worth a clause, and the fix is different from the
-              // all-unkeyed case — nest the list rather than add a key to the
-              // heading.
-              const mixed = elements.some(child => child.key != null)
+            // A list where *some* children carry keys and others do not is
+            // almost always a generated list spread in beside children the
+            // author wrote out: the `.map()` supplied keys, the heading beside
+            // it did not, and React then names the heading. The reader audits
+            // the rows, which are the innocent half.
+            const mixed = missingKey && elements.some(child => child.key != null)
+            // The shape clause needs only the list marker, which every compiled
+            // build emits. The call site needs the plugin's `callSiteLocations`
+            // option, which most builds do not set — so withholding the
+            // explanation until the line number is available would keep the
+            // useful half from nearly everyone, to avoid omitting the
+            // ornamental one.
+            //
+            // Without a location, only the mixed case is worth saying. React
+            // already reports an all-unkeyed list correctly; repeating it with
+            // no line number adds noise and nothing else.
+            if (missingKey && (callSiteLocation || mixed)) {
+              const spreadClause = mixed
+                ? ' Some children here do have keys: a spread puts a generated list and the siblings written beside it into one list, so React asks those siblings for keys too. Nest the generated part instead of spreading it.'
+                : ''
               console.warn(
-                `[MeoNode] A generated list at ${callSiteLocation} has children without a \`key\`. React reports the missing key itself; this names the call site it came from.` +
-                  (mixed
-                    ? ' Some children here do have keys: a spread puts a generated list and the siblings written beside it into one list, so React asks those siblings for keys too. Nest the generated part instead of spreading it.'
-                    : ''),
+                callSiteLocation
+                  ? `[MeoNode] A generated list at ${callSiteLocation} has children without a \`key\`. React reports the missing key itself; this names the call site it came from.${spreadClause}`
+                  : `[MeoNode] A generated list has children without a \`key\`.${spreadClause} Turn on \`callSiteLocations\` in the @meonode/compiler plugin options to have this name the file and line.`,
               )
             }
           }

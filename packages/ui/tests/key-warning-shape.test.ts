@@ -35,6 +35,36 @@ function meoLines(build: () => unknown): string[] {
 const keyedRows = () => ['a', 'b', 'c'].map(id => Span(id, { key: id }))
 const unkeyedRows = () => ['a', 'b', 'c'].map(id => Span(id))
 
+describe('without callSiteLocations, which is how most builds run', () => {
+  // The location needs the plugin option; the explanation does not. It needs the
+  // list marker, which every compiled build emits. Withholding the useful half
+  // because the ornamental half is unavailable is the complaint that started
+  // this: the report knew the shape and said nothing.
+  it('still explains the shape when the rows are keyed and a sibling is not', () => {
+    const lines = meoLines(() => Div({ children: [createElement('h2', null, 'Members'), ...keyedRows()], [LIST]: 1 } as never).render())
+    const ours = lines.find(m => m.includes('[MeoNode]')) ?? ''
+    expect(ours).toMatch(/spread/i)
+    expect(ours).toMatch(/nest/i)
+    // It must not read like a located diagnostic that lost its location, or
+    // someone files the missing line number as the bug.
+    expect(ours).not.toMatch(/at undefined|call site it came from/i)
+    // And it should say how to get the line, since that is one option away.
+    expect(ours).toMatch(/callSiteLocations/)
+  })
+
+  it('stays silent when nothing in the list has a key', () => {
+    // React already says the right thing here, and a second voice repeating it
+    // without a line number is pure noise.
+    const lines = meoLines(() => Div({ children: unkeyedRows(), [LIST]: 1 } as never).render())
+    expect(lines.filter(m => m.includes('[MeoNode]'))).toEqual([])
+  })
+
+  it('stays silent when every child is keyed', () => {
+    const lines = meoLines(() => Div({ children: [createElement('h2', { key: 'h' }, 'Members'), ...keyedRows()], [LIST]: 1 } as never).render())
+    expect(lines.filter(m => m.includes('[MeoNode]'))).toEqual([])
+  })
+})
+
 describe('the missing-key line', () => {
   it('says the spread is what put the heading in the list, when the rows are keyed and a sibling is not', () => {
     const lines = meoLines(() => Div({ children: [createElement('h2', null, 'Members'), ...keyedRows()], [LIST]: 1, [LOC]: HERE } as never).render())
