@@ -1,5 +1,307 @@
 # @meonode/ui
 
+## 2.3.0
+
+### Minor Changes
+
+- [#24](https://github.com/l7aromeo/meonode/pull/24) [`793c4fb`](https://github.com/l7aromeo/meonode/commit/793c4fb128dca4101d458807e0c006bdbc13c324) Thanks [@l7aromeo](https://github.com/l7aromeo)! - Let a themed page be one document for every reader.
+
+  A themed SSR page could not be cached, because the provider rendered its
+  `:root{--meonode-theme-*}` block from whichever theme it held and the application
+  picked that theme per reader. Measured on a live site, light and dark differed in
+  all 62 theme variables and the documents were different sizes.
+
+  A second provider, `ThemeModesProvider`, renders markup that does not depend on
+  the mode:
+
+  ```ts
+  ThemeModesProvider({
+    tokens, // one map; values are var() refs
+    modes: ['morning', 'night'],
+    system: { light: 'morning', dark: 'night' }, // optional
+    defaultMode: 'morning',
+    children,
+  })
+  ```
+
+  Token values are `var()` references, the palettes live in CSS keyed by
+  `[data-theme="…"]`, and a blocking script sets that attribute before the first
+  paint. The server then renders one document for everyone, with no flicker,
+  because there was never a wrong first paint to correct.
+
+  It takes one token map plus mode names rather than a theme per mode so the
+  cacheable property holds by construction: with a single map the emitted block is
+  the same whatever the reader stored, so the bytes cannot vary. A record of themes
+  would let an application put the per-reader variation straight back.
+
+  `useTheme()` gains `mode`, `preference`, `setMode` and `setPreference` beside
+  what it already returned. Only `mode` is meaningful under `ThemeProvider`, where
+  it reads the current theme's own mode; `preference` is absent there and the two
+  setters throw, naming `ThemeModesProvider`. Changing a mode while keeping the
+  theme's `system` would not be a mode switch on that path — the palettes are
+  different objects with different values, so it would emit one mode's variables
+  under the other's name. `preference` is what the reader chose — possibly
+  `'system'` — and `mode` is what that resolves to; storing the resolved value
+  instead would make following the OS impossible, since the first toggle would pin
+  it. `'system'` is offered only when the `system` mapping is given, because
+  `prefers-color-scheme` answers in the OS's words and an application whose modes
+  are `'morning'` and `'night'` has not said which is which until it says so.
+
+  Two behaviours change on the new path only. `useTheme` no longer writes the
+  document: every consumer runs it, so a write there was a write per reader of the
+  theme, which is how a provider on its default could overwrite a choice just made.
+  And the mode is no longer compared against `'dark'` — the attribute is set to the
+  mode name whatever it is, so a mode called `'sepia'` is no longer treated as
+  light. `ThemeProvider({ theme })` keeps its existing behaviour exactly, including
+  the class swapping, and is unaffected.
+
+  **`ThemeModesProvider` is the path to build on.** `ThemeProvider` keeps the
+  shorter name only because taking it would break every existing application, not
+  because it is the better default — a themed page it renders still varies per
+  reader. The intended direction is that a future major makes `ThemeProvider` mean
+  this behaviour and the theme-swapping shape takes a legacy name or goes.
+
+  Two components rather than two shapes on one, because `createNode` infers a
+  component's props and a union of the two collapses to `never` there, which stops
+  every existing call site compiling. Keeping them separate also means a
+  half-configured provider — `tokens` without `modes` — is a compile error rather
+  than a throw at render. For the same reason there is no runtime rule about
+  passing both: the situation cannot be expressed, since neither component accepts
+  the other's props. `ThemeProvider` itself is untouched.
+
+  The provider renders `defaultMode` on its first pass — server and client alike —
+  and adopts the reader's real mode in a layout effect, exposing `hydrated` on the
+  context so a consumer can gate on the handover. Reading the attribute or storage
+  while rendering makes the two first renders differ for every reader whose mode is
+  not the default, which React requires to be identical. Alone that is invisible;
+  combined with a consumer that renders anything from `mode` — a toggle's position,
+  a different icon, a component present in only one mode — React throws [#418](https://github.com/l7aromeo/meonode/issues/418),
+  discards the server tree and client-renders the document. The readers who trigger
+  it are exactly those who chose a non-default mode, which is rarely whoever is
+  testing, so `hydrated` exists to let such a consumer wait for the handover
+  deliberately.
+
+  The page itself does not flash: page-level theming is CSS keyed off the attribute
+  the pre-paint script already wrote. Only React markup that depends on the mode
+  takes a second pass.
+
+  `defaultPreference` says what a reader who has never chosen starts on, which the
+  mode cannot express: `defaultMode: 'night'` means "dark when nothing is stored",
+  while `defaultPreference: 'system'` means "follow the OS until told otherwise".
+  It defaults to `defaultMode`, a stored choice outranks it, and `'system'` without
+  a `system` mapping throws at construction — unlike a _stored_ `'system'` with no
+  mapping, which is a reader's leftover and degrades quietly. The field is also
+  what lets one configuration literal feed both the pre-paint script and the
+  provider, which is not possible while only one half declares it.
+
+  A site that declares its mode names through `MeoTheme` gets them everywhere. The
+  provider's props, the mapping in `system`, and everything `useTheme()` hands back
+  — `mode`, `modes`, `setMode`, `setPreference` — take `ResolvedThemeMode`, which
+  is `MeoTheme['mode']` when augmented and the loose `ThemeMode` when not, so an
+  un-augmented site is unaffected. Augmented, `setMode('nigth')` stops compiling;
+  before, every string was accepted and autocomplete offered `'light'` and `'dark'`
+  to a site that uses neither. A misspelt mode is consistent with itself, so no
+  runtime check can catch it — `defaultMode` is a member of `modes`, every
+  validation passes, and no stylesheet matches.
+
+  Rejections are explicit rather than silent. A mode that is not in `modes`, and
+  `'system'` without the mapping, are both ignored with a development warning
+  instead of setting a `data-theme` no selector matches. Passing `theme` alongside
+  `tokens` takes the mode path and says so once. A stored value that is not one of
+  the declared modes is discarded for `defaultMode`, which is also what makes an
+  upgrade safe: the original path writes `localStorage.theme` as a _mode_ and this
+  one stores a _preference_ under the same default key, so a leftover value is
+  honoured when it is still a declared mode and dropped otherwise.
+
+  `ThemeMode` was `'light' | 'dark' | string`, which collapses to `string` and lost
+  even those two from autocomplete. It is now `'light' | 'dark' | (string & {})`,
+  which keeps them as hints without closing the set. `MeoTheme` augmentation of
+  `mode` still overrides it.
+
+- [#24](https://github.com/l7aromeo/meonode/pull/24) [`8ad3e5e`](https://github.com/l7aromeo/meonode/commit/8ad3e5e72398e24f0510acda841bc124c15f0612) Thanks [@l7aromeo](https://github.com/l7aromeo)! - Apply the theme before the first paint, from a script the server can cache.
+
+  A document that names the reader's mode in its markup cannot be shared: either
+  every reader gets their own render, or somebody gets the wrong one and watches it
+  correct itself. `themeScript(config)` removes the reason to do either. It returns
+  a plain inline `<script>` node for `<head>` that reads the stored preference and
+  stamps the resolved mode on the document element, in the window after that
+  element exists and before the first paint. Palettes live in CSS keyed by
+  `[data-theme="…"]`, so the server sends one document to everybody and there is no
+  flicker, because there was never a wrong first paint to correct.
+
+  ```ts
+  const theme = {
+    modes: ['morning', 'night'],
+    defaultMode: 'morning',
+    system: { light: 'morning', dark: 'night' }, // optional
+    defaultPreference: 'system', // optional; defaults to defaultMode
+  } as const
+
+  Html({
+    suppressHydrationWarning: true,
+    children: [
+      Head({ children: [themeScript(theme), Link({ rel: 'stylesheet', href: '/app.css' })] }),
+      Body({ children: ThemeModesProvider({ ...theme, tokens, children }) }),
+    ],
+  })
+  ```
+
+  The field names are the provider's, so one object feeds both and the two cannot
+  drift.
+
+  **The configuration travels in an attribute; the body is a constant.** The
+  element is `<script data-meonode-theme='{…}'>` with a fixed body that reads that
+  attribute back and parses it. Nothing an application names is ever interpolated
+  into JavaScript, so a mode called `a</script>…` has no context to escape from —
+  the injection class is absent rather than defended against. It also means the
+  body is the same bytes for every application and every configuration, so under a
+  hash-only CSP its `script-src 'sha256-…'` is one value that never changes, rather
+  than one per application that moves whenever somebody renames a mode.
+
+  `THEME_SCRIPT_CSP_HASH` is exported alongside it, so a policy can name the
+  script without rendering anything first:
+
+  ```ts
+  headers.set('Content-Security-Policy', `script-src 'self' '${THEME_SCRIPT_CSP_HASH}'`)
+  ```
+
+  Take it from the package rather than copying the digest out of rendered output.
+  A copied literal goes stale the first time this body changes, and that failure is
+  silent in every way a test usually looks. The policy is still valid, the element
+  is still in the document, and the page still settles in the right mode, because
+  the provider applies it after hydration. The one symptom is that `data-theme` is
+  absent _until_ hydration — which is precisely the flash the script exists to
+  prevent, and nothing downstream of hydration can observe it.
+
+  Three assertions make that visible, and none of them costs anything in the
+  script:
+
+  - the served `script-src` contains `THEME_SCRIPT_CSP_HASH`. This catches a stale
+    literal exactly, before a browser is involved.
+  - no `csp-violation` report arrives. Measured against a deliberately stale
+    hash, a `ReportingObserver` for `csp-violation` with `buffered: true` reports
+    it with `effectiveDirective: 'script-src-elem'` even when it is registered
+    after the page has loaded, which a test usually is. A
+    `securitypolicyviolation` listener has to be in place before the parser
+    reaches the script, so it is the wrong shape for this.
+  - `data-theme` is present _before_ hydration — read it at `load`, not after.
+    After hydration the provider has written it and the check can no longer fail.
+
+  A policy whose hashes are derived from the rendered response, as a hashing proxy
+  does, is unaffected: it re-derives the digest per response and never holds a copy
+  to go stale.
+
+  **`defaultPreference` is where a reader starts; `defaultMode` is where everything
+  lands when it fails.** They are usually the same and do not have to be, and only
+  the first can be `'system'`. A first visit is the one case where the OS
+  preference is all that is known about what the reader wants, and `defaultMode`
+  cannot express following it: it has to name a mode, and a mode may not be called
+  `system`. So a site that wants to begin by asking the OS says
+  `defaultPreference: 'system'`, and still names a `defaultMode` for when nothing
+  can answer — a blocked storage, a missing `matchMedia`, a stored mode that has
+  since been renamed. Omitted, it is `defaultMode`, so nothing existing moves.
+
+  **A site that declares its modes gets them checked.** `modes`, `defaultMode`,
+  `defaultPreference` and both sides of `system` are typed as `ResolvedThemeMode`,
+  which is `MeoTheme['mode']` when a site augments it and the loose `ThemeMode`
+  when it does not — so an un-augmented site sees no change at all, and an
+  augmented one gets autocomplete for its own names and a compile error on a
+  misspelt one. That case is otherwise invisible: a typo in `modes` is consistent
+  with itself, so `defaultMode` is still a member of `modes`, every runtime check
+  passes, and the only symptom is a stylesheet that matches nothing.
+
+  ```ts
+  declare module '@meonode/ui' {
+    interface MeoTheme {
+      mode: 'morning' | 'night'
+    }
+  }
+  ```
+
+  **Three things an application has to do, and the reasons they are not optional:**
+
+  - **Put the script as early in `<head>` as the framework allows.** A classic
+    inline script that follows a `<link rel="stylesheet">` cannot execute until
+    that sheet has loaded. Measured in the Next app router, first is not
+    achievable: React hoists a `data-precedence` stylesheet above anything a
+    layout renders. That costs latency rather than correctness — the sheet ahead
+    of it is render-blocking too, so nothing is painted before the script runs —
+    but a slow or third-party stylesheet ahead of it delays the mode for no
+    reason.
+  - **Define a usable palette at `:root`, with `[data-theme="…"]` blocks as
+    overrides.** Every failure path — blocked storage, a sandboxed frame, a missing
+    `matchMedia` — ends with no `data-theme` written. Palettes that exist only
+    under the attribute leave those readers with an unstyled page, which is a worse
+    outcome than the wrong mode.
+
+  The pre-paint claim is asserted as far as it can be: a probe placed immediately
+  after the script in `<head>` reports the attribute already set, which bounds the
+  write to before the body is parsed. That is a one-sided bound and not a
+  comparison against first paint, which the Paint Timing API did not make
+  available.
+  - **Set `suppressHydrationWarning` on the element the script writes to.** The
+    attribute is not in the server markup, which is the definition of a mismatch.
+
+  **Failures are contained where containing them helps.** `localStorage` throws on
+  property access, not merely from `getItem`, where site data is blocked and in a
+  sandboxed iframe without `allow-same-origin`; that read is guarded on its own so
+  those readers still get the default rather than nothing. `matchMedia` is guarded
+  separately too, falling back to the light name, which is what the provider falls
+  back to as well. A stored `system` with no mapping resolves to the default
+  instead of stamping the word `system`, which no palette matches.
+
+  **A configuration that cannot work throws.** An empty `modes`, a `defaultMode` or
+  a `system` value that is not one of them, a `defaultPreference` that is neither a
+  mode nor `'system'`, a `defaultPreference: 'system'` with no mapping to say what
+  the OS's words mean here, a mode named `system`, or a name outside
+  `[A-Za-z0-9_-]{1,64}`. Not gated on development: the configuration is
+  authored rather than data, so a check that fired only in development would let CI
+  pass and production ship a script that stamps a mode no selector matches. The
+  name restriction is for the application's sake — a mode name is the one value
+  that crosses from this configuration into `[data-theme="…"]` selectors written by
+  hand.
+
+### Patch Changes
+
+- [#24](https://github.com/l7aromeo/meonode/pull/24) [`78fef6d`](https://github.com/l7aromeo/meonode/commit/78fef6dec93e172654801ca54e50041634ee406e) Thanks [@l7aromeo](https://github.com/l7aromeo)! - Say which shape produced a missing-key report.
+
+  The call-site line named where a generated list was written. When that list has
+  been spread in beside children written out by hand, the child React names is
+  usually one of those siblings — a heading has no key because nobody writes keys
+  on headings — while the rows, which do have keys, look like the problem. The
+  reader audits the rows.
+
+  When a marked list holds both keyed and unkeyed children, the line now says so
+  and names the fix, which is not the same fix as the all-unkeyed case:
+
+  ```
+  [MeoNode] A generated list at app/page.tsx:41:7 has children without a `key`.
+  React reports the missing key itself; this names the call site it came from.
+  Some children here do have keys: a spread puts a generated list and the siblings
+  written beside it into one list, so React asks those siblings for keys too. Nest
+  the generated part instead of spreading it.
+  ```
+
+  The explanation no longer waits for a line number. The call site needs the
+  plugin's `callSiteLocations` option, which most builds do not set; the shape
+  needs only the list marker, which every compiled build emits. So a build without
+  locations now gets the clause, plus a line saying which option would name the
+  file:
+
+  ```
+  [MeoNode] A generated list has children without a `key`. Some children here do
+  have keys: a spread puts a generated list and the siblings written beside it
+  into one list, so React asks those siblings for keys too. Nest the generated
+  part instead of spreading it. Turn on `callSiteLocations` in the
+  @meonode/compiler plugin options to have this name the file and line.
+  ```
+
+  Without a location, only the mixed case speaks. React already reports an
+  all-unkeyed list correctly, and repeating that with no line number is noise.
+
+  A list where nothing is keyed is left alone — there the fix is keys, and blaming
+  the spread would send the reader the wrong way.
+
 ## 2.2.1
 
 ### Patch Changes
