@@ -33,7 +33,12 @@ the same whatever the reader stored, so the bytes cannot vary. A record of theme
 would let an application put the per-reader variation straight back.
 
 `useTheme()` gains `mode`, `preference`, `setMode` and `setPreference` beside
-what it already returned. `preference` is what the reader chose — possibly
+what it already returned. Only `mode` is meaningful under `ThemeProvider`, where
+it reads the current theme's own mode; `preference` is absent there and the two
+setters throw, naming `ThemeModesProvider`. Changing a mode while keeping the
+theme's `system` would not be a mode switch on that path — the palettes are
+different objects with different values, so it would emit one mode's variables
+under the other's name. `preference` is what the reader chose — possibly
 `'system'` — and `mode` is what that resolves to; storing the resolved value
 instead would make following the OS impossible, since the first toggle would pin
 it. `'system'` is offered only when the `system` mapping is given, because

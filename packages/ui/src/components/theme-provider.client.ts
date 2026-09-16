@@ -10,11 +10,27 @@ export interface ThemeContextValue {
   setTheme: (theme: Theme | ((theme: Theme) => Theme)) => void
   /** The mode in force, already resolved — never `'system'`. */
   mode: ThemeMode
-  /** What the reader chose. `'system'` when they asked to follow the OS. */
-  preference: ThemeModePreference
-  /** Choose a mode outright, which also stops following the OS. */
+
+  /**
+   * What the reader chose. `'system'` when they asked to follow the OS.
+   *
+   * Absent on `ThemeProvider`, which has no preference concept — the theme
+   * object is the choice there.
+   */
+  preference?: ThemeModePreference
+
+  /**
+   * Choose a mode outright, which also stops following the OS.
+   *
+   * Throws on `ThemeProvider`: a mode is not separable from the theme there.
+   */
   setMode: (mode: ThemeMode) => void
-  /** Choose a mode or `'system'`; `'system'` is refused unless a mapping was given. */
+
+  /**
+   * Choose a mode or `'system'`; `'system'` is refused unless a mapping was given.
+   *
+   * Throws on `ThemeProvider`, which stores no preference.
+   */
   setPreference: (preference: ThemeModePreference) => void
 
   /**
@@ -122,10 +138,17 @@ export const ThemeContext = createContext<ThemeContextValue | null>(null)
  * does.
  * @param children The provider's own children.
  * @param system The token map to emit.
+ * @param mode The mode in force, for the day the block depends on it.
  * @returns The children with the variable block prepended, as a flat list.
  */
-function composeChildren(children: Children | undefined, system: Theme['system']): Children {
-  const themeVariablesCss = buildThemeVariablesCss({ mode: 'light' as Theme['mode'], system })
+function composeChildren(children: Children | undefined, system: Theme['system'], mode: Theme['mode']): Children {
+  // `mode` is passed through rather than filled in with a literal. It is unused
+  // by `buildThemeVariablesCss` today, which reads `system` alone — that is what
+  // makes the block a pure function of the tokens, and so what makes the mode
+  // path cacheable. Handing it a real mode anyway costs nothing and means the
+  // day that stops being true, this does not silently emit one mode's variables
+  // for every reader.
+  const themeVariablesCss = buildThemeVariablesCss({ mode, system })
   if (!themeVariablesCss) return children
   const themeVariablesStyle = createElement('style', { 'data-meonode-theme-vars': '', children: themeVariablesCss })
   // Prepend the style rather than nesting an array inside `children`, so the
@@ -156,16 +179,26 @@ export default function ThemeProvider({ children, theme }: ThemeProviderProps): 
   const contextValue: ThemeContextValue = {
     theme: currentTheme,
     setTheme: applyTheme,
-    // Present so a consumer can read the same names on either path. There is no
-    // separate preference here: the theme object *is* the choice, and the hook
-    // keeps writing the DOM as it always has.
+    // `mode` is genuinely this theme's own, so a consumer can read the same name
+    // on either path.
     mode: currentTheme.mode as ThemeMode,
-    preference: currentTheme.mode as ThemeModePreference,
-    setMode: mode => applyTheme({ ...currentTheme, mode: mode as Theme['mode'] }),
-    setPreference: preference => applyTheme({ ...currentTheme, mode: preference as Theme['mode'] }),
+    // The other three belong to the mode path and cannot be honoured here.
+    // Changing `mode` while keeping `system` is not a mode switch on this path:
+    // the palettes are different objects with different values, so it would
+    // produce a theme claiming one mode while emitting the other's variables,
+    // and the hook would then stamp the attribute over the top. Swapping a whole
+    // theme is what `setTheme` is for.
+    setMode: () => {
+      throw new Error('setMode is not available on ThemeProvider: swap the theme with setTheme, or use ThemeModesProvider for named modes')
+    },
+    setPreference: () => {
+      throw new Error('setPreference is not available on ThemeProvider: there is no preference to store here — use ThemeModesProvider')
+    },
+    // `preference` is left undefined rather than echoing the mode: this path has
+    // no preference concept, and reporting one would be a fabrication.
   }
 
-  return Node(ThemeContext.Provider, { value: contextValue, children: composeChildren(children, currentTheme.system) }).render()
+  return Node(ThemeContext.Provider, { value: contextValue, children: composeChildren(children, currentTheme.system, currentTheme.mode) }).render()
 }
 
 /**
@@ -284,7 +317,7 @@ export function ThemeModesProvider({ children, tokens, modes, defaultMode, syste
     modes,
   }
 
-  return Node(ThemeContext.Provider, { value: contextValue, children: composeChildren(children, tokens) }).render()
+  return Node(ThemeContext.Provider, { value: contextValue, children: composeChildren(children, tokens, mode as Theme['mode']) }).render()
 }
 
 ;(ThemeProvider as { __meonodeAcceptsServerCss?: boolean }).__meonodeAcceptsServerCss = true

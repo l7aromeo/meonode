@@ -220,6 +220,28 @@ describe('the legacy theme path', () => {
     expect(root().classList.contains('dark-theme')).toBe(false)
   })
 
+  it('refuses the mode-path setters instead of half-applying a theme', () => {
+    // `setMode` on this path could only keep the current `system` while changing
+    // `mode`, and here the two palettes are different objects with different
+    // values — so it produced a theme claiming dark while emitting light's
+    // variables, and the hook then stamped `data-theme="dark"` over it. A
+    // consumer reaching for the obvious method got a half-applied theme and no
+    // error. Swapping a whole theme is what `setTheme` is for.
+    const api: Record<string, unknown> = {}
+    const Grab = createNode(function Grab() {
+      Object.assign(api, useTheme())
+      return React.createElement('div')
+    })
+    render(ThemeProvider({ theme: LEGACY, children: Grab({}) }).render() as never)
+
+    expect(() => (api.setMode as (mode: string) => void)('light')).toThrow(/ThemeModesProvider/)
+    expect(() => (api.setPreference as (preference: string) => void)('system')).toThrow(/ThemeModesProvider/)
+    // No preference concept exists here, so reporting one would be a fabrication.
+    expect(api.preference).toBeUndefined()
+    // The mode is genuinely the theme's own, and stays.
+    expect(api.mode).toBe('dark')
+  })
+
   it('still resolves tokens into the :root block', () => {
     render(ThemeProvider({ theme: LEGACY, children: Reader({}) }).render() as never)
     expect(styleTag()?.textContent).toContain('--meonode-theme-colors-primary:rgb(1, 2, 3);')
