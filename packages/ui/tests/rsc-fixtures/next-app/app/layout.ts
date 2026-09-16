@@ -6,7 +6,11 @@ const theme = {
   mode: 'light' as const,
   system: {
     primary: { default: 'rgb(255, 107, 107)', content: '#FFFFFF' },
-    base: { default: '#F8F8F8', content: '#333333' },
+    // `var(--…)` references rather than colours, which is the shape the mode
+    // path is built on: the document carries the reference, the palette behind
+    // it lives in CSS keyed by `[data-theme="…"]`, and nothing in the markup
+    // moves when the mode does.
+    base: { default: 'var(--fixture-base)', content: 'var(--fixture-base-content)' },
     spacing: { sm: 8, md: 16, lg: 24 },
     breakpoint: { md: '1024px' },
   },
