@@ -1,4 +1,9 @@
 {
+  // `exclude` is inherited and `include` does not override it: the parent excludes
+  // `tests/augmented` so the rest of the suite is not narrowed by this
+  // augmentation, which would leave this project compiling nothing at all and
+  // every assertion in it passing for that reason.
   "extends": "../../tsconfig.json",
+  "exclude": ["dist", "node_modules"],
   "include": ["../../src", "."]
 }

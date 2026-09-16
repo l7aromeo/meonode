@@ -1,6 +1,6 @@
 'use client'
 import { createContext, createElement, type ReactNode, useCallback, useEffect, useLayoutEffect, useState } from 'react'
-import type { Children, ResolvedThemeSystem, Theme, ThemeMode, ThemeModePreference, ThemeSystemModes } from '@src/types/node.type.js'
+import type { Children, ResolvedThemeMode, ResolvedThemePreference, ResolvedThemeSystem, Theme, ThemeSystemModes } from '@src/types/node.type.js'
 import { Node } from '@src/core.node.js'
 import { buildThemeVariablesCss } from '@src/util/server-theme.util.js'
 import { diagnosticsEnabled } from '@src/util/theme-diagnostics.util.js'
@@ -9,7 +9,7 @@ export interface ThemeContextValue {
   theme: Theme
   setTheme: (theme: Theme | ((theme: Theme) => Theme)) => void
   /** The mode in force, already resolved — never `'system'`. */
-  mode: ThemeMode
+  mode: ResolvedThemeMode
 
   /**
    * What the reader chose. `'system'` when they asked to follow the OS.
@@ -17,21 +17,21 @@ export interface ThemeContextValue {
    * Absent on `ThemeProvider`, which has no preference concept — the theme
    * object is the choice there.
    */
-  preference?: ThemeModePreference
+  preference?: ResolvedThemePreference
 
   /**
    * Choose a mode outright, which also stops following the OS.
    *
    * Throws on `ThemeProvider`: a mode is not separable from the theme there.
    */
-  setMode: (mode: ThemeMode) => void
+  setMode: (mode: ResolvedThemeMode) => void
 
   /**
    * Choose a mode or `'system'`; `'system'` is refused unless a mapping was given.
    *
    * Throws on `ThemeProvider`, which stores no preference.
    */
-  setPreference: (preference: ThemeModePreference) => void
+  setPreference: (preference: ResolvedThemePreference) => void
 
   /**
    * False until the provider has adopted the reader's real mode.
@@ -50,7 +50,7 @@ export interface ThemeContextValue {
    * path it does, and consumers depend on that; here the provider does, once,
    * and only when something actually changes.
    */
-  modes?: readonly ThemeMode[]
+  modes?: readonly ResolvedThemeMode[]
 }
 
 /**
@@ -68,8 +68,8 @@ export interface ThemeContextValue {
  */
 export interface ThemeModesProviderProps {
   tokens: ResolvedThemeSystem
-  modes: readonly ThemeMode[]
-  defaultMode: ThemeMode
+  modes: readonly ResolvedThemeMode[]
+  defaultMode: ResolvedThemeMode
 
   /**
    * What a reader who has never chosen starts on. Defaults to `defaultMode`.
@@ -84,7 +84,7 @@ export interface ThemeModesProviderProps {
    * and degrades quietly — this one is in the source, and the person who can fix
    * it is the person running the build.
    */
-  defaultPreference?: ThemeModePreference
+  defaultPreference?: ResolvedThemePreference
   /** Maps `prefers-color-scheme` onto two of `modes`. Without it, `'system'` is not offered. */
   system?: ThemeSystemModes
   /** Where the preference is kept. Defaults to `theme`. */
@@ -114,6 +114,18 @@ export interface ThemeProviderProps {
  * has to land before paint — and needs to say nothing at all on the server.
  */
 const useIsomorphicLayoutEffect = typeof window === 'undefined' ? useEffect : useLayoutEffect
+
+/**
+ * The value, if it is one of the modes this site declared.
+ *
+ * Storage and the DOM hand back `string`; `modes` is the runtime proof of which
+ * strings are real, and a site that augments `MeoTheme['mode']` types them as a
+ * union. `includes` cannot narrow a `string` to that union on its own, so the
+ * membership test is the check and the cast states what it established.
+ */
+function asDeclaredMode(value: string | null | undefined, modes: readonly ResolvedThemeMode[]): ResolvedThemeMode | undefined {
+  return value != null && (modes as readonly string[]).includes(value) ? (value as ResolvedThemeMode) : undefined
+}
 
 /** Web Storage is absent in some runtimes and throws in others (private mode, disabled site data). */
 function readStored(key: string): string | null {
@@ -217,7 +229,7 @@ export default function ThemeProvider({ children, theme }: ThemeProviderProps): 
     // `mode` is genuinely this theme's own, so a consumer can read the same name
     // on either path. Nothing is adopted after mount here, so `hydrated` is true
     // from the start.
-    mode: currentTheme.mode as ThemeMode,
+    mode: currentTheme.mode as ResolvedThemeMode,
     hydrated: true,
     // The other three belong to the mode path and cannot be honoured here.
     // Changing `mode` while keeping `system` is not a mode switch on this path:
@@ -287,10 +299,10 @@ export function ThemeModesProvider({
   // component.
   // A prop, so both renders agree on it without reading anything the server
   // cannot see.
-  const [preference, setPreferenceState] = useState<ThemeModePreference>(defaultPreference ?? defaultMode)
+  const [preference, setPreferenceState] = useState<ResolvedThemePreference>(defaultPreference ?? defaultMode)
   const [hydrated, setHydrated] = useState(false)
 
-  const resolveSystemMode = useCallback((): ThemeMode => {
+  const resolveSystemMode = useCallback((): ResolvedThemeMode => {
     if (!system) return defaultMode
     try {
       return globalThis.matchMedia?.('(prefers-color-scheme: dark)').matches ? system.dark : system.light
@@ -299,10 +311,10 @@ export function ThemeModesProvider({
     }
   }, [defaultMode, system])
 
-  const [mode, setModeState] = useState<ThemeMode>(defaultMode)
+  const [mode, setModeState] = useState<ResolvedThemeMode>(defaultMode)
 
   /** Assert both attributes from the values given. No cache, no comparison. */
-  const writeAttributes = useCallback((nextMode: ThemeMode, nextPreference: ThemeModePreference) => {
+  const writeAttributes = useCallback((nextMode: ResolvedThemeMode, nextPreference: ResolvedThemePreference) => {
     const element = globalThis.document?.documentElement
     if (!element) return
     element.setAttribute('data-theme', nextMode)
@@ -312,7 +324,7 @@ export function ThemeModesProvider({
     element.setAttribute('data-theme-preference', nextPreference)
   }, [])
 
-  const applyMode = useCallback((next: ThemeMode) => setModeState(next), [])
+  const applyMode = useCallback((next: ResolvedThemeMode) => setModeState(next), [])
 
   // Adoption, in a layout effect so it lands in the same commit as hydration and
   // before anything paints — a passive effect would leave a frame showing the
@@ -326,29 +338,20 @@ export function ThemeModesProvider({
     const stamped = globalThis.document?.documentElement?.getAttribute('data-theme')
     const stored = readStored(storageKey)
 
-    const fallbackPreference: ThemeModePreference = defaultPreference ?? defaultMode
-    const nextPreference: ThemeModePreference =
+    const declaredStored = asDeclaredMode(stored, modes)
+    const declaredStamped = asDeclaredMode(stamped, modes)
+
+    const fallbackPreference: ResolvedThemePreference = defaultPreference ?? defaultMode
+    const nextPreference: ResolvedThemePreference =
       stored === 'system' && canFollowSystem
         ? 'system'
-        : stored && modes.includes(stored)
-          ? stored
-          : // Nothing stored: the application's own default outranks the
-            // attribute, since the attribute is the script's rendering of that
-            // same default.
-            fallbackPreference === 'system'
-            ? 'system'
-            : stamped && modes.includes(stamped)
-              ? stamped
-              : fallbackPreference
+        : (declaredStored ??
+          // Nothing stored: the application's own default outranks the
+          // attribute, since the attribute is the script's rendering of that
+          // same default.
+          (fallbackPreference === 'system' ? 'system' : (declaredStamped ?? fallbackPreference)))
 
-    const nextMode: ThemeMode =
-      nextPreference === 'system'
-        ? stamped && modes.includes(stamped)
-          ? stamped
-          : resolveSystemMode()
-        : stamped && modes.includes(stamped)
-          ? stamped
-          : nextPreference
+    const nextMode: ResolvedThemeMode = nextPreference === 'system' ? (declaredStamped ?? resolveSystemMode()) : (declaredStamped ?? nextPreference)
 
     setPreferenceState(nextPreference)
     setModeState(nextMode)
@@ -387,7 +390,7 @@ export function ThemeModesProvider({
   }, [applyMode, preference, system])
 
   const setPreference = useCallback(
-    (next: ThemeModePreference) => {
+    (next: ResolvedThemePreference) => {
       // `prefers-color-scheme` says `dark` or `light`, which are the OS's words.
       // Without a mapping there is nothing to translate them into, and guessing
       // that one of the app's modes means "dark" is how a `'sepia'` ends up
@@ -422,7 +425,7 @@ export function ThemeModesProvider({
     [applyMode, canFollowSystem, modes, resolveSystemMode, storageKey, writeAttributes],
   )
 
-  const setMode = useCallback((next: ThemeMode) => setPreference(next), [setPreference])
+  const setMode = useCallback((next: ResolvedThemeMode) => setPreference(next), [setPreference])
 
   const theme: Theme = { mode: mode as Theme['mode'], system: tokens }
 
@@ -433,7 +436,7 @@ export function ThemeModesProvider({
     // mode it names is honoured.
     setTheme: next => {
       const resolved = typeof next === 'function' ? next(theme) : next
-      setPreference(resolved.mode as ThemeMode)
+      setPreference(resolved.mode as ResolvedThemeMode)
     },
     mode,
     preference,
