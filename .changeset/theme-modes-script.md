@@ -55,14 +55,25 @@ script.
 
 **Three things an application has to do, and the reasons they are not optional:**
 
-- **Put the script first in `<head>`, ahead of every stylesheet.** A classic
+- **Put the script as early in `<head>` as the framework allows.** A classic
   inline script that follows a `<link rel="stylesheet">` cannot execute until
-  that sheet has loaded, which is the delay the script exists to avoid.
+  that sheet has loaded. Measured in the Next app router, first is not
+  achievable: React hoists a `data-precedence` stylesheet above anything a
+  layout renders. That costs latency rather than correctness — the sheet ahead
+  of it is render-blocking too, so nothing is painted before the script runs —
+  but a slow or third-party stylesheet ahead of it delays the mode for no
+  reason.
 - **Define a usable palette at `:root`, with `[data-theme="…"]` blocks as
   overrides.** Every failure path — blocked storage, a sandboxed frame, a missing
   `matchMedia` — ends with no `data-theme` written. Palettes that exist only
   under the attribute leave those readers with an unstyled page, which is a worse
   outcome than the wrong mode.
+
+The pre-paint claim is asserted as far as it can be: a probe placed immediately
+after the script in `<head>` reports the attribute already set, which bounds the
+write to before the body is parsed. That is a one-sided bound and not a
+comparison against first paint, which the Paint Timing API did not make
+available.
 - **Set `suppressHydrationWarning` on the element the script writes to.** The
   attribute is not in the server markup, which is the definition of a mismatch.
 
