@@ -157,7 +157,13 @@ jobs:
   ui-test:
     name: Test (ui, ${{ matrix.mode }})
     needs: [changes, wasm]
-    if: needs.changes.outputs.ui == 'true'
+    # This job must RUN even when there is nothing to test, because its name is
+    # a required status check and a matrix job that is skipped reports its name
+    # unexpanded -- `Test (ui, ${{ matrix.mode }})` rather than `Test (ui, plain)`.
+    # The required contexts then never report at all and the PR is unmergeable,
+    # which is what happens to any change that touches no package. The work is
+    # skipped step by step instead, so the contexts report and cost nothing.
+    if: ${{ !cancelled() && needs.changes.result == 'success' }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -165,21 +171,33 @@ jobs:
         mode: [plain, compiled]
     steps:
       - uses: actions/checkout@v7
+        if: needs.changes.outputs.ui == 'true'
       - uses: actions/setup-node@v7
+        if: needs.changes.outputs.ui == 'true'
         with:
           node-version: lts/*
       - uses: oven-sh/setup-bun@v2
+        if: needs.changes.outputs.ui == 'true'
       - run: bun install --frozen-lockfile
+        if: needs.changes.outputs.ui == 'true'
       - uses: actions/download-artifact@v8
+        if: needs.changes.outputs.ui == 'true'
         with:
           name: meonode-swc-plugin
           path: packages/compiler/npm
       - run: bun run --filter @meonode/ui ${{ matrix.mode == 'compiled' && 'test:compiled' || 'test' }}
+        if: needs.changes.outputs.ui == 'true'
 
   ui-rsc:
     name: Test (RSC, ${{ matrix.mode }})
     needs: [changes, wasm]
-    if: needs.changes.outputs.ui == 'true'
+    # This job must RUN even when there is nothing to test, because its name is
+    # a required status check and a matrix job that is skipped reports its name
+    # unexpanded -- `Test (RSC, ${{ matrix.mode }})` rather than `Test (RSC, plain)`.
+    # The required contexts then never report at all and the PR is unmergeable,
+    # which is what happens to any change that touches no package. The work is
+    # skipped step by step instead, so the contexts report and cost nothing.
+    if: ${{ !cancelled() && needs.changes.result == 'success' }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -187,17 +205,24 @@ jobs:
         mode: [plain, compiled]
     steps:
       - uses: actions/checkout@v7
+        if: needs.changes.outputs.ui == 'true'
       - uses: actions/setup-node@v7
+        if: needs.changes.outputs.ui == 'true'
         with:
           node-version: lts/*
       - uses: oven-sh/setup-bun@v2
+        if: needs.changes.outputs.ui == 'true'
       - run: bun install --frozen-lockfile
+        if: needs.changes.outputs.ui == 'true'
       - uses: actions/download-artifact@v8
+        if: needs.changes.outputs.ui == 'true'
         with:
           name: meonode-swc-plugin
           path: packages/compiler/npm
       - run: bunx playwright install --with-deps chromium
+        if: needs.changes.outputs.ui == 'true'
       - run: bun run --filter @meonode/ui ${{ matrix.mode == 'compiled' && 'test:rsc:compiled' || 'test:rsc' }}
+        if: needs.changes.outputs.ui == 'true'
 
   cargo:
     name: Cargo test
