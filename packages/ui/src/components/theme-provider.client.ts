@@ -224,10 +224,39 @@ export default function ThemeProvider({
   system,
   storageKey = 'theme',
 }: ThemeProviderProps): ReactNode {
+  // Checked at construction, ungated, and named.
+  //
+  // These are required props, so a typechecked caller cannot omit one. A
+  // sandbox, a JavaScript consumer, a CDN-cached bundle and a stale copy of a
+  // sample are all callers TypeScript never sees, and for them the first symptom
+  // was `Cannot read properties of undefined (reading 'includes')` thrown from a
+  // minified helper inside React's commit phase — and only for readers who had
+  // already chosen a theme, since with nothing stored the expression
+  // short-circuited before it touched `modes`.
+  //
+  // Not behind `diagnosticsEnabled`: a missing required prop is not a
+  // development-only concern when the caller was never typechecked. The same
+  // reasoning `themeScript` already applies to its own configuration.
+  if (tokens === undefined) {
+    throw new Error('ThemeProvider: `tokens` is missing. It is the token map this theme resolves `theme.*` strings against.')
+  }
+  if (!Array.isArray(modes) || modes.length === 0) {
+    throw new Error("ThemeProvider: `modes` is missing. It lists the mode names this application declares, for example `modes: ['light', 'dark']`.")
+  }
+  if (defaultMode === undefined) {
+    throw new Error('ThemeProvider: `defaultMode` is missing. It is the mode that applies when nothing is stored and the OS cannot be consulted.')
+  }
+  if (!modes.includes(defaultMode)) {
+    throw new Error(`ThemeProvider: \`defaultMode\` is '${String(defaultMode)}', which is not one of \`modes\` (${modes.join(', ')}).`)
+  }
+
   const canFollowSystem = system !== undefined
 
   if (defaultPreference === 'system' && !canFollowSystem) {
-    throw new Error("defaultPreference: 'system' needs a `system` mapping saying which of your modes the OS words mean, e.g. system: { light: '…', dark: '…' }")
+    throw new Error("ThemeProvider: `defaultPreference` is 'system', which needs a `system` mapping saying which of your modes the OS words mean, e.g. system: { light: '…', dark: '…' }")
+  }
+  if (defaultPreference !== undefined && defaultPreference !== 'system' && !modes.includes(defaultPreference)) {
+    throw new Error(`ThemeProvider: \`defaultPreference\` is '${String(defaultPreference)}', which is not one of \`modes\` (${modes.join(', ')}) nor 'system'.`)
   }
 
   // Seeded once, like the theme path above: `defaultMode` is the initial mode,
