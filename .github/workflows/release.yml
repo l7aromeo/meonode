@@ -62,6 +62,9 @@ jobs:
     if: github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     environment: Production
+    env:
+      # Read here because `secrets` is not available in `if` expressions.
+      HAS_RELEASE_PAT: ${{ secrets.RELEASE_PAT != '' }}
     permissions:
       contents: write
       pull-requests: write
@@ -115,6 +118,36 @@ jobs:
       - name: Dry-run the release
         run: bun run release:dry
 
+      # ─── Why this token is not `GITHUB_TOKEN` ────────────────────────────
+      #
+      # GitHub does not start workflow runs for events created with the default
+      # `GITHUB_TOKEN`. That is a loop-prevention rule and it cannot be
+      # configured away.
+      #
+      # The consequence is specific and easy to misread: the "version packages"
+      # PR this step opens gets **no checks at all**. `main` requires fifteen,
+      # none of them can ever report on that PR, and branch protection can never
+      # be satisfied — so the release PR is unmergeable and the only ways
+      # through are `--admin`, which merges a release with none of its checks
+      # having run on the versioned tree, or pushing an empty commit by hand to
+      # produce a `synchronize` event from a real actor.
+      #
+      # A PAT (or a GitHub App token) is a real actor, so its PR triggers the
+      # checks normally. `RELEASE_PAT` needs `repo` and `workflow` scope and
+      # must be allowed to push to `changeset-release/*`.
+      #
+      # The fallback keeps the workflow working without the secret rather than
+      # failing obscurely — but a release opened under it needs the manual
+      # nudge, which the guard below says out loud instead of leaving someone
+      # to rediscover it.
+      - name: Warn when the release PR will have no checks
+        # `secrets` is not available in an `if` expression -- it evaluates empty,
+        # so testing it there produces a guard that never fires. The job env
+        # below is where the secret is readable.
+        if: env.HAS_RELEASE_PAT != 'true'
+        run: |
+          echo "::warning title=Release PR will have no checks::RELEASE_PAT is not set, so the version PR is opened by GITHUB_TOKEN and GitHub will not start its workflows. It cannot satisfy branch protection until someone pushes a commit to changeset-release/main from a real account."
+
       - uses: changesets/action@v1.9.0
         with:
           version: bun run version
@@ -122,4 +155,4 @@ jobs:
           commit: "chore(release): version packages"
           title: "chore(release): version packages"
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.RELEASE_PAT || secrets.GITHUB_TOKEN }}
