@@ -110,6 +110,27 @@ describe('a required prop that is missing', () => {
     )
   })
 
+  it.each([
+    ['tokens', { modes: ['light', 'dark'], defaultMode: 'light' }, /ThemeProvider: `tokens` is missing/],
+    ['defaultMode', { tokens: TOKENS, modes: ['light', 'dark'] }, /ThemeProvider: `defaultMode` is missing/],
+  ])('still throws in a production build when `%s` is missing', (_name, props, message) => {
+    // One case per required prop, not one for the set. Gating any single check
+    // on diagnostics leaves the others passing, so a suite that covers `modes`
+    // alone reports green while `tokens` and `defaultMode` have gone quiet in
+    // exactly the build where they matter.
+    const env = process.env as Record<string, string | undefined>
+    const previous = env.NODE_ENV
+    env.NODE_ENV = 'production'
+    refreshDevMode()
+    try {
+      localStorage.setItem('theme', 'dark')
+      expect(() => renderQuietly(() => ThemeProvider({ ...props, children: Child({}) } as never).render())).toThrow(message)
+    } finally {
+      env.NODE_ENV = previous
+      refreshDevMode()
+    }
+  })
+
   it('still throws in a production build, because the caller it protects was never typechecked', () => {
     // The whole point of not gating this on diagnostics. A sandbox or a stale
     // CDN copy runs a production bundle, and that is precisely the caller
