@@ -352,6 +352,67 @@ export class ThemeUtil {
   }
 
   /**
+   * Whether any key in a `css` value, at any depth, holds a `theme.` token — an
+   * at-rule condition such as `'@media (width >= theme.breakpoint.wide)'`, or a
+   * selector. Such a key needs the theme's concrete value, since `var()` is
+   * invalid in a condition or selector.
+   * @param css The `css` value to search.
+   * @returns `true` when a key holds a token.
+   */
+  public static hasThemeTokenInKey = (css: unknown, seen: Set<unknown> = new Set()): boolean => {
+    if (Array.isArray(css)) {
+      if (seen.has(css)) return false
+      seen.add(css)
+      return css.some(item => ThemeUtil.hasThemeTokenInKey(item, seen))
+    }
+    if (!ThemeUtil.isPlainObject(css) || seen.has(css)) return false
+    seen.add(css)
+    for (const key in css) {
+      if (!Object.prototype.hasOwnProperty.call(css, key)) continue
+      if (key.includes('theme.') || ThemeUtil.hasThemeTokenInKey(css[key], seen)) return true
+    }
+    return false
+  }
+
+  /**
+   * Removes every entry whose key still holds a `theme.` token, at any depth, and
+   * reports each key. A rule whose condition or selector carries the token is
+   * invalid, and the browser drops it, so leaving the key in place only ships a
+   * rule that can never apply.
+   * @param css The resolved `css` value.
+   * @param report Called with each key removed.
+   * @returns `css` itself when no key holds a token, otherwise a copy without them.
+   */
+  public static dropThemedKeys = <T>(css: T, report: (key: string) => void): T => {
+    if (Array.isArray(css)) {
+      let changed = false
+      const items = css.map(item => {
+        const next = ThemeUtil.dropThemedKeys(item, report)
+        if (next !== item) changed = true
+        return next
+      })
+      return (changed ? items : css) as T
+    }
+    if (!ThemeUtil.isPlainObject(css)) return css
+    let result: Record<string, unknown> | null = null
+    for (const key in css) {
+      if (!Object.prototype.hasOwnProperty.call(css, key)) continue
+      if (key.includes('theme.')) {
+        report(key)
+        result ??= { ...css }
+        delete result[key]
+        continue
+      }
+      const next = ThemeUtil.dropThemedKeys(css[key], report)
+      if (next !== css[key]) {
+        result ??= { ...css }
+        result[key] = next
+      }
+    }
+    return (result ?? css) as T
+  }
+
+  /**
    * Resolves theme variable references in an object's values iteratively.
    * This function uses a manual work stack to traverse the object, which prevents
    * "Maximum call stack size exceeded" errors for deeply nested objects.

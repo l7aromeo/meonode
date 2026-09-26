@@ -35,7 +35,7 @@ import { NodeUtil } from '@src/util/node.util.js'
 import { IS_REACT_SERVER_LAYER } from '@src/util/react-layer.util.js'
 import { compileServerEmotionRule } from '@src/util/server-emotion.util.js'
 import { replaceThemeTokensWithCssVars } from '@src/util/server-theme.util.js'
-import { diagnosticsEnabled, reportThemeIssues } from '@src/util/theme-diagnostics.util.js'
+import { diagnosticsEnabled, reportThemeIssues, reportUnresolvedThemeKey } from '@src/util/theme-diagnostics.util.js'
 import { ThemeUtil } from '@src/util/theme.util.js'
 
 /**
@@ -605,7 +605,20 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
             // same tree through `StyledRenderer` when it hydrates, so the server
             // takes that path too: Emotion then composes a class the element is
             // handed with its own css in one cache, the way the client does.
-            const shouldBypassStyledRendererOnServer = NodeUtil.isServer && IS_REACT_SERVER_LAYER
+            //
+            // A host tag whose css holds a theme token in a key — an at-rule
+            // condition or a selector — is the exception when no theme is in
+            // scope: the key needs the theme's concrete value, which a server
+            // component cannot read from a ThemeProvider above it. It renders
+            // through `StyledRenderer`, which resolves the key from context.
+            const needsThemeForKeys =
+              NodeUtil.isServer &&
+              IS_REACT_SERVER_LAYER &&
+              typeof renderTarget === 'string' &&
+              isStyledComponent &&
+              !activeTheme &&
+              ThemeUtil.hasThemeTokenInKey(css)
+            const shouldBypassStyledRendererOnServer = NodeUtil.isServer && IS_REACT_SERVER_LAYER && !needsThemeForKeys
             // Keep server/client on the same StyledRenderer path for client references.
             // This avoids Emotion hash drift not only for theme tokens, but also for raw
             // CSS values (e.g. "red", "#ff0000") that would otherwise use different
@@ -633,7 +646,9 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
               // report in `StyledRenderer` so a bad token surfaces on whichever
               // side happened to render it.
               reportThemeIssues(themedCss, activeTheme)
-              const cssWithDefaults = ThemeUtil.resolveDefaultStyle(themedCss)
+              // A key still holding a token has nothing to resolve it here, and
+              // its rule could never apply, so it is left out rather than shipped.
+              const cssWithDefaults = ThemeUtil.resolveDefaultStyle(ThemeUtil.dropThemedKeys(themedCss, reportUnresolvedThemeKey))
               const rule = compileServerEmotionRule(cssWithDefaults, elementProps.className, { share: typeof renderTarget !== 'string' })
               const elementPropsWithClassName = rule ? { ...elementProps, className: rule.className } : elementProps
               element = createElement(renderTarget, elementPropsWithClassName, ...childArguments)
