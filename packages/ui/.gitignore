@@ -16,6 +16,7 @@ tests/rsc-fixtures/next-build/.next*
 tests/rsc-fixtures/next-build/node_modules
 tests/rsc-fixtures/next-build/next-env.d.ts
 tests/rsc-fixtures/.build-servers.json
+tests/rsc-fixtures/*/tsconfig.tsbuildinfo
 
 # Ai
 .claude
