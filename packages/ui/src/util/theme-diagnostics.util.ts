@@ -303,9 +303,9 @@ export const reportThemeIssues = (value: unknown, theme: Theme | undefined, prop
 /**
  * A `css` key — an at-rule condition or a selector — holds a `theme.` token that
  * nothing could resolve, so its rule was left out: a condition or selector needs
- * the theme's concrete value, and `var()` is invalid there. It happens to a node
- * in a server component whose theme is provided from a client component, since a
- * server component cannot read it. Reported once per key.
+ * the theme's concrete value, and `var()` is invalid there. It happens when no
+ * `ThemeProvider` is above the node, or the theme has no value at that path.
+ * Reported once per key.
  * @param key The key that was left out.
  */
 export const reportUnresolvedThemeKey = (key: string): void => {
@@ -315,8 +315,8 @@ export const reportUnresolvedThemeKey = (key: string): void => {
   reported.add(seenKey)
   console.warn(
     `[MeoNode] The css key \`${key}\` holds a theme token that could not be resolved, so its rule was left out. ` +
-      `A condition or selector needs the theme's concrete value, and a server component cannot read a ThemeProvider above it: ` +
-      `render this node from a client component, or write the value into the key directly.`,
+      `A condition or selector needs the theme's concrete value: render the node under a ThemeProvider whose tokens define it, ` +
+      `or write the value into the key directly.`,
   )
 }
 

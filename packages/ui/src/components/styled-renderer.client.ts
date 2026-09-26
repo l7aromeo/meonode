@@ -1,10 +1,12 @@
 'use client'
-import { type ElementType, type JSX, type ReactNode, useContext } from 'react'
+import { createElement, type ElementType, type JSX, type ReactElement, type ReactNode, useContext } from 'react'
 import { jsx } from '@emotion/react'
+import { serializeStyles } from '@emotion/serialize'
+import { compile, middleware, prefixer, serialize, stringify } from 'stylis'
 import type { CssProp, NodeElement } from '@src/types/node.type.js'
 import { ThemeContext } from '@src/components/theme-provider.client.js'
 import { ThemeUtil } from '@src/util/theme.util.js'
-import { reportThemeIssues } from '@src/util/theme-diagnostics.util.js'
+import { reportThemeIssues, reportUnresolvedThemeKey } from '@src/util/theme-diagnostics.util.js'
 import { isValidElementType } from '@src/helper/react-is.helper.js'
 
 export interface StyledRendererProps<E extends NodeElement> {
@@ -57,10 +59,44 @@ export default function StyledRenderer<E extends NodeElement, TProps extends Rec
   // disappears into Emotion. No-ops in production.
   reportThemeIssues(finalCss, theme)
 
-  const cssForEmotion = ThemeUtil.resolveDefaultStyle(finalCss)
+  // A key still holding a theme token — no provider above, or a path the theme
+  // lacks — names a condition or selector the browser would drop, so it is left
+  // out rather than handed to Emotion.
+  const cssForEmotion = ThemeUtil.resolveDefaultStyle(ThemeUtil.dropThemedKeys(finalCss, reportUnresolvedThemeKey))
 
   return jsx(renderTarget, { ...otherProps, css: cssForEmotion }, children)
 }
 
 StyledRenderer.displayName = 'Styled'
 ;(StyledRenderer as { __meonodeAcceptsServerCss?: boolean }).__meonodeAcceptsServerCss = true
+
+export interface ThemedRuleProps {
+  /** The class the server compiled for the element, which this rule targets. */
+  className: string
+  /** The part of the element's css whose keys hold theme tokens, and every nested entry after it. */
+  css: CssProp
+}
+
+/**
+ * The rule for the part of a server component's `css` whose keys — at-rule
+ * conditions, selectors — hold theme tokens.
+ *
+ * A key needs the theme's concrete value, since `var()` is invalid in a condition
+ * or a selector, and a server component cannot read the `ThemeProvider` above it.
+ * This runs where the theme is: the server pass of the client tree and the
+ * browser. It resolves the keys, and renders the rule for the class the server
+ * already gave the element, as a hoisted `<style href precedence>` placed after
+ * the server's own rule for that class, so it cascades as the one rule Emotion
+ * would have written. A key still holding a token — there is no theme, or the
+ * theme has no such value — is left out and reported in development.
+ * @returns The rule, or `null` when nothing is left to style.
+ */
+export function ThemedRule({ className, css }: ThemedRuleProps): ReactElement | null {
+  const theme = useContext(ThemeContext)?.theme
+  const resolved = ThemeUtil.resolveObjWithTheme(css as Record<string, unknown>, theme, { processFunctions: true, themeStringsMode: 'vars' })
+  const kept = ThemeUtil.dropThemedKeys(resolved, reportUnresolvedThemeKey)
+  const serialized = serializeStyles([kept as never])
+  const cssText = serialize(compile(`.${className}{${serialized.styles}}`), middleware([prefixer, stringify]))
+  if (!cssText) return null
+  return createElement('style', { href: `${className}-${serialized.name}`, precedence: 'meonode' }, cssText)
+}

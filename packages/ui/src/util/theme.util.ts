@@ -375,6 +375,37 @@ export class ThemeUtil {
   }
 
   /**
+   * Splits a `css` map into what can be compiled with no theme and what needs one.
+   *
+   * Emotion writes a class as its declarations first, then each nested entry —
+   * selector or at-rule — in object order. Every declaration, and every nested
+   * entry before the first one whose key holds a theme token at any depth, keeps
+   * that order compiled on its own. The rest, from that entry on, is returned
+   * whole, so the two rules written one after the other cascade as the one rule
+   * Emotion would have written. A value that is not a map goes wholly to `themed`.
+   * @param css The resolved `css` value.
+   * @returns `plain` and `themed`; `themed` is `undefined` when no key holds a token.
+   */
+  public static splitThemedCss = (css: CssProp): { plain: CssProp; themed: CssProp | undefined } => {
+    if (!ThemeUtil.hasThemeTokenInKey(css)) return { plain: css, themed: undefined }
+    if (!ThemeUtil.isPlainObject(css)) return { plain: {}, themed: css }
+    const plain: Record<string, unknown> = {}
+    const themed: Record<string, unknown> = {}
+    let reached = false
+    for (const key in css) {
+      if (!Object.prototype.hasOwnProperty.call(css, key)) continue
+      const value = css[key]
+      if (!ThemeUtil.isPlainObject(value)) {
+        plain[key] = value
+        continue
+      }
+      reached ||= key.includes('theme.') || ThemeUtil.hasThemeTokenInKey(value)
+      ;(reached ? themed : plain)[key] = value
+    }
+    return { plain: plain as CssProp, themed: themed as CssProp }
+  }
+
+  /**
    * Removes every entry whose key still holds a `theme.` token, at any depth, and
    * reports each key. A rule whose condition or selector carries the token is
    * invalid, and the browser drops it, so leaving the key in place only ships a

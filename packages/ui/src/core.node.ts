@@ -27,7 +27,7 @@ import type {
 } from '@src/types/node.type.js'
 import { isFragment, isValidElementType } from '@src/helper/react-is.helper.js'
 import { getComponentType, getElementTypeName, hasNoStyleTag, getGlobalState } from '@src/helper/common.helper.js'
-import StyledRenderer from '@src/components/styled-renderer.client.js'
+import StyledRenderer, { ThemedRule } from '@src/components/styled-renderer.client.js'
 import MeoMemo from '@src/components/meo-memo.client.js'
 import { LIST_MARKER, LOCATION_MARKER } from '@src/constant/common.const.js'
 import { isMergeableCss } from '@src/util/css.util.js'
@@ -605,20 +605,7 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
             // same tree through `StyledRenderer` when it hydrates, so the server
             // takes that path too: Emotion then composes a class the element is
             // handed with its own css in one cache, the way the client does.
-            //
-            // A host tag whose css holds a theme token in a key — an at-rule
-            // condition or a selector — is the exception when no theme is in
-            // scope: the key needs the theme's concrete value, which a server
-            // component cannot read from a ThemeProvider above it. It renders
-            // through `StyledRenderer`, which resolves the key from context.
-            const needsThemeForKeys =
-              NodeUtil.isServer &&
-              IS_REACT_SERVER_LAYER &&
-              typeof renderTarget === 'string' &&
-              isStyledComponent &&
-              !activeTheme &&
-              ThemeUtil.hasThemeTokenInKey(css)
-            const shouldBypassStyledRendererOnServer = NodeUtil.isServer && IS_REACT_SERVER_LAYER && !needsThemeForKeys
+            const shouldBypassStyledRendererOnServer = NodeUtil.isServer && IS_REACT_SERVER_LAYER
             // Keep server/client on the same StyledRenderer path for client references.
             // This avoids Emotion hash drift not only for theme tokens, but also for raw
             // CSS values (e.g. "red", "#ff0000") that would otherwise use different
@@ -646,17 +633,29 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
               // report in `StyledRenderer` so a bad token surfaces on whichever
               // side happened to render it.
               reportThemeIssues(themedCss, activeTheme)
-              // A key still holding a token has nothing to resolve it here, and
-              // its rule could never apply, so it is left out rather than shipped.
-              const cssWithDefaults = ThemeUtil.resolveDefaultStyle(ThemeUtil.dropThemedKeys(themedCss, reportUnresolvedThemeKey))
-              const rule = compileServerEmotionRule(cssWithDefaults, elementProps.className, { share: typeof renderTarget !== 'string' })
+              const cssWithDefaults = ThemeUtil.resolveDefaultStyle(themedCss)
+              // A key holding a theme token needs the theme's concrete value. With
+              // a theme in scope it has been resolved above, and one still holding
+              // a token names a value the theme lacks, so it is left out. With none,
+              // the part from the first such key on goes to `ThemedRule`, which
+              // resolves it where the theme is; the rest compiles here, under a
+              // class named after the whole css.
+              const { plain, themed } = activeTheme
+                ? { plain: ThemeUtil.dropThemedKeys(cssWithDefaults, reportUnresolvedThemeKey), themed: undefined }
+                : ThemeUtil.splitThemedCss(cssWithDefaults)
+              const rule = compileServerEmotionRule(plain, elementProps.className, {
+                share: typeof renderTarget !== 'string',
+                identity: themed ? cssWithDefaults : undefined,
+              })
               const elementPropsWithClassName = rule ? { ...elementProps, className: rule.className } : elementProps
               element = createElement(renderTarget, elementPropsWithClassName, ...childArguments)
-              if (rule?.cssText) {
+              if (rule && (rule.cssText || themed || rule.clientCss)) {
                 const carrier = anchor ?? (canAnchorRules(renderTarget, elementProps as Record<string, unknown>, inForeignNamespace) ? node : null)
                 const rules = carrier ? (anchoredRules.get(carrier) ?? new Map<string, ReactElement>()) : rootRules
                 if (carrier) anchoredRules.set(carrier, rules)
-                rules.set(rule.id, ruleElement(rule))
+                if (rule.cssText) rules.set(rule.id, ruleElement(rule))
+                const clientCss = rule.clientCss ?? themed
+                if (clientCss) rules.set(`${rule.id}:themed`, createElement(ThemedRule, { key: `${rule.id}:themed`, className: rule.ownClassName, css: clientCss }))
               }
             } else {
               // On server function components, keep css support for true server components.
