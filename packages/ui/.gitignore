@@ -11,6 +11,12 @@ tests/rsc-fixtures/next-app/next-env.d.ts
 tests/rsc-fixtures/.rsc-server-pid
 tests/rsc-fixtures/.rsc-server-port
 
+# Production-build fixture: one output directory per build variant
+tests/rsc-fixtures/next-build/.next*
+tests/rsc-fixtures/next-build/node_modules
+tests/rsc-fixtures/next-build/next-env.d.ts
+tests/rsc-fixtures/.build-servers.json
+
 # Ai
 .claude
 

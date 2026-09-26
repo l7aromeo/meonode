@@ -1,0 +1,16 @@
+import { Suspense } from 'react'
+import { connection } from 'next/server'
+import { Div, Node } from '@meonode/ui'
+import { later } from '../_shared/late'
+import { PALETTES, wrappedRows } from '../_shared/rows'
+
+/** Request-time server-compiled rules, compiled after the drain — paired with `/dynamic-b`. */
+async function Rows() {
+  await connection()
+  await later()
+  return Div({ children: wrappedRows('dynamic a row', PALETTES.wrapped) }).render()
+}
+
+export default function Page() {
+  return Node(Suspense, { fallback: null, children: Node(Rows) }).render()
+}
