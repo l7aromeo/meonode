@@ -2,11 +2,11 @@
 //!
 //! Identifies which `CallExpression`s in a program are compilable
 //! `@meonode/ui` factory calls — calls whose `props` argument is a plain
-//! object literal that Task 9's partitioner can safely rewrite into
-//! pre-partitioned marker props. This module is detection-only: it never
+//! object literal that the partitioner in `partition.rs` can safely rewrite
+//! into pre-partitioned marker props. This module is detection-only: it never
 //! mutates the AST. It records a [`Decision`] per relevant call site (
-//! [`Decision::Compilable`] or [`Decision::Bail`] with a reason), so callers
-//! (Task 9's rewrite pass) can extend this visitor to act on the results.
+//! [`Decision::Compilable`] or [`Decision::Bail`] with a reason), and the
+//! rewrite pass in `partition.rs` acts on the results.
 //!
 //! ## Binding resolution
 //!
@@ -170,7 +170,7 @@ pub enum BailReason {
     SpreadBeforeProps,
     /// A spread property (`...rest`) inside the props object literal itself
     /// appears *after* a static (non-spread) prop, e.g.
-    /// `{ padding: 1, ...rest }`. Change 2 (v0.2) allows *leading* spreads —
+    /// `{ padding: 1, ...rest }`. *Leading* spreads —
     /// all spreads before all static props — to compile by leaving the
     /// spread(s) top-level in the emitted object; a trailing spread would
     /// need to win over an earlier static prop for correct precedence, which
@@ -185,8 +185,8 @@ pub enum BailReason {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Decision {
     /// This call site is a compilable @meonode/ui factory call; its props
-    /// object literal is at argument index `props_arg_idx`. Task 9 consumes
-    /// this to drive the actual rewrite.
+    /// object literal is at argument index `props_arg_idx`. The rewrite pass in
+    /// `partition.rs` consumes this to drive the actual rewrite.
     Compilable { props_arg_idx: usize },
     /// This call site is a genuine factory call whose props *are* an object
     /// literal, but which cannot be partitioned — a spread after static props,
@@ -273,8 +273,7 @@ fn is_ui_module(src: &Str) -> bool {
 }
 
 /// Returns `true` if `src` matches one of the user-configured
-/// `factoryModules` (Change 4 / v0.2's "Factory recognition beyond
-/// @meonode/ui"), e.g. `"@meonode/mui"`.
+/// `factoryModules`, e.g. `"@meonode/mui"`.
 fn is_factory_module(src: &Str, factory_modules: &[String]) -> bool {
     let src_value = src.value.as_str().unwrap_or_default();
     factory_modules.iter().any(|m| src_value == m.as_str())
@@ -290,7 +289,7 @@ fn is_capitalized(name: &str) -> bool {
 }
 
 /// Pass 1: collects `@meonode/ui`/`@meonode/ui/client` import bindings, plus
-/// (per Change 4) capitalized named imports from any configured
+/// capitalized named imports from any configured
 /// `factoryModules` entry, treated as props-at-arg-0 factories.
 ///
 /// Runs as its own traversal (rather than being folded into the main
@@ -372,7 +371,7 @@ impl ImportCollector<'_> {
         }
     }
 
-    /// Change 4: a capitalized named import from a configured `factoryModules`
+    /// A capitalized named import from a configured `factoryModules`
     /// entry is treated as a props-at-arg-0 factory, same call shape as a
     /// plain `@meonode/ui` HTML factory (`CandidateKind::Html { children_first:
     /// false }`) — verified against `@meonode/mui`'s real shape, where every
@@ -886,7 +885,7 @@ fn rank_for_prop(name: &str, is_static: bool, has_spread: bool) -> EmitRank {
 /// reported as [`BailReason::ExistingMarker`], even if it happens to also
 /// contain some other bail-worthy shape.
 ///
-/// ## Leading spreads (Change 2)
+/// ## Leading spreads
 ///
 /// A spread property (`...rest`) is allowed only while every prop seen so far
 /// has *also* been a spread — i.e. all spreads must precede all static props.
@@ -936,7 +935,7 @@ fn rank_for_prop(name: &str, is_static: bool, has_spread: bool) -> EmitRank {
 /// it would sit in genuinely uncompiled code, which the legacy signature
 /// path already hashes correctly. See [`rank_for_prop`].
 ///
-/// ## Evaluation-order safety (v0.2 rule, Change 1)
+/// ## Evaluation-order safety
 ///
 /// `partition.rs` reorders evaluation: every prop lands in a bucket
 /// (`Spread` < `Css` < `Data` < `Special`, see [`EmitRank`]), and cross-bucket
@@ -948,8 +947,8 @@ fn rank_for_prop(name: &str, is_static: bool, has_spread: bool) -> EmitRank {
 /// effectful-only subsequence to [`order_preserved`]; a `false` result bails
 /// with [`BailReason::EffectfulReorder`].
 ///
-/// This subsumes v1's `children`-last exception: a source-final effectful
-/// `children` is just the (trivially-fine) one-effectful-value case, since
+/// A source-final effectful `children` needs no special case: it is just the
+/// (trivially-fine) one-effectful-value case, since
 /// `children`'s `Special` rank is emitted after `Css`/`Data`, matching where
 /// it already was, and there being only one effectful value overall means
 /// there's nothing to reorder it relative to.
@@ -1046,7 +1045,7 @@ fn is_marker_prop(prop_or_spread: &PropOrSpread) -> bool {
     }
 }
 
-/// Validates a prop key's *kind*. As of v0.2 (Change 3), any string literal
+/// Validates a prop key's *kind*. Any string literal
 /// key is fine — including non-identifier-like ones (`'data-parallax'`,
 /// `'aria-label'`) — since they bucket normally and are emitted as quoted
 /// keys, using the same `PropName` node they were parsed with (see
@@ -1063,10 +1062,11 @@ fn validate_key(key: &PropName) -> Option<BailReason> {
 
 /// Runs the full three-pass detector over `program` and returns every
 /// recorded call-site decision, in traversal order. `config.factory_modules`
-/// (Change 4) extends pass 1's import recognition beyond `@meonode/ui`.
+/// extends pass 1's import recognition beyond `@meonode/ui`.
 ///
 /// This is read-only: it never mutates `program`. The returned decisions are
-/// consumed by Task 9's rewrite pass; for now nothing acts on them.
+/// consumed by `partition::transform_program`, which rewrites the call sites
+/// marked [`Decision::Compilable`].
 pub fn detect(program: &Program, config: &CompileConfig) -> Vec<CallSiteDecision> {
     let mut imports = ImportCollector {
         factory_modules: &config.factory_modules,
@@ -1203,8 +1203,7 @@ mod tests {
 
     /// A closure definition performs no read and no effect, so its position
     /// among siblings is unobservable. Writing a handler before style props is
-    /// an extremely common shape and must not bail. (Measured on the docs site:
-    /// this pattern alone accounted for 3 of 5 remaining EffectfulReorder bails.)
+    /// an extremely common shape and must not bail.
     #[test]
     fn arrow_before_effectful_style_props_compiles() {
         let src = r#"
@@ -1253,7 +1252,7 @@ mod tests {
     }
 
     /// Like [`decisions_for`], but with a caller-supplied [`CompileConfig`] —
-    /// used to exercise Change 4's `factoryModules` option directly, since
+    /// used to exercise the `factoryModules` option directly, since
     /// `TransformPluginProgramMetadata::get_transform_plugin_config` always
     /// returns `None` outside a real wasm32 plugin host (see `config.rs`),
     /// making the JSON-metadata path itself untestable from `cargo test`.
@@ -1444,7 +1443,7 @@ mod tests {
 
     #[test]
     fn leading_spread_in_props_is_fine() {
-        // Change 2: a spread preceding every static prop compiles — the
+        // A spread preceding every static prop compiles — the
         // spread stays top-level in the emitted object; only `padding` gets
         // bucketed.
         let decisions = decisions_for(
@@ -1619,10 +1618,9 @@ mod tests {
 
     #[test]
     fn non_identifier_like_string_key_is_fine() {
-        // Change 3 (v0.2): non-identifier string keys (`'foo-bar'`,
-        // `'data-parallax'`, `'aria-label'`) used to bail with
-        // `NonIdentifierStringKey` — an oversight, not a safety requirement.
-        // They now bucket normally, emitted with their original quoted key.
+        // Non-identifier string keys (`'foo-bar'`, `'data-parallax'`,
+        // `'aria-label'`) bucket normally, emitted with their original quoted
+        // key.
         let decisions = decisions_for(
             r#"
             import { Div } from '@meonode/ui';
@@ -1760,10 +1758,9 @@ mod tests {
 
     #[test]
     fn single_effectful_call_value_is_fine() {
-        // v0.2: with only one effectful value in the whole object (`x: f()`
-        // — `padding: 1` is a static literal), there's nothing to reorder it
-        // relative to, so this compiles (v1 bailed on any effectful value at
-        // all).
+        // With only one effectful value in the whole object (`x: f()` —
+        // `padding: 1` is a static literal), there's nothing to reorder it
+        // relative to, so this compiles.
         let decisions = decisions_for(
             r#"
             import { Div } from '@meonode/ui';
@@ -1833,9 +1830,8 @@ mod tests {
             "#,
         );
         // `children` is the *only* effectful value here (`onClick: h` is an
-        // identifier read, effect-free) — trivially order-preserving under
-        // v0.2 regardless of its source position (subsuming v1's
-        // `children`-last exception). Both the outer call and the two nested
+        // identifier read, effect-free) — trivially order-preserving
+        // regardless of its source position. Both the outer call and the two nested
         // factory calls used as `children` are independently compilable.
         assert_eq!(
             decisions,
@@ -1860,14 +1856,11 @@ mod tests {
 
     #[test]
     fn effectful_children_not_last_but_only_effectful_value_is_fine() {
-        // v0.2 (Change 1) subsumes and strictly widens v1's `children`-last
-        // exception: `children: [f()]` is the *only* effectful value here —
-        // `padding: '1px'` is a static literal — so this now compiles even
-        // though `children` isn't source-final. v1 bailed on this shape
-        // (`EffectfulValue`, since the old exception required `children` to
-        // be last); the Rust fixture `transform_children_not_last_bail` is
-        // updated to match (renamed/re-asserted as compiling — see its
-        // module comment).
+        // `children: [f()]` is the *only* effectful value here — `padding:
+        // '1px'` is a static literal — so this compiles even though
+        // `children` isn't source-final. The fixture
+        // `transform_children_not_last_still_compiles` covers the same shape
+        // end to end.
         let decisions = decisions_for(
             r#"
             import { Div } from '@meonode/ui';
@@ -1920,7 +1913,7 @@ mod tests {
         assert_eq!(decisions, vec![]);
     }
 
-    // --- Change 4: `factoryModules` plugin config ---
+    // --- `factoryModules` plugin config ---
 
     fn mui_config() -> CompileConfig {
         CompileConfig {
@@ -1946,8 +1939,7 @@ mod tests {
         // `createMuiNode` is a helper export, not a component — it's simply
         // not tracked at all, so calling it isn't a candidate call site (and
         // doesn't need to be, since it's an internal implementation detail
-        // of `@meonode/mui`, never called directly by consumers per the
-        // v0.2 design doc).
+        // of `@meonode/mui` that consumers don't call directly).
         let decisions = decisions_for_with_config(
             r#"
             import { createMuiNode, isProbablyMuiTheme } from '@meonode/mui';
@@ -1962,7 +1954,7 @@ mod tests {
     #[test]
     fn configured_module_import_without_config_is_ignored() {
         // Same source as `capitalized_import_from_configured_module_is_compilable`,
-        // but with the default (empty) config — Change 4 is opt-in.
+        // but with the default (empty) config — `factoryModules` is opt-in.
         let decisions = decisions_for(
             r#"
             import { Button } from '@meonode/mui';

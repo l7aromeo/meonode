@@ -1,7 +1,7 @@
 // Fixture: keyed-list
 //
 // `key: item.id` inside a `.map()` callback is a `MemberExpr` — effectful per
-// `effect::is_effect_free` — but v0.2's order-analysis rule (Change 1) only
+// `effect::is_effect_free` — but the order-analysis rule (`order.rs`) only
 // bails on a *reordering* between two effectful values; with nothing else
 // effectful in the object (`color` is a literal), there's nothing to reorder
 // it relative to, so this compiles. `key` also stays top-level, untouched,
