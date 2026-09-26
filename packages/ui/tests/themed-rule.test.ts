@@ -205,10 +205,10 @@ describe('StyledRenderer under a ThemeProvider', () => {
 })
 
 describe('where ThemedRule is defined', () => {
-  // A library client module that the server graph reaches only as a client
-  // reference gets its own copy of the ThemeProvider module in Next's SSR graph,
-  // and so a ThemeContext no provider ever fills. The StyledRenderer module is
-  // imported by the node core directly, so its ThemeContext is the provider's.
+  // In a Next build that has a `'use cache'` function beside client modules
+  // importing the package, `ThemedRule` in a client module of its own read a
+  // ThemeContext no provider filled, on the server and in the browser, and wrote
+  // nothing. In the StyledRenderer module it reads the provider's.
   const src = join(import.meta.dirname, '../src')
   const files = (dir: string): string[] =>
     readdirSync(dir, { withFileTypes: true }).flatMap(entry => (entry.isDirectory() ? files(join(dir, entry.name)) : [join(dir, entry.name)]))
