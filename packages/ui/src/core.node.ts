@@ -29,7 +29,7 @@ import StyledRenderer from '@src/components/styled-renderer.client.js'
 import MeoMemo from '@src/components/meo-memo.client.js'
 import { LIST_MARKER, LOCATION_MARKER } from '@src/constant/common.const.js'
 import { NodeUtil } from '@src/util/node.util.js'
-import { compileServerEmotionClassName } from '@src/util/server-emotion.util.js'
+import { claimServerRule, compileServerEmotionRule } from '@src/util/server-emotion.util.js'
 import { getActiveServerTheme, replaceThemeTokensWithCssVars, setActiveServerTheme } from '@src/util/server-theme.util.js'
 import { diagnosticsEnabled, reportThemeIssues } from '@src/util/theme-diagnostics.util.js'
 import { ThemeUtil } from '@src/util/theme.util.js'
@@ -245,6 +245,12 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
     let { workStack } = ctx
     const { renderedElements } = ctx
     let stackPointer = 0
+    // Rules this render compiled with no registry scope open, to emit beside its
+    // root. `serverRulesEmitted` records that any were compiled at all, which is
+    // what decides the root's shape; `serverRuleStyles` holds only the ones this
+    // render was the first in the request to claim.
+    let serverRulesEmitted = false
+    const serverRuleStyles: ReactElement[] = []
 
     try {
       // Fast capacity check with exponential growth
@@ -544,10 +550,16 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
               // side happened to render it.
               reportThemeIssues(themedCss, activeTheme)
               const cssWithDefaults = ThemeUtil.resolveDefaultStyle(themedCss)
-              const serverCssClassName = compileServerEmotionClassName(cssWithDefaults)
-              const mergedClassName = [elementProps.className, serverCssClassName].filter(Boolean).join(' ') || undefined
+              const rule = compileServerEmotionRule(cssWithDefaults)
+              const mergedClassName = [elementProps.className, rule?.className].filter(Boolean).join(' ') || undefined
               const elementPropsWithClassName = mergedClassName ? { ...elementProps, className: mergedClassName } : elementProps
               element = createElement(renderTarget, elementPropsWithClassName, ...childArguments)
+              if (rule?.emit) {
+                serverRulesEmitted = true
+                if (claimServerRule(rule.id)) {
+                  serverRuleStyles.push(createElement('style', { key: rule.id, href: rule.className, precedence: 'meonode' }, rule.cssText))
+                }
+              }
             } else {
               // On server function components, keep css support for true server components.
               // For client references (e.g. next/link), do not forward css to avoid leaking
@@ -565,8 +577,22 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
 
       // Get the final rendered element for the root node of this render cycle.
       const rootElement = renderedElements.get(this) as ReactElement<FinalNodeProps>
+      if (!serverRulesEmitted) return rootElement
 
-      return rootElement
+      // With no registry scope open — the RSC layer, or any server render outside
+      // Next — nothing else emits a server-compiled rule, so this render's rules
+      // travel with it as hoisted `<style href precedence>` elements, each once
+      // per request.
+      //
+      // They sit beside the root rather than beside each element, so every
+      // element keeps the type and position it has without them: a parent that
+      // clones its child still receives the element, and a reorder that moves a
+      // rule's first occurrence cannot change any element's type. The root is at
+      // position 0 and the rules share one keyed array slot after it, so the
+      // number of rules claimed in a render never shifts the root. The wrapper
+      // depends only on whether this render compiled any such rule — not on
+      // whether it claimed one — so its own shape is stable across refreshes.
+      return createElement(Fragment, { key: rootElement.key }, rootElement, serverRuleStyles) as ReactElement<FinalNodeProps>
     } finally {
       // Always release context back to pool, even if an exception occurred
       // Null out workStack slots to help GC before releasing

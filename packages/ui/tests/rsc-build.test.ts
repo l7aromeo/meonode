@@ -101,7 +101,7 @@ describe.each(['cc', 'plain'] as const)('a production build (%s)', variant => {
   // if they are compiled before the registry drains a process-global bucket,
   // once. `/wrapped-late` pins the compile after that moment, so this fails
   // every time rather than whenever worker scheduling happens to lose.
-  it.fails('#34: a statically prerendered page defines every class its server components compiled', async () => {
+  it('#34: a statically prerendered page defines every class its server components compiled', async () => {
     for (const [path, count] of [
       ['/wrapped', 4],
       ['/wrapped-late', 4],
@@ -127,7 +127,7 @@ describe.each(['cc', 'plain'] as const)('a production build (%s)', variant => {
 
   // #32, not fixed yet: `next/link` from a server component takes the same
   // server-compile path as #34, and loses its rule the same way.
-  it.fails('#32: a next/link factory rendered from a server component gets its rule', async () => {
+  it('#32: a next/link factory rendered from a server component gets its rule', async () => {
     for (const path of ['/link', '/link-late']) {
       const page = await styles(variant, path)
       expect({ path, undefined: page.undefinedClasses }).toEqual({ path, undefined: [] })
@@ -137,7 +137,7 @@ describe.each(['cc', 'plain'] as const)('a production build (%s)', variant => {
   // Found with #34, not fixed yet: rules a prerender failed to collect surface
   // on the next page the same worker prerenders. Checked as the exact set, so a
   // page carrying another page's rules fails even if it looks styled.
-  it.fails('a prerendered page carries exactly its own rules, not another page’s', async () => {
+  it('a prerendered page carries exactly its own rules, not another page’s', async () => {
     for (const path of ['/', '/emotion-static', '/link', '/wrapped', '/wrapped-late']) {
       const page = await styles(variant, path)
       expect({ path, ids: unique(page.declaredIds) }).toEqual({ path, ids: idsOf(page.classes) })
@@ -185,7 +185,7 @@ describe.each(['cc', 'plain'] as const)('concurrent requests (%s)', variant => {
   // request's server-compiled rules can be drained by another request, and ones
   // compiled after the drain — pinned here by `later` — are never collected by
   // their own. Expected to fail until those rules travel with the RSC output.
-  it.fails('each response carries exactly its own server-compiled rules', async () => {
+  it('each response carries exactly its own server-compiled rules', async () => {
     const paths = Array.from({ length: 24 }, (_, i) => (i % 2 ? '/dynamic-b' : '/dynamic-a'))
     const results = await Promise.all(paths.map(async path => ({ path, page: await styles(variant, path) })))
     for (const { path, page } of results) {
@@ -201,7 +201,7 @@ describe.each(['cc', 'plain'] as const)('the flight payload (%s)', variant => {
   // all. Once they do, each must travel once per request: a <style> per
   // element put 200 of them into a 200-row page and made its payload five times
   // larger than the unstyled one. Several elements share each class here.
-  it.fails('carries each server-compiled rule once, however many elements use it', async () => {
+  it('carries each server-compiled rule once, however many elements use it', async () => {
     const html = await (await fetch(`http://localhost:${port(variant)}/shared-class`)).text()
     const flight = [...html.matchAll(/self\.__next_f\.push\(\[1,"((?:[^"\\]|\\.)*)"\]\)/g)].map(match => match[1]).join('')
     const hrefs = [...flight.matchAll(/\\"href\\":\\"(meonode-css-[a-z0-9]+)\\"/g)].map(match => match[1])
@@ -249,7 +249,7 @@ describe('equal-specificity rules on one element', () => {
   // rules exist, the component's own css must win the tie — Emotion's
   // convention, and what the client's StyledRenderer path already does — where
   // at request time it used to fall to hash order in one sorted block.
-  it.fails.each([
+  it.each([
     ['cc', '/cascade'],
     ['plain', '/cascade'],
     ['cc', '/cascade-dynamic'],
@@ -259,5 +259,46 @@ describe('equal-specificity rules on one element', () => {
     expect(result.classes).toHaveLength(2)
     expect(result.classes.every(entry => entry.defined)).toBe(true)
     expect(result.colour).toBe('rgb(0, 128, 128)')
+  })
+})
+
+describe.each(['cc', 'plain'] as const)('a refresh that moves a rule’s first occurrence (%s)', variant => {
+  let browser: Browser | null = null
+  beforeAll(async () => {
+    browser = await chromium.launch({ headless: true })
+  })
+  afterAll(async () => {
+    await browser?.close()
+  })
+
+  /**
+   * RSC output is reconciled against the live client tree on every refresh, so
+   * an element whose type depends on whether it is the first to use its rule
+   * changes type when a reorder moves that first occurrence — and React remounts
+   * a node whose type changed at a keyed position, dropping any client state in
+   * it. `/refresh-order` moves the shared rule's first occurrence from row `a`
+   * to row `b`; row `c` is never first and is the control.
+   *
+   * Counts are read only after `Committed` reports the new order, because React
+   * flushes all of a commit's passive effects together: once it has run, every
+   * remounted row has counted itself, so "one mount each" cannot mean "the
+   * remount had not happened yet".
+   */
+  it('keeps every row mounted', async () => {
+    const page = await browser!.newPage()
+    try {
+      await page.goto(`http://localhost:${port(variant)}/refresh-order`, { waitUntil: 'networkidle' })
+      await page.waitForFunction(() => window.__committedOrder === 'abc')
+      const before = await page.evaluate(() => ({ ...window.__mounts }))
+
+      await page.click('[data-testid="reorder"]')
+      await page.waitForFunction(() => window.__committedOrder === 'bac')
+      const after = await page.evaluate(() => ({ ...window.__mounts }))
+
+      expect(before).toEqual({ a: 1, b: 1, c: 1 })
+      expect(after).toEqual({ a: 1, b: 1, c: 1 })
+    } finally {
+      await page.close()
+    }
   })
 })

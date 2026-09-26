@@ -101,7 +101,7 @@ describe('a server render with no StyleRegistry', () => {
   // Not fixed yet: with no registry nothing ever emits a server-compiled rule,
   // so `renderToString` — a Vite SSR app, a test — gets classes and no CSS.
   // Expected to fail until the server-compile branch emits the rule itself.
-  it.fails('defines every class a server component compiled', () => {
+  it('defines every class a server component compiled', () => {
     const html = renderToString(
       Html({
         children: [
