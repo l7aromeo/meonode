@@ -625,6 +625,7 @@ describe.each(['cc', 'plain'] as const)('a theme token in an at-rule condition o
                 container: style.backgroundColor === 'rgb(0, 0, 255)',
                 supports: style.borderLeftWidth === '7px',
                 selector: style.letterSpacing === '3px',
+                nested: style.textDecorationLine === 'underline',
               },
             ]
           }),
@@ -635,11 +636,15 @@ describe.each(['cc', 'plain'] as const)('a theme token in an at-rule condition o
     }
   }
 
+  /** Every shape a page renders: the server pages add a component in its own `'use cache'` scope. */
+  const shapes = (path: string) => ['host', 'fn', 'factory', 'as', ...(path.endsWith('/client') ? [] : ['cached'])]
+  const each = <T>(names: string[], value: T) => Object.fromEntries(names.map(name => [name, value]))
+
   it.each(PATHS)('applies every themed rule at a wide viewport, and the width conditions only there (%s)', async path => {
-    const wide = { media: true, container: true, supports: true, selector: true }
-    const narrow = { media: false, container: false, supports: true, selector: true }
-    expect(await applied(path, 1280)).toEqual({ host: wide, fn: wide })
-    expect(await applied(path, 800)).toEqual({ host: narrow, fn: narrow })
+    const wide = { media: true, container: true, supports: true, selector: true, nested: true }
+    const narrow = { media: false, container: false, supports: true, selector: true, nested: false }
+    expect(await applied(path, 1280)).toEqual(each(shapes(path), wide))
+    expect(await applied(path, 800)).toEqual(each(shapes(path), narrow))
   })
 
   // With no theme a token has no value, so a rule keyed on one has nothing to
@@ -651,9 +656,8 @@ describe.each(['cc', 'plain'] as const)('a theme token in an at-rule condition o
     const css = [...html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].map(match => match[1]).join('\n')
     expect(css).not.toContain('theme.')
     expect(css).not.toMatch(/@media|@container|@supports|\[data-size=/)
-    expect(await applied('/themed-at-rules-bare', 1280)).toEqual({
-      host: { media: false, container: false, supports: false, selector: false },
-      fn: { media: false, container: false, supports: false, selector: false },
-    })
+    expect(await applied('/themed-at-rules-bare', 1280)).toEqual(
+      each(['host', 'fn', 'factory', 'as'], { media: false, container: false, supports: false, selector: false, nested: false }),
+    )
   })
 })
