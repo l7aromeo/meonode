@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
 //
-// A server function component's `css` is compiled on the server by
-// `server-emotion.util`, and rendered on the client by `StyledRenderer` through
-// Emotion. With no `StyleRegistry` or Emotion `CacheProvider` above the tree —
-// a plain `renderToString` + `hydrateRoot` app — both must produce the same
-// class, or React reports an attribute mismatch it never patches.
+// A node with `css` must produce the same classes on the server and the client,
+// or React reports an attribute mismatch it never patches. This checks it for a
+// plain `renderToString` + `hydrateRoot` app, with no `StyleRegistry` or Emotion
+// `CacheProvider` above the tree: a host element, and a function component that
+// receives its class and applies it itself.
 //
 // The server pass runs with `NodeUtil.isServer` set, which is the one switch the
 // runtime reads to take its server branch; every read of it happens at render
@@ -20,7 +20,7 @@ import { NodeUtil } from '@src/util/node.util.js'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
-/** A server function component: it receives the compiled class and applies it itself. */
+/** A function component that receives its class and applies it itself. */
 const Card = createNode(function Card({ className, children }: { className?: string; children?: ReactNode }) {
   return createElement('section', { className, 'data-testid': 'card' }, children)
 })
@@ -102,7 +102,7 @@ describe('server and client agree on emotion class names without a registry', ()
     expect(errors).toEqual([])
   })
 
-  it('hydrates a server function component with css cleanly', async () => {
+  it('hydrates a function component with css cleanly', async () => {
     const { errors, serverClasses, clientClasses } = await roundTrip(() => Card({ padding: 8, children: 'x' } as never).render())
     expect(clientClasses).toEqual(serverClasses)
     expect(errors).toEqual([])

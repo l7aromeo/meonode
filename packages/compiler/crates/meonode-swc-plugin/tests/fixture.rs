@@ -1,15 +1,16 @@
-//! Fixture tests for Task 8 (factory call-site detection).
+//! Fixture tests for factory call-site detection and the rewrite pass.
 //!
-//! Task 8 is detection-only — no rewriting happens yet (that's Task 9), so
-//! every fixture case here has `output.js == input.js`: running the real
-//! detection pass (`meonode_swc_plugin::detect::transform_program`) must
-//! never change the program. This proves the visitor is wired up and
-//! traverses these shapes without mutating anything; it does *not* prove
-//! individual call sites are classified correctly (a case with an entirely
-//! broken detector would look identical here too, since neither the
-//! Compilable nor the Bail path mutates the AST in this task). Correctness
-//! of the classification itself is covered by the decision-asserting unit
-//! tests in `src/detect.rs`.
+//! The detection-only cases run the real detection pass
+//! (`meonode_swc_plugin::detect::transform_program`) and assert
+//! `output.js == input.js`: detection must never change the program. That
+//! proves the visitor is wired up and traverses these shapes without mutating
+//! anything; it does *not* prove individual call sites are classified
+//! correctly (a case with an entirely broken detector would look identical
+//! here too, since neither the Compilable nor the Bail path mutates the AST
+//! in detection). Correctness of the classification itself is covered by the
+//! decision-asserting unit tests in `src/detect.rs`. The `transform_*` cases
+//! run the full rewrite (`partition::transform_program`) and assert its
+//! output.
 //!
 //! Mirrors what the real swc plugin host does: the resolver
 //! (`swc_ecma_transforms_base::resolver`) runs before detection, exactly as
@@ -26,7 +27,7 @@ use swc_core::ecma::parser::{EsSyntax, Syntax};
 use swc_core::ecma::transforms::base::resolver;
 use swc_core::ecma::transforms::testing::{test_fixture, FixtureTestConfig, Tester};
 
-/// Fixed filename fed to `partition::transform_program` across every Task 9
+/// Fixed filename fed to `partition::transform_program` across every rewrite
 /// fixture case. There's no plugin host metadata in a fixture test (see
 /// `detect.rs`'s module docs on binding resolution for the same point about
 /// the resolver), so `k`'s filename component is this constant rather than a
@@ -35,10 +36,9 @@ use swc_core::ecma::transforms::testing::{test_fixture, FixtureTestConfig, Teste
 const FIXTURE_FILENAME: &str = "fixture.tsx";
 
 /// A `Pass` that runs detection for its side effect (recording decisions)
-/// and returns the program untouched — mirroring what Task 8's version of
-/// `lib.rs::process_transform` did before Task 9 wired up the actual
-/// rewrite. Still used by every Task 8 fixture case below, which assert
-/// `output.js == input.js` to prove detection alone never mutates the tree.
+/// and returns the program untouched. Used by every detection-only fixture
+/// case below, which assert `output.js == input.js` to prove detection alone
+/// never mutates the tree.
 struct DetectOnly {
     config: CompileConfig,
 }
@@ -49,9 +49,9 @@ impl Pass for DetectOnly {
     }
 }
 
-/// A `Pass` that runs the full Task 9 rewrite (detection + prop
+/// A `Pass` that runs the full rewrite (detection + prop
 /// partitioning), mirroring `lib.rs::process_transform` in the real plugin.
-/// `config` carries Change 4's `factoryModules` list — real plugin config
+/// `config` carries the `factoryModules` list — real plugin config
 /// (`TransformPluginProgramMetadata::get_transform_plugin_config`) is only
 /// ever `Some` inside a real wasm32 plugin host (see `config.rs`'s module
 /// docs), so config-driven fixture cases construct a `CompileConfig` here
@@ -117,7 +117,7 @@ fn run_partition(case: &str) {
 }
 
 /// Like [`run_partition`], but with a caller-supplied [`CompileConfig`] — for
-/// Change 4's config-driven `factoryModules` fixtures.
+/// the config-driven `factoryModules` fixtures.
 fn run_partition_with_config(case: &str, config: CompileConfig) {
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixture")
@@ -180,13 +180,11 @@ fn non_object_props_bail() {
 
 #[test]
 fn spread_bail() {
-    // Name predates Change 2 (v0.2): this leading-spread shape is actually
-    // `Decision::Compilable` now (see `detect::tests::leading_spread_in_props_is_fine`
-    // and the `transform_leading_spread` fixture below for the rewrite
-    // itself), but this particular fixture only exercises the Task 8
-    // detect-only pass, which never mutates the tree regardless of the
-    // decision it records — so `output.js == input.js` still holds and this
-    // case is still a valid (if staler-named) sanity check.
+    // Despite the name, this leading-spread shape is `Decision::Compilable`
+    // (see `detect::tests::leading_spread_in_props_is_fine` and the
+    // `transform_leading_spread` fixture below for the rewrite itself). This
+    // case exercises only the detect-only pass, which never mutates the tree
+    // whatever decision it records, so `output.js == input.js` holds.
     run("spread_bail");
 }
 
@@ -200,9 +198,9 @@ fn existing_marker_bail() {
     run("existing_marker_bail");
 }
 
-// --- Task 9: prop partitioning + call-site key emission ---
+// --- Prop partitioning + call-site key emission ---
 //
-// Unlike the Task 8 cases above (which only ever assert `output.js ==
+// Unlike the detection-only cases above (which only ever assert `output.js ==
 // input.js`), every case below drives the real rewrite pass
 // (`partition::transform_program`) and asserts a genuinely different
 // `output.js`.
@@ -260,18 +258,15 @@ fn transform_shorthand_props() {
 
 #[test]
 fn transform_single_effectful_call_compiles() {
-    // v0.2 (Change 1): `x: f()` is the *only* effectful value (`padding:
-    // "1px"` is a static literal) — trivially order-preserving. v1 bailed on
-    // any effectful value at all (`EffectfulValue`); renamed from
-    // `transform_effectful_bail` now that it legitimately compiles.
+    // `x: f()` is the *only* effectful value (`padding: "1px"` is a static
+    // literal) — trivially order-preserving, so it compiles.
     run_partition("transform_single_effectful_call_compiles");
 }
 
 #[test]
 fn transform_single_effectful_member_expr_compiles() {
     // Same reasoning as `transform_single_effectful_call_compiles`, for a
-    // member-expression value (`x: a.b`) instead of a call. Renamed from
-    // `transform_member_expr_bail`.
+    // member-expression value (`x: a.b`) instead of a call.
     run_partition("transform_single_effectful_member_expr_compiles");
 }
 
@@ -292,12 +287,9 @@ fn transform_nested_children() {
 
 #[test]
 fn transform_children_not_last_still_compiles() {
-    // v0.2 (Change 1): `children: [f()]` is the *only* effectful value here
-    // (`padding: '1px'` is a static literal) — trivially order-preserving,
-    // so this now compiles even though `children` isn't source-final. Under
-    // v1's blanket "every effectful value bails unless children is last"
-    // rule this bailed (`EffectfulValue`); v0.2's general order rule
-    // subsumes and strictly widens that exception. See
+    // `children: [f()]` is the *only* effectful value here (`padding: '1px'`
+    // is a static literal) — trivially order-preserving, so this compiles
+    // even though `children` isn't source-final. See
     // `detect::tests::effectful_children_not_last_but_only_effectful_value_is_fine`
     // for the equivalent unit-level assertion.
     run_partition("transform_children_not_last_still_compiles");
@@ -305,7 +297,7 @@ fn transform_children_not_last_still_compiles() {
 
 #[test]
 fn transform_leading_spread() {
-    // Change 2: a spread preceding every static prop compiles by leaving the
+    // A spread preceding every static prop compiles by leaving the
     // spread top-level and bucketing only the static props. Note `k`/`dyn`
     // are absent from the expected output — see
     // `transform_leading_spread_with_dynamic_prop` and the stable-key-hazard
@@ -348,8 +340,7 @@ fn transform_computed_key_key_only() {
 
 #[test]
 fn transform_quoted_string_key() {
-    // Change 3: non-identifier string keys (`'data-parallax'`) now bucket
-    // normally instead of bailing with `NonIdentifierStringKey`.
+    // Non-identifier string keys (`'data-parallax'`) bucket normally.
     run_partition("transform_quoted_string_key");
 }
 
@@ -381,7 +372,7 @@ fn transform_two_effectful_order_violated_key_only() {
 
 #[test]
 fn transform_factory_module_configured() {
-    // Change 4: `Button` from a configured `factoryModules` entry
+    // `Button` from a configured `factoryModules` entry
     // (`@meonode/mui`) is recognized as a props-at-arg-0 factory and
     // compiled, same as any `@meonode/ui` HTML factory.
     run_partition_with_config(
@@ -396,7 +387,7 @@ fn transform_factory_module_configured() {
 #[test]
 fn transform_factory_module_unconfigured_bail() {
     // Identical source to `transform_factory_module_configured`, but without
-    // `factoryModules` configured — Change 4 is opt-in, so `Button(...)` is
+    // `factoryModules` configured — the option is opt-in, so `Button(...)` is
     // never even considered a candidate call site and is left untouched.
     run_partition("transform_factory_module_unconfigured_bail");
 }
