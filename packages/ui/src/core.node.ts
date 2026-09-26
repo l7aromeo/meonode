@@ -625,7 +625,9 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
               // `replaceThemeTokensWithCssVars` runs even when activeTheme is undefined
               // (e.g., RSC/SSR bundler-layer split where the layout-set global state does not
               // carry into the client page's SSR pass), so string tokens still produce vars.
-              // `processFunctions: true` executes any callable theme refs in `css`.
+              // `processFunctions: true` executes any callable theme refs in `css`,
+              // and with no theme in scope drops them, so none reaches `ThemedRule`:
+              // a function cannot be handed to a client component.
               const themedCss = ThemeUtil.resolveObjWithTheme(replaceThemeTokensWithCssVars(css), activeTheme, {
                 processFunctions: true,
               })

@@ -1,5 +1,6 @@
 import type { CSSProperties } from '@emotion/serialize'
 import type { CssProp, Theme } from '@src/types/node.type.js'
+import { isInPrelude, keyHasThemeToken, removeBlocksWithThemeTokens, replaceKeyTokens, textHasThemeTokenInPrelude } from '@src/util/theme-key.util.js'
 import { getValueByPath } from '@src/helper/common.helper.js'
 import { isLengthProperty, isSelectorOrAtRule, lengthVarRef } from '@src/util/css-unit.util.js'
 import { isMergeableCss } from '@src/util/css.util.js'
@@ -46,8 +47,13 @@ const toThemeVarName = (p: string) => `--meonode-theme-${p.replace(/[^\w.-]/g, '
 const processThemeString = (value: string, asVar: boolean, themeSystem: Record<string, unknown>, property?: string): string => {
   THEME_REGEX.lastIndex = 0
   const wantsLength = property !== undefined && isLengthProperty(property)
-  let hasChanged = false
-  const resolved = value.replace(THEME_REGEX, (match, path: string) => {
+  // CSS text: a token in a prelude or a selector takes the theme's value, and a
+  // `theme.` that is only part of a name there is left as written.
+  const isCssText = value.includes('{')
+  const text = isCssText ? replaceKeyTokens(value, path => concreteThemeValue(themeSystem, path), true) : value
+  let hasChanged = text !== value
+  const resolved = text.replace(THEME_REGEX, (match, path: string, offset: number) => {
+    if (isCssText && isInPrelude(text, offset)) return match
     if (asVar) {
       hasChanged = true
       const varName = toThemeVarName(path)
@@ -67,6 +73,33 @@ const processThemeString = (value: string, asVar: boolean, themeSystem: Record<s
     return match
   })
   return hasChanged ? resolved : value
+}
+
+/**
+ * The theme's concrete value at a path, for a place CSS needs one — a condition or
+ * a selector — or `undefined` when the theme has none there.
+ */
+const concreteThemeValue = (themeSystem: Record<string, unknown>, path: string): string | undefined => {
+  const themeValue = getValueByPath(themeSystem, path)
+  if (themeValue === undefined || themeValue === null) return undefined
+  if (typeof themeValue === 'object') return !Array.isArray(themeValue) && 'default' in themeValue ? String(themeValue.default) : undefined
+  return String(themeValue)
+}
+
+/**
+ * `resolved`'s entries in the order of the keys of `source` they came from.
+ * @param source The object as written.
+ * @param resolved Its resolved copy.
+ * @param renames The key each renamed key of `source` became.
+ */
+const inKeyOrder = (source: Record<string, unknown>, resolved: Record<string, unknown>, renames: Map<string, string>): Record<string, unknown> => {
+  const ordered: Record<string, unknown> = {}
+  for (const key in source) {
+    if (!Object.prototype.hasOwnProperty.call(source, key)) continue
+    const next = renames.get(key) ?? key
+    if (Object.prototype.hasOwnProperty.call(resolved, next)) ordered[next] = resolved[next]
+  }
+  return ordered
 }
 
 /**
@@ -360,6 +393,7 @@ export class ThemeUtil {
    * @returns `true` when a key holds a token.
    */
   public static hasThemeTokenInKey = (css: unknown, seen: Set<unknown> = new Set()): boolean => {
+    if (typeof css === 'string') return textHasThemeTokenInPrelude(css)
     if (Array.isArray(css)) {
       if (seen.has(css)) return false
       seen.add(css)
@@ -369,7 +403,7 @@ export class ThemeUtil {
     seen.add(css)
     for (const key in css) {
       if (!Object.prototype.hasOwnProperty.call(css, key)) continue
-      if (key.includes('theme.') || ThemeUtil.hasThemeTokenInKey(css[key], seen)) return true
+      if (keyHasThemeToken(key) || ThemeUtil.hasThemeTokenInKey(css[key], seen)) return true
     }
     return false
   }
@@ -399,7 +433,7 @@ export class ThemeUtil {
         plain[key] = value
         continue
       }
-      reached ||= key.includes('theme.') || ThemeUtil.hasThemeTokenInKey(value)
+      reached ||= keyHasThemeToken(key) || ThemeUtil.hasThemeTokenInKey(value)
       ;(reached ? themed : plain)[key] = value
     }
     return { plain: plain as CssProp, themed: themed as CssProp }
@@ -415,6 +449,7 @@ export class ThemeUtil {
    * @returns `css` itself when no key holds a token, otherwise a copy without them.
    */
   public static dropThemedKeys = <T>(css: T, report: (key: string) => void): T => {
+    if (typeof css === 'string') return removeBlocksWithThemeTokens(css, report) as T
     if (Array.isArray(css)) {
       let changed = false
       const items = css.map(item => {
@@ -428,7 +463,7 @@ export class ThemeUtil {
     let result: Record<string, unknown> | null = null
     for (const key in css) {
       if (!Object.prototype.hasOwnProperty.call(css, key)) continue
-      if (key.includes('theme.')) {
+      if (keyHasThemeToken(key)) {
         report(key)
         result ??= { ...css }
         delete result[key]
@@ -548,6 +583,7 @@ export class ThemeUtil {
           if (newArray !== null) finalValue = newArray
         } else {
           let newObj: Record<string, unknown> | null = null
+          let renames: Map<string, string> | null = null
           for (const key in currentValue) {
             if (Object.prototype.hasOwnProperty.call(currentValue, key)) {
               const value = currentValue[key]
@@ -555,8 +591,8 @@ export class ThemeUtil {
               let newKey = key
 
               // Resolve theme variables in the key itself (e.g., media queries)
-              if (typeof key === 'string' && key.includes('theme.')) {
-                newKey = processThemeString(key, false, themeSystem)
+              if (typeof key === 'string' && keyHasThemeToken(key)) {
+                newKey = replaceKeyTokens(key, path => concreteThemeValue(themeSystem, path))
               }
 
               const valueAsVar = themeStringsMode === 'vars'
@@ -576,13 +612,17 @@ export class ThemeUtil {
               if (newValue !== value || newKey !== key) {
                 if (newObj === null) newObj = { ...currentValue } // Copy-on-write
                 if (newKey !== key) {
-                  // Key changed, remove old key and add new one
                   delete newObj[key]
+                  renames ??= new Map()
+                  renames.set(key, newKey)
                 }
                 newObj[newKey] = newValue
               }
             }
           }
+          // A renamed key was appended; Emotion writes nested entries in object
+          // order, so the entries are put back in the order they were written.
+          if (newObj !== null && renames !== null) newObj = inKeyOrder(currentValue, newObj, renames)
           if (newObj !== null) finalValue = newObj
         }
         resolvedValues.set(currentValue, finalValue)

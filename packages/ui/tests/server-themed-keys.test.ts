@@ -131,6 +131,9 @@ describe('the split between the server rule and ThemedRule', () => {
     const b = Div({ css: { color: 'red', '@media (width >= theme.breakpoint.compact)': { color: 'crimson' } }, children: 'b' }).render() as Element
 
     expect(classOf(a, 'a')).not.toBe(classOf(b, 'b'))
+    // Each resolver rule is written for its own element's class alone.
+    expect(themedRules(a).map(rule => rule.props.className)).toEqual([classOf(a, 'a')])
+    expect(themedRules(b).map(rule => rule.props.className)).toEqual([classOf(b, 'b')])
   })
 })
 
@@ -200,5 +203,94 @@ describe('a class with a themed key, handed into a styled element', () => {
     const root = Panel(props)
 
     expect(themedRules(root)[0].props.css).toEqual([expect.objectContaining({ color: 'rgb(0, 128, 128)' }), expect.objectContaining(handed)])
+  })
+})
+
+describe('what counts as a theme token in a key', () => {
+  it('leaves a selector naming the class `.theme.accent` on the server, untouched', () => {
+    const root = Div({ css: { '& .theme.accent': { color: 'crimson' } }, children: 'x' }).render() as Element
+
+    expect(serverRules(root).join('')).toContain('.theme.accent{color:crimson;}')
+    expect(themedRules(root)).toEqual([])
+  })
+
+  it('hands on a token in a selector that also names such a class', () => {
+    const key = '& .theme.accent[data-size="theme.size.lg"]'
+    const root = Div({ css: { [key]: { color: 'crimson' } }, children: 'x' }).render() as Element
+
+    expect(themedRules(root)[0].props.css).toEqual({ [key]: { color: 'crimson' } })
+  })
+})
+
+describe('css written as a string', () => {
+  const text = 'color: theme.primary; @media (min-width: theme.breakpoint.wide) { color: crimson; }'
+
+  it('goes whole to ThemedRule when a prelude holds a token, with declaration tokens as variables', () => {
+    const root = Div({ css: text as never, children: 'x' }).render() as Element
+    const [themed] = themedRules(root)
+
+    expect(serverRules(root).filter(rule => rule.includes('theme.'))).toEqual([])
+    expect(themed.props.css).toContain('color: var(--meonode-theme-primary); @media (min-width: theme.breakpoint.wide) { color: crimson; }')
+    expect(themed.props.className).toBe(classOf(root, 'x'))
+  })
+
+  it('goes whole to ThemedRule from inside an array', () => {
+    const root = Div({ css: [{ padding: 4 }, text] as never, children: 'x' }).render() as Element
+    const [themed] = themedRules(root)
+
+    expect(serverRules(root).filter(rule => rule.includes('theme.'))).toEqual([])
+    expect(JSON.stringify(themed.props.css)).toContain('@media (min-width: theme.breakpoint.wide)')
+  })
+
+  it('stays on the server when its only tokens are in declarations or class names', () => {
+    const root = Div({ css: 'color: theme.primary; & .theme.accent { color: crimson; }' as never, children: 'x' }).render() as Element
+
+    expect(serverRules(root).join('')).toContain('.theme.accent{color:crimson;}')
+    expect(serverRules(root).join('')).toContain('var(--meonode-theme-primary)')
+    expect(themedRules(root)).toEqual([])
+  })
+})
+
+describe('a theme function beside a themed key, with no theme in scope', () => {
+  /** Whether a value holds a function anywhere. */
+  const holdsFunction = (value: unknown): boolean =>
+    typeof value === 'function' || (typeof value === 'object' && value !== null && Object.values(value).some(holdsFunction))
+  const wide = '@media (width >= theme.breakpoint.wide)'
+
+  it.each<[string, unknown, Record<string, unknown>?]>([
+    ['a value in the themed part', { color: 'red', [wide]: { color: () => 'crimson', padding: 4 } }],
+    ['a flat style prop', { [wide]: { color: 'crimson' } }, { color: () => 'crimson' }],
+    ['an item of an array css', [{ [wide]: { color: 'crimson' } }, () => ({ color: 'red' })]],
+  ])('sends ThemedRule none, for %s', (_, css, flat = {}) => {
+    const root = Div({ ...flat, css: css as never, children: 'x' } as never).render() as Element
+    const [themed] = themedRules(root)
+
+    expect(JSON.stringify(themed.props.css)).toContain(wide)
+    expect(holdsFunction(themed.props.css)).toBe(false)
+  })
+})
+
+describe('a themed key on a node with async server children', () => {
+  async function Late() {
+    return createElement('span', null, 'late')
+  }
+
+  it('hands the key to ThemedRule and keeps the async child in place', () => {
+    const root = Div({
+      css: { '@media (width >= theme.breakpoint.wide)': { color: 'crimson' } },
+      children: [createElement(Late, { key: 'late' })],
+    }).render() as Element
+    expect(inTree(root).some(e => e.type === Late)).toBe(true)
+    expect(inTree(root).findIndex(e => e.type === Late)).toBeLessThan(inTree(root).findIndex(e => e.type === ThemedRule))
+    expect(themedRules(root)[0].props.className).toBe(root.props.className)
+  })
+
+  it('hands the key to ThemedRule for an async function component', () => {
+    const root = Node(async ({ className }: { className?: string }) => createElement('div', { className }, 'x'), {
+      css: { '@media (width >= theme.breakpoint.wide)': { color: 'crimson' } },
+    } as never).render() as Element
+
+    expect(themedRules(root)).toHaveLength(1)
+    expect(serverRules(root).filter(rule => rule.includes('theme.'))).toEqual([])
   })
 })

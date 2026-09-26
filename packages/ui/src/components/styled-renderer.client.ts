@@ -93,7 +93,8 @@ export interface ThemedRuleProps {
  */
 export function ThemedRule({ className, css }: ThemedRuleProps): ReactElement | null {
   const theme = useContext(ThemeContext)?.theme
-  const resolved = ThemeUtil.resolveObjWithTheme(css as Record<string, unknown>, theme, { processFunctions: true, themeStringsMode: 'vars' })
+  // Resolved as a prop value, so a css string is resolved too, not only a map.
+  const resolved = ThemeUtil.resolveObjWithTheme({ css }, theme, { processFunctions: true, themeStringsMode: 'vars' }).css
   const kept = ThemeUtil.dropThemedKeys(resolved, reportUnresolvedThemeKey)
   const serialized = serializeStyles([kept as never])
   const cssText = serialize(compile(`.${className}{${serialized.styles}}`), middleware([prefixer, stringify]))

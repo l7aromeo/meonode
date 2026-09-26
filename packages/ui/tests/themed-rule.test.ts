@@ -4,10 +4,16 @@
 // the browser — and writes the rule a server component handed it for a css key
 // holding a theme token. `StyledRenderer` resolves the same keys for a client
 // component. Neither may ever hand a token to Emotion in a key.
+import { readdirSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { createElement } from 'react'
 import { renderToString } from 'react-dom/server'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { serializeStyles } from '@emotion/serialize'
+import { compile, middleware, prefixer, serialize, stringify } from 'stylis'
 import { Div, ThemeProvider } from '@src/main.js'
+import { ThemeUtil } from '@src/util/theme.util.js'
+import { compileServerEmotionRule } from '@src/util/server-emotion.util.js'
 import { ThemedRule } from '@src/components/styled-renderer.client.js'
 import { __resetThemeDiagnostics } from '@src/util/theme-diagnostics.util.js'
 
@@ -33,13 +39,15 @@ const unresolved = () => warnings.filter(text => text.includes('could not be res
 const themed = (children: unknown) =>
   renderToString(
     ThemeProvider({
-      tokens: { breakpoint: { wide: '1000px' }, size: { lg: '12px' } },
+      tokens: { breakpoint: { wide: '1000px', columns: 3 }, size: { lg: '12px' } },
       modes: ['light'],
       defaultMode: 'light',
       children,
     } as never).render() as never,
   )
 const styleText = (html: string) => [...html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].map(match => match[1]).join('')
+/** The text of the rules written for a class, without the provider's variables. */
+const ruleText = (html: string) => [...html.matchAll(/<style[^>]*href="meonode-css-[^>]*>([\s\S]*?)<\/style>/g)].map(match => match[1]).join('')
 
 describe('ThemedRule under a ThemeProvider', () => {
   it.each([
@@ -107,5 +115,110 @@ describe('StyledRenderer with no ThemeProvider', () => {
     expect(styleText(html)).toContain('color:red')
     expect(styleText(html)).not.toContain('theme.')
     expect(unresolved()).toHaveLength(1)
+  })
+})
+
+describe('ThemedRule given css text', () => {
+  it('resolves a token in a prelude and keeps the declarations', () => {
+    const css = 'color: var(--meonode-theme-primary); @media (min-width: theme.breakpoint.wide) { color: crimson; }'
+    const text = ruleText(themed(createElement(ThemedRule, { className: 'meonode-css-x', css })))
+
+    expect(text).toBe('.meonode-css-x{color:var(--meonode-theme-primary);}@media (min-width: 1000px){.meonode-css-x{color:crimson;}}')
+  })
+
+  it('resolves css text inside an array', () => {
+    const css = [{ padding: 4 }, '@media (min-width: theme.breakpoint.wide) { color: crimson; }']
+    const text = ruleText(themed(createElement(ThemedRule, { className: 'meonode-css-x', css })))
+
+    expect(text).toBe('.meonode-css-x{padding:4px;}@media (min-width: 1000px){.meonode-css-x{color:crimson;}}')
+  })
+
+  it('leaves out a block whose prelude names a value the theme lacks, and reports it', () => {
+    const css = 'color: red; @media (min-width: theme.breakpoint.huge) { color: crimson; }'
+    const text = ruleText(themed(createElement(ThemedRule, { className: 'meonode-css-x', css })))
+
+    expect(text).toBe('.meonode-css-x{color:red;}')
+    expect(unresolved()).toHaveLength(1)
+    expect(unresolved()[0]).toContain('@media (min-width: theme.breakpoint.huge)')
+  })
+})
+
+describe('what ThemedRule treats as a token in a key', () => {
+  it('keeps a selector naming the class `.theme.accent` as written', () => {
+    const css = { '& .theme.accent': { color: 'crimson' }, '@media (width >= theme.breakpoint.wide)': { color: 'blue' } }
+    const text = ruleText(themed(createElement(ThemedRule, { className: 'meonode-css-x', css })))
+
+    expect(text).toBe('.meonode-css-x .theme.accent{color:crimson;}@media (width >= 1000px){.meonode-css-x{color:blue;}}')
+    expect(unresolved()).toEqual([])
+  })
+
+  it('writes a numeric token in a condition as the number the theme holds', () => {
+    const css = { '@media (min-resolution: theme.breakpoint.columns)': { color: 'crimson' } }
+    const text = ruleText(themed(createElement(ThemedRule, { className: 'meonode-css-x', css })))
+
+    expect(text).toBe('@media (min-resolution: 3){.meonode-css-x{color:crimson;}}')
+  })
+})
+
+describe('the server rule and ThemedRule together', () => {
+  /** The css as Emotion writes it for one class, with the theme's values written in. */
+  const emotionRule = (className: string, css: Record<string, unknown>) =>
+    serialize(compile(`.${className}{${serializeStyles([css as never]).styles}}`), middleware([prefixer, stringify]))
+
+  it.each([
+    [
+      'a plain block after the themed one, conflicting with it',
+      {
+        color: 'black',
+        '@media (width >= theme.breakpoint.wide)': { color: 'crimson' },
+        '@media (min-width: 600px)': { color: 'blue' },
+      },
+    ],
+    [
+      'plain blocks on both sides, a declaration after them',
+      {
+        '&:hover': { color: 'green' },
+        '@media (width >= theme.breakpoint.wide)': { color: 'crimson', '&:hover': { color: 'teal' } },
+        '&:focus': { color: 'blue' },
+        color: 'black',
+      },
+    ],
+  ])('write what Emotion writes for the whole css: %s', (_, css) => {
+    const { plain, themed: rest } = ThemeUtil.splitThemedCss(css as never)
+    const rule = compileServerEmotionRule(plain, undefined, { identity: css as never })!
+    const client = ruleText(themed(createElement(ThemedRule, { className: rule.ownClassName, css: rest })))
+    const resolved = JSON.parse(JSON.stringify(css).replaceAll('theme.breakpoint.wide', '1000px'))
+
+    expect(rule.cssText + client).toBe(emotionRule(rule.ownClassName, resolved))
+  })
+})
+
+describe('StyledRenderer under a ThemeProvider', () => {
+  it('writes a resolved key where it was written, not after the entries that follow it', () => {
+    const css = { '@media (width >= theme.breakpoint.wide)': { color: 'crimson' }, '@media (min-width: 600px)': { color: 'blue' } }
+    const Inner = () => Div({ css, children: 'x' }).render()
+    const text = styleText(themed(createElement(Inner)))
+
+    expect(text.indexOf('@media (width >= 1000px)')).toBeGreaterThanOrEqual(0)
+    expect(text.indexOf('@media (width >= 1000px)')).toBeLessThan(text.indexOf('@media (min-width: 600px)'))
+  })
+})
+
+describe('where ThemedRule is defined', () => {
+  // A library client module that the server graph reaches only as a client
+  // reference gets its own copy of the ThemeProvider module in Next's SSR graph,
+  // and so a ThemeContext no provider ever fills. The StyledRenderer module is
+  // imported by the node core directly, so its ThemeContext is the provider's.
+  const src = join(import.meta.dirname, '../src')
+  const files = (dir: string): string[] =>
+    readdirSync(dir, { withFileTypes: true }).flatMap(entry => (entry.isDirectory() ? files(join(dir, entry.name)) : [join(dir, entry.name)]))
+
+  it('is the StyledRenderer module, and the node core imports it from there', () => {
+    const defining = files(src).filter(file => /export function ThemedRule\b/.test(readFileSync(file, 'utf8')))
+
+    expect(defining.map(file => file.slice(src.length + 1))).toEqual(['components/styled-renderer.client.ts'])
+    expect(readFileSync(join(src, 'core.node.ts'), 'utf8')).toMatch(
+      /import StyledRenderer, \{ ThemedRule \} from '@src\/components\/styled-renderer\.client\.js'/,
+    )
   })
 })
