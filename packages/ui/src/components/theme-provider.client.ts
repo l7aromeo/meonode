@@ -253,7 +253,9 @@ export default function ThemeProvider({
   const canFollowSystem = system !== undefined
 
   if (defaultPreference === 'system' && !canFollowSystem) {
-    throw new Error("ThemeProvider: `defaultPreference` is 'system', which needs a `system` mapping saying which of your modes the OS words mean, e.g. system: { light: '…', dark: '…' }")
+    throw new Error(
+      "ThemeProvider: `defaultPreference` is 'system', which needs a `system` mapping saying which of your modes the OS words mean, e.g. system: { light: '…', dark: '…' }",
+    )
   }
   if (defaultPreference !== undefined && defaultPreference !== 'system' && !modes.includes(defaultPreference)) {
     throw new Error(`ThemeProvider: \`defaultPreference\` is '${String(defaultPreference)}', which is not one of \`modes\` (${modes.join(', ')}) nor 'system'.`)
