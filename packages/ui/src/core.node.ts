@@ -606,15 +606,16 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
             // StyledRenderer handles SSR hydration and emotion CSS injection when css prop exists or element has style tags.
             // All element-shape decisions use `renderTarget` so an `as` swap is honored consistently.
             const isStyledComponent = !disableEmotion && (css || !hasNoStyleTag(renderTarget)) && Object.keys(css || {}).length > 0
-            // A function component rendered on the server never reaches the client
-            // as itself, and neither does a host tag in the RSC layer: its output
-            // is final there, so its css is compiled to a class name here rather
-            // than handed to `StyledRenderer`, whose css prop would be serialised
-            // into the flight payload. A host tag rendered anywhere else — a client
-            // component's server render, or a server render outside RSC — is
-            // hydrated by the client through `StyledRenderer`, so it takes that
-            // path on the server too.
-            const shouldBypassStyledRendererOnServer = NodeUtil.isServer && (typeof renderTarget !== 'string' || IS_REACT_SERVER_LAYER)
+            // In the RSC layer an element's output is final: it never renders on
+            // the client, and a server function cannot be handed to the
+            // `StyledRenderer` client component at all. Its css is compiled to a
+            // class name here instead, which also keeps the css object out of the
+            // flight payload. Everywhere else — a client component's server
+            // render, or a server render outside Next — the client renders the
+            // same tree through `StyledRenderer` when it hydrates, so the server
+            // takes that path too: Emotion then composes a class the element is
+            // handed with its own css in one cache, the way the client does.
+            const shouldBypassStyledRendererOnServer = NodeUtil.isServer && IS_REACT_SERVER_LAYER
             // Keep server/client on the same StyledRenderer path for client references.
             // This avoids Emotion hash drift not only for theme tokens, but also for raw
             // CSS values (e.g. "red", "#ff0000") that would otherwise use different
