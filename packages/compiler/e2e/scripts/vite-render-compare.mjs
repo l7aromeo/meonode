@@ -29,8 +29,8 @@ async function renderBuild(distDirName) {
   define('HTMLElement', window.HTMLElement)
   define('Node', window.Node)
   define('customElements', window.customElements)
-  define('requestAnimationFrame', (cb) => setTimeout(() => cb(Date.now()), 0))
-  define('cancelAnimationFrame', (id) => clearTimeout(id))
+  define('requestAnimationFrame', cb => setTimeout(() => cb(Date.now()), 0))
+  define('cancelAnimationFrame', id => clearTimeout(id))
   define('MutationObserver', window.MutationObserver)
   // Deliberately NOT overriding `performance`: jsdom's Performance.now()
   // recurses infinitely when detached from `window` and invoked as a bare
@@ -45,7 +45,7 @@ async function renderBuild(distDirName) {
   await import(`${'file://' + entryPath}?t=${Date.now()}`) // cache-bust: re-import both builds in one process
 
   // Flush any microtask-scheduled React work.
-  await new Promise((resolve) => setTimeout(resolve, 50))
+  await new Promise(resolve => setTimeout(resolve, 50))
 
   const marker = window.document.getElementById('root-marker')
   if (!marker) {

@@ -103,10 +103,7 @@ if (!equal) {
   console.log(offHtml)
 }
 
-const [onMarkerCount, offMarkerCount] = await Promise.all([
-  countTransformMarker('.next-on'),
-  countTransformMarker('.next-off'),
-])
+const [onMarkerCount, offMarkerCount] = await Promise.all([countTransformMarker('.next-on'), countTransformMarker('.next-off')])
 
 console.log('transform marker occurrences in .next-on/static/chunks:', onMarkerCount)
 console.log('transform marker occurrences in .next-off/static/chunks:', offMarkerCount)

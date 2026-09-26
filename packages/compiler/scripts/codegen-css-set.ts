@@ -20,16 +20,13 @@
  *                   relative to this repo's root).
  */
 
-import { spawnSync } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { spawnSync } from 'node:child_process'
+import { mkdirSync, writeFileSync } from 'node:fs'
+import { dirname, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
-const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const OUT_PATH = join(
-  REPO_ROOT,
-  "crates/meonode-swc-plugin/src/css_props.rs",
-);
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const OUT_PATH = join(REPO_ROOT, 'crates/meonode-swc-plugin/src/css_props.rs')
 
 /**
  * Runs @meonode/ui's export script and returns the completed process.
@@ -39,23 +36,18 @@ const OUT_PATH = join(
  * @param args Extra arguments forwarded to the export script.
  */
 function runExport(uiDir: string, args: string[]) {
-  const label = ["export:css-props", ...args].join(" ");
-  const result = spawnSync("bun", ["run", "export:css-props", ...args], {
+  const label = ['export:css-props', ...args].join(' ')
+  const result = spawnSync('bun', ['run', 'export:css-props', ...args], {
     cwd: uiDir,
-    encoding: "utf8",
-  });
+    encoding: 'utf8',
+  })
   if (result.error) {
-    throw new Error(
-      `Failed to spawn \`bun run ${label}\` in ${uiDir}: ${result.error.message}`,
-    );
+    throw new Error(`Failed to spawn \`bun run ${label}\` in ${uiDir}: ${result.error.message}`)
   }
   if (result.status !== 0) {
-    throw new Error(
-      `\`bun run ${label}\` in ${uiDir} exited with status ${result.status}.\n` +
-        `stdout: ${result.stdout}\nstderr: ${result.stderr}`,
-    );
+    throw new Error(`\`bun run ${label}\` in ${uiDir} exited with status ${result.status}.\n` + `stdout: ${result.stdout}\nstderr: ${result.stderr}`)
   }
-  return result;
+  return result
 }
 
 /**
@@ -64,24 +56,21 @@ function runExport(uiDir: string, args: string[]) {
  * @param label Command label, for error messages.
  */
 function parseProps(stdout: string, label: string): string[] {
-  const raw: unknown = JSON.parse(stdout);
-  if (!Array.isArray(raw) || !raw.every((x) => typeof x === "string")) {
-    throw new Error(`Expected \`bun run ${label}\` to print a JSON array of strings.`);
+  const raw: unknown = JSON.parse(stdout)
+  if (!Array.isArray(raw) || !raw.every(x => typeof x === 'string')) {
+    throw new Error(`Expected \`bun run ${label}\` to print a JSON array of strings.`)
   }
-  return raw as string[];
+  return raw as string[]
 }
 
 function main() {
-  const uiDir = resolve(
-    REPO_ROOT,
-    process.env.MEONODE_UI_DIR ?? "../ui",
-  );
+  const uiDir = resolve(REPO_ROOT, process.env.MEONODE_UI_DIR ?? '../ui')
 
-  const result = runExport(uiDir, []);
-  const lengthResult = runExport(uiDir, ["--length"]);
+  const result = runExport(uiDir, [])
+  const lengthResult = runExport(uiDir, ['--length'])
 
-  const props = parseProps(result.stdout, "export:css-props");
-  const lengthProps = parseProps(lengthResult.stdout, "export:css-props --length");
+  const props = parseProps(result.stdout, 'export:css-props')
+  const lengthProps = parseProps(lengthResult.stdout, 'export:css-props --length')
 
   // The length set decides which declarations reference the paired `--len`
   // theme variable. It must be a subset of the CSS set, or the plugin would
@@ -91,24 +80,21 @@ function main() {
   // generate every CSS property as a length property — every themed
   // declaration would then reference a `--len` variable that mostly does not
   // exist. Identical sets mean the flag was not understood.
-  if (
-    lengthProps.length === props.length &&
-    lengthProps.every((p, i) => p === props[i])
-  ) {
+  if (lengthProps.length === props.length && lengthProps.every((p, i) => p === props[i])) {
     throw new Error(
-      "`export:css-props --length` returned the full property set, which means " +
-        "the @meonode/ui checkout predates that flag. Point MEONODE_UI_DIR at a " +
-        "version that supports it (>= 1.8.6).",
-    );
+      '`export:css-props --length` returned the full property set, which means ' +
+        'the @meonode/ui checkout predates that flag. Point MEONODE_UI_DIR at a ' +
+        'version that supports it (>= 1.8.6).',
+    )
   }
 
-  const cssSet = new Set(props);
-  const orphans = lengthProps.filter((p) => !cssSet.has(p));
+  const cssSet = new Set(props)
+  const orphans = lengthProps.filter(p => !cssSet.has(p))
   if (orphans.length > 0) {
     throw new Error(
-      `Length properties absent from the CSS property set: ${orphans.join(", ")}. ` +
-        "The two sets are generated from the same source and must stay consistent.",
-    );
+      `Length properties absent from the CSS property set: ${orphans.join(', ')}. ` +
+        'The two sets are generated from the same source and must stay consistent.',
+    )
   }
 
   // --- Sort-order verification -------------------------------------------
@@ -132,48 +118,42 @@ function main() {
     if (!/^[\x00-\x7f]*$/.test(p)) {
       throw new Error(
         `Non-ASCII CSS property name encountered: ${JSON.stringify(p)}. ` +
-          "JS UTF-16 sort order and Rust byte order are no longer " +
-          "guaranteed to match; codegen aborted.",
-      );
+          'JS UTF-16 sort order and Rust byte order are no longer ' +
+          'guaranteed to match; codegen aborted.',
+      )
     }
   }
 
   // Sort (defensively — the source script already sorts, but codegen must
   // not depend on that) and dedupe.
-  const sorted = [...new Set(props)].sort();
+  const sorted = [...new Set(props)].sort()
 
   // Sanity: JS sort must already be strictly ascending byte order for ASCII
   // input; verify before baking it into a Rust binary_search table.
   for (let i = 1; i < sorted.length; i++) {
     if (!(sorted[i - 1] < sorted[i])) {
-      throw new Error(
-        `Sort invariant violated at index ${i}: ${JSON.stringify(sorted[i - 1])} >= ${JSON.stringify(sorted[i])}`,
-      );
+      throw new Error(`Sort invariant violated at index ${i}: ${JSON.stringify(sorted[i - 1])} >= ${JSON.stringify(sorted[i])}`)
     }
   }
 
-  const sortedLengths = [...new Set(lengthProps)].sort();
+  const sortedLengths = [...new Set(lengthProps)].sort()
   for (let i = 1; i < sortedLengths.length; i++) {
     if (!(sortedLengths[i - 1] < sortedLengths[i])) {
-      throw new Error(
-        `Length sort invariant violated at index ${i}: ${JSON.stringify(sortedLengths[i - 1])} >= ${JSON.stringify(sortedLengths[i])}`,
-      );
+      throw new Error(`Length sort invariant violated at index ${i}: ${JSON.stringify(sortedLengths[i - 1])} >= ${JSON.stringify(sortedLengths[i])}`)
     }
   }
 
-  const rustFile = renderRust(sorted, sortedLengths);
+  const rustFile = renderRust(sorted, sortedLengths)
 
-  mkdirSync(dirname(OUT_PATH), { recursive: true });
-  writeFileSync(OUT_PATH, rustFile, "utf8");
+  mkdirSync(dirname(OUT_PATH), { recursive: true })
+  writeFileSync(OUT_PATH, rustFile, 'utf8')
 
-  console.log(
-    `Wrote ${sorted.length} CSS property names and ${sortedLengths.length} length properties to ${OUT_PATH.replace(REPO_ROOT + "/", "")}`,
-  );
+  console.log(`Wrote ${sorted.length} CSS property names and ${sortedLengths.length} length properties to ${OUT_PATH.replace(REPO_ROOT + '/', '')}`)
 }
 
 function renderRust(sorted: string[], sortedLengths: string[]): string {
-  const entries = sorted.map((p) => `    ${JSON.stringify(p)},`).join("\n");
-  const lengthEntries = sortedLengths.map((p) => `    ${JSON.stringify(p)},`).join("\n");
+  const entries = sorted.map(p => `    ${JSON.stringify(p)},`).join('\n')
+  const lengthEntries = sortedLengths.map(p => `    ${JSON.stringify(p)},`).join('\n')
 
   return `// @generated by scripts/codegen-css-set.ts — do not edit. Source: @meonode/ui css-properties.const.ts
 //
@@ -281,7 +261,7 @@ mod tests {
         assert!(!is_length_prop("opacity"));
     }
 }
-`;
+`
 }
 
-main();
+main()

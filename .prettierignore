@@ -1,0 +1,12 @@
+# Golden SWC input/output pairs: the fixture tests compare them byte for byte.
+packages/compiler/crates/**/tests/fixture/
+
+# Build output and files written by the compiler's test and e2e runs.
+packages/compiler/target/
+packages/compiler/tests/.tmp/
+packages/compiler/e2e/**/.next/
+packages/compiler/e2e/**/dist/
+packages/compiler/npm/*.wasm
+
+# Markdown is formatted by hand across the repository.
+*.md

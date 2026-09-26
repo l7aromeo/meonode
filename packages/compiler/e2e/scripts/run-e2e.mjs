@@ -99,10 +99,7 @@ async function buildTwice({ label, cwd, outDir, buildScript, noPluginScript, onD
 // bundlers report the whole package as unresolvable — "Module not found: Can't
 // resolve '@meonode/compiler'" — which says nothing about the actual cause.
 if (!existsSync(path.join(E2E_DIR, '../npm/meonode_swc_plugin.wasm'))) {
-  throw new Error(
-    'e2e needs the @meonode/compiler wasm artifact, which has not been built.\n' +
-      'Run `bun run build:compiler` from the repo root first.',
-  )
+  throw new Error('e2e needs the @meonode/compiler wasm artifact, which has not been built.\n' + 'Run `bun run build:compiler` from the repo root first.')
 }
 
 const uiTarball = await packWorkspaceUi()
@@ -120,11 +117,7 @@ await overlayUi(NEXT_APP_DIR, uiTarball)
 // on each `bun install`. @meonode/ui doesn't need this: it is a registry
 // dependency installed as a normal package directory, which `overlayUi` then
 // replaces with the packed workspace build.
-run(
-  'node',
-  [path.join(SCRIPTS_DIR, 'link-local-packages.mjs'), 'node_modules/@meonode/compiler', '../../npm'],
-  NEXT_APP_DIR,
-)
+run('node', [path.join(SCRIPTS_DIR, 'link-local-packages.mjs'), 'node_modules/@meonode/compiler', '../../npm'], NEXT_APP_DIR)
 
 console.log('\n=== bun install: e2e/vite-app ===')
 run('bun', ['install'], VITE_APP_DIR)
