@@ -31,6 +31,7 @@ import StyledRenderer from '@src/components/styled-renderer.client.js'
 import MeoMemo from '@src/components/meo-memo.client.js'
 import { LIST_MARKER, LOCATION_MARKER } from '@src/constant/common.const.js'
 import { NodeUtil } from '@src/util/node.util.js'
+import { IS_REACT_SERVER_LAYER } from '@src/util/react-layer.util.js'
 import { compileServerEmotionRule } from '@src/util/server-emotion.util.js'
 import { getActiveServerTheme, replaceThemeTokensWithCssVars, setActiveServerTheme } from '@src/util/server-theme.util.js'
 import { diagnosticsEnabled, reportThemeIssues } from '@src/util/theme-diagnostics.util.js'
@@ -605,7 +606,15 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
             // StyledRenderer handles SSR hydration and emotion CSS injection when css prop exists or element has style tags.
             // All element-shape decisions use `renderTarget` so an `as` swap is honored consistently.
             const isStyledComponent = !disableEmotion && (css || !hasNoStyleTag(renderTarget)) && Object.keys(css || {}).length > 0
-            const shouldBypassStyledRendererOnServer = NodeUtil.isServer && typeof renderTarget !== 'string'
+            // A function component rendered on the server never reaches the client
+            // as itself, and neither does a host tag in the RSC layer: its output
+            // is final there, so its css is compiled to a class name here rather
+            // than handed to `StyledRenderer`, whose css prop would be serialised
+            // into the flight payload. A host tag rendered anywhere else — a client
+            // component's server render, or a server render outside RSC — is
+            // hydrated by the client through `StyledRenderer`, so it takes that
+            // path on the server too.
+            const shouldBypassStyledRendererOnServer = NodeUtil.isServer && (typeof renderTarget !== 'string' || IS_REACT_SERVER_LAYER)
             // Keep server/client on the same StyledRenderer path for client references.
             // This avoids Emotion hash drift not only for theme tokens, but also for raw
             // CSS values (e.g. "red", "#ff0000") that would otherwise use different

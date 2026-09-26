@@ -348,3 +348,114 @@ describe.each(['cc', 'plain'] as const)('server-compiled rules and the tree arou
     expect(await slottedTag(path)).toBeUndefined()
   })
 })
+
+describe.each(['cc', 'plain'] as const)('host tags rendered by a server component (%s)', variant => {
+  let browser: Browser | null = null
+  beforeAll(async () => {
+    browser = await chromium.launch({ headless: true })
+  })
+  afterAll(async () => {
+    await browser?.close()
+  })
+
+  const html = async (path: string) => (await fetch(`http://localhost:${port(variant)}${path}`)).text()
+  /** The RSC payload as the page streams it: the string bodies of every flight push. */
+  const flightOf = (page: string) => [...page.matchAll(/self\.__next_f\.push\(\[1,"((?:[^"\\]|\\.)*)"\]\)/g)].map(match => match[1]).join('')
+  /** Rows carrying a server-compiled class. A host whose only child was text renders `text<!-- -->` once its rules follow it. */
+  const classedRows = (page: string) => page.match(/<div[^>]*class="[^"]*meonode-css-[a-z0-9]+[^"]*"[^>]*>Row \d+(<!-- -->)?<\/div>/g)?.length ?? 0
+
+  /**
+   * The payload is the point of compiling these on the server: a host tag handed
+   * to `StyledRenderer` puts that client component and its whole css object into
+   * the flight payload for every element. Compiled here, it carries a class name
+   * and one rule, and no reference to the client component at all.
+   */
+  it.each(['/host-tags/payload', '/host-tags/payload-per-root'])('carries class names and rules, not css objects (%s)', async path => {
+    const page = await html(path)
+    const flight = flightOf(page)
+    const { undefinedClasses } = await styles(variant, path)
+
+    expect(classedRows(page)).toBe(200)
+    expect(undefinedClasses).toEqual([])
+    expect(flight).not.toContain('styled-renderer')
+    expect(flight).not.toContain('\\"borderRadius\\":6')
+  })
+
+  it('keeps a pseudo-class, a media query and a theme token working', async () => {
+    const page = await browser!.newPage({ viewport: { width: 800, height: 600 } })
+    try {
+      await page.goto(`http://localhost:${port(variant)}/host-tags/hover`, { waitUntil: 'networkidle' })
+      const target = page.locator('[data-testid="hover"]')
+      const read = () =>
+        target.evaluate(element => ({
+          color: getComputedStyle(element).color,
+          paddingLeft: getComputedStyle(element).paddingLeft,
+          border: getComputedStyle(element).borderTopColor,
+        }))
+
+      const wide = await read()
+      await target.hover()
+      const hovered = await read()
+      await page.setViewportSize({ width: 400, height: 600 })
+      await page.mouse.move(0, 0)
+      const narrow = await read()
+
+      expect(wide).toEqual({ color: 'rgb(106, 4, 15)', paddingLeft: '17px', border: 'rgb(0, 128, 0)' })
+      expect(hovered.color).toBe('rgb(0, 0, 255)')
+      expect(narrow.paddingLeft).toBe('0px')
+    } finally {
+      await page.close()
+    }
+  })
+
+  /**
+   * A server component whose output is one styled host element reaches the client
+   * as that element, so a parent cloning its child still can. The host carries
+   * its own rule in its children; nothing wraps it.
+   */
+  it('lets a slot clone a styled host root', async () => {
+    const page = await html('/host-tags/slot-host')
+    const element = page.match(/<button\b[^>]*\bdata-testid="slotted"[^>]*>/)?.[0] ?? 'not rendered'
+    const { classes, undefinedClasses } = await styles(variant, '/host-tags/slot-host')
+
+    expect(element).toMatch(/\bdata-cloned="yes"/)
+    expect(classes).toHaveLength(1)
+    expect(undefinedClasses).toEqual([])
+  })
+
+  /**
+   * A client component's host tags keep `StyledRenderer` on the server, because
+   * the browser renders them that way when it hydrates. `/host-tags/client-mismatch`
+   * is the control: it renders different text on each side, so a hydration error
+   * must be seen there, or silence on `/host-tags/client` would mean nothing.
+   */
+  const hydrate = async (path: string) => {
+    const page = await browser!.newPage()
+    const errors: string[] = []
+    page.on('console', message => message.type() === 'error' && errors.push(message.text()))
+    page.on('pageerror', error => errors.push(error.message))
+    try {
+      const served = await html(path)
+      await page.goto(`http://localhost:${port(variant)}${path}`, { waitUntil: 'networkidle' })
+      const hydrated = await page.locator('[data-testid]').first().getAttribute('class')
+      const servedClass = served.match(/data-testid="client-[a-z-]+"[^>]*class="([^"]*)"|class="([^"]*)"[^>]*data-testid="client-[a-z-]+"/)
+      // A production build reports hydration failures as minified React errors
+      // (react.dev/errors/418 and its neighbours), not as the development text.
+      const hydrationError = /hydrat|react\.dev\/errors\/(418|419|423|425)|Minified React error #(418|419|423|425)/i
+      return { errors: errors.filter(text => hydrationError.test(text)), hydrated, served: servedClass?.[1] ?? servedClass?.[2] }
+    } finally {
+      await page.close()
+    }
+  }
+
+  it('hydrates a client component’s host tags with no mismatch', async () => {
+    const result = await hydrate('/host-tags/client')
+
+    expect(result.errors).toEqual([])
+    expect(result.hydrated).toBe(result.served)
+  })
+
+  it('does report a mismatch where there is one', async () => {
+    expect((await hydrate('/host-tags/client-mismatch')).errors.length).toBeGreaterThan(0)
+  })
+})
