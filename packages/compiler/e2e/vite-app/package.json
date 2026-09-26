@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.0.1",
   "type": "module",
-  "description": "E2E fixture: Vite + @vitejs/plugin-react-swc page compiled with @meonode/compiler, used to check plugin-on vs plugin-off render parity (Task 12).",
+  "description": "E2E fixture: Vite + @vitejs/plugin-react-swc page compiled with @meonode/compiler, used to check plugin-on vs plugin-off render parity.",
   "scripts": {
     "build": "vite build",
     "build:no-plugin": "MEONODE_COMPILER=0 vite build"

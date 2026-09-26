@@ -2,7 +2,7 @@
   "name": "@meonode/e2e-next-app",
   "private": true,
   "version": "0.0.1",
-  "description": "E2E fixture: Next.js 16 (Turbopack) app-router page compiled with @meonode/compiler, used to check plugin-on vs plugin-off HTML parity (Task 12).",
+  "description": "E2E fixture: Next.js 16 (Turbopack) app-router page compiled with @meonode/compiler, used to check plugin-on vs plugin-off HTML parity.",
   "scripts": {
     "build": "next build",
     "build:webpack": "next build --webpack",

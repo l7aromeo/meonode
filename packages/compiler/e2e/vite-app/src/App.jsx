@@ -1,4 +1,4 @@
-// Shared test tree (Task 12) — kept identical in e2e/next-app/app/page.jsx so
+// Shared test tree — kept identical in e2e/next-app/app/page.jsx so
 // the two fixtures exercise the same shape:
 //   - static styles              (Div/P/Span literal CSS props)
 //   - dynamic values             (identifier + arrow-function onClick)
