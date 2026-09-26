@@ -12,7 +12,7 @@
 // is not rewritten by the compiler, so its call sites arrive flat in both modes,
 // and the one shape the compiler can produce for them — a bucketed call from a
 // module registered in `factoryModules` — is built here by hand from the shape
-// the compiler was measured to emit for `Div`.
+// the compiler emits for `Div`.
 import { renderToString } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import { css as emotionCss } from '@emotion/react'
@@ -112,33 +112,66 @@ describe('createNode: a call-site css extends the factory css', () => {
     expect(css).toContain('@supports not (backdrop-filter: blur(1px))')
   })
 
-  it('passes a call-site css that is not a plain object through untouched', () => {
-    // Only two plain objects can be merged key by key. Anything else — here an
-    // Emotion `css()` result — is left exactly as the call site wrote it, which
-    // means the factory's rules are *not* kept in this case. That is today's
-    // behaviour, kept on purpose rather than endorsed: the only way to combine
-    // the two would be to hand Emotion an array, and the runtime currently
-    // spreads an array `css` into an object keyed "0", "1"… so composing would
-    // emit rules for descendant selectors that never match. What is asserted is
-    // the part this change owns — the merge does not mangle a value it cannot
-    // merge.
-    const Card = createNode('div', { css: { '&:hover': { color: 'blue' } } })
-
-    expect(cssOf(Card({ css: emotionCss({ margin: 4 }) as never, children: 'x' }))).toContain('margin:4px')
-  })
-
-  it('keeps a factory css() result from swallowing the call site', () => {
-    // The case that shows why `css()` output is not merged. It is a plain object
-    // literal, so a merge would happily build `{ name, styles, …, margin }` — and
-    // Emotion serialises any object carrying a `styles` string by using that
-    // string alone. The call site's rules, and the defaults the runtime adds,
-    // would vanish. Left unmerged, the call site wins exactly as it did before
-    // this change: this output is byte-identical to the unfixed runtime's.
-    const Card = createNode('div', { css: emotionCss({ padding: 24 }) as never })
-    const css = cssOf(Card({ css: { margin: 4 }, children: 'x' }))
+  // Only two plain maps merge key by key. Any other pair is composed as
+  // `[factoryCss, callSiteCss]`, so the factory's rules are kept and the call
+  // site, serialised after them, wins a conflict.
+  it('composes a call-site css() result after the factory css', () => {
+    const Card = createNode('div', { css: { '&:hover': { color: 'blue' }, color: 'green' } })
+    const css = cssOf(Card({ css: emotionCss({ margin: 4, color: 'red' }) as never, children: 'x' }))
 
     expect(css).toContain('margin:4px')
+    expect(css).toMatch(/:hover\{color:blue;\}/)
+    expect(css.lastIndexOf('color:red')).toBeGreaterThan(css.lastIndexOf('color:green'))
+  })
+
+  it('composes a factory css() result before the call-site css', () => {
+    // A `css()` result is a plain object literal too, but merging into one would
+    // build `{ name, styles, …, margin }`, and Emotion serialises any object
+    // carrying a `styles` string from that string alone. Composed, both apply,
+    // along with the defaults the runtime adds.
+    const Card = createNode('div', { css: emotionCss({ padding: 24, color: 'green' }) as never })
+    const css = cssOf(Card({ css: { margin: 4, color: 'red' }, children: 'x' }))
+
+    expect(css).toContain('padding:24px')
+    expect(css).toContain('margin:4px')
     expect(css).toContain('min-width:0')
+    expect(css.lastIndexOf('color:red')).toBeGreaterThan(css.lastIndexOf('color:green'))
+  })
+
+  it('composes a call-site array after the factory css', () => {
+    const Card = createNode('div', { css: FACTORY_CSS })
+    const css = cssOf(Card({ css: [{ margin: 4 }, { '&:focus': { color: 'red' } }] as never, children: 'x' }))
+
+    expect(css).toContain('margin:4px')
+    expect(css).toMatch(/:focus\{color:red;\}/)
+    expect(css).toMatch(/:hover\{color:blue;\}/)
+    expect(css).toContain('@supports not (backdrop-filter: blur(1px))')
+  })
+
+  it('composes a call-site theme function after the factory css', () => {
+    const Card = createNode('div', { css: FACTORY_CSS })
+    const css = cssOf(
+      ThemeProvider({
+        tokens: { colors: { accent: 'green' } },
+        modes: ['light'],
+        defaultMode: 'light',
+        children: Card({
+          css: ((theme: { system: { colors: { accent: string } } }) => ({ margin: 4, color: theme.system.colors.accent })) as never,
+          children: 'x',
+        }),
+      } as never),
+    )
+
+    expect(css).toContain('margin:4px')
+    expect(css).toMatch(/:hover\{color:blue;\}/)
+  })
+
+  it('leaves the factory css out when the call site sets css to false', () => {
+    // `css: active && { … }` styles nothing when `active` is false, and replaces
+    // the factory's value as a flat prop set to `false` would.
+    const Card = createNode('div', { css: { '&:hover': { color: 'blue' } } })
+
+    expect(cssOf(Card({ css: false as never, children: 'x' }))).not.toContain(':hover')
   })
 
   it('leaves the factory css alone when the call site has none', () => {
@@ -157,7 +190,7 @@ describe('createNode: a call-site css extends the factory css', () => {
 
   it('merges a call site that arrives already partitioned by the compiler', () => {
     // The shape `@meonode/compiler` emits for a call to a registered factory,
-    // copied from its measured output for `Div`: flat CSS props in `__meo$c`,
+    // copied from its output for `Div`: flat CSS props in `__meo$c`,
     // DOM props in `__meo$d`, and `css` left top-level as a plain object.
     const Card = createNode('div', { padding: 24, css: FACTORY_CSS })
     const css = cssOf(
