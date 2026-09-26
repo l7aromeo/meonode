@@ -1,6 +1,6 @@
 // @vitest-environment node
 //
-// Where a server-compiled rule goes when no registry scope is open, and so
+// Where a server-compiled rule goes in the React Server Components layer, where
 // nothing else will emit it: into the children of the topmost host above the
 // element that uses it, in the same `.render()` call, as one trailing slot of
 // hoisted `<style href precedence>` elements.
@@ -11,10 +11,32 @@
 // the one element it would be without them, so a parent that clones or checks
 // its child still receives it. Every render carries each rule it compiled; a
 // render that is never shown takes only its own copy with it.
+//
+// The layer is recognised by the React build it loads, which has no `useState`;
+// `react` is replaced with the client build minus `useState`, and a `cache` that
+// memoizes for one test at a time, as the `react-server` build's does for one
+// request.
 import { cloneElement, createElement, Fragment, type ReactElement, type ReactNode } from 'react'
 import { renderToString } from 'react-dom/server'
-import { describe, expect, it } from 'vitest'
-import { createNode, Div, Node, Svg } from '@src/main.js'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+const request = vi.hoisted(() => ({ values: new Map<unknown, unknown>() }))
+
+vi.mock('react', async importOriginal => {
+  const actual = (await importOriginal()) as Record<string, unknown>
+  const { useState: _useState, ...serverBuild } = actual
+  const cache = (fn: () => unknown) => () => {
+    if (!request.values.has(fn)) request.values.set(fn, fn())
+    return request.values.get(fn)
+  }
+  return { ...serverBuild, cache }
+})
+
+beforeEach(() => {
+  request.values = new Map()
+})
+
+const { createNode, Div, Node, Svg } = await import('@src/main.js')
 
 /** A plain server function component: its css reaches it as a compiled class name. */
 function ServerRow(props: { children?: ReactNode; className?: string }) {
@@ -40,7 +62,7 @@ const slotOf = (element: Element) => childrenOf(element).at(-1) as Element[]
 
 const rows = () => [Row({ key: 'a', css: SHARED, children: 'a' }), Row({ key: 'b', css: SHARED, children: 'b' })]
 
-describe('a server-compiled rule with no registry scope open', () => {
+describe('a server-compiled rule in the RSC layer', () => {
   it('is carried in the children of the host root, which stays that one element', () => {
     const root = Div({ key: 'list', id: 'rows', children: rows() }).render() as Element
 
