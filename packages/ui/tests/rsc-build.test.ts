@@ -493,3 +493,21 @@ describe.each(['cc', 'plain'] as const)('host tags rendered by a server componen
     expect(result.hydrated).toBe(result.served)
   })
 })
+
+// A render prop given as the only child of an HTML element is resolved on the
+// server, as one inside a children array is; a component beside it still receives
+// its render prop to call itself. Prerendered, and at request time inside a
+// streamed boundary.
+describe.each(['cc', 'plain'] as const)('a render prop as the only child of an HTML element (%s)', variant => {
+  it.each(['/render-prop', '/render-prop/request-time'])('renders its result at %s', async route => {
+    const response = await fetch(`http://localhost:${port(variant)}${route}`)
+    const html = await response.text()
+    expect(response.status).toBe(200)
+    // Production scrubs the server error to a digest, carried as an error entry in
+    // the flight payload; the message itself only reaches the server log.
+    expect(html).not.toMatch(/E\{\\"digest\\"/)
+    for (const testid of ['bare-plain', 'bare-styled', 'component-target']) expect(html).toContain(`data-testid="${testid}"`)
+    for (const text of ['from a render prop', 'from a styled host', 'from the component']) expect(html).toContain(text)
+    expect((await styles(variant, route)).undefinedClasses).toEqual([])
+  })
+})
