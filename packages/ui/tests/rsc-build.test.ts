@@ -302,3 +302,38 @@ describe.each(['cc', 'plain'] as const)('a refresh that moves a rule’s first o
     }
   })
 })
+
+describe.each(['cc', 'plain'] as const)('server-compiled rules and the tree around them (%s)', variant => {
+  const hiddenPanel = async (path: string) => {
+    const page = await styles(variant, path)
+    expect(page.classes).toHaveLength(1)
+    expect(page.undefinedClasses).toEqual([])
+  }
+
+  /**
+   * A render can be handed to a client component that never renders it — a
+   * closed dialog, an inactive tab. Whatever it shares a rule with must still
+   * find that rule on the page. `/hidden-panel-open` is the same page with the
+   * panel rendered.
+   */
+  it('a visible element has its rule when the panel sharing it is rendered', () => hiddenPanel('/hidden-panel-open'))
+  it.fails('a visible element keeps its rule when a panel sharing it is never rendered', () => hiddenPanel('/hidden-panel'))
+
+  /**
+   * A server component whose output is one styled element must reach the client
+   * as that element, so a parent that clones its child — an `asChild` slot —
+   * still can. `/slot-root-bare` has no css; `/slot-void` puts a void element at
+   * the root, which can hold no children.
+   */
+  const slotted = async (path: string, classes: number) => {
+    const html = await (await fetch(`http://localhost:${port(variant)}${path}`)).text()
+    const element = html.match(/<(?:button|input)\b[^>]*\bdata-testid="slotted"[^>]*>/)?.[0] ?? 'not rendered'
+    expect(element).toMatch(/\bdata-cloned="yes"/)
+    const page = await styles(variant, path)
+    expect(page.classes).toHaveLength(classes)
+    expect(page.undefinedClasses).toEqual([])
+  }
+
+  it('a slot can clone an unstyled server component', () => slotted('/slot-root-bare', 0))
+  it.fails.each(['/slot-root', '/slot-void'])('a slot can clone a styled server component (%s)', path => slotted(path, 1))
+})
