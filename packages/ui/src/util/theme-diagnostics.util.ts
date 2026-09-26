@@ -300,6 +300,24 @@ export const reportThemeIssues = (value: unknown, theme: Theme | undefined, prop
   }
 }
 
+/**
+ * A theme function (`theme => …`) in a style reached with no theme to call it with,
+ * and was dropped. Without this the author sees only a missing style: the function
+ * used to be stringified into the stylesheet instead, which the browser discarded.
+ * Reported once per property.
+ * @param property The CSS property the function was written against, when known.
+ */
+export const reportDroppedThemeFunction = (property?: string): void => {
+  if (!diagnosticsEnabled()) return
+  const seenKey = `dropped-function:${property ?? ''}`
+  if (reported.has(seenKey)) return
+  reported.add(seenKey)
+  console.warn(
+    `[MeoNode] A theme function ${property ? `for \`${property}\` ` : ''}was dropped because no ThemeProvider is above this node. ` +
+      `Theme functions (\`theme => …\`) only run under a provider: render the tree inside ThemeProvider, or write the value directly.`,
+  )
+}
+
 /** Test seam: clears the once-per-problem memo. */
 export const __resetThemeDiagnostics = (): void => {
   reported.clear()

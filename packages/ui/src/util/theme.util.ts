@@ -2,6 +2,8 @@ import type { CSSProperties } from '@emotion/serialize'
 import type { CssProp, Theme } from '@src/types/node.type.js'
 import { getValueByPath } from '@src/helper/common.helper.js'
 import { isLengthProperty, isSelectorOrAtRule, lengthVarRef } from '@src/util/css-unit.util.js'
+import { isMergeableCss } from '@src/util/css.util.js'
+import { reportDroppedThemeFunction } from '@src/util/theme-diagnostics.util.js'
 
 interface FlexComponents {
   grow: number
@@ -147,6 +149,75 @@ function scanForThemeWork(value: unknown, processFunctions: boolean, depth: numb
   return SCAN_NO_WORK
 }
 
+/**
+ * Whether a style holds a function anywhere, without allocating. Walks what
+ * {@link dropThemeFunctions} walks — plain objects and arrays — so a `false`
+ * here means that walk would return its input unchanged.
+ */
+function containsFunction(value: unknown, depth: number): boolean {
+  if (typeof value === 'function') return true
+  if (typeof value !== 'object' || value === null) return false
+  if (depth >= SCAN_MAX_DEPTH) return true
+  if (Array.isArray(value)) {
+    for (let i = 0; i < value.length; i++) if (containsFunction(value[i], depth + 1)) return true
+    return false
+  }
+  if (!ThemeUtil.isPlainObject(value)) return false
+  for (const key in value) {
+    if (Object.prototype.hasOwnProperty.call(value, key) && containsFunction(value[key], depth + 1)) return true
+  }
+  return false
+}
+
+/**
+ * Removes theme functions from a style that has no theme to call them with: an
+ * object key holding one is deleted, an array item is left out. Copy-on-write, so
+ * untouched containers keep their reference and a style with no functions comes
+ * back as the same object.
+ *
+ * Left in place, Emotion stringifies a function under an object key — the
+ * function's source text lands in the stylesheet — and calls one in an array with
+ * its own empty theme, which throws for any function that reads a token.
+ */
+const dropThemeFunctions = <T>(value: T, property?: string, path: Set<unknown> = new Set()): T => {
+  if ((!ThemeUtil.isPlainObject(value) && !Array.isArray(value)) || path.has(value)) return value
+  path.add(value)
+  let changed = false
+  let result: unknown
+  if (Array.isArray(value)) {
+    const items: unknown[] = []
+    for (const item of value) {
+      if (typeof item === 'function') {
+        reportDroppedThemeFunction(property)
+        changed = true
+        continue
+      }
+      const next = dropThemeFunctions(item, property, path)
+      if (next !== item) changed = true
+      items.push(next)
+    }
+    result = items
+  } else {
+    const obj: Record<string, unknown> = {}
+    for (const key in value as Record<string, unknown>) {
+      if (!Object.prototype.hasOwnProperty.call(value, key)) continue
+      const item = (value as Record<string, unknown>)[key]
+      const itemProperty = isSelectorOrAtRule(key) ? property : key
+      if (typeof item === 'function') {
+        reportDroppedThemeFunction(itemProperty)
+        changed = true
+        continue
+      }
+      const next = dropThemeFunctions(item, itemProperty, path)
+      if (next !== item) changed = true
+      obj[key] = next
+    }
+    result = obj
+  }
+  path.delete(value)
+  return (changed ? result : value) as T
+}
+
 /** A non-negative `<number>`: the only form `flex-grow` and `flex-shrink` accept. */
 const FLEX_FACTOR = /^\+?(\d+\.?\d*|\.\d+)(e[+-]?\d+)?$/
 
@@ -178,6 +249,19 @@ const splitFlexTokens = (value: string): string[] | null => {
   if (depth !== 0) return null
   if (current) tokens.push(current)
   return tokens
+}
+
+/**
+ * Shallow-merges the entries of a composed `css` that are maps, in order and
+ * through nested arrays, so the layout context of the whole can be read. Strings,
+ * functions and `css()` results are skipped: they cannot be read as properties.
+ */
+const mergeCssMaps = (entries: readonly unknown[], into: CSSProperties = {}): CSSProperties => {
+  for (const entry of entries) {
+    if (Array.isArray(entry)) mergeCssMaps(entry, into)
+    else if (isMergeableCss(entry)) Object.assign(into, entry)
+  }
+  return into
 }
 
 export class ThemeUtil {
@@ -283,8 +367,13 @@ export class ThemeUtil {
   ): O => {
     const { processFunctions = false, themeStringsMode = 'resolve' } = options
 
-    if (!theme || !theme.system || typeof theme.system !== 'object' || isEmptyObject(theme.system) || !obj || isEmptyObject(obj)) {
-      return obj
+    if (!obj || isEmptyObject(obj)) return obj
+
+    // No theme to call a theme function with. It is dropped rather than left for
+    // Emotion, which would print its source into the stylesheet. `containsFunction`
+    // keeps the common case — a style with no functions — allocation-free.
+    if (!theme || !theme.system || typeof theme.system !== 'object' || isEmptyObject(theme.system)) {
+      return processFunctions && containsFunction(obj, 0) ? dropThemeFunctions(obj) : obj
     }
 
     const themeSystem = theme.system
@@ -342,7 +431,23 @@ export class ThemeUtil {
           let newArray: unknown[] | null = null
           for (let i = 0; i < currentValue.length; i++) {
             const item = currentValue[i]
-            const resolvedItem = resolvedValues.get(item) ?? item
+            // Strings and functions are resolved here as well as under object keys. An
+            // array is either a composed `css` (`[flatCssProps, css]`, where items are
+            // whole style values) or a fallback list under one property; the server
+            // converts string items in both, so the client must too or the class hash
+            // differs. No property is passed, matching the server's conversion.
+            let resolvedItem = resolvedValues.get(item) ?? item
+            if (typeof item === 'function' && processFunctions) {
+              const funcResult = (item as (theme: Theme) => unknown)(theme)
+              resolvedItem =
+                typeof funcResult === 'string'
+                  ? funcResult.includes('theme.')
+                    ? processThemeString(funcResult, themeStringsMode === 'vars', themeSystem)
+                    : funcResult
+                  : ThemeUtil.resolveObjWithTheme(funcResult as Record<string, unknown>, theme, options)
+            } else if (typeof item === 'string' && item.includes('theme.')) {
+              resolvedItem = processThemeString(item, themeStringsMode === 'vars', themeSystem)
+            }
             if (resolvedItem !== item) {
               if (newArray === null) newArray = [...currentValue] // Copy-on-write
               newArray[i] = resolvedItem
@@ -452,6 +557,19 @@ export class ThemeUtil {
    * // → { display: 'flex', flexWrap: 'wrap', minHeight: 0, minWidth: 0 }
    */
   public static resolveDefaultStyle = (style: CssProp) => {
+    // A composed `css` (`[flatCssProps, css]`, see `NodeUtil.isSpreadableCss`). Its
+    // entries cannot be spread into one object — that is the bug the array exists to
+    // avoid — so the defaults go in front as their own layer, and every declaration
+    // the author wrote follows and wins, including ones inside a string or a `css()`
+    // result that the context below cannot see. The layout context is read from the
+    // entries that are maps.
+    if (Array.isArray(style)) {
+      const context = mergeCssMaps(style)
+      const { flexShrink } = ThemeUtil.resolveDefaultStyle(context as CssProp) as CSSProperties
+      const hasExplicitFlexShrink = context.flexShrink !== undefined
+      return [{ flexShrink: hasExplicitFlexShrink ? undefined : flexShrink, minHeight: 0, minWidth: 0 }, ...style]
+    }
+
     if (style === null || style === undefined || typeof style === 'string' || typeof style === 'number' || typeof style === 'boolean') return {}
 
     // === STEP 1: EXTRACT FLEX PROPERTY ===
