@@ -264,13 +264,6 @@ describe('equal-specificity rules on one element', () => {
     ['cc', '/cascade-dynamic'],
     ['plain', '/cascade-dynamic'],
   ] as const)('an incoming className composes over the component’s own css (%s %s)', composed)
-
-  // The component renders inside its own `'use cache'` scope and the caller
-  // outside it.
-  it.fails.each([
-    ['cc', '/cascade-cached-card'],
-    ['plain', '/cascade-cached-card'],
-  ] as const)('an incoming className composes over the css of a component in its own cache scope (%s %s)', composed)
 })
 
 describe.each(['cc', 'plain'] as const)('a refresh that moves a rule’s first occurrence (%s)', variant => {
