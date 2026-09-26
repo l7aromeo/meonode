@@ -579,3 +579,66 @@ describe.each(['cc', 'plain'] as const)('a render prop as the only child of an H
     expect((await styles(variant, route)).undefinedClasses).toEqual([])
   })
 })
+
+describe.each(['cc', 'plain'] as const)('a theme token in an at-rule condition or a selector (%s)', variant => {
+  let browser: Browser | null = null
+  beforeAll(async () => {
+    browser = await chromium.launch({ headless: true })
+  })
+  afterAll(async () => {
+    await browser?.close()
+  })
+
+  // `/themed-at-rules/client` renders the same tree from a client component,
+  // which reads the theme from context: the control.
+  const PATHS = ['/themed-at-rules/client', '/themed-at-rules', '/themed-at-rules/request-time'] as const
+
+  /**
+   * A condition needs the token's concrete value: `var()` is not valid inside a
+   * media, container or supports feature, nor in selector text. The theme is
+   * provided from a client component, so the server has only the tokens'
+   * values to resolve them with.
+   */
+  it.each(PATHS)('writes the concrete value into every prelude, and no token into any style (%s)', async path => {
+    const html = await (await fetch(`http://localhost:${port(variant)}${path}`)).text()
+    const css = [...html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].map(match => match[1]).join('\n')
+    expect(css).not.toContain('theme.')
+    expect(css).toMatch(/@media \(width ?>= ?1000px\)/)
+    expect(css).toMatch(/@container \(min-width: ?1000px\)/)
+    expect(css).toMatch(/@supports \(width: ?1000px\)/)
+    expect(css).toMatch(/\[data-size="1000px"\]/)
+  })
+
+  /** What each themed rule does to the element, read from the CSSOM at one viewport width. */
+  async function applied(path: string, width: number) {
+    const page = await browser!.newPage({ viewport: { width, height: 800 } })
+    try {
+      await page.goto(`http://localhost:${port(variant)}${path}`, { waitUntil: 'networkidle' })
+      return await page.$$eval('[data-case]', elements =>
+        Object.fromEntries(
+          elements.map(element => {
+            const style = getComputedStyle(element)
+            return [
+              element.getAttribute('data-case'),
+              {
+                media: style.color === 'rgb(220, 20, 60)',
+                container: style.backgroundColor === 'rgb(0, 0, 255)',
+                supports: style.borderLeftWidth === '7px',
+                selector: style.letterSpacing === '3px',
+              },
+            ]
+          }),
+        ),
+      )
+    } finally {
+      await page.close()
+    }
+  }
+
+  it.each(PATHS)('applies every themed rule at a wide viewport, and the width conditions only there (%s)', async path => {
+    const wide = { media: true, container: true, supports: true, selector: true }
+    const narrow = { media: false, container: false, supports: true, selector: true }
+    expect(await applied(path, 1280)).toEqual({ host: wide, fn: wide })
+    expect(await applied(path, 800)).toEqual({ host: narrow, fn: narrow })
+  })
+})
