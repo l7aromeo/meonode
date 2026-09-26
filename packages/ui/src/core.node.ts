@@ -33,7 +33,7 @@ import { LIST_MARKER, LOCATION_MARKER } from '@src/constant/common.const.js'
 import { NodeUtil } from '@src/util/node.util.js'
 import { IS_REACT_SERVER_LAYER } from '@src/util/react-layer.util.js'
 import { compileServerEmotionRule } from '@src/util/server-emotion.util.js'
-import { getActiveServerTheme, replaceThemeTokensWithCssVars, setActiveServerTheme } from '@src/util/server-theme.util.js'
+import { replaceThemeTokensWithCssVars } from '@src/util/server-theme.util.js'
 import { diagnosticsEnabled, reportThemeIssues } from '@src/util/theme-diagnostics.util.js'
 import { ThemeUtil } from '@src/util/theme.util.js'
 
@@ -236,19 +236,6 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
     this.element = element
     this.rawProps = rawProps
     this._deps = deps
-
-    if (NodeUtil.isServer && NodeUtil.providesServerTheme(element)) {
-      const themeCandidate = (rawProps as { theme?: unknown }).theme
-      if (themeCandidate && typeof themeCandidate === 'object' && 'system' in (themeCandidate as object)) {
-        const resolvedTheme = themeCandidate as Theme
-        // Only the *active theme* is tracked globally, for server-side
-        // `theme.*` token -> `var(--meonode-theme-*)` resolution. The variable
-        // definitions themselves are emitted by ThemeProvider's own render
-        // output; they are deliberately not accumulated here, since a
-        // process-global map is shared across concurrent SSR requests.
-        setActiveServerTheme(resolvedTheme)
-      }
-    }
   }
 
   /**
@@ -359,7 +346,7 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
           if (candidate && typeof candidate === 'object' && 'system' in (candidate as object)) {
             return candidate as Theme
           }
-          return current ?? getActiveServerTheme()
+          return current
         }
 
         if (!isProcessed) {
