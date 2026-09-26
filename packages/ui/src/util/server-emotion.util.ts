@@ -5,8 +5,21 @@ import { serializeStyles } from '@emotion/serialize'
 import { insertStyles } from '@emotion/utils'
 import { getGlobalState } from '@src/helper/common.helper.js'
 import type { CssProp } from '@src/types/node.type.js'
+import { IS_REACT_SERVER_LAYER } from '@src/util/react-layer.util.js'
 
 const SERVER_EMOTION_CACHE_KEY = Symbol.for('@meonode/ui/serverEmotionCache')
+const SERVER_EMOTION_DEFAULT_KEY_CACHE_KEY = Symbol.for('@meonode/ui/serverEmotionDefaultKeyCache')
+
+/**
+ * The key for a cache no `StyleRegistry` scope provides.
+ *
+ * Outside the React Server Components layer a server-rendered component is
+ * rendered again on the client, by `StyledRenderer` through Emotion, which with
+ * no `CacheProvider` above it uses its default cache, keyed `css`. The server
+ * uses the same key so both produce the same class. Inside that layer the
+ * component never renders on the client, and the package's own key is kept.
+ */
+const UNSCOPED_CACHE_KEY = IS_REACT_SERVER_LAYER ? 'meonode-css' : 'css'
 const SERVER_EMOTION_RULES_KEY = Symbol.for('@meonode/ui/serverEmotionRules')
 
 interface ServerEmotionRulesState {
@@ -84,7 +97,11 @@ export function endServerEmotionScope(scope: ServerEmotionScope): void {
 }
 
 export function getServerEmotionCache(): EmotionCache {
-  return activeScope?.cache ?? getGlobalState(SERVER_EMOTION_CACHE_KEY, () => createCache({ key: 'meonode-css' }))
+  if (activeScope) return activeScope.cache
+  // One process-global per key: the React Server Components and server-rendering
+  // layers are separate module instances sharing `globalThis`, and each needs its
+  // own key.
+  return getGlobalState(IS_REACT_SERVER_LAYER ? SERVER_EMOTION_CACHE_KEY : SERVER_EMOTION_DEFAULT_KEY_CACHE_KEY, () => createCache({ key: UNSCOPED_CACHE_KEY }))
 }
 
 function getServerEmotionRulesState(): ServerEmotionRulesState {
@@ -156,7 +173,7 @@ export function claimServerRule(id: string): boolean {
  * returns the class whether or not it has the text.
  */
 const requestEmotionCache = requestCache(() => {
-  const emotionCache = createCache({ key: 'meonode-css' })
+  const emotionCache = createCache({ key: UNSCOPED_CACHE_KEY })
   emotionCache.compat = true
   return emotionCache
 })
