@@ -2,7 +2,7 @@
 '@meonode/ui': patch
 ---
 
-Stop the default `flex-shrink: 0` from overriding the `flex` shorthand.
+Stop the default `flex-shrink: 0` from overriding the `flex` shorthand (#33).
 
 A node that set `flex: '1 1 auto'` had `flex-shrink: 0` emitted after the
 shorthand, so it never shrank: a truncating label in a flex row pushed its
