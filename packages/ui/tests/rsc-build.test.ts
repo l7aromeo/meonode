@@ -663,3 +663,60 @@ describe.each(['cc', 'plain'] as const)('a theme token in an at-rule condition o
     )
   })
 })
+
+describe.each(['cc', 'plain'] as const)('providers rendered from a server component (%s)', variant => {
+  let browser: Browser | null = null
+  beforeAll(async () => {
+    browser = await chromium.launch({ headless: true })
+  })
+  afterAll(async () => {
+    await browser?.close()
+  })
+
+  /**
+   * A hook below a provider must find it whether the provider is rendered from a
+   * server component or a client one. Every page also renders a `'use cache'`
+   * function, and the probes are client modules importing the library. The
+   * probes catch a hook's missing-provider error and report `no-provider`, so
+   * `/providers/none` is a control that renders rather than fails.
+   */
+  const CASES = [
+    ['/providers/theme-server', { theme: 'dark' }],
+    ['/providers/theme-client', { theme: 'dark' }],
+    ['/providers/portal-server', { portal: 'provider' }],
+    ['/providers/portal-client', { portal: 'provider' }],
+    ['/providers/none', { theme: 'no-provider', portal: 'no-provider' }],
+  ] as const
+
+  const probes = (read: (name: 'theme' | 'portal') => string | null | undefined, expected: { theme?: string; portal?: string }) =>
+    Object.fromEntries(Object.keys(expected).map(name => [name, read(name as 'theme' | 'portal')]))
+
+  it.each(CASES)('renders the provider’s value into the server HTML (%s)', async (path, expected) => {
+    const response = await fetch(`http://localhost:${port(variant)}${path}`)
+    expect(response.status).toBe(200)
+    const html = await response.text()
+    expect(html).toContain('data-cached="yes"')
+    expect(probes(name => html.match(new RegExp(`data-${name}-probe="([^"]*)"`))?.[1], expected)).toEqual(expected)
+  })
+
+  it.each(CASES)('keeps it after hydration, with no console errors (%s)', async (path, expected) => {
+    const page = await browser!.newPage()
+    const errors: string[] = []
+    page.on('console', message => message.type() === 'error' && errors.push(message.text()))
+    page.on('pageerror', error => errors.push(String(error)))
+    try {
+      await page.goto(`http://localhost:${port(variant)}${path}`, { waitUntil: 'networkidle' })
+      if ('portal' in expected && expected.portal === 'provider') await page.waitForSelector('[data-portal-layer="open"]')
+      const seen = await page.evaluate(() => ({
+        theme: document.querySelector('[data-theme-probe]')?.getAttribute('data-theme-probe'),
+        portal: document.querySelector('[data-portal-probe]')?.getAttribute('data-portal-probe'),
+        layer: document.querySelector('[data-portal-layer]')?.getAttribute('data-portal-layer') ?? null,
+      }))
+      expect(probes(name => seen[name], expected)).toEqual(expected)
+      expect(seen.layer).toBe('portal' in expected && expected.portal === 'provider' ? 'open' : null)
+      expect(errors).toEqual([])
+    } finally {
+      await page.close()
+    }
+  })
+})
