@@ -1,13 +1,14 @@
 // @vitest-environment node
 //
-// The compile a server component's css goes through: the class it produces,
-// where its rule goes, and what reaches a server render with no registry.
+// The compile a server component's css goes through in the React Server
+// Components layer, and what reaches a server render with no registry.
 import { createElement } from 'react'
 import { renderToString } from 'react-dom/server'
-import { jsx } from '@emotion/react'
+import { CacheProvider, jsx } from '@emotion/react'
+import createCache from '@emotion/cache'
 import { describe, expect, it } from 'vitest'
 import { createNode, Body, Head, Html } from '@src/main.js'
-import { beginServerEmotionScope, compileServerEmotionRule, endServerEmotionScope } from '@src/util/server-emotion.util.js'
+import { compileServerEmotionRule } from '@src/util/server-emotion.util.js'
 
 const OBJECT = { color: '#112233', padding: 4 }
 // What a non-map `css` resolves to before it is compiled.
@@ -17,11 +18,13 @@ describe('compileServerEmotionRule', () => {
   it.each([
     ['an object', OBJECT],
     ['an array', ARRAY],
-  ] as const)('gives %s the class Emotion’s css prop gives it', (_, css) => {
-    // The client renders the same element through Emotion's `css` prop with its
-    // default cache, so the server has to produce the class that does.
-    const client = renderToString(jsx('div', { css }) as never).match(/class="([^"]*)"/)?.[1]
-    expect(client).toMatch(/^css-/)
+  ] as const)('gives %s the class Emotion’s css prop gives it under StyleRegistry’s cache', (_, css) => {
+    // A client component renders the same css through Emotion's `css` prop with
+    // the cache `StyleRegistry` provides, so a server component has to produce
+    // the class that does.
+    const cache = createCache({ key: 'meonode-css' })
+    const client = renderToString(jsx(CacheProvider, { value: cache }, jsx('div', { css })) as never).match(/class="([^"]*)"/)?.[1]
+    expect(client).toMatch(/^meonode-css-/)
     expect(compileServerEmotionRule(css as never)?.className).toBe(client)
   })
 
@@ -49,25 +52,8 @@ describe('compileServerEmotionRule', () => {
     expect(second?.cssText).not.toBe('')
   })
 
-  it('asks the caller to emit the rule when no registry scope is open', () => {
+  it('has a rule to emit for css that styles something', () => {
     expect(compileServerEmotionRule({ color: '#778899' } as never)?.emit).toBe(true)
-  })
-
-  it('leaves the rule to the registry inside its scope, registered where emotion-styled components look', () => {
-    // Registration in the scope's cache is what lets MUI's `styled` merge the
-    // class into its own, as the client does. Compiled anywhere else, the server
-    // would render two classes where the client renders one.
-    const scope = beginServerEmotionScope()
-    // As `StyleRegistry` does straight after opening it.
-    scope.cache.compat = true
-    try {
-      const rule = compileServerEmotionRule({ color: '#aabbcc' } as never)
-      expect(rule?.emit).toBe(false)
-      expect(scope.cache.registered[rule!.className]).toBeDefined()
-      expect(scope.cache.inserted[rule!.id]).toBe(rule!.cssText)
-    } finally {
-      endServerEmotionScope(scope)
-    }
   })
 })
 

@@ -4,22 +4,6 @@ import { CacheProvider } from '@emotion/react'
 import createCache from '@emotion/cache'
 import { Node } from '@src/core.node.js'
 import { ServerInsertedHTMLContext, useServerInsertedHTML } from 'next/navigation.js'
-import { beginServerEmotionScope } from '@src/util/server-emotion.util.js'
-
-/**
- * The cache this render collects into.
- *
- * On the server this opens a scope so the cache belongs to *this* request. The
- * flush below reads all of `cache.inserted`, so a cache shared across requests
- * would put every style the process has rendered into every response.
- * @returns A cache scoped to this render.
- */
-function createEmotionCache() {
-  if (typeof window === 'undefined') {
-    return beginServerEmotionScope().cache
-  }
-  return createCache({ key: 'meonode-css' })
-}
 
 /**
  * What has already been flushed, per render.
@@ -48,9 +32,13 @@ const flushedByRender = new WeakMap<object, Set<string>>()
  * @returns React element that provides the cache and injects critical CSS during SSR.
  */
 export default function StyleRegistry({ children }: { children: ReactElement }) {
-  // Lazily create a single Emotion cache; enable compat for SSR/legacy Emotion APIs.
+  // One cache per registry instance, so each render — each request, on the
+  // server — collects into its own. The flush below reads all of
+  // `cache.inserted`, so a cache shared across requests would put every style
+  // the process has rendered into every response. Compat mode keeps each rule's
+  // text there for the flush.
   const [cache] = useState(() => {
-    const emotionCache = createEmotionCache()
+    const emotionCache = createCache({ key: 'meonode-css' })
     emotionCache.compat = true
     return emotionCache
   })
