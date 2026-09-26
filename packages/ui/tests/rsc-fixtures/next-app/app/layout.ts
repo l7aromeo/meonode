@@ -1,6 +1,7 @@
 import { StyleRegistry } from '@meonode/ui/nextjs-registry'
-import { ThemeProvider, PortalProvider, PortalHost, Html, Head, Body, Link, themeScript } from '@meonode/ui'
+import { ThemeProvider, PortalProvider, PortalHost, Html, Head, Body, Link, Node, themeScript } from '@meonode/ui'
 import type { ReactNode } from 'react'
+import HydrationMark from './_components/hydration-mark'
 
 const theme = {
   mode: 'light' as const,
@@ -46,7 +47,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
             ...themeModes,
             tokens: theme.system,
             children: PortalProvider({
-              children: [children, PortalHost()],
+              children: [children, PortalHost(), Node(HydrationMark)],
             }),
           }),
         }),

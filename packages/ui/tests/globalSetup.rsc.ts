@@ -1,5 +1,5 @@
 import { execSync, spawn } from 'node:child_process'
-import { writeFileSync, readFileSync, existsSync, copyFileSync } from 'node:fs'
+import { writeFileSync, readFileSync, existsSync, copyFileSync, readdirSync } from 'node:fs'
 import { createServer } from 'node:net'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -59,6 +59,61 @@ async function waitForReady(port: number, timeoutMs: number): Promise<void> {
   throw new Error(`next dev did not become ready on :${port} within ${timeoutMs}ms. Last error: ${lastErr}`)
 }
 
+/**
+ * Every route the fixture's app directory serves, as request paths.
+ *
+ * Route groups (`(name)`) do not appear in the URL, private folders (`_name`) and
+ * parallel slots (`@name`) are not routes of their own, and a dynamic segment
+ * (`[name]`) has no value to request, so those pages are left out and named.
+ */
+function fixtureRoutes(): { routes: string[]; skipped: string[] } {
+  const appDir = path.resolve(FIXTURE, 'app')
+  const routes: string[] = []
+  const skipped: string[] = []
+  for (const file of readdirSync(appDir, { recursive: true, encoding: 'utf8' })) {
+    const segments = file.split(path.sep)
+    if (!/^page\.(ts|tsx|js|jsx)$/.test(segments.pop() ?? '')) continue
+    if (segments.some(segment => segment.startsWith('_') || segment.startsWith('@'))) continue
+    if (segments.some(segment => segment.startsWith('['))) {
+      skipped.push(`/${segments.join('/')}`)
+      continue
+    }
+    routes.push(`/${segments.filter(segment => !/^\(.*\)$/.test(segment)).join('/')}`)
+  }
+  return { routes: routes.sort(), skipped }
+}
+
+/** A dev-server line reporting a module that failed to compile: `⨯ ./path/to/file.ts:line:column`. */
+const COMPILE_ERROR = /^\s*⨯ (\.\/\S+:\d+:\d+)\s*$/
+
+/**
+ * Requests every fixture route once, so each is compiled before any test runs.
+ *
+ * `next dev` compiles a route on its first request. Left to the tests, that
+ * compile lands inside whichever case asks first and counts against its timeout,
+ * and under load it has taken tens of seconds. Compiled here, a test's request
+ * only renders.
+ *
+ * A route that fails to compile fails setup, naming the file. A route that
+ * compiles and then answers 500 is not a failure here: some pages exist to be
+ * rejected at render time, and their tests assert that.
+ */
+async function warmRoutes(port: number, serverOutput: string[]): Promise<void> {
+  const { routes, skipped } = fixtureRoutes()
+  if (skipped.length) console.log(`[rsc-setup] not warmed (dynamic segments): ${skipped.join(', ')}`)
+  const started = Date.now()
+  const from = serverOutput.length
+  for (const route of routes) {
+    await (await fetch(`http://localhost:${port}${route}`)).text()
+  }
+  const failed = serverOutput
+    .slice(from)
+    .map(line => COMPILE_ERROR.exec(line)?.[1])
+    .filter((file): file is string => file !== undefined)
+  if (failed.length) throw new Error(`[rsc-setup] fixture modules failed to compile:\n  ${[...new Set(failed)].join('\n  ')}`)
+  console.log(`[rsc-setup] warmed ${routes.length} routes in ${((Date.now() - started) / 1000).toFixed(1)}s`)
+}
+
 export async function setup() {
   killStaleServer()
 
@@ -97,10 +152,24 @@ export async function setup() {
 
   const proc = spawn('bunx', ['next', 'dev', '-p', String(port)], {
     cwd: FIXTURE,
-    stdio: ['ignore', 'inherit', 'inherit'],
+    stdio: ['ignore', 'pipe', 'pipe'],
     detached: true,
   })
   proc.unref()
+
+  // Forwarded as it arrives, and kept by line so the warm-up can read what the
+  // server reported while compiling.
+  const serverOutput: string[] = []
+  for (const [stream, sink] of [
+    [proc.stdout, process.stdout],
+    [proc.stderr, process.stderr],
+  ] as const) {
+    stream.on('data', (chunk: Buffer) => {
+      sink.write(chunk)
+      serverOutput.push(...chunk.toString('utf8').split('\n'))
+    })
+    ;(stream as unknown as { unref?: () => void }).unref?.()
+  }
 
   if (!proc.pid) throw new Error('failed to spawn next dev')
   writeFileSync(PID_FILE, String(proc.pid))
@@ -110,6 +179,8 @@ export async function setup() {
   await waitForReady(port, 90_000)
 
   console.log('[rsc-setup] next dev ready')
+
+  await warmRoutes(port, serverOutput)
 }
 
 export const teardown = globalTeardown
