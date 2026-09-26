@@ -1,7 +1,8 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { describe, expect, it } from 'vitest'
+import { chromium, type Browser } from '@playwright/test'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 /**
  * What a production build of a MeoNode app actually emits.
@@ -101,9 +102,13 @@ describe.each(['cc', 'plain'] as const)('a production build (%s)', variant => {
   // once. `/wrapped-late` pins the compile after that moment, so this fails
   // every time rather than whenever worker scheduling happens to lose.
   it.fails('#34: a statically prerendered page defines every class its server components compiled', async () => {
-    for (const path of ['/wrapped', '/wrapped-late']) {
+    for (const [path, count] of [
+      ['/wrapped', 4],
+      ['/wrapped-late', 4],
+      ['/array-late', 2],
+    ] as const) {
       const page = await styles(variant, path)
-      expect({ path, classes: page.classes.length }).toEqual({ path, classes: 4 })
+      expect({ path, classes: page.classes.length }).toEqual({ path, classes: count })
       expect({ path, undefined: page.undefinedClasses }).toEqual({ path, undefined: [] })
     }
   })
@@ -188,5 +193,71 @@ describe.each(['cc', 'plain'] as const)('concurrent requests (%s)', variant => {
       expect({ path, undefined: page.undefinedClasses }).toEqual({ path, undefined: [] })
       expect({ path, ids: unique(page.declaredIds) }).toEqual({ path, ids: idsOf(page.classes) })
     }
+  })
+})
+
+describe.each(['cc', 'plain'] as const)('the flight payload (%s)', variant => {
+  // Not fixed yet (#34): server-compiled rules do not travel in the payload at
+  // all. Once they do, each must travel once per request: a <style> per
+  // element put 200 of them into a 200-row page and made its payload five times
+  // larger than the unstyled one. Several elements share each class here.
+  it.fails('carries each server-compiled rule once, however many elements use it', async () => {
+    const html = await (await fetch(`http://localhost:${port(variant)}/shared-class`)).text()
+    const flight = [...html.matchAll(/self\.__next_f\.push\(\[1,"((?:[^"\\]|\\.)*)"\]\)/g)].map(match => match[1]).join('')
+    const hrefs = [...flight.matchAll(/\\"href\\":\\"(meonode-css-[a-z0-9]+)\\"/g)].map(match => match[1])
+    expect(hrefs.length).toBeGreaterThan(0)
+    expect(hrefs.length).toBe(new Set(hrefs).size)
+  })
+})
+
+describe('equal-specificity rules on one element', () => {
+  let browser: Browser | null = null
+  beforeAll(async () => {
+    browser = await chromium.launch({ headless: true })
+  })
+  afterAll(async () => {
+    await browser?.close()
+  })
+
+  /**
+   * The applied colour, and whether each of the element's classes is defined in
+   * a stylesheet the browser actually loaded. Read from the CSSOM rather than
+   * the HTML: inside a streamed boundary a hoisted style arrives as
+   * `media="not all"` wherever it streams and React moves it into `<head>` on
+   * reveal, so its position in the HTML text is not its position in the cascade.
+   */
+  async function conflict(variant: 'cc' | 'plain', path: string) {
+    const page = await browser!.newPage()
+    try {
+      await page.goto(`http://localhost:${port(variant)}${path}`, { waitUntil: 'networkidle' })
+      return await page.$eval('[data-testid="conflict"]', element => {
+        const loaded = [...document.styleSheets].flatMap(sheet => [...sheet.cssRules].map(rule => rule.cssText)).join(' ')
+        return {
+          colour: getComputedStyle(element).color,
+          classes: [...element.classList]
+            .filter(name => name.startsWith('meonode-css-'))
+            .map(name => ({ name, defined: loaded.includes(`.${name} `) || loaded.includes(`.${name}{`) })),
+        }
+      })
+    } finally {
+      await page.close()
+    }
+  }
+
+  // Not fixed yet (#34): the caller's server-compiled rule is lost, so the
+  // component's colour wins by default and says nothing about order. Once both
+  // rules exist, the component's own css must win the tie — Emotion's
+  // convention, and what the client's StyledRenderer path already does — where
+  // at request time it used to fall to hash order in one sorted block.
+  it.fails.each([
+    ['cc', '/cascade'],
+    ['plain', '/cascade'],
+    ['cc', '/cascade-dynamic'],
+    ['plain', '/cascade-dynamic'],
+  ] as const)('the component’s own css beats an incoming className (%s %s)', async (variant, path) => {
+    const result = await conflict(variant, path)
+    expect(result.classes).toHaveLength(2)
+    expect(result.classes.every(entry => entry.defined)).toBe(true)
+    expect(result.colour).toBe('rgb(0, 128, 128)')
   })
 })
