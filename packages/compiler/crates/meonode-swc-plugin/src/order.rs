@@ -1,12 +1,11 @@
-//! Evaluation-order safety analysis — the v0.2 rule (see the design doc's
-//! "Evaluation-order safety (v0.2 rule)" section, which supersedes v1's
-//! blanket "every prop value must be effect-free" bail).
+//! Evaluation-order safety analysis: whether compiling a call would reorder
+//! an effectful prop value relative to another effectful one.
 //!
 //! `partition.rs` physically reorders a compiled call's props: everything
 //! moves into `c`/`d` buckets (all of `c` before all of `d`), and every
 //! special key (`children`, `css`, `key`, ...) moves to the tail, in its
 //! *original relative order among other special keys*. A leading `...spread`
-//! (see Change 2 in the v0.2 doc) stays exactly where it was written, right
+//! (see `detect::validate_object`) stays exactly where it was written, right
 //! after `__meo$`.
 //!
 //! The rule is **not** "effect-free values move freely". Effect-free is not
@@ -52,8 +51,8 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum EmitRank {
     /// A leading `...spread` — stays literally in place at the front of the
-    /// emitted object, immediately after `__meo$`. Always ranks first: v0.2's
-    /// leading-spread rule (Change 2) only accepts spreads that already
+    /// emitted object, immediately after `__meo$`. Always ranks first: the
+    /// leading-spread rule only accepts spreads that already
     /// precede every static prop in source, so a spread's source position is
     /// never later than any `Css`/`Data`/`Special` item's anyway.
     ///
@@ -82,7 +81,7 @@ pub enum EmitRank {
 ///
 /// Trivially `true` for 0 or 1 elements — the case that covers the dominant
 /// real-world pattern (`key: item.id`, a single dynamic `backgroundColor`, a
-/// ternary on one prop) per the v0.2 design doc.
+/// ternary on one prop).
 pub fn order_preserved(
     effectful_ranks_in_source_order: impl IntoIterator<Item = EmitRank>,
 ) -> bool {
@@ -138,7 +137,7 @@ mod tests {
     fn two_effectful_values_decreasing_rank_violates_order() {
         // A `d`-bucket effectful value in source before a `c`-bucket
         // effectful value: emission puts `c` first, so this is exactly the
-        // reordering v0.2 must reject.
+        // reordering the rule must reject.
         assert!(!order_preserved([Data, Css]));
         assert!(!order_preserved([Special, Data]));
         assert!(!order_preserved([Special, Css]));

@@ -1,4 +1,4 @@
-// WASM artifact smoke tests (Task 10).
+// WASM artifact smoke tests.
 //
 // These tests load the *actual built artifact* at npm/meonode_swc_plugin.wasm
 // through @swc/core's real plugin host (the same wasmer-based loader/ABI
@@ -64,7 +64,7 @@ describe('wasm artifact smoke (@swc/core loading meonode_swc_plugin.wasm)', () =
     expect(code).toMatch(/dyn:\s*\[\s*"onClick"\s*\]/);
   });
 
-  it('compiles a leading spread, leaving it top-level (v0.2 Change 2)', async () => {
+  it('compiles a leading spread, leaving it top-level', async () => {
     const src =
       "import { Div } from '@meonode/ui'\nconst rest = {}\nDiv({ ...rest, padding: 1 })\n";
     const code = await run(src);
