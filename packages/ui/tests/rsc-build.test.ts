@@ -641,4 +641,19 @@ describe.each(['cc', 'plain'] as const)('a theme token in an at-rule condition o
     expect(await applied(path, 1280)).toEqual({ host: wide, fn: wide })
     expect(await applied(path, 800)).toEqual({ host: narrow, fn: narrow })
   })
+
+  // With no theme a token has no value, so a rule keyed on one has nothing to
+  // match and is left out, and the page still renders.
+  it('leaves out a rule whose key holds a token when no theme is provided', async () => {
+    const response = await fetch(`http://localhost:${port(variant)}/themed-at-rules-bare`)
+    expect(response.status).toBe(200)
+    const html = await response.text()
+    const css = [...html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].map(match => match[1]).join('\n')
+    expect(css).not.toContain('theme.')
+    expect(css).not.toMatch(/@media|@container|@supports|\[data-size=/)
+    expect(await applied('/themed-at-rules-bare', 1280)).toEqual({
+      host: { media: false, container: false, supports: false, selector: false },
+      fn: { media: false, container: false, supports: false, selector: false },
+    })
+  })
 })
