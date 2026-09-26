@@ -147,26 +147,62 @@ function scanForThemeWork(value: unknown, processFunctions: boolean, depth: numb
   return SCAN_NO_WORK
 }
 
+/** A non-negative `<number>`: the only form `flex-grow` and `flex-shrink` accept. */
+const FLEX_FACTOR = /^\+?(\d+\.?\d*|\.\d+)(e[+-]?\d+)?$/
+
+/**
+ * A `flex-basis` value: a sizing keyword, a length or percentage, or a math or
+ * `fit-content()` function. `var()` is deliberately absent — it can stand for any
+ * number of tokens, so its position says nothing about which component it fills.
+ */
+const FLEX_BASIS = /^(auto|content|max-content|min-content|fit-content|[+-]?(\d+\.?\d*|\.\d+)(e[+-]?\d+)?([a-z]+|%)|(calc|min|max|clamp|fit-content)\(.*\))$/
+
+/**
+ * Splits a flex shorthand on top-level whitespace, keeping a function such as
+ * `calc(100% - 8px)` in one token. Returns `null` for unbalanced parentheses.
+ */
+const splitFlexTokens = (value: string): string[] | null => {
+  const tokens: string[] = []
+  let depth = 0
+  let current = ''
+  for (const char of value) {
+    if (char === '(') depth++
+    else if (char === ')' && --depth < 0) return null
+    if (depth === 0 && /\s/.test(char)) {
+      if (current) tokens.push(current)
+      current = ''
+    } else {
+      current += char
+    }
+  }
+  if (depth !== 0) return null
+  if (current) tokens.push(current)
+  return tokens
+}
+
 export class ThemeUtil {
   private constructor() {}
 
   /**
-   * Parses a CSS flex shorthand property into its individual components.
+   * Parses a CSS `flex` shorthand into grow, shrink and basis.
    *
-   * The CSS flex property is a shorthand for flex-grow, flex-shrink, and flex-basis.
-   * This parser handles the most common flex shorthand patterns to extract the shrink value
-   * when it's explicitly set by the user.
+   * Follows the shorthand grammar `none | [ <flex-grow> <flex-shrink>? || <flex-basis> ]`:
+   * - Keywords: `none`, `auto`, `initial`
+   * - One value: a number is the grow factor (`1` → `1 1 0%`); anything else is the basis (`30px` → `1 1 30px`)
+   * - Two values: `<grow> <shrink>`, `<grow> <basis>` or `<basis> <grow>`
+   * - Three values: `<grow> <shrink> <basis>` or `<basis> <grow> <shrink>`
    *
-   * Supported patterns:
-   * - Keywords: 'none' | 'auto' | 'initial'
-   * - Single number: '1' → {grow: 1, shrink: 1, basis: '0%'}
-   * - Full shorthand: '1 0 auto' → {grow: 1, shrink: 0, basis: 'auto'}
+   * A value it cannot read with certainty — `var()`, a global keyword such as `inherit`, a
+   * negative factor, more than three values — returns `null`. The caller must then leave
+   * `flex-shrink` alone and let the browser apply the author's shorthand as written.
    * @param flex The CSS flex property value to parse
    * @returns FlexComponents object with parsed values, or null if unparseable
    * @example
    * parseFlexShorthand('none') // → {grow: 0, shrink: 0, basis: 'auto'}
-   * parseFlexShorthand('1') // → {grow: 1, shrink: 1, basis: '0%'}
+   * parseFlexShorthand(1) // → {grow: 1, shrink: 1, basis: '0%'}
    * parseFlexShorthand('1 0 auto') // → {grow: 1, shrink: 0, basis: 'auto'}
+   * parseFlexShorthand('1 30px') // → {grow: 1, shrink: 1, basis: '30px'}
+   * parseFlexShorthand('var(--flex)') // → null
    */
   public static parseFlexShorthand(flex: CSSProperties['flex']): FlexComponents | null {
     // Early returns for invalid inputs
@@ -174,7 +210,7 @@ export class ThemeUtil {
 
     // Handle numeric flex values (e.g., flex: 1)
     if (typeof flex === 'number') {
-      return { grow: flex, shrink: 1, basis: '0%' }
+      return flex >= 0 ? { grow: flex, shrink: 1, basis: '0%' } : null
     }
 
     if (typeof flex !== 'string') return null
@@ -190,9 +226,35 @@ export class ThemeUtil {
         return { grow: 1, shrink: 1, basis: 'auto' }
       case 'initial':
         return { grow: 0, shrink: 1, basis: 'auto' }
+    }
+
+    const tokens = splitFlexTokens(normalized)
+    if (!tokens || tokens.length > 3) return null
+
+    const kinds = tokens.map(token => (FLEX_FACTOR.test(token) ? 'n' : FLEX_BASIS.test(token) ? 'b' : null))
+    if (kinds.includes(null)) return null
+
+    const [a, b, c] = tokens
+
+    switch (kinds.join('')) {
+      case 'n':
+        return { grow: Number(a), shrink: 1, basis: '0%' }
+      case 'b':
+        return { grow: 1, shrink: 1, basis: a }
+      case 'nn':
+        return { grow: Number(a), shrink: Number(b), basis: '0%' }
+      case 'nb':
+        return { grow: Number(a), shrink: 1, basis: b }
+      case 'bn':
+        return { grow: Number(b), shrink: 1, basis: a }
+      case 'nnb':
+        return { grow: Number(a), shrink: Number(b), basis: c }
+      // A unitless zero is a valid basis once grow and shrink are both given.
+      case 'nnn':
+        return Number(c) === 0 ? { grow: Number(a), shrink: Number(b), basis: c } : null
+      case 'bnn':
+        return { grow: Number(b), shrink: Number(c), basis: a }
       default:
-        // For complex shorthand strings, return null to avoid parsing errors
-        // The browser will handle the original flex value correctly
         return null
     }
   }
@@ -369,7 +431,8 @@ export class ThemeUtil {
    * EXPLICIT VALUE PRESERVATION:
    * ===========================
    * - If user sets `flexShrink` explicitly → never override
-   * - If user sets `flex` shorthand → extract and use the shrink value from it
+   * - If user sets `flex` shorthand → extract and use the shrink value from it, or, when the
+   *   shorthand cannot be parsed, add no flexShrink at all
    * - Otherwise → apply smart defaults based on context
    * @param style The input CSSProperties object to process
    * @returns Processed CSSProperties with resolved defaults
@@ -410,7 +473,8 @@ export class ThemeUtil {
     const hasExplicitFlexShrink = 'flexShrink' in style && style.flexShrink !== undefined
 
     // Extract shrink value from flex shorthand if provided
-    const explicitFlexComponents = flex ? ThemeUtil.parseFlexShorthand(flex) : null
+    const hasFlexShorthand = flex !== undefined && flex !== null && flex !== ''
+    const explicitFlexComponents = hasFlexShorthand ? ThemeUtil.parseFlexShorthand(flex) : null
 
     // === STEP 4: DETERMINE FLEX SHRINK BEHAVIOR ===
     let flexShrink: number | undefined = undefined
@@ -420,8 +484,9 @@ export class ThemeUtil {
       // If flex shorthand contains a shrink value, use that
       if (explicitFlexComponents) {
         flexShrink = explicitFlexComponents.shrink
-      } else {
-        // Apply context-based defaults
+      } else if (!hasFlexShorthand) {
+        // Apply context-based defaults. Never after a shorthand we could not parse: it still
+        // sets flex-shrink, and the browser applies the author's value correctly on its own.
         if (isFlexContainer) {
           // FLEX CONTAINER LOGIC:
           // Only prevent shrinking when container is constrained (no overflow handling, no wrapping)
