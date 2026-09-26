@@ -258,7 +258,7 @@ describe('equal-specificity rules on one element', () => {
     expect(result.paddingLeft).toBe('7px')
   }
 
-  it.fails.each([
+  it.each([
     ['cc', '/cascade'],
     ['plain', '/cascade'],
     ['cc', '/cascade-dynamic'],
