@@ -140,7 +140,9 @@ function getComputedStylesFromEmotionCss(html: string, testId: string, propertie
   const classAttr = elementTag.match(/\bclass=["']([^"']+)["']/i)?.[1] ?? ''
   const classes = classAttr.split(/\s+/).filter(Boolean)
 
-  const styleBlocks = [...html.matchAll(/<style[^>]*data-emotion="[^"]*"[^>]*>([\s\S]*?)<\/style>/gi)]
+  // Any <style> can define the element's rule: the registry's `data-emotion`
+  // block, or a hoisted `<style href precedence>` emitted with the RSC output.
+  const styleBlocks = [...html.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi)]
   const cssText = styleBlocks.map(m => m[1]).join('\n')
 
   const result: Record<string, string | null> = {}
