@@ -21,13 +21,19 @@ export const THEMED_KEYS = {
   '&[data-size="theme.breakpoint.wide"]': { letterSpacing: '3px' },
 }
 
+/** A function component with css of its own, composing the class it is handed with it. */
+function OwnCard({ className, children }: { className?: string; children?: ReactNode }) {
+  return Div({ className, paddingLeft: '5px', 'data-case': 'composed', 'data-size': '1000px', children }).render()
+}
+
 /** A factory whose own css holds the tokens. */
 const Chip = createChildrenFirstNode('div', { css: THEMED_KEYS })
 
 /**
  * Every shape given the themed css in a server component, inside one inline-size
- * container: a host tag, a function component, a factory, and a host tag swapped
- * to another tag with `as`. `extra` adds shapes only a server render can hold.
+ * container: a host tag, a function component passing its class through, one
+ * composing it with css of its own, a factory, and a host tag swapped to another
+ * tag with `as`. `extra` adds shapes only a server render can hold.
  */
 export const themedTree = (extra: ReactNode[] = []) =>
   Div({
@@ -36,6 +42,7 @@ export const themedTree = (extra: ReactNode[] = []) =>
       Div({ key: 'host', 'data-case': 'host', 'data-size': '1000px', css: THEMED_KEYS, children: 'host tag' }),
       Node(Card, { key: 'fn', 'data-case': 'fn', 'data-size': '1000px', css: THEMED_KEYS, children: 'function component' }),
       Chip('factory', { key: 'factory', 'data-case': 'factory', 'data-size': '1000px' }),
+      Node(OwnCard, { key: 'composed', css: THEMED_KEYS, children: 'composed' }),
       Div({ key: 'as', as: 'section', 'data-case': 'as', 'data-size': '1000px', css: THEMED_KEYS, children: 'as section' }),
       ...extra,
     ],

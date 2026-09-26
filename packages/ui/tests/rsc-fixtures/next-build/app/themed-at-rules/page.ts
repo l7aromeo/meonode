@@ -1,7 +1,7 @@
 import { themedTree } from './tree'
-import { cachedShape } from './cached'
+import { cachedShapes } from './cached'
 
 /** Theme tokens in at-rule conditions and selectors, statically prerendered. */
 export default function Page() {
-  return themedTree([cachedShape()])
+  return themedTree(cachedShapes())
 }

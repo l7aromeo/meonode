@@ -626,6 +626,7 @@ describe.each(['cc', 'plain'] as const)('a theme token in an at-rule condition o
                 supports: style.borderLeftWidth === '7px',
                 selector: style.letterSpacing === '3px',
                 nested: style.textDecorationLine === 'underline',
+                own: style.paddingLeft === '5px',
               },
             ]
           }),
@@ -636,9 +637,11 @@ describe.each(['cc', 'plain'] as const)('a theme token in an at-rule condition o
     }
   }
 
-  /** Every shape a page renders: the server pages add a component in its own `'use cache'` scope. */
-  const shapes = (path: string) => ['host', 'fn', 'factory', 'as', ...(path.endsWith('/client') ? [] : ['cached'])]
-  const each = <T>(names: string[], value: T) => Object.fromEntries(names.map(name => [name, value]))
+  /** Every shape a page renders: the server pages add components in their own `'use cache'` scope. */
+  const shapes = (path: string) => ['host', 'fn', 'composed', 'factory', 'as', ...(path.endsWith('/client') ? [] : ['cached', 'cached-composed'])]
+  /** Each shape's expected result, with `own` true only where the component composes css of its own. */
+  const each = <T extends object>(names: string[], value: T) =>
+    Object.fromEntries(names.map(name => [name, { ...value, own: name.endsWith('composed') }]))
 
   it.each(PATHS)('applies every themed rule at a wide viewport, and the width conditions only there (%s)', async path => {
     const wide = { media: true, container: true, supports: true, selector: true, nested: true }
@@ -657,7 +660,7 @@ describe.each(['cc', 'plain'] as const)('a theme token in an at-rule condition o
     expect(css).not.toContain('theme.')
     expect(css).not.toMatch(/@media|@container|@supports|\[data-size=/)
     expect(await applied('/themed-at-rules-bare', 1280)).toEqual(
-      each(['host', 'fn', 'factory', 'as'], { media: false, container: false, supports: false, selector: false, nested: false }),
+      each(['host', 'fn', 'composed', 'factory', 'as'], { media: false, container: false, supports: false, selector: false, nested: false }),
     )
   })
 })
