@@ -640,8 +640,7 @@ describe.each(['cc', 'plain'] as const)('a theme token in an at-rule condition o
   /** Every shape a page renders: the server pages add components in their own `'use cache'` scope. */
   const shapes = (path: string) => ['host', 'fn', 'composed', 'factory', 'as', ...(path.endsWith('/client') ? [] : ['cached', 'cached-composed'])]
   /** Each shape's expected result, with `own` true only where the component composes css of its own. */
-  const each = <T extends object>(names: string[], value: T) =>
-    Object.fromEntries(names.map(name => [name, { ...value, own: name.endsWith('composed') }]))
+  const each = <T extends object>(names: string[], value: T) => Object.fromEntries(names.map(name => [name, { ...value, own: name.endsWith('composed') }]))
 
   it.each(PATHS)('applies every themed rule at a wide viewport, and the width conditions only there (%s)', async path => {
     const wide = { media: true, container: true, supports: true, selector: true, nested: true }

@@ -1,8 +1,18 @@
 import type { ReactNode } from 'react'
-import { createChildrenFirstNode, Div, Node } from '@meonode/ui'
+import { type Children, createChildrenFirstNode, Div, Node } from '@meonode/ui'
 
 /** A plain function component: its css reaches it as a compiled class name. */
-function Card({ className, children, 'data-case': dataCase, 'data-size': dataSize }: { className?: string; children?: ReactNode; 'data-case'?: string; 'data-size'?: string }) {
+function Card({
+  className,
+  children,
+  'data-case': dataCase,
+  'data-size': dataSize,
+}: {
+  className?: string
+  children?: ReactNode
+  'data-case'?: string
+  'data-size'?: string
+}) {
   return Div({ className, 'data-case': dataCase, 'data-size': dataSize, children }).render()
 }
 
@@ -35,7 +45,7 @@ const Chip = createChildrenFirstNode('div', { css: THEMED_KEYS })
  * composing it with css of its own, a factory, and a host tag swapped to another
  * tag with `as`. `extra` adds shapes only a server render can hold.
  */
-export const themedTree = (extra: ReactNode[] = []) =>
+export const themedTree = (extra: Children[] = []) =>
   Div({
     containerType: 'inline-size',
     children: [
