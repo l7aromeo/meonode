@@ -9,14 +9,26 @@
 // The RSC layer is recognised by the React build it loads: the `react-server`
 // build has no `useState`. `react` is replaced here with the client build minus
 // `useState`, which is that shape; the companion file renders the same tags
-// without the replacement, where they keep `StyledRenderer`.
+// without the replacement, where they keep `StyledRenderer`. The replacement's
+// `cache` memoizes for one test at a time, as the `react-server` build's does
+// for one request.
 import { cloneElement, Fragment, type ReactElement } from 'react'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+const request = vi.hoisted(() => ({ values: new Map<unknown, unknown>() }))
 
 vi.mock('react', async importOriginal => {
   const actual = (await importOriginal()) as Record<string, unknown>
   const { useState: _useState, ...serverBuild } = actual
-  return serverBuild
+  const cache = (fn: () => unknown) => () => {
+    if (!request.values.has(fn)) request.values.set(fn, fn())
+    return request.values.get(fn)
+  }
+  return { ...serverBuild, cache }
+})
+
+beforeEach(() => {
+  request.values = new Map()
 })
 
 const { createNode, Div, Img, ThemeProvider } = await import('@src/main.js')
@@ -107,5 +119,39 @@ describe('a parent that clones its child', () => {
 
     expect(cloned.type).toBe('img')
     expect(cloned.props['data-cloned']).toBe('yes')
+  })
+})
+
+describe('a className passed into a styled host in the RSC layer', () => {
+  /** Styles itself and passes the caller's `className` through, as a server component would. */
+  function Card({ className, children }: { className?: string; children?: string }) {
+    return Div({ className, color: 'rgb(0, 128, 128)', children }).render() as Element
+  }
+  const CardNode = createNode(Card)
+
+  /** Renders `CardNode(props)` and then the `Card` it produces, the way React would. */
+  const renderCard = (props: Record<string, unknown>) => {
+    const root = CardNode({ ...props, children: 'conflict' }).render() as Element
+    const card = (root.type === Fragment ? childrenOf(root)[0] : root) as ReactElement<{ className?: string; children?: string }>
+    return Card(card.props)
+  }
+  const ruleOf = (element: Element) => (slotOf(element)[0].props as { children: string }).children
+
+  it('overrides the host’s own css, composed into one class as on the client', () => {
+    const div = renderCard({ css: { color: 'rgb(255, 165, 0)' } })
+    const classes = (div.props.className as string).split(' ')
+
+    expect(classes).toHaveLength(1)
+    expect(classes[0]).toMatch(/^meonode-css-/)
+    const rule = ruleOf(div)
+    expect(rule.startsWith(`.${classes[0]}{`)).toBe(true)
+    expect(rule.lastIndexOf('color:rgb(255, 165, 0)')).toBeGreaterThan(rule.lastIndexOf('color:rgb(0, 128, 128)'))
+  })
+
+  it('keeps a class it did not compile, untouched and ahead of its own', () => {
+    const div = renderCard({ className: 'utility' })
+
+    expect(div.props.className).toMatch(/^utility meonode-css-[a-z0-9]+$/)
+    expect(ruleOf(div)).not.toContain('rgb(255, 165, 0)')
   })
 })

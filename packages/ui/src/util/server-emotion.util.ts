@@ -2,7 +2,7 @@ import { cache as requestCache } from 'react'
 import createCache from '@emotion/cache'
 import type { EmotionCache } from '@emotion/cache'
 import { serializeStyles } from '@emotion/serialize'
-import { insertStyles } from '@emotion/utils'
+import { getRegisteredStyles, insertStyles } from '@emotion/utils'
 import { getGlobalState } from '@src/helper/common.helper.js'
 import type { CssProp } from '@src/types/node.type.js'
 import { IS_REACT_SERVER_LAYER } from '@src/util/react-layer.util.js'
@@ -210,20 +210,31 @@ export interface ServerEmotionRule {
  * Takes an object or an array of them — the array is what a non-map `css`
  * resolves to — and produces the same class name `compileServerEmotionClassName`
  * does for the same input, so server and client output keep matching.
+ *
+ * The element's own `className` is composed the way Emotion composes it on the
+ * client: each class registered in this cache is replaced by its styles, placed
+ * after `css` so they win a conflict, and every other class is kept as it is,
+ * ahead of the new one. The cache lasts one request in the React Server
+ * Components layer and one scope under a `StyleRegistry`; outside both, each call
+ * has its own and a class compiled by another call is kept as a plain class.
  * @param css The resolved css for one element.
+ * @param className The element's own `className`, if any.
  * @returns The rule, or `undefined` for a value that styles nothing.
  */
-export function compileServerEmotionRule(css: CssProp): ServerEmotionRule | undefined {
+export function compileServerEmotionRule(css: CssProp, className?: unknown): ServerEmotionRule | undefined {
   // The same values `compileServerEmotionClassName` declines, so switching a
   // caller from one to the other changes where the rule goes and nothing else.
   if (!css || typeof css === 'string' || typeof css === 'number' || typeof css === 'boolean') return undefined
   const scope = activeScope
   const cache = scope?.cache ?? requestEmotionCache()
-  const serialized = serializeStyles([css as any], cache.registered)
+  const styles: unknown[] = [css]
+  const otherClasses = typeof className === 'string' ? getRegisteredStyles(cache.registered, styles as string[], className) : ''
+  const serialized = serializeStyles(styles as any, cache.registered)
   const stylesForSSR = insertStyles(cache as any, serialized as any, false)
   const cachedStyle = (cache.inserted as Record<string, unknown>)[serialized.name]
   const cssText = typeof stylesForSSR === 'string' ? stylesForSSR : typeof cachedStyle === 'string' ? cachedStyle : undefined
-  return { className: `${cache.key}-${serialized.name}`, id: serialized.name, cssText: cssText ?? '', emit: !scope && Boolean(cssText) }
+  const ownClass = `${cache.key}-${serialized.name}`
+  return { className: `${otherClasses}${ownClass}`, id: serialized.name, cssText: cssText ?? '', emit: !scope && Boolean(cssText) }
 }
 
 /**

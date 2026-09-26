@@ -643,9 +643,8 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
               // side happened to render it.
               reportThemeIssues(themedCss, activeTheme)
               const cssWithDefaults = ThemeUtil.resolveDefaultStyle(themedCss)
-              const rule = compileServerEmotionRule(cssWithDefaults)
-              const mergedClassName = [elementProps.className, rule?.className].filter(Boolean).join(' ') || undefined
-              const elementPropsWithClassName = mergedClassName ? { ...elementProps, className: mergedClassName } : elementProps
+              const rule = compileServerEmotionRule(cssWithDefaults, elementProps.className)
+              const elementPropsWithClassName = rule ? { ...elementProps, className: rule.className } : elementProps
               element = createElement(renderTarget, elementPropsWithClassName, ...childArguments)
               if (rule?.emit) {
                 const carrier = anchor ?? (canAnchorRules(renderTarget, elementProps as Record<string, unknown>, inForeignNamespace) ? node : null)

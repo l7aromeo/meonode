@@ -381,6 +381,30 @@ describe.each(['cc', 'plain'] as const)('host tags rendered by a server componen
     expect(flight).not.toContain('\\"borderRadius\\":6')
   })
 
+  /**
+   * Composition needs the caller's class in the cache the component compiles in.
+   * Across a `'use cache'` boundary the component compiles in the scope's own
+   * cache, so the caller's class stays a separate class beside the component's
+   * and the component's own colour wins. This is the documented limitation;
+   * without the boundary the two compose into one class and the caller's wins.
+   */
+  it('keeps two classes across a use-cache boundary, the component’s own winning', async () => {
+    const page = await browser!.newPage()
+    try {
+      await page.goto(`http://localhost:${port(variant)}/host-tags/cascade-cached`, { waitUntil: 'networkidle' })
+      const result = await page.$eval('[data-testid="conflict"]', element => {
+        const loaded = [...document.styleSheets].flatMap(sheet => [...sheet.cssRules].map(rule => rule.cssText)).join(' ')
+        const classes = [...element.classList]
+        return { colour: getComputedStyle(element).color, classes, undefinedClasses: classes.filter(name => !loaded.includes(`.${name}`)) }
+      })
+      expect(result.undefinedClasses).toEqual([])
+      expect(result.classes).toHaveLength(2)
+      expect(result.colour).toBe('rgb(0, 128, 128)')
+    } finally {
+      await page.close()
+    }
+  })
+
   it('keeps a pseudo-class, a media query and a theme token working', async () => {
     const page = await browser!.newPage({ viewport: { width: 800, height: 600 } })
     try {
