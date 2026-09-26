@@ -12,7 +12,9 @@ reached the page. It now composes the same way, into one class with the incoming
 styles winning. Classes meonode did not generate, such as utility classes, are
 kept as they are.
 
-The styles compose when both were compiled in the same request. A component
-inside a `'use cache'` scope compiles in that scope's own cache, so a `className`
-from a caller outside the scope stays a separate class beside the component's
-own, and which of the two wins a conflict is not guaranteed.
+This holds across a `'use cache'` boundary too. A component inside the scope
+compiles in the scope's own cache, so the class a caller outside it hands in is
+looked up in a store of classes compiled for components, which keeps the most
+recently used up to 10,000 classes and 4 MiB of style text. A class that has left
+the store by the time the component compiles stays a separate class beside the
+component's own; in development that is reported once per class.
