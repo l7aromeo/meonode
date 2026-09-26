@@ -4,7 +4,7 @@ import { CacheProvider } from '@emotion/react'
 import createCache from '@emotion/cache'
 import { Node } from '@src/core.node.js'
 import { ServerInsertedHTMLContext, useServerInsertedHTML } from 'next/navigation.js'
-import { beginServerEmotionScope, consumeServerEmotionRules } from '@src/util/server-emotion.util.js'
+import { beginServerEmotionScope } from '@src/util/server-emotion.util.js'
 
 /**
  * The cache this render collects into.
@@ -72,30 +72,18 @@ export default function StyleRegistry({ children }: { children: ReactElement }) 
   useServerInsertedHTML(() => {
     const ids = Object.keys(cache.inserted)
     const newIds = ids.filter(id => !inserted.has(id) && typeof cache.inserted[id] === 'string')
-    const serverCompiledRules = consumeServerEmotionRules()
-    const freshServerRules = serverCompiledRules.filter(rule => !inserted.has(rule.id))
     // Theme variables are emitted by ThemeProvider itself (a hoisted, deduped
     // `<style href precedence>`), not consumed from global state here.
-    if (newIds.length === 0 && freshServerRules.length === 0) {
+    if (newIds.length === 0) {
       return null
     }
 
     // Mark IDs as inserted
     newIds.forEach(id => inserted.add(id))
-    freshServerRules.forEach(rule => inserted.add(rule.id))
 
     // Ensure deterministic output by sorting ids.
-    const sortedIds = Array.from(new Set([...newIds, ...freshServerRules.map(rule => rule.id)])).sort()
-    const serverRuleById = new Map(freshServerRules.map(rule => [rule.id, rule.cssText]))
-    const styles = sortedIds
-      .map(id => {
-        const serverRule = serverRuleById.get(id)
-        if (typeof serverRule === 'string') return serverRule
-        const cacheRule = cache.inserted[id]
-        return typeof cacheRule === 'string' ? cacheRule : ''
-      })
-      .filter(Boolean)
-      .join('')
+    const sortedIds = [...newIds].sort()
+    const styles = sortedIds.map(id => cache.inserted[id] as string).join('')
     const idsString = sortedIds.join(' ')
 
     // Insert a single style tag with the tracked Emotion ids.
