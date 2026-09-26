@@ -301,6 +301,26 @@ export const reportThemeIssues = (value: unknown, theme: Theme | undefined, prop
 }
 
 /**
+ * A `css` key — an at-rule condition or a selector — holds a `theme.` token that
+ * nothing could resolve, so its rule was left out: a condition or selector needs
+ * the theme's concrete value, and `var()` is invalid there. It happens when no
+ * `ThemeProvider` is above the node, or the theme has no value at that path.
+ * Reported once per key.
+ * @param key The key that was left out.
+ */
+export const reportUnresolvedThemeKey = (key: string): void => {
+  if (!diagnosticsEnabled()) return
+  const seenKey = `unresolved-key:${key}`
+  if (reported.has(seenKey)) return
+  reported.add(seenKey)
+  console.warn(
+    `[MeoNode] The css key \`${key}\` holds a theme token that could not be resolved, so its rule was left out. ` +
+      `A condition or selector needs the theme's concrete value: render the node under a ThemeProvider whose tokens define it, ` +
+      `or write the value into the key directly.`,
+  )
+}
+
+/**
  * A theme function (`theme => …`) in a style reached with no theme to call it with,
  * and was dropped. Without this the author sees only a missing style.
  * Reported once per property.
