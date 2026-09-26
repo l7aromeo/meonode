@@ -378,29 +378,80 @@ describe.each(['cc', 'plain'] as const)('host tags rendered by a server componen
     expect(flight).not.toContain('\\"borderRadius\\":6')
   })
 
-  /**
-   * Composition needs the caller's class in the cache the component compiles in.
-   * Across a `'use cache'` boundary the component compiles in the scope's own
-   * cache, so the caller's class stays a separate class beside the component's.
-   * That is the documented limitation: the element carries two classes where
-   * the boundary-free case composes one, and which of the two rules wins a
-   * conflict is not fixed — it has differed between builds of this page — so
-   * only the classes are asserted.
-   */
-  it('keeps two defined classes across a use-cache boundary', async () => {
-    const page = await browser!.newPage()
+  /** The element's classes, whether each is defined, and its colour at rest, inside a media query, and on hover. */
+  async function conflictStates(path: string) {
+    const page = await browser!.newPage({ viewport: { width: 400, height: 300 } })
     try {
-      await page.goto(`http://localhost:${port(variant)}/host-tags/cascade-cached`, { waitUntil: 'networkidle' })
-      const result = await page.$eval('[data-testid="conflict"]', element => {
+      await page.goto(`http://localhost:${port(variant)}${path}`, { waitUntil: 'networkidle' })
+      const target = page.locator('[data-testid="conflict"]')
+      const read = () => target.evaluate(element => getComputedStyle(element).color)
+      const { classes, undefinedClasses } = await target.evaluate(element => {
         const loaded = [...document.styleSheets].flatMap(sheet => [...sheet.cssRules].map(rule => rule.cssText)).join(' ')
         const classes = [...element.classList]
         return { classes, undefinedClasses: classes.filter(name => !loaded.includes(`.${name}`)) }
       })
-      expect(result.undefinedClasses).toEqual([])
-      expect(result.classes).toHaveLength(2)
+      const rest = await read()
+      await page.setViewportSize({ width: 800, height: 300 })
+      const media = await read()
+      await page.setViewportSize({ width: 400, height: 300 })
+      await target.hover()
+      const hover = await read()
+      return { classes, undefinedClasses, rest, media, hover }
     } finally {
       await page.close()
     }
+  }
+
+  /**
+   * A caller outside a `'use cache'` scope hands its class to a component inside
+   * it, whose compile runs in the scope's own cache. The component finds the
+   * class's styles in the store of classes compiled for components and composes
+   * it as the client would: one class, the caller's styles winning.
+   */
+  it('composes a class handed across a use-cache boundary into one class', async () => {
+    const result = await conflictStates('/host-tags/cascade-cached')
+
+    expect(result.undefinedClasses).toEqual([])
+    expect(result.classes).toHaveLength(1)
+    expect(result.rest).toBe('rgb(255, 165, 0)')
+  })
+
+  it('composes styles passed into the scope as css into one class', async () => {
+    const result = await conflictStates('/host-tags/cascade-cached-css')
+
+    expect(result.undefinedClasses).toEqual([])
+    expect(result.classes).toHaveLength(1)
+    expect(result.rest).toBe('rgb(255, 165, 0)')
+  })
+
+  /**
+   * What Emotion's composition gives: the handed styles win at rest, and the
+   * component's own hover and media-query rules still win where they apply.
+   */
+  it('keeps the component’s own nested rules winning across a use-cache boundary', async () => {
+    const result = await conflictStates('/host-tags/cascade-cached-states')
+
+    expect(result.classes).toHaveLength(1)
+    expect({ rest: result.rest, media: result.media, hover: result.hover }).toEqual({
+      rest: 'rgb(255, 165, 0)',
+      media: 'rgb(0, 128, 0)',
+      hover: 'rgb(0, 0, 255)',
+    })
+  })
+
+  it('gives interleaved requests into one cached component each their own caller’s styles', async () => {
+    const colours = Array.from({ length: 24 }, (_, i) => `rgb(${10 + i}, ${200 - i}, ${i * 3})`)
+    const pages = await Promise.all(
+      colours.map(async colour => {
+        const html = await (await fetch(`http://localhost:${port(variant)}/host-tags/cascade-cached-concurrent?c=${encodeURIComponent(colour)}`)).text()
+        const className = html.match(/<div class="([^"]*)" data-testid="conflict"/)?.[1] ?? html.match(/data-testid="conflict"[^>]*class="([^"]*)"/)?.[1] ?? ''
+        const rule = html.match(new RegExp(`\\.${className}\\{[^}]*\\}`))?.[0] ?? ''
+        return { colour, classes: className.split(' ').filter(Boolean), last: rule.match(/color:(rgb\([^)]*\))[^:]*$/)?.[1] }
+      }),
+    )
+
+    for (const page of pages)
+      expect({ colour: page.colour, classes: page.classes.length, last: page.last }).toEqual({ colour: page.colour, classes: 1, last: page.colour })
   })
 
   /**

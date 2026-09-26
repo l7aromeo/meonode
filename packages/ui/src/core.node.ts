@@ -634,7 +634,7 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
               // side happened to render it.
               reportThemeIssues(themedCss, activeTheme)
               const cssWithDefaults = ThemeUtil.resolveDefaultStyle(themedCss)
-              const rule = compileServerEmotionRule(cssWithDefaults, elementProps.className)
+              const rule = compileServerEmotionRule(cssWithDefaults, elementProps.className, { share: typeof renderTarget !== 'string' })
               const elementPropsWithClassName = rule ? { ...elementProps, className: rule.className } : elementProps
               element = createElement(renderTarget, elementPropsWithClassName, ...childArguments)
               if (rule?.cssText) {
