@@ -19,9 +19,10 @@ that is handed to another styled element, including across a `'use cache'`
 boundary. A selector naming a class or id that merely contains `theme.`, such as
 `'& .theme.accent'`, is left as written.
 
-A key resolved from the theme is also written where it stands in the `css`
-object again. It used to move after the entries that followed it, so a themed
-media query won a conflict with a later one it should have lost.
+A key with a theme token now keeps its place in the `css` object when it is
+resolved. It used to move after the entries written below it. Visible change: a
+themed at-rule or selector that conflicts with a block written after it now
+loses to that block, as the written order says it should; before, it won.
 
 A key whose token cannot be resolved, because no `ThemeProvider` is above the node
 or its theme has no such value, is left out rather than written with the token, in
