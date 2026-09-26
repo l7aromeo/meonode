@@ -30,10 +30,11 @@ import { getComponentType, getElementTypeName, hasNoStyleTag, getGlobalState } f
 import StyledRenderer from '@src/components/styled-renderer.client.js'
 import MeoMemo from '@src/components/meo-memo.client.js'
 import { LIST_MARKER, LOCATION_MARKER } from '@src/constant/common.const.js'
+import { isMergeableCss } from '@src/util/css.util.js'
 import { NodeUtil } from '@src/util/node.util.js'
 import { IS_REACT_SERVER_LAYER } from '@src/util/react-layer.util.js'
 import { compileServerEmotionRule } from '@src/util/server-emotion.util.js'
-import { getActiveServerTheme, replaceThemeTokensWithCssVars, setActiveServerTheme } from '@src/util/server-theme.util.js'
+import { replaceThemeTokensWithCssVars } from '@src/util/server-theme.util.js'
 import { diagnosticsEnabled, reportThemeIssues } from '@src/util/theme-diagnostics.util.js'
 import { ThemeUtil } from '@src/util/theme.util.js'
 
@@ -236,19 +237,6 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
     this.element = element
     this.rawProps = rawProps
     this._deps = deps
-
-    if (NodeUtil.isServer && NodeUtil.providesServerTheme(element)) {
-      const themeCandidate = (rawProps as { theme?: unknown }).theme
-      if (themeCandidate && typeof themeCandidate === 'object' && 'system' in (themeCandidate as object)) {
-        const resolvedTheme = themeCandidate as Theme
-        // Only the *active theme* is tracked globally, for server-side
-        // `theme.*` token -> `var(--meonode-theme-*)` resolution. The variable
-        // definitions themselves are emitted by ThemeProvider's own render
-        // output; they are deliberately not accumulated here, since a
-        // process-global map is shared across concurrent SSR requests.
-        setActiveServerTheme(resolvedTheme)
-      }
-    }
   }
 
   /**
@@ -359,7 +347,7 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
           if (candidate && typeof candidate === 'object' && 'system' in (candidate as object)) {
             return candidate as Theme
           }
-          return current ?? getActiveServerTheme()
+          return current
         }
 
         if (!isProcessed) {
@@ -716,21 +704,6 @@ function Node<AdditionalProps, E extends NodeElementType, ExactProps extends obj
 export { Node }
 
 /**
- * Whether a `css` value is a map of rules that can be merged key by key.
- *
- * Plain object literals only, and not every plain object literal: Emotion's
- * `css()` and `keyframes()` return one too, but it is compiled output — a
- * `styles` string plus a class name — rather than a map of selectors. Merging
- * one key by key would turn `name` and `styles` into CSS declarations.
- */
-function isMergeableCss(value: unknown): value is Record<string, unknown> {
-  if (typeof value !== 'object' || value === null) return false
-  const proto = Object.getPrototypeOf(value)
-  if (proto !== null && proto !== Object.prototype) return false
-  return typeof (value as { styles?: unknown }).styles !== 'string'
-}
-
-/**
  * Merges two `css` maps the way flat CSS props already combine: key by key,
  * recursing into nested selectors and at-rules, with `over` winning a conflict.
  *
@@ -752,6 +725,11 @@ function mergeCss(base: Record<string, unknown>, over: Record<string, unknown>):
   return merged
 }
 
+/** Whether a `css` value can contribute rules: anything but nullish or a boolean. */
+function stylesSomething(css: unknown): boolean {
+  return css != null && typeof css !== 'boolean'
+}
+
 /**
  * Combines a factory's initial props with a call site's.
  *
@@ -761,12 +739,12 @@ function mergeCss(base: Record<string, unknown>, over: Record<string, unknown>):
  * added one rule lost every pseudo-class, media query and `@supports` fallback
  * the factory had defined.
  *
- * `css` is merged only when both sides are mergeable maps. Anything else — an
- * Emotion `css()` result, an array, a function — is left as the call site wrote
- * it, which is the previous behaviour. Combining those would mean handing
- * Emotion an array, and the runtime currently spreads an array `css` into an
- * object keyed by index, so the composed rules would target descendant
- * selectors named `0` and `1` that never match.
+ * Two mergeable maps are merged key by key. When either side is something else —
+ * an Emotion `css()` result, an array, a function, a string — the two are
+ * composed as `[factoryCss, callSiteCss]`, which Emotion serialises in order, so
+ * the call site still wins a conflict and the factory's rules are kept. A side
+ * that is absent or a boolean styles nothing, and the call site's value is used
+ * as it is.
  *
  * The shape of `props` does not matter here. A user-defined factory is not
  * rewritten by `@meonode/compiler`, so its call sites arrive flat; a call to a
@@ -780,6 +758,8 @@ function combineFactoryProps(initialProps: Record<string, unknown> | undefined, 
   const callSiteCss = props?.css
   if (isMergeableCss(factoryCss) && isMergeableCss(callSiteCss)) {
     combined.css = mergeCss(factoryCss, callSiteCss)
+  } else if (stylesSomething(factoryCss) && stylesSomething(callSiteCss)) {
+    combined.css = [factoryCss, callSiteCss]
   }
   return combined
 }

@@ -27,7 +27,9 @@ the call site winning a conflict — the semantics top-level CSS props already h
 An explicit `undefined` wins too, so a call site can still drop a single factory
 rule: `Card({ css: { '&:hover': undefined } })`.
 
-Only two plain rule maps are merged. If either side is something else — an Emotion
-`css()` result, an array, a function — the call site's value is used as-is,
-exactly as before. The factory's own `css` object is never written to, so one call
-site's rules cannot leak into another's render.
+Two plain rule maps are merged. If either side is something else — an Emotion
+`css()` result, an array, a function, a string — the two are composed as
+`[factoryCss, callSiteCss]`, so the factory's rules are kept and the call site's
+still win a conflict. A call site that sets `css` to `false` or `null` still
+replaces the factory's. The factory's own `css` object is never written to, so
+one call site's rules cannot leak into another's render.
