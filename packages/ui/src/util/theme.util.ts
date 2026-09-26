@@ -356,9 +356,11 @@ export class ThemeUtil {
           let newArray: unknown[] | null = null
           for (let i = 0; i < currentValue.length; i++) {
             const item = currentValue[i]
-            // A function item is called as it is under an object key. In a composed
-            // `css` (`[flatCssProps, css]`, see `NodeUtil.isSpreadableCss`) it is a
-            // whole style (`theme => ({ … })`), so its result is walked in turn.
+            // Strings and functions are resolved here as well as under object keys. An
+            // array is either a composed `css` (`[flatCssProps, css]`, where items are
+            // whole style values) or a fallback list under one property; the server
+            // converts string items in both, so the client must too or the class hash
+            // differs. No property is passed, matching the server's conversion.
             let resolvedItem = resolvedValues.get(item) ?? item
             if (typeof item === 'function' && processFunctions) {
               const funcResult = (item as (theme: Theme) => unknown)(theme)
@@ -368,6 +370,8 @@ export class ThemeUtil {
                     ? processThemeString(funcResult, themeStringsMode === 'vars', themeSystem)
                     : funcResult
                   : ThemeUtil.resolveObjWithTheme(funcResult as Record<string, unknown>, theme, options)
+            } else if (typeof item === 'string' && item.includes('theme.')) {
+              resolvedItem = processThemeString(item, themeStringsMode === 'vars', themeSystem)
             }
             if (resolvedItem !== item) {
               if (newArray === null) newArray = [...currentValue] // Copy-on-write

@@ -101,6 +101,16 @@ describe('css maps render byte-identically on the server', () => {
       () => themed(viaComponent(() => Div({ children: 'x', css: { fontFamily: ['Arial', 'theme.font.body'] } as never }))),
       '<style data-emotion="css 1me33pq">.css-1me33pq{-webkit-flex-shrink:0;-ms-flex-negative:0;flex-shrink:0;min-height:0;min-width:0;font-family:Arial;font-family:var(--meonode-theme-font-body);}</style><div class="css-1me33pq">x</div>',
     ],
+    [
+      'string css with a theme token under a component boundary',
+      () => themed(viaComponent(() => Div({ children: 'x', css: 'color: theme.colors.primary;' }))),
+      '<style data-emotion="css kk9f6w">.css-kk9f6w{-webkit-flex-shrink:0;-ms-flex-negative:0;flex-shrink:0;min-height:0;min-width:0;color:var(--meonode-theme-colors-primary);}</style><div class="css-kk9f6w">x</div>',
+    ],
+    [
+      'array css with a theme-token string under a component boundary',
+      () => themed(viaComponent(() => Div({ children: 'x', css: [{ margin: 4 }, 'color: theme.colors.primary;'] }))),
+      '<style data-emotion="css 74wits">.css-74wits{-webkit-flex-shrink:0;-ms-flex-negative:0;flex-shrink:0;min-height:0;min-width:0;margin:4px;color:var(--meonode-theme-colors-primary);}</style><div class="css-74wits">x</div>',
+    ],
   ])('%s', (_, make, expected) => {
     expect(ssr(make())).toBe(expected)
   })

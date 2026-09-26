@@ -1,4 +1,4 @@
-import { Div, type Theme, ThemeProvider } from '@src/main.js'
+import { Div, Node, type NodeInstance, type Theme, ThemeProvider } from '@src/main.js'
 import { cleanup, render } from '@testing-library/react'
 import { css as emotionCss, keyframes } from '@emotion/react'
 import { asThemeProps } from './_theme-props.js'
@@ -9,7 +9,7 @@ afterEach(cleanup)
 
 type CssValue = NonNullable<Parameters<typeof Div>[0]>['css']
 
-const theme: Theme = { mode: 'light', system: { colors: { primary: 'rgb(255, 0, 0)' } } }
+const theme: Theme = { mode: 'light', system: { colors: { primary: 'rgb(255, 0, 0)' }, font: { body: 'Inter' } } }
 
 /**
  * The rules Emotion emitted for the rendered div's class, keyed by what follows
@@ -82,6 +82,28 @@ describe('css prop shapes other than a plain object', () => {
       expect(Object.keys(rules)).toEqual([''])
       expect(rules['']).toContain('padding:8px;')
       expect(rules['']).toMatch(/color:(rgb\(255, 0, 0\)|var\(--meonode-theme-colors-primary\));/)
+    })
+  })
+
+  // The server converts `theme.*` strings in any array. On the client, a node that is
+  // a prop of its provider happens to be converted with the provider's props; one
+  // rendered from inside a React component is not, so the class hash differed from
+  // the server's. The expected classes are the server's, locked in css-prop-ssr.
+  describe('theme strings inside arrays match the server', () => {
+    const Wrap = ({ make }: { make: () => NodeInstance }) => make().render()
+    const renderUnderComponent = (cssValue: CssValue) => {
+      const { container } = render(
+        ThemeProvider({ ...asThemeProps(theme), children: Node(Wrap, { make: () => Div({ children: 'x', css: cssValue }) }) }).render(),
+      )
+      return [...container.querySelectorAll('div')].find(d => d.textContent === 'x' && d.children.length === 0)!
+    }
+
+    it.each<[string, CssValue, string]>([
+      ['a fallback list under one property', { fontFamily: ['Arial', 'theme.font.body'] } as never, 'css-1me33pq'],
+      ['a string css', 'color: theme.colors.primary;', 'css-kk9f6w'],
+      ['a string inside a composed css', [{ margin: 4 }, 'color: theme.colors.primary;'], 'css-74wits'],
+    ])('%s', (_, cssValue, serverClass) => {
+      expect(renderUnderComponent(cssValue).classList).toContain(serverClass)
     })
   })
 })
