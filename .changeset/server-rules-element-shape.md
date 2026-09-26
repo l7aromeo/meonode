@@ -2,11 +2,11 @@
 '@meonode/ui': patch
 ---
 
-Keep a server-rendered node's root a single element when it carries CSS rules.
+Keep a node's root a single element in a React Server Component when it carries CSS rules.
 
-The `<style>` elements for a render's server-compiled rules go into the
-children of the topmost host element that can hold them, after its own
-children. The root of `.render()` is still exactly the element it would be
+In a server component, the `<style>` elements for a render's server-compiled
+rules go into the children of the topmost host element that can hold them, after
+its own children. The root of `.render()` is still exactly the element it would be
 without styles, so a parent that clones its child — a `Slot`, a Radix
 `asChild`, a `Children.only` — still receives that element, and its type does
 not change between renders, so reordering siblings does not remount them.
