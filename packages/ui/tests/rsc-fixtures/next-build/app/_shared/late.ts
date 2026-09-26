@@ -1,12 +1,10 @@
 /**
- * Pins a race in its losing order.
+ * Delays a compile past a macrotask.
  *
- * Server-compiled rules reach the flush only if they are compiled before the
- * registry drains a process-global bucket, once. Which happens first moves with
- * worker scheduling — adding two unrelated pages to this fixture flipped
- * `/wrapped` from losing its rules to keeping them — so a test that relies on
- * the natural order passes or fails on the fixture's page count. Compiling
- * after a macrotask puts the rules after the only moment that could collect
- * them. A design without that moment passes either way.
+ * Rules collected at one fixed moment of a render miss anything compiled after
+ * it, and whether a compile lands before that moment otherwise depends on worker
+ * scheduling. A page that compiles after this resolves misses such a moment
+ * every time. Rules that travel with the render that compiles them arrive either
+ * way.
  */
 export const later = () => new Promise(resolve => setTimeout(resolve, 20))

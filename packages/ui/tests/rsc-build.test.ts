@@ -5,15 +5,14 @@ import { chromium, type Browser } from '@playwright/test'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 /**
- * What a production build of a MeoNode app actually emits.
+ * What a production build of a MeoNode app emits.
  *
  * Every assertion here reads HTML served by `next start` from a real
- * `next build`, because the failures it covers do not exist anywhere else: a
- * statically prerendered page losing the rules its server components compiled,
- * the next page prerendered in the same worker emitting them instead, and every
- * emotion rule emitted twice when Cache Components renders the client tree in
- * two passes. `next dev` never prerenders, so the dev-server suite cannot reach
- * any of it.
+ * `next build`, because what it checks exists nowhere else: the rules of a
+ * statically prerendered page's server components, pages prerendered one after
+ * another by the same build worker, and Cache Components rendering the client
+ * tree in two passes. `next dev` never prerenders, so the dev-server suite cannot
+ * reach any of it.
  *
  * Each page has styling of its own, so a rule in a response can be attributed:
  * "this page has its rules" is checked as the exact set, which also catches a
@@ -97,10 +96,9 @@ describe.each(['cc', 'plain'] as const)('a production build (%s)', variant => {
     }
   })
 
-  // #34 (second half), not fixed yet. Server-compiled rules reach the flush only
-  // if they are compiled before the registry drains a process-global bucket,
-  // once. `/wrapped-late` pins the compile after that moment, so this fails
-  // every time rather than whenever worker scheduling happens to lose.
+  // `/wrapped-late` and `/array-late` compile after a macrotask (see `later`), so
+  // rules collected at one fixed moment of the render would be missed here every
+  // time rather than only when worker scheduling happens to order it so.
   it('#34: a statically prerendered page defines every class its server components compiled', async () => {
     for (const [path, count] of [
       ['/wrapped', 4],
@@ -125,8 +123,7 @@ describe.each(['cc', 'plain'] as const)('a production build (%s)', variant => {
     expect(new Set(rows).size).toBe(2)
   })
 
-  // #32, not fixed yet: `next/link` from a server component takes the same
-  // server-compile path as #34, and loses its rule the same way.
+  // `next/link` from a server component takes the same server-compile path.
   it('#32: a next/link factory rendered from a server component gets its rule', async () => {
     for (const path of ['/link', '/link-late']) {
       const page = await styles(variant, path)
@@ -134,9 +131,9 @@ describe.each(['cc', 'plain'] as const)('a production build (%s)', variant => {
     }
   })
 
-  // Found with #34, not fixed yet: rules a prerender failed to collect surface
-  // on the next page the same worker prerenders. Checked as the exact set, so a
-  // page carrying another page's rules fails even if it looks styled.
+  // Pages prerendered one after another by one build worker must not carry each
+  // other's rules. Checked as the exact set, so a page carrying another page's
+  // rules fails even if it looks styled.
   it('a prerendered page carries exactly its own rules, not another page’s', async () => {
     for (const path of ['/', '/emotion-static', '/link', '/wrapped', '/wrapped-late']) {
       const page = await styles(variant, path)
@@ -153,9 +150,8 @@ describe('Cache Components against the same app without them', () => {
     // set — and the Cache Components build must do it from its single block.
     //
     // Compared on the page's own classes rather than on everything each build
-    // emitted, because the plain build's pages can also carry rules leaked from
-    // another page's prerender (#34's finding, tested above). That is a
-    // different defect, and it would make this test measure it instead.
+    // emitted, so a rule from another page's prerender — the case above — cannot
+    // decide this one.
     for (const path of ['/', '/emotion-static']) {
       const [cc, plain] = await Promise.all([styles('cc', path), styles('plain', path)])
       const own = idsOf(cc.classes)
@@ -181,10 +177,9 @@ describe.each(['cc', 'plain'] as const)('concurrent requests (%s)', variant => {
     }
   })
 
-  // #34 (second half), not fixed yet: with one process-global bucket, a
-  // request's server-compiled rules can be drained by another request, and ones
-  // compiled after the drain — pinned here by `later` — are never collected by
-  // their own. Expected to fail until those rules travel with the RSC output.
+  // Every response carries the rules its own render compiled and no other
+  // request's. The pages compile after a macrotask (see `later`), so rules
+  // collected at one fixed moment would miss them.
   it('each response carries exactly its own server-compiled rules', async () => {
     const paths = Array.from({ length: 24 }, (_, i) => (i % 2 ? '/dynamic-b' : '/dynamic-a'))
     const results = await Promise.all(paths.map(async path => ({ path, page: await styles(variant, path) })))
@@ -197,11 +192,9 @@ describe.each(['cc', 'plain'] as const)('concurrent requests (%s)', variant => {
 })
 
 describe.each(['cc', 'plain'] as const)('the flight payload (%s)', variant => {
-  // Not fixed yet (#34): server-compiled rules do not travel in the payload at
-  // all. Once they do, each must travel once per request: a <style> per
-  // element put 200 of them into a 200-row page and made its payload five times
-  // larger than the unstyled one. Several elements share each class here.
-  it('carries each server-compiled rule once, however many elements use it', async () => {
+  // A render carries each rule it compiled once, however many of its elements
+  // share it. Several elements share each class here, in one render.
+  it('carries each server-compiled rule once per render, however many of its elements use it', async () => {
     const html = await (await fetch(`http://localhost:${port(variant)}/shared-class`)).text()
     const flight = [...html.matchAll(/self\.__next_f\.push\(\[1,"((?:[^"\\]|\\.)*)"\]\)/g)].map(match => match[1]).join('')
     const hrefs = [...flight.matchAll(/\\"href\\":\\"(meonode-css-[a-z0-9]+)\\"/g)].map(match => match[1])
