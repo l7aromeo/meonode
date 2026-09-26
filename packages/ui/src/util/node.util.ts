@@ -46,7 +46,7 @@ const isReactComponentInstance = (value: unknown): value is React.Component => t
 export class NodeUtil {
   private constructor() {}
 
-  private static readBooleanFlag(value: unknown, key: '__meonodeAcceptsServerCss' | '__meonodeProvidesServerTheme' | '__meonodeShieldsOwnProps'): boolean {
+  private static readBooleanFlag(value: unknown, key: '__meonodeAcceptsServerCss' | '__meonodeShieldsOwnProps'): boolean {
     if (typeof value !== 'function') return false
     try {
       return (value as unknown as Record<string, unknown>)[key] === true
@@ -97,13 +97,6 @@ export class NodeUtil {
    */
   public static acceptsServerCss(value: unknown): boolean {
     return NodeUtil.readBooleanFlag(value, '__meonodeAcceptsServerCss')
-  }
-
-  /**
-   * Detects components that provide a theme scope for server-side style resolution.
-   */
-  public static providesServerTheme(value: unknown): boolean {
-    return NodeUtil.readBooleanFlag(value, '__meonodeProvidesServerTheme')
   }
 
   /**
