@@ -447,16 +447,20 @@ describe('G. Regression guards', () => {
     '/theme/resolution-link-node',
     '/boundary/server-node-client',
     '/boundary/server-createnode-neutral',
-    '/boundary/server-createnode-client',
     '/link/inline',
-    '/link/client-module',
     '/link/wrapped-client',
     '/async-await',
     '/async-nested',
   ]
 
   it.each(GUARD_PAGES)('no "[object Object]" attribute leaks on %s', async p => {
-    const { html } = await getPage(p)
+    const { status, html } = await getPage(p)
+    // The scan below only means something against the page's own content. An
+    // error page renders none of it, so a route that fails would pass this guard
+    // however badly it leaked — which is how two deliberately rejected routes sat
+    // in this list asserting nothing. Their rejection is asserted where it is
+    // intended, in B and D.
+    expect(status).toBe(200)
     assertNoObjectAttrLeaks(html)
   })
 
