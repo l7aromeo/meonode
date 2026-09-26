@@ -23,7 +23,7 @@ const port = (variant: 'cc' | 'plain') => process.env[`__BUILD_PORT_${variant.to
 interface Styles {
   /** Every `<style data-emotion>` block, verbatim. */
   blocks: string[]
-  /** The ids those blocks declare, with repeats. */
+  /** The ids those blocks and any hoisted `precedence` styles declare, with repeats. */
   declaredIds: string[]
   /** Distinct `meonode-css-*` class names in the markup. */
   classes: string[]
@@ -34,13 +34,20 @@ interface Styles {
 async function styles(variant: 'cc' | 'plain', path: string): Promise<Styles> {
   const html = await (await fetch(`http://localhost:${port(variant)}${path}`)).text()
   const blocks = [...html.matchAll(/<style data-emotion="([^"]*)"[^>]*>[\s\S]*?<\/style>/g)]
+  // React 19 hoists `<style href precedence>` into `<head>` and coalesces every
+  // one of a precedence into a single element, listing their hrefs. Inside a
+  // streamed Suspense boundary the element arrives first as `media="not all"`
+  // and is enabled on reveal, so attribute order is not fixed.
+  const hoisted = [...html.matchAll(/<style[^>]*\bdata-precedence="meonode"[^>]*\bdata-href="([^"]*)"[^>]*>/g)].flatMap(match =>
+    match[1].split(' ').map(href => href.slice('meonode-css-'.length)),
+  )
   // Any <style> can define a rule, whatever mechanism emitted it — so a rule is
   // only "missing" if no stylesheet on the page defines its class.
   const allCss = [...html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].map(match => match[1]).join('')
   const classes = [...new Set([...html.matchAll(/class="([^"]*)"/g)].flatMap(match => match[1].split(/\s+/)).filter(name => name.startsWith('meonode-css-')))]
   return {
     blocks: blocks.map(match => match[0]),
-    declaredIds: blocks.flatMap(match => match[1].split(' ').slice(1)),
+    declaredIds: [...blocks.flatMap(match => match[1].split(' ').slice(1)), ...hoisted],
     classes,
     undefinedClasses: classes.filter(name => !allCss.includes(`.${name}`)),
   }
@@ -99,6 +106,18 @@ describe.each(['cc', 'plain'] as const)('a production build (%s)', variant => {
       expect({ path, classes: page.classes.length }).toEqual({ path, classes: 4 })
       expect({ path, undefined: page.undefinedClasses }).toEqual({ path, undefined: [] })
     }
+  })
+
+  it('gives every element its class when several share one', async () => {
+    // Four server-compiled elements, three of them the same class. A compile
+    // path that answers only the first request for an id leaves the others with
+    // no class: the page still "defines every class it uses", because the
+    // classes it lost are not in the markup to be checked.
+    const html = await (await fetch(`http://localhost:${port(variant)}/shared-class`)).text()
+    const rows = [...html.matchAll(/<div( class="([^"]*)")?>(first|second) \d<\/div>/g)].map(match => match[2] ?? '')
+    expect(rows).toHaveLength(4)
+    expect(rows.filter(name => name.startsWith('meonode-css-'))).toHaveLength(4)
+    expect(new Set(rows).size).toBe(2)
   })
 
   // #32, not fixed yet: `next/link` from a server component takes the same
