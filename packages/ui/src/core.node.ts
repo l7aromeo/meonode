@@ -1,4 +1,6 @@
 import {
+  cache,
+  cloneElement,
   type ComponentProps,
   createElement,
   type ElementType,
@@ -29,10 +31,82 @@ import StyledRenderer from '@src/components/styled-renderer.client.js'
 import MeoMemo from '@src/components/meo-memo.client.js'
 import { LIST_MARKER, LOCATION_MARKER } from '@src/constant/common.const.js'
 import { NodeUtil } from '@src/util/node.util.js'
-import { compileServerEmotionClassName } from '@src/util/server-emotion.util.js'
+import { IS_REACT_SERVER_LAYER } from '@src/util/react-layer.util.js'
+import { compileServerEmotionRule } from '@src/util/server-emotion.util.js'
 import { getActiveServerTheme, replaceThemeTokensWithCssVars, setActiveServerTheme } from '@src/util/server-theme.util.js'
 import { diagnosticsEnabled, reportThemeIssues } from '@src/util/theme-diagnostics.util.js'
 import { ThemeUtil } from '@src/util/theme.util.js'
+
+/**
+ * Hosts that cannot carry a rule in their children: void elements, elements
+ * whose children React treats as text or never renders, and the document
+ * scaffold. Anything inside `svg` or `math` is excluded separately, because a
+ * `<style>` there is an SVG or MathML element that renders in place instead of
+ * being hoisted, which would put the rule at a cascade position of its own.
+ */
+const RULE_ANCHOR_EXCLUDED = new Set([
+  'area',
+  'base',
+  'br',
+  'col',
+  'embed',
+  'hr',
+  'img',
+  'input',
+  'link',
+  'meta',
+  'source',
+  'track',
+  'wbr',
+  'textarea',
+  'option',
+  'title',
+  'style',
+  'script',
+  'noscript',
+  'template',
+  'html',
+  'head',
+  'svg',
+  'math',
+])
+
+/**
+ * Whether a server-compiled rule can travel in this element's children.
+ *
+ * A host renders every child it is given, so a rule placed among a host's
+ * children renders whenever anything inside that host does. That is what lets a
+ * rule sit with an ancestor of the element that uses it rather than beside it,
+ * leaving the element itself exactly as it would be without the rule.
+ */
+function canAnchorRules(renderTarget: unknown, props: Record<string, unknown>, inForeignNamespace: boolean): boolean {
+  return (
+    typeof renderTarget === 'string' &&
+    !inForeignNamespace &&
+    !RULE_ANCHOR_EXCLUDED.has(renderTarget) &&
+    !('dangerouslySetInnerHTML' in props && props.dangerouslySetInnerHTML != null)
+  )
+}
+
+/**
+ * The `<style>` element for a rule, one object per request.
+ *
+ * Every anchor that needs a rule gets it, so a subtree the client does not
+ * render cannot take another subtree's only copy with it. Reusing one element
+ * object for all of them lets the RSC payload carry the rule once and refer back
+ * to it. Outside the RSC layer `cache` memoises nothing and each render builds
+ * its own; React dedupes hoisted styles by `href` there.
+ */
+const requestRuleElements = cache((): Map<string, ReactElement> => new Map())
+function ruleElement(rule: { id: string; className: string; cssText: string }): ReactElement {
+  const elements = requestRuleElements()
+  let element = elements.get(rule.id)
+  if (!element) {
+    element = createElement('style', { key: rule.id, href: rule.className, precedence: 'meonode' }, rule.cssText)
+    elements.set(rule.id, element)
+  }
+  return element
+}
 
 const RENDER_CONTEXT_POOL_KEY = Symbol.for('@meonode/ui/BaseNode/renderContextPool')
 
@@ -245,6 +319,11 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
     let { workStack } = ctx
     const { renderedElements } = ctx
     let stackPointer = 0
+    // Server-compiled rules this render emits, keyed by the element that carries
+    // them in its children. `rootRules` holds the ones whose consumer has no host
+    // able to carry them anywhere above it in this render.
+    const anchoredRules = new Map<BaseNode, Map<string, ReactElement>>()
+    const rootRules = new Map<string, ReactElement>()
 
     try {
       // Fast capacity check with exponential growth
@@ -264,7 +343,7 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
       }
 
       // Push initial work item
-      workStack[stackPointer++] = { node: this, isProcessed: false, theme: undefined }
+      workStack[stackPointer++] = { node: this, isProcessed: false, theme: undefined, anchor: null, inForeignNamespace: false }
 
       // Iterative depth-first traversal with explicit begin/complete phases to avoid recursion.
       while (stackPointer > 0) {
@@ -273,7 +352,7 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
           stackPointer--
           continue
         }
-        const { node, isProcessed, theme: inheritedTheme } = currentWork
+        const { node, isProcessed, theme: inheritedTheme, anchor, inForeignNamespace } = currentWork
 
         const getActiveTheme = (props: FinalNodeProps, current?: Theme): Theme | undefined => {
           const candidate = (props as { theme?: unknown }).theme
@@ -288,6 +367,12 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
           currentWork.isProcessed = true
           const children = node.props.children
           const activeTheme = getActiveTheme(node.props, inheritedTheme)
+          // The topmost host above each child that can carry its rules, and
+          // whether the child sits in SVG or MathML, where none can.
+          const beginAs = (node.props as { as?: NodeElementType }).as
+          const beginTarget = beginAs != null && isValidElementType(beginAs) ? beginAs : node.element
+          const childAnchor = anchor ?? (canAnchorRules(beginTarget, node.props as Record<string, unknown>, inForeignNamespace) ? node : null)
+          const childInForeignNamespace = inForeignNamespace || beginTarget === 'svg' || beginTarget === 'math'
 
           if (children) {
             // Only consider BaseNode children for further traversal; primitives and React elements are terminal.
@@ -316,7 +401,13 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
                 continue
               }
 
-              workStack[stackPointer++] = { node: child, isProcessed: false, theme: activeTheme }
+              workStack[stackPointer++] = {
+                node: child,
+                isProcessed: false,
+                theme: activeTheme,
+                anchor: childAnchor,
+                inForeignNamespace: childInForeignNamespace,
+              }
             }
           }
         } else {
@@ -515,7 +606,15 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
             // StyledRenderer handles SSR hydration and emotion CSS injection when css prop exists or element has style tags.
             // All element-shape decisions use `renderTarget` so an `as` swap is honored consistently.
             const isStyledComponent = !disableEmotion && (css || !hasNoStyleTag(renderTarget)) && Object.keys(css || {}).length > 0
-            const shouldBypassStyledRendererOnServer = NodeUtil.isServer && typeof renderTarget !== 'string'
+            // A function component rendered on the server never reaches the client
+            // as itself, and neither does a host tag in the RSC layer: its output
+            // is final there, so its css is compiled to a class name here rather
+            // than handed to `StyledRenderer`, whose css prop would be serialised
+            // into the flight payload. A host tag rendered anywhere else — a client
+            // component's server render, or a server render outside RSC — is
+            // hydrated by the client through `StyledRenderer`, so it takes that
+            // path on the server too.
+            const shouldBypassStyledRendererOnServer = NodeUtil.isServer && (typeof renderTarget !== 'string' || IS_REACT_SERVER_LAYER)
             // Keep server/client on the same StyledRenderer path for client references.
             // This avoids Emotion hash drift not only for theme tokens, but also for raw
             // CSS values (e.g. "red", "#ff0000") that would otherwise use different
@@ -544,10 +643,15 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
               // side happened to render it.
               reportThemeIssues(themedCss, activeTheme)
               const cssWithDefaults = ThemeUtil.resolveDefaultStyle(themedCss)
-              const serverCssClassName = compileServerEmotionClassName(cssWithDefaults)
-              const mergedClassName = [elementProps.className, serverCssClassName].filter(Boolean).join(' ') || undefined
-              const elementPropsWithClassName = mergedClassName ? { ...elementProps, className: mergedClassName } : elementProps
+              const rule = compileServerEmotionRule(cssWithDefaults, elementProps.className)
+              const elementPropsWithClassName = rule ? { ...elementProps, className: rule.className } : elementProps
               element = createElement(renderTarget, elementPropsWithClassName, ...childArguments)
+              if (rule?.emit) {
+                const carrier = anchor ?? (canAnchorRules(renderTarget, elementProps as Record<string, unknown>, inForeignNamespace) ? node : null)
+                const rules = carrier ? (anchoredRules.get(carrier) ?? new Map<string, ReactElement>()) : rootRules
+                if (carrier) anchoredRules.set(carrier, rules)
+                rules.set(rule.id, ruleElement(rule))
+              }
             } else {
               // On server function components, keep css support for true server components.
               // For client references (e.g. next/link), do not forward css to avoid leaking
@@ -558,6 +662,12 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
             }
           }
 
+          // A host carrying rules gets them as one trailing keyed slot, after its
+          // own children, so none of those shift and the element stays the one
+          // element it would be without them.
+          const carriedRules = anchoredRules.get(node)
+          if (carriedRules) element = cloneElement(element, undefined, ...childArguments, [...carriedRules.values()])
+
           // Store the rendered element so parent nodes can reference it.
           renderedElements.set(node, element)
         }
@@ -565,8 +675,13 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
 
       // Get the final rendered element for the root node of this render cycle.
       const rootElement = renderedElements.get(this) as ReactElement<FinalNodeProps>
+      if (rootRules.size === 0) return rootElement
 
-      return rootElement
+      // Rules whose consumer has no host above it in this render that could carry
+      // them — a void, SVG or component element at the root, or under components
+      // only — travel beside the root. This is the one case where the root is not
+      // the element it would be without them.
+      return createElement(Fragment, { key: rootElement.key }, rootElement, [...rootRules.values()]) as ReactElement<FinalNodeProps>
     } finally {
       // Always release context back to pool, even if an exception occurred
       // Null out workStack slots to help GC before releasing

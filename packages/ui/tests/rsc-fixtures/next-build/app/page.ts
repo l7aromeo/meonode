@@ -1,6 +1,7 @@
-import { Div } from '@meonode/ui'
+import { Node } from '@meonode/ui'
+import { Reproduction } from './_shared/registry-nodes'
 
-/** #35: an intrinsic node with a nested selector, as the issue's reproduction. */
+/** #35: the issue's reproduction, rendered where `StyleRegistry` collects it. */
 export default function Page() {
-  return Div({ children: 'Hello', padding: 16, color: 'rebeccapurple', css: { '&:hover': { color: 'crimson' } } }).render()
+  return Node(Reproduction).render()
 }

@@ -140,7 +140,9 @@ function getComputedStylesFromEmotionCss(html: string, testId: string, propertie
   const classAttr = elementTag.match(/\bclass=["']([^"']+)["']/i)?.[1] ?? ''
   const classes = classAttr.split(/\s+/).filter(Boolean)
 
-  const styleBlocks = [...html.matchAll(/<style[^>]*data-emotion="[^"]*"[^>]*>([\s\S]*?)<\/style>/gi)]
+  // Any <style> can define the element's rule: the registry's `data-emotion`
+  // block, or a hoisted `<style href precedence>` emitted with the RSC output.
+  const styleBlocks = [...html.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi)]
   const cssText = styleBlocks.map(m => m[1]).join('\n')
 
   const result: Record<string, string | null> = {}
@@ -198,8 +200,14 @@ describe('A. Server-only rendering', () => {
     expect(status).toBe(200)
     assertNoRscErrors(html)
     expect(html).toContain('styled from server')
-    // An Emotion <style> tag with our key should be present.
-    expect(html).toMatch(/data-emotion="meonode-css[^"]*"/)
+    // Every element carrying a server-compiled class has that class defined by a
+    // stylesheet on the page, whichever mechanism emitted the rule.
+    const serverClasses = [
+      ...new Set([...html.matchAll(/class="([^"]*)"/g)].flatMap(match => match[1].split(/\s+/)).filter(name => name.startsWith('meonode-css-'))),
+    ]
+    const pageCss = [...html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].map(match => match[1]).join('')
+    expect(serverClasses.length).toBeGreaterThan(0)
+    expect(serverClasses.filter(name => !pageCss.includes(`.${name}`))).toEqual([])
     // The color value should appear in the emitted styles (red == 255,0,0).
     expect(html.toLowerCase()).toMatch(/color:\s*rgb\(255,\s*0,\s*0\)|color:\s*#ff0000|color:red/)
   })
@@ -226,8 +234,14 @@ describe('A. Server-only rendering', () => {
     // `as` must be consumed, never emitted as a DOM attribute.
     expect(elementTag).not.toMatch(/\bas=/)
 
-    // Emotion critical CSS still emitted via the same server path.
-    expect(html).toMatch(/data-emotion="meonode-css[^"]*"/)
+    // Every element carrying a server-compiled class has that class defined by a
+    // stylesheet on the page, whichever mechanism emitted the rule.
+    const serverClasses = [
+      ...new Set([...html.matchAll(/class="([^"]*)"/g)].flatMap(match => match[1].split(/\s+/)).filter(name => name.startsWith('meonode-css-'))),
+    ]
+    const pageCss = [...html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].map(match => match[1]).join('')
+    expect(serverClasses.length).toBeGreaterThan(0)
+    expect(serverClasses.filter(name => !pageCss.includes(`.${name}`))).toEqual([])
     expect(html.toLowerCase()).toMatch(/color:\s*rgb\(255,\s*0,\s*0\)|color:\s*#ff0000|color:red/)
   })
 })
@@ -321,9 +335,14 @@ describe('C. Theme and provider boundaries', () => {
     assertNoRscErrors(html)
     expect(html).toContain('styled-a')
     expect(html).toContain('styled-b')
-    // Find all Emotion style tags with the meonode-css key.
-    const styleTagMatches = html.match(/<style [^>]*data-emotion="meonode-css[^"]*"/g) || []
-    expect(styleTagMatches.length).toBeGreaterThan(0)
+    // Every element carrying a server-compiled class has that class defined by a
+    // stylesheet on the page, whichever mechanism emitted the rule.
+    const serverClasses = [
+      ...new Set([...html.matchAll(/class="([^"]*)"/g)].flatMap(match => match[1].split(/\s+/)).filter(name => name.startsWith('meonode-css-'))),
+    ]
+    const pageCss = [...html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].map(match => match[1]).join('')
+    expect(serverClasses.length).toBeGreaterThan(0)
+    expect(serverClasses.filter(name => !pageCss.includes(`.${name}`))).toEqual([])
   })
 })
 
