@@ -52,8 +52,16 @@ describe('compileServerEmotionRule', () => {
     expect(second?.cssText).not.toBe('')
   })
 
-  it('has a rule to emit for css that styles something', () => {
-    expect(compileServerEmotionRule({ color: '#778899' } as never)?.emit).toBe(true)
+  it('has a rule to render for css that styles something, named by the class it defines', () => {
+    const rule = compileServerEmotionRule({ color: '#778899' } as never)
+    expect(rule?.cssText).toContain(`.${rule?.ownClassName}{`)
+    expect(rule?.ownClassName).toBe(rule?.className)
+  })
+
+  it('keeps a handed class out of the rule’s own class', () => {
+    const rule = compileServerEmotionRule({ color: '#778899' } as never, 'utility')
+    expect(rule?.className).toBe(`utility ${rule?.ownClassName}`)
+    expect(rule?.ownClassName).toMatch(/^meonode-css-[a-z0-9]+$/)
   })
 })
 
