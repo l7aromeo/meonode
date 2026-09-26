@@ -79,15 +79,6 @@ export const cases = {
   'media-inside-hover': s(`Div({ 'data-probe': 'a', css: { '&:hover': { [${WIDE}]: { color: ${HIT} } } }, children: 'x' })`),
   'layer': s(`Div({ 'data-probe': 'a', css: { '@layer base': { color: 'theme.accent' } }, children: 'x' })`),
   'keyframes-inline': s(`Div({ 'data-probe': 'a', css: { '@keyframes rscdiff-fade': { from: { opacity: 0 }, to: { opacity: 1 } }, animation: 'rscdiff-fade theme.duration.fast' }, children: 'x' })`),
-  'keyframes-emotion': `${UI}
-import { keyframes } from '@emotion/react'
-
-const fade = keyframes({ from: { opacity: 0 }, to: { opacity: 1 } })
-
-export default function Case() {
-  return Div({ 'data-probe': 'a', css: { animation: \`\${fade} 1s\` }, children: 'x' }).render()
-}
-`,
 
   // ── Tokens in selector keys ─────────────────────────────────────────────
   'sel-hover': s(`Div({ 'data-probe': 'a', css: { '&:hover': { color: 'theme.accent', padding: 'theme.spacing.md' } }, children: 'x' })`),
@@ -102,13 +93,6 @@ export default function Case() {
   // ── 3.1.0's css shapes ──────────────────────────────────────────────────
   'shape-array': s(`Div({ 'data-probe': 'a', css: [{ color: 'theme.accent' }, { ${WIDE}: { color: ${HIT} } }], children: 'x' })`),
   'shape-string': s(`Div({ 'data-probe': 'a', css: 'color: theme.accent; @media (min-width: theme.breakpoint.wide) { color: rgb(1, 2, 3); }', children: 'x' })`),
-  'shape-emotion-css': `${UI}
-import { css } from '@emotion/react'
-
-export default function Case() {
-  return Div({ 'data-probe': 'a', padding: 5, css: css({ color: 'rgb(1, 2, 3)' }), children: 'x' }).render()
-}
-`,
   'shape-false': s(`Div({ 'data-probe': 'a', padding: 3, css: false, children: 'x' })`),
 
   // ── Theme functions ─────────────────────────────────────────────────────

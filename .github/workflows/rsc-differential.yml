@@ -1,0 +1,97 @@
+# Renders the RSC differential corpus with the latest published @meonode/ui and
+# with this checkout, in a real `next build`, and fails on any difference in what
+# the browser shows that `expected-differences.json` does not list with the
+# changeset or issue that intends it. See packages/ui/tests/rsc-differential.
+#
+# Separate from ci.yml: it needs Next, Chromium and two sets of production
+# builds, which is too slow for every push. It runs on pull requests that can
+# change what a page renders, and nightly on main.
+name: RSC differential
+
+on:
+  pull_request:
+    paths:
+      - 'packages/ui/src/**'
+      - 'packages/ui/package.json'
+      - 'packages/ui/tests/rsc-differential/**'
+      - '.github/workflows/rsc-differential.yml'
+  schedule:
+    - cron: '23 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rsc-differential-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  HUSKY: 0
+
+jobs:
+  differential:
+    name: RSC differential
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: packages/ui/tests/rsc-differential
+    steps:
+      # Outside the checkout, so each fixture build is its own project rather than
+      # a directory inside this monorepo.
+      - name: Work directory
+        run: echo "RSC_DIFF_WORK=$RUNNER_TEMP/rsc-diff" >> "$GITHUB_ENV"
+        working-directory: .
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v7
+        with:
+          node-version: lts/*
+      - run: bun install --frozen-lockfile
+        working-directory: .
+      - run: bunx playwright install --with-deps chromium
+        working-directory: .
+
+      # The baseline is whatever a user installs today. Its results depend only on
+      # that version and on the harness, so they are collected once and cached.
+      - name: Resolve the baseline
+        id: baseline
+        run: echo "version=$(npm view @meonode/ui version)" >> "$GITHUB_OUTPUT"
+      - name: Restore baseline results
+        id: cache
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ env.RSC_DIFF_WORK }}/base/*.json
+          key: rsc-differential-${{ steps.baseline.outputs.version }}-${{ hashFiles('packages/ui/tests/rsc-differential/corpus.mjs', 'packages/ui/tests/rsc-differential/run.mjs', 'packages/ui/tests/rsc-differential/fixture/**') }}
+      - name: Collect the baseline (@meonode/ui ${{ steps.baseline.outputs.version }})
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: node run.mjs all base ${{ steps.baseline.outputs.version }}
+      - name: Save baseline results
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ env.RSC_DIFF_WORK }}/base/*.json
+          key: ${{ steps.cache.outputs.cache-primary-key }}
+
+      - name: Collect this checkout
+        run: node run.mjs all head "$(node run.mjs pack .)"
+
+      - name: Compare
+        run: |
+          set -o pipefail
+          node compare.mjs "$RSC_DIFF_WORK/base" "$RSC_DIFF_WORK/head" --expect expected-differences.json | tee "$RSC_DIFF_WORK/report.md"
+      - name: Report
+        if: always()
+        run: '[ -f "$RSC_DIFF_WORK/report.md" ] && { echo "## RSC differential"; echo; echo "\`\`\`"; cat "$RSC_DIFF_WORK/report.md"; echo "\`\`\`"; } >> "$GITHUB_STEP_SUMMARY" || true'
+      - name: Keep the results
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: rsc-differential
+          path: |
+            ${{ env.RSC_DIFF_WORK }}/*/results-*.json
+            ${{ env.RSC_DIFF_WORK }}/*/build-*.log
+            ${{ env.RSC_DIFF_WORK }}/*/excluded-*.json
+            ${{ env.RSC_DIFF_WORK }}/report.md
+          retention-days: 14

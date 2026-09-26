@@ -6,13 +6,14 @@
 //   node run.mjs build   <label> <config>      next build (config: plain | cc | plain-compiled | cc-compiled)
 //   node run.mjs collect <label> <config>      next start + Chromium, writes results-<config>.json
 //   node run.mjs all     <label> <ui-spec> [configs…]
-//   node run.mjs pack    <git-ref>                 build that commit's @meonode/ui, print the tarball
+//   node run.mjs pack    <git-ref | .>             build that commit's (or this checkout's) @meonode/ui, print the tarball
 //
 // <ui-spec> is anything the package manager takes: `3.0.0`, `3.1.0`, or a path
 // to a tarball packed under a version no registry has (a matching version would
 // be served from the registry instead of the file).
 import { spawn, spawnSync } from 'node:child_process'
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { availableParallelism } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { stripVTControlCharacters } from 'node:util'
@@ -103,21 +104,28 @@ ${dynamic ? '  await connection()\n' : ''}  try {
  */
 function pack(ref) {
   const repo = sh('git', ['rev-parse', '--show-toplevel'], { cwd: HERE }).out.trim()
-  const sha = sh('git', ['rev-parse', '--short', ref], { cwd: repo }).out.trim()
-  const src = path.join(WORK_ROOT, `src-${sha}`)
+  const sha = sh('git', ['rev-parse', '--short', ref === '.' ? 'HEAD' : ref], { cwd: repo }).out.trim()
+  // `.` packs the checkout as it is, dependencies already installed (CI); a ref is
+  // checked out into its own worktree first.
+  const src = ref === '.' ? repo : path.join(WORK_ROOT, `src-${sha}`)
   if (!existsSync(src)) {
     const add = sh('git', ['worktree', 'add', '--detach', src, sha], { cwd: repo })
     if (add.code !== 0) throw new Error(add.out)
   }
-  for (const [cmd, args, cwd] of [['bun', ['install'], src], ['bun', ['run', 'build'], path.join(src, 'packages/ui')]]) {
+  const steps = [['bun', ['run', 'build'], path.join(src, 'packages/ui')]]
+  if (ref !== '.') steps.unshift(['bun', ['install'], src])
+  for (const [cmd, args, cwd] of steps) {
     const res = sh(cmd, args, { cwd })
     if (res.code !== 0) throw new Error(`${cmd} ${args.join(' ')} failed:\n${res.out.slice(-3000)}`)
   }
   const pkgFile = path.join(src, 'packages/ui/package.json')
-  const pkg = JSON.parse(readFileSync(pkgFile, 'utf8'))
-  pkg.version = `${pkg.version.replace(/-rscdiff\..*$/, '')}-rscdiff.${sha}`
+  const original = readFileSync(pkgFile, 'utf8')
+  const pkg = JSON.parse(original)
+  pkg.version = `${pkg.version}-rscdiff.${sha}`
   writeFileSync(pkgFile, JSON.stringify(pkg, null, 2))
+  mkdirSync(WORK_ROOT, { recursive: true })
   const res = sh('npm', ['pack', '--pack-destination', WORK_ROOT], { cwd: path.join(src, 'packages/ui') })
+  writeFileSync(pkgFile, original)
   if (res.code !== 0) throw new Error(res.out)
   const tarball = path.join(WORK_ROOT, `meonode-ui-${pkg.version}.tgz`)
   log(`packed ${ref} (${sha}) → ${tarball}`)
@@ -176,6 +184,8 @@ function errorFor(out, key) {
 }
 
 // ── collect ──────────────────────────────────────────────────────────────
+const CONCURRENCY = Number(process.env.RSC_DIFF_CONCURRENCY) || Math.max(1, Math.min(8, Math.floor(availableParallelism() / 2)))
+
 const PROPS = [
   'color', 'background-color', 'padding-top', 'padding-left', 'margin-top', 'width', 'border-top-color', 'border-top-width',
   'border-top-style', 'border-top-left-radius', 'box-shadow', 'font-family', 'flex-shrink', 'min-height', 'min-width', 'display',
@@ -199,12 +209,17 @@ async function collect(label, config) {
     try {
       // RSC_DIFF_CASES=a,b collects only those cases, into results-<config>.<RSC_DIFF_TAG>.json.
       const only = process.env.RSC_DIFF_CASES?.split(',')
-      for (const layout of LAYOUTS) {
-        for (const id of Object.keys(cases).filter(id => !only || only.includes(id))) {
-          const route = `/${layout}/${id}`
-          results[`${layout}/${id}`] = await collectRoute(browser, port, route)
+      const keys = LAYOUTS.flatMap(layout => Object.keys(cases).filter(id => !only || only.includes(id)).map(id => `${layout}/${id}`))
+      // Each route gets its own browser contexts, so routes are independent and can
+      // be read side by side. Results are keyed, not appended, so order is irrelevant.
+      let next = 0
+      const worker = async () => {
+        while (next < keys.length) {
+          const key = keys[next++]
+          results[key] = await collectRoute(browser, port, `/${key}`)
         }
       }
+      await Promise.all(Array.from({ length: CONCURRENCY }, worker))
     } finally {
       await browser.close()
     }
@@ -212,7 +227,9 @@ async function collect(label, config) {
     const excludedFile = path.join(dir, `excluded-${config}.json`)
     const excluded = existsSync(excludedFile) ? JSON.parse(readFileSync(excludedFile, 'utf8')) : []
     const outFile = path.join(dir, `results-${config}${process.env.RSC_DIFF_TAG ? `.${process.env.RSC_DIFF_TAG}` : ''}.json`)
-    writeFileSync(outFile, JSON.stringify({ label, config, installed, excluded, results }, null, 1))
+    // Sorted, so two collections of one build are byte-comparable whatever order the workers finished in.
+    const sorted = Object.fromEntries(Object.keys(results).sort().map(key => [key, results[key]]))
+    writeFileSync(outFile, JSON.stringify({ label, config, installed, excluded, results: sorted }, null, 1))
     writeFileSync(path.join(dir, `server-${config}.log`), serverLog)
     log(`${label}/${config}: collected ${Object.keys(results).length} routes → ${outFile}`)
   } finally {

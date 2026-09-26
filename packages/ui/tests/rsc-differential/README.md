@@ -42,10 +42,10 @@ recorded.
 
 ```bash
 export RSC_DIFF_WORK=/tmp/rsc-diff          # installs and builds; defaults to .work/
-node run.mjs pack <git-ref>                 # prints a tarball versioned <v>-rscdiff.<sha>
+node run.mjs pack <git-ref>                 # prints a tarball versioned <v>-rscdiff.<sha>; `.` packs this checkout
 node run.mjs all base 3.0.0                 # prepare, then build + collect every config
 node run.mjs all head $RSC_DIFF_WORK/meonode-ui-<v>-rscdiff.<sha>.tgz
-node compare.mjs $RSC_DIFF_WORK/base/results-cc.json $RSC_DIFF_WORK/head/results-cc.json
+node compare.mjs $RSC_DIFF_WORK/base $RSC_DIFF_WORK/head --expect expected-differences.json
 ```
 
 `pack` gives the tarball a version no registry has. A tarball whose version
@@ -58,6 +58,61 @@ places it was read:
   say why
 
 `--rules` also prints every rule-text difference.
+
+Routes are read in parallel. `RSC_DIFF_CONCURRENCY` sets the number of routes;
+the default is half the cores, up to 8. Routes are independent, so the results
+are the same as a sequential run.
+
+## Expected differences
+
+`compare.mjs --expect expected-differences.json` exits with:
+- `1` for any difference the file does not list
+- `2` when the comparison cannot be trusted, such as a config or a case
+  collected on one side only
+- `0` otherwise
+
+Each entry names the `case`, why it differs (`change`) and what intends it
+(`source`: a changeset or an issue). It can narrow the match with:
+- `layouts`, `configs`
+- `kind`: `style`, `leak`, `classes`, `build`, `rule-never-applies`,
+  `console-added`, …
+- `probe`, `property`, `from`, `to`
+
+```json
+{
+  "baseline": "3.1.1",
+  "differences": [
+    {
+      "case": "flex-defaults",
+      "kind": "style",
+      "property": "flex-shrink",
+      "from": "0",
+      "to": "1",
+      "change": "flex: '1 1 auto' keeps its own shrink factor",
+      "source": "#33"
+    }
+  ]
+}
+```
+
+`baseline` is the release the entries are measured against. After that release
+ships, its entries match nothing and are reported as such; remove them.
+
+## In CI
+
+`.github/workflows/rsc-differential.yml` compares the latest published
+`@meonode/ui` with the checkout. It runs on pull requests touching
+`packages/ui/src`, the package manifest or this directory, and nightly on
+`main`. The baseline's results depend only on its version and the harness, so
+they are cached under that key and collected once per release.
+
+Measured on a 14-core machine, with warm package caches:
+- whole baseline: 124 s
+- packing the checkout: 4 s
+- whole head: 134 s
+
+For each of the four builds that is 6–45 s of `next build` and about 20 s to read
+320 routes.
 
 ## Checking the instrument
 

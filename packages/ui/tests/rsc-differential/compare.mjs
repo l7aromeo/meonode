@@ -1,22 +1,52 @@
 #!/usr/bin/env node
-// node compare.mjs <base results.json> <target results.json> [--rules]
+// node compare.mjs <base> <head> [--expect expected-differences.json] [--configs cc,plain] [--rules]
 //
-// Prints every case whose served or hydrated output differs between two runs of
-// run.mjs, grouped so that one difference shared by several layouts prints once.
-// Computed style is the verdict — what a reader sees. Rule text, token leaks and
-// console output say why.
-import { readFileSync } from 'node:fs'
+// <base> and <head> are run.mjs work directories (every `results-<config>.json`
+// in them is compared) or two single results files.
+//
+// Prints every case whose served or hydrated output differs, grouped so that one
+// difference shared by several layouts or configs prints once. Computed style is
+// the verdict — what a reader sees. Rule text, token leaks and console output say
+// why.
+//
+// With --expect, each difference is either listed in that file, with the change
+// and the changeset or issue that intends it, or it is unexpected. Exit codes:
+//   0  no difference, or every difference expected
+//   1  an unexpected difference
+//   2  the comparison itself cannot be trusted: a config, route or case missing
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import path from 'node:path'
+import { cases } from './corpus.mjs'
 
-const [baseFile, targetFile, ...flags] = process.argv.slice(2)
-const showRules = flags.includes('--rules')
-// `a.json+b.json` merges a run with a later one that collected extra cases.
-const load = spec =>
-  spec.split('+').reduce((run, file) => {
-    const next = JSON.parse(readFileSync(file, 'utf8'))
-    return run ? { ...run, excluded: [...run.excluded, ...next.excluded.filter(e => !run.excluded.some(r => r.key === e.key))], results: { ...run.results, ...next.results } } : next
-  }, null)
-const base = load(baseFile)
-const target = load(targetFile)
+const args = process.argv.slice(2)
+const flag = name => {
+  const i = args.indexOf(name)
+  return i === -1 ? undefined : args.splice(i, 2)[1]
+}
+const expectFile = flag('--expect')
+const onlyConfigs = flag('--configs')?.split(',')
+const showRules = args.includes('--rules') && args.splice(args.indexOf('--rules'), 1)
+const [baseSpec, headSpec] = args
+
+function fail(message) {
+  console.error(`compare: ${message}`)
+  process.exit(2)
+}
+
+/** `results-<config>.json` files of a work directory, or the one file given. */
+function runsOf(spec) {
+  if (!spec || !existsSync(spec)) fail(`no such run: ${spec}`)
+  if (!statSync(spec).isDirectory()) {
+    const run = JSON.parse(readFileSync(spec, 'utf8'))
+    return { [run.config]: run }
+  }
+  const runs = {}
+  for (const name of readdirSync(spec)) {
+    const match = name.match(/^results-([a-z-]+)\.json$/)
+    if (match && (!onlyConfigs || onlyConfigs.includes(match[1]))) runs[match[1]] = JSON.parse(readFileSync(path.join(spec, name), 'utf8'))
+  }
+  return runs
+}
 
 /** Generated class names → C1, C2… in order of first appearance, per route. */
 function labeller() {
@@ -57,22 +87,22 @@ function describe(entry) {
 
 const FOLLOWS_COLOR = ['border-top-color', 'outline-color', '::before color']
 
-function diffCase(b, t, streamed) {
+/** Every difference in one route, as records an expectation can match field by field. */
+function diffRoute(b, t, streamed) {
   const out = []
-  if (b.missing || t.missing) return [`route missing in ${b.missing ? 'base' : 'target'}`]
-  if (b.status !== t.status) out.push(`status ${b.status} → ${t.status}`)
-  if (b.excluded !== t.excluded) out.push(`build: ${b.excluded ? 'EXCLUDED' : 'built'} → ${t.excluded ? 'EXCLUDED' : 'built'}`)
-  if (b.caseError !== t.caseError) out.push(`render error: ${b.caseError ?? '-'} → ${t.caseError ?? '-'}`)
-  for (const key of ['cssThemeTokens', 'attrThemeTokens']) {
-    const bl = JSON.stringify(b.leaks?.[key] ?? []), tl = JSON.stringify(t.leaks?.[key] ?? [])
-    if (bl !== tl) out.push(`unresolved ${key}: ${bl} → ${tl}`)
+  const push = (kind, fields) => out.push({ kind, ...fields })
+  if (b.missing || t.missing) return [{ kind: 'route', from: b.missing ? 'missing' : 'present', to: t.missing ? 'missing' : 'present' }]
+  if (b.status !== t.status) push('status', { from: b.status, to: t.status })
+  if (Boolean(b.excluded) !== Boolean(t.excluded)) push('build', { from: b.excluded ? 'failed' : 'built', to: t.excluded ? 'failed' : 'built' })
+  if (b.caseError !== t.caseError) push('render-error', { from: b.caseError ?? null, to: t.caseError ?? null })
+  for (const key of ['cssThemeTokens', 'attrThemeTokens', 'cssFunctionSource', 'cssObjectInAttr']) {
+    const from = JSON.stringify(b.leaks?.[key] ?? null), to = JSON.stringify(t.leaks?.[key] ?? null)
+    if (from !== to) push('leak', { property: key, from, to })
   }
-  for (const key of ['cssFunctionSource', 'cssObjectInAttr']) if (b.leaks?.[key] !== t.leaks?.[key]) out.push(`${key}: ${b.leaks?.[key]} → ${t.leaks?.[key]}`)
-  const names = new Set([...Object.keys(b.probes), ...Object.keys(t.probes)])
-  for (const name of [...names].sort()) {
+  for (const name of [...new Set([...Object.keys(b.probes), ...Object.keys(t.probes)])].sort()) {
     const bp = b.probes[name], tp = t.probes[name]
     if (!bp || !tp) {
-      out.push(`probe ${name}: ${bp ? 'present' : 'absent'} → ${tp ? 'present' : 'absent'}`)
+      push('probe', { probe: name, from: bp ? 'present' : 'absent', to: tp ? 'present' : 'absent' })
       continue
     }
     // Streamed (`cpd`) pages, and any boundary a prerender postponed, reveal their
@@ -85,60 +115,128 @@ function diffCase(b, t, streamed) {
       ['hover1280', bp.computed.hover1280, tp.computed.hover1280],
       ['hydrated1280', bp.hydratedComputed, tp.hydratedComputed],
     ]
-    const changes = new Map()
+    const styles = new Map()
     for (const [phase, bc = {}, tc = {}] of phases) {
       for (const prop of new Set([...Object.keys(bc), ...Object.keys(tc)])) {
         // Sampled mid-animation, so it differs between two runs of one build.
         if (prop === 'opacity' || bc[prop] === tc[prop]) continue
         // These default to currentColor; a change that only follows `color` is not news.
         if (FOLLOWS_COLOR.includes(prop) && bc[prop] === bc.color && tc[prop] === tc.color) continue
-        const key = `${name} ${prop}: ${bc[prop]} → ${tc[prop]}`
-        changes.set(key, [...(changes.get(key) ?? []), phase])
+        const key = JSON.stringify([prop, bc[prop], tc[prop]])
+        styles.set(key, [...(styles.get(key) ?? []), phase])
       }
     }
-    for (const [key, list] of changes) out.push(`${key}  (${list.join(' ')})`)
-    if (JSON.stringify(bp.attrs) !== JSON.stringify(tp.attrs)) out.push(`${name} attrs: ${JSON.stringify(bp.attrs)} → ${JSON.stringify(tp.attrs)}`)
+    for (const [key, where] of styles) {
+      const [property, from, to] = JSON.parse(key)
+      push('style', { probe: name, property, from: from ?? null, to: to ?? null, where: where.join(' ') })
+    }
+    if (JSON.stringify(bp.attrs) !== JSON.stringify(tp.attrs)) push('attrs', { probe: name, from: JSON.stringify(bp.attrs), to: JSON.stringify(tp.attrs) })
     if (bp.classes !== tp.classes || bp.hydratedClasses !== tp.hydratedClasses) {
-      out.push(`${name} classes served/hydrated: "${bp.classes}"/"${bp.hydratedClasses}" → "${tp.classes}"/"${tp.hydratedClasses}"`)
+      push('classes', { probe: name, from: `${bp.classes} | ${bp.hydratedClasses}`, to: `${tp.classes} | ${tp.hydratedClasses}` })
     }
-    if (showRules) {
-      const br = new Set(bp.rules), tr = new Set(tp.rules)
-      for (const rule of br) if (!tr.has(rule)) out.push(`${name} rule only in base:   ${rule}`)
-      for (const rule of tr) if (!br.has(rule)) out.push(`${name} rule only in target: ${rule}`)
-    } else {
-      const never = tp.rules.filter(rule => rule.startsWith('[NEVER'))
-      const baseNever = bp.rules.filter(rule => rule.startsWith('[NEVER'))
-      for (const rule of never) if (!baseNever.includes(rule)) out.push(`${name} target rule never applies: ${rule}`)
+    const br = new Set(bp.rules), tr = new Set(tp.rules)
+    for (const rule of tr) {
+      if (br.has(rule)) continue
+      if (rule.startsWith('[NEVER')) push('rule-never-applies', { probe: name, to: rule })
+      else if (showRules) push('rule-added', { probe: name, to: rule })
     }
+    if (showRules) for (const rule of br) if (!tr.has(rule)) push('rule-removed', { probe: name, from: rule })
   }
   const bc = new Set(b.console), tc = new Set(t.console)
-  for (const line of tc) if (!bc.has(line)) out.push(`console only in target: ${line}`)
-  for (const line of bc) if (!tc.has(line)) out.push(`console only in base: ${line}`)
+  for (const line of tc) if (!bc.has(line)) push('console-added', { to: line })
+  for (const line of bc) if (!tc.has(line)) push('console-removed', { from: line })
   return out
 }
 
-const byCase = new Map()
-for (const key of new Set([...Object.keys(base.results), ...Object.keys(target.results)])) {
-  const [layout, id] = key.split('/')
-  const lines = diffCase(describe(base.results[key]), describe(target.results[key]), layout === 'cpd')
-  if (!byCase.has(id)) byCase.set(id, new Map())
-  for (const line of lines) {
-    const layouts = byCase.get(id).get(line) ?? []
-    layouts.push(layout)
-    byCase.get(id).set(line, layouts)
+// ── Expectations ─────────────────────────────────────────────────────────
+const FILTER_FIELDS = ['kind', 'probe', 'property', 'from', 'to']
+const expectationsFile = expectFile ? JSON.parse(readFileSync(expectFile, 'utf8')) : { differences: [] }
+const expectations = expectationsFile.differences
+expectations.forEach((entry, i) => {
+  const where = `${expectFile} entry ${i}`
+  if (!entry.case || !cases[entry.case]) fail(`${where}: "case" must name a case in corpus.mjs, got ${JSON.stringify(entry.case)}`)
+  if (!entry.change || !entry.source) fail(`${where}: every entry needs "change" (what differs) and "source" (the changeset or issue that intends it)`)
+  entry.used = 0
+})
+
+function expectationFor(diff) {
+  return expectations.find(
+    entry =>
+      entry.case === diff.case &&
+      (!entry.layouts || entry.layouts.includes(diff.layout)) &&
+      (!entry.configs || entry.configs.includes(diff.config)) &&
+      FILTER_FIELDS.every(field => entry[field] === undefined || entry[field] === diff[field]),
+  )
+}
+
+// ── Compare ──────────────────────────────────────────────────────────────
+const baseRuns = runsOf(baseSpec)
+const headRuns = runsOf(headSpec)
+const configs = [...new Set([...Object.keys(baseRuns), ...Object.keys(headRuns)])].sort()
+if (configs.length === 0) fail('no results to compare')
+for (const config of configs) if (!baseRuns[config] || !headRuns[config]) fail(`config ${config} was collected on one side only`)
+
+const diffs = []
+for (const config of configs) {
+  const base = baseRuns[config], head = headRuns[config]
+  // Every case must have been collected on both sides, or "no difference" could
+  // mean "not looked at".
+  for (const run of [base, head]) {
+    const collected = new Set(Object.keys(run.results).map(key => key.split('/')[1]))
+    const missing = Object.keys(cases).filter(id => !collected.has(id))
+    if (missing.length) fail(`${run.label}/${config} did not collect: ${missing.join(', ')}`)
+  }
+  for (const key of new Set([...Object.keys(base.results), ...Object.keys(head.results)])) {
+    const [layout, id] = key.split('/')
+    for (const diff of diffRoute(describe(base.results[key]), describe(head.results[key]), layout === 'cpd')) diffs.push({ case: id, layout, config, ...diff })
   }
 }
 
-console.log(`# ${base.label} (${base.installed?.installed}) → ${target.label} (${target.installed?.installed}), config ${target.config}\n`)
-const excludedNote = (run, name) => (run.excluded?.length ? `${name} excluded from the build: ${run.excluded.map(e => e.key).join(', ')}\n` : '')
-process.stdout.write(excludedNote(base, 'base') + excludedNote(target, 'target'))
-let clean = 0
-for (const [id, lines] of [...byCase.entries()].sort()) {
-  if (lines.size === 0) {
-    clean++
-    continue
-  }
-  console.log(`\n## ${id}`)
-  for (const [line, layouts] of lines) console.log(`- [${layouts.join(',')}] ${line}`)
+// Group identical differences across layouts and configs.
+const groups = new Map()
+for (const diff of diffs) {
+  const expected = expectationFor(diff)
+  if (expected) expected.used++
+  const { layout, config, ...rest } = diff
+  const key = JSON.stringify([rest, expected ? expectations.indexOf(expected) : -1])
+  const group = groups.get(key) ?? { diff: rest, expected, layouts: new Set(), configs: new Set() }
+  group.layouts.add(layout)
+  group.configs.add(config)
+  groups.set(key, group)
 }
-console.log(`\n${clean} of ${byCase.size} cases identical in every layout.`)
+
+const describeDiff = d => {
+  const subject = [d.probe, d.property].filter(Boolean).join(' ')
+  const change = d.from !== undefined && d.to !== undefined ? `${d.from} → ${d.to}` : d.to ?? d.from
+  return `${d.kind}${subject ? ` ${subject}` : ''}: ${change}${d.where ? `  (${d.where})` : ''}`
+}
+
+const first = Object.values(baseRuns)[0], last = Object.values(headRuns)[0]
+// Entries describe differences from one baseline; a new release usually contains them.
+if (expectationsFile.baseline && expectationsFile.baseline !== first.installed?.installed) {
+  console.log(`note: ${path.basename(expectFile)} lists differences from ${expectationsFile.baseline}, but the baseline here is ${first.installed?.installed}.\n`)
+}
+console.log(`# ${first.label} (${first.installed?.installed}) → ${last.label} (${last.installed?.installed}), configs ${configs.join(', ')}\n`)
+const byCase = new Map()
+for (const group of groups.values()) byCase.set(group.diff.case, [...(byCase.get(group.diff.case) ?? []), group])
+let unexpected = 0
+for (const [id, list] of [...byCase.entries()].sort()) {
+  console.log(`## ${id}`)
+  for (const group of list) {
+    const scope = `[${[...group.layouts].join(',')}${group.configs.size === configs.length ? '' : ` · ${[...group.configs].join(',')}`}]`
+    if (group.expected) console.log(`- ${scope} ${describeDiff(group.diff)}\n    expected: ${group.expected.change} (${group.expected.source})`)
+    else {
+      unexpected++
+      console.log(`- ${scope} UNEXPECTED ${describeDiff(group.diff)}`)
+    }
+  }
+  console.log('')
+}
+const identical = Object.keys(cases).filter(id => !byCase.has(id)).length
+console.log(`${identical} of ${Object.keys(cases).length} cases identical in every layout and config.`)
+const stale = expectations.filter(entry => entry.used === 0)
+for (const entry of stale) console.log(`note: expectation for ${entry.case} (${entry.change}) matched nothing; remove it if the baseline already has this change.`)
+if (expectFile) {
+  console.log(unexpected ? `\n${unexpected} unexpected difference(s). List an intended one in ${path.basename(expectFile)} with the changeset or issue that intends it.` : '\nNo unexpected differences.')
+  process.exit(unexpected ? 1 : 0)
+}
