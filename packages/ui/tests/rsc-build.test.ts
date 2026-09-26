@@ -220,7 +220,7 @@ describe('equal-specificity rules on one element', () => {
   })
 
   /**
-   * The applied colour, and whether each of the element's classes is defined in
+   * The applied colour and left padding, and whether each of the element's classes is defined in
    * a stylesheet the browser actually loaded. Read from the CSSOM rather than
    * the HTML: inside a streamed boundary a hoisted style arrives as
    * `media="not all"` wherever it streams and React moves it into `<head>` on
@@ -234,6 +234,7 @@ describe('equal-specificity rules on one element', () => {
         const loaded = [...document.styleSheets].flatMap(sheet => [...sheet.cssRules].map(rule => rule.cssText)).join(' ')
         return {
           colour: getComputedStyle(element).color,
+          paddingLeft: getComputedStyle(element).paddingLeft,
           classes: [...element.classList]
             .filter(name => name.startsWith('meonode-css-'))
             .map(name => ({ name, defined: loaded.includes(`.${name} `) || loaded.includes(`.${name}{`) })),
@@ -244,22 +245,32 @@ describe('equal-specificity rules on one element', () => {
     }
   }
 
-  // Not fixed yet (#34): the caller's server-compiled rule is lost, so the
-  // component's colour wins by default and says nothing about order. Once both
-  // rules exist, the component's own css must win the tie — Emotion's
-  // convention, and what the client's StyledRenderer path already does — where
-  // at request time it used to fall to hash order in one sorted block.
-  it.each([
+  // A className handed to a component that styles itself composes with the
+  // component's own css the way Emotion's `css` prop composes one: into a single
+  // class, with the className's declarations after the component's, so the
+  // caller wins a conflict and the component's other declarations still apply.
+  // That class must be defined in a loaded stylesheet.
+  const composed = async (variant: 'cc' | 'plain', path: string) => {
+    const result = await conflict(variant, path)
+    expect(result.classes).toHaveLength(1)
+    expect(result.classes.every(entry => entry.defined)).toBe(true)
+    expect(result.colour).toBe('rgb(255, 165, 0)')
+    expect(result.paddingLeft).toBe('7px')
+  }
+
+  it.fails.each([
     ['cc', '/cascade'],
     ['plain', '/cascade'],
     ['cc', '/cascade-dynamic'],
     ['plain', '/cascade-dynamic'],
-  ] as const)('the component’s own css beats an incoming className (%s %s)', async (variant, path) => {
-    const result = await conflict(variant, path)
-    expect(result.classes).toHaveLength(2)
-    expect(result.classes.every(entry => entry.defined)).toBe(true)
-    expect(result.colour).toBe('rgb(0, 128, 128)')
-  })
+  ] as const)('an incoming className composes over the component’s own css (%s %s)', composed)
+
+  // The component renders inside its own `'use cache'` scope and the caller
+  // outside it.
+  it.fails.each([
+    ['cc', '/cascade-cached-card'],
+    ['plain', '/cascade-cached-card'],
+  ] as const)('an incoming className composes over the css of a component in its own cache scope (%s %s)', composed)
 })
 
 describe.each(['cc', 'plain'] as const)('a refresh that moves a rule’s first occurrence (%s)', variant => {

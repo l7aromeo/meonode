@@ -1,21 +1,16 @@
 import { Suspense } from 'react'
 import { connection } from 'next/server'
-import { Div, Node } from '@meonode/ui'
+import { Node } from '@meonode/ui'
+import { TwoRulesA } from '../_shared/registry-nodes'
 
 /**
- * Request-time rules that go through the registry's emotion cache — an
- * intrinsic node, rendered by `StyledRenderer` — rather than the server-compile
- * path. Paired with `/emotion-b` under concurrent requests: a
- * flushed-id set shared between renders would make one response emit nothing.
+ * Request-time rules that reach the page only through the registry's emotion
+ * cache. Paired with `/emotion-b` under concurrent requests: a flushed-id set
+ * shared between renders would make one response emit nothing.
  */
 async function Content() {
   await connection()
-  return Div({
-    children: [
-      Div({ key: 1, color: '#0f5132', padding: 4, children: 'emotion a one' }),
-      Div({ key: 2, color: '#664d03', padding: 4, children: 'emotion a two' }),
-    ],
-  }).render()
+  return Node(TwoRulesA).render()
 }
 
 export default function Page() {
