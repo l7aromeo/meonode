@@ -1,4 +1,4 @@
-import { chromium, type Browser, type BrowserContext } from '@playwright/test'
+import { chromium, type Browser, type BrowserContext, type Page } from '@playwright/test'
 
 /**
  * RSC boundary integration tests.
@@ -70,6 +70,19 @@ async function getComputedStylesFromPage(
   )
 }
 
+/**
+ * Resolves once the page has hydrated: the document has finished streaming and the
+ * root layout's `HydrationMark` has run its effect, which React calls after the
+ * hydration commit. Reports made while decoding the RSC payload and while hydrating
+ * the tree, content streamed through a Suspense boundary included, reach the
+ * console before it, so a console listener has seen them all when this resolves.
+ * The network going idle is no such signal: under a busy main thread it arrives
+ * before any of that work, and it may not arrive at all.
+ */
+async function waitForHydration(page: Page): Promise<void> {
+  await page.waitForFunction(() => document.readyState === 'complete' && document.documentElement.dataset.hydrated !== undefined)
+}
+
 async function getPage(
   pathname: string,
   options?: {
@@ -91,8 +104,10 @@ async function getPage(
   })
   try {
     const response = await page.goto(`${base()}${pathname}`, { waitUntil: 'domcontentloaded' })
-    await page.waitForLoadState('networkidle')
-    await page.waitForFunction(() => document.readyState === 'complete')
+    // An error response is Next's error page, which has no root layout and never
+    // hydrates, so the document finishing is all there is to wait for.
+    if ((response?.status() ?? 0) < 400) await waitForHydration(page)
+    else await page.waitForFunction(() => document.readyState === 'complete')
     await page.evaluate(
       () =>
         new Promise<void>(resolve => {
@@ -873,7 +888,7 @@ describe('the list marker across the RSC boundary', () => {
     page.on('pageerror', error => seen.push(error.message))
     try {
       await page.goto(`${base()}${pathname}`, { waitUntil: 'domcontentloaded' })
-      await page.waitForLoadState('networkidle')
+      await waitForHydration(page)
       return seen.filter(m => /unique "key"|each child in a list/i.test(m)).length
     } finally {
       await page.close()
