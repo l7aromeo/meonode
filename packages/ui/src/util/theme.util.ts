@@ -2,6 +2,7 @@ import type { CSSProperties } from '@emotion/serialize'
 import type { CssProp, Theme } from '@src/types/node.type.js'
 import { getValueByPath } from '@src/helper/common.helper.js'
 import { isLengthProperty, isSelectorOrAtRule, lengthVarRef } from '@src/util/css-unit.util.js'
+import { isMergeableCss } from '@src/util/css.util.js'
 
 interface FlexComponents {
   grow: number
@@ -180,6 +181,19 @@ const splitFlexTokens = (value: string): string[] | null => {
   return tokens
 }
 
+/**
+ * Shallow-merges the entries of a composed `css` that are maps, in order and
+ * through nested arrays, so the layout context of the whole can be read. Strings,
+ * functions and `css()` results are skipped: they cannot be read as properties.
+ */
+const mergeCssMaps = (entries: readonly unknown[], into: CSSProperties = {}): CSSProperties => {
+  for (const entry of entries) {
+    if (Array.isArray(entry)) mergeCssMaps(entry, into)
+    else if (isMergeableCss(entry)) Object.assign(into, entry)
+  }
+  return into
+}
+
 export class ThemeUtil {
   private constructor() {}
 
@@ -342,7 +356,19 @@ export class ThemeUtil {
           let newArray: unknown[] | null = null
           for (let i = 0; i < currentValue.length; i++) {
             const item = currentValue[i]
-            const resolvedItem = resolvedValues.get(item) ?? item
+            // A function item is called as it is under an object key. In a composed
+            // `css` (`[flatCssProps, css]`, see `NodeUtil.isSpreadableCss`) it is a
+            // whole style (`theme => ({ … })`), so its result is walked in turn.
+            let resolvedItem = resolvedValues.get(item) ?? item
+            if (typeof item === 'function' && processFunctions) {
+              const funcResult = (item as (theme: Theme) => unknown)(theme)
+              resolvedItem =
+                typeof funcResult === 'string'
+                  ? funcResult.includes('theme.')
+                    ? processThemeString(funcResult, themeStringsMode === 'vars', themeSystem)
+                    : funcResult
+                  : ThemeUtil.resolveObjWithTheme(funcResult as Record<string, unknown>, theme, options)
+            }
             if (resolvedItem !== item) {
               if (newArray === null) newArray = [...currentValue] // Copy-on-write
               newArray[i] = resolvedItem
@@ -452,6 +478,19 @@ export class ThemeUtil {
    * // → { display: 'flex', flexWrap: 'wrap', minHeight: 0, minWidth: 0 }
    */
   public static resolveDefaultStyle = (style: CssProp) => {
+    // A composed `css` (`[flatCssProps, css]`, see `NodeUtil.isSpreadableCss`). Its
+    // entries cannot be spread into one object — that is the bug the array exists to
+    // avoid — so the defaults go in front as their own layer, and every declaration
+    // the author wrote follows and wins, including ones inside a string or a `css()`
+    // result that the context below cannot see. The layout context is read from the
+    // entries that are maps.
+    if (Array.isArray(style)) {
+      const context = mergeCssMaps(style)
+      const { flexShrink } = ThemeUtil.resolveDefaultStyle(context as CssProp) as CSSProperties
+      const hasExplicitFlexShrink = context.flexShrink !== undefined
+      return [{ flexShrink: hasExplicitFlexShrink ? undefined : flexShrink, minHeight: 0, minWidth: 0 }, ...style]
+    }
+
     if (style === null || style === undefined || typeof style === 'string' || typeof style === 'number' || typeof style === 'boolean') return {}
 
     // === STEP 1: EXTRACT FLEX PROPERTY ===

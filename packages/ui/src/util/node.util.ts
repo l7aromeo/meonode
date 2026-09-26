@@ -14,6 +14,7 @@ import { getCSSProps, getDOMProps, getElementTypeName, omitUndefined } from '@sr
 import { __DEBUG__, COMPILED_MARKER, COMPILER_SCHEMA_KEYS, LIST_MARKER, LOCATION_MARKER, SUPPORTED_COMPILER_SCHEMAS } from '@src/constant/common.const.js'
 import { BaseNode } from '@src/core.node.js'
 import { diagnosticsEnabled } from '@src/util/theme-diagnostics.util.js'
+import { isMergeableCss } from '@src/util/css.util.js'
 
 /**
  * NodeUtil provides a collection of static utility methods and properties
@@ -217,8 +218,11 @@ export class NodeUtil {
     // Precedence mirrors legacy's "call props override initial props" merge: top-level
     // passthrough < compiler-classified `c`/`d` < explicit `css` prop. Always a fresh
     // object, never an alias of the compiler's bucket, so downstream consumers keep
-    // the same ownership guarantees the legacy path gave them.
-    const finalCssProps = { ...passthroughCssProps, ...markerCssProps, ...css }
+    // the same ownership guarantees the legacy path gave them. A `css` that is not a
+    // map is composed after the flat props instead; see `isSpreadableCss`.
+    const finalCssProps = NodeUtil.isSpreadableCss(css)
+      ? { ...passthroughCssProps, ...markerCssProps, ...css }
+      : [{ ...passthroughCssProps, ...markerCssProps }, css]
 
     if (__DEBUG__) {
       // A `c`/`d` bucket containing a special key (e.g. `ref`, `children`) would silently
@@ -253,6 +257,25 @@ export class NodeUtil {
     if (typeof compiledLocation === 'string') result[LOCATION_MARKER] = compiledLocation
 
     return result as FinalNodeProps
+  }
+
+  /**
+   * Whether a `css` prop can be spread over the flat CSS props, which is how the
+   * two have always been combined.
+   *
+   * Only a map of rules can. An absent `css`, or the `false` of `css: active && {…}`,
+   * spreads to nothing and keeps that path too. Anything else — an array, a string,
+   * a function, an Emotion `css()` result — is handed to Emotion as
+   * `[flatCssProps, css]`, which it composes in order, so `css` still wins. Spread,
+   * those shapes became rules keyed by index (`.css-x 0{…}`, descendant selectors
+   * that never match), one declaration per character of a string, nothing at all
+   * for a function, and for a `css()` result an object Emotion reads only the
+   * `styles` string of, silently dropping the flat props beside it.
+   * @param css The node's `css` prop.
+   * @returns `true` when spreading `css` is correct.
+   */
+  private static isSpreadableCss(css: unknown): boolean {
+    return !css || typeof css === 'boolean' || isMergeableCss(css)
   }
 
   /**
@@ -359,8 +382,11 @@ export class NodeUtil {
     const nonCachedCssProps = getCSSProps(nonCacheableProps)
     const domProps = getDOMProps(restRawProps) // DOM props are always processed fresh.
 
-    // 4. Assemble the final CSS object.
-    const finalCssProps = { ...cachedCssProps, ...nonCachedCssProps, ...css }
+    // 4. Assemble the final CSS: `css` over the flat props, spread when it is a map
+    //    and composed after them when it is not (see `isSpreadableCss`).
+    const finalCssProps = NodeUtil.isSpreadableCss(css)
+      ? { ...cachedCssProps, ...nonCachedCssProps, ...css }
+      : [{ ...cachedCssProps, ...nonCachedCssProps }, css]
 
     // --- Child Normalization ---
     const normalizedChildren = NodeUtil._processChildren(children, disableEmotion, generatedChildren)
