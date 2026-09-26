@@ -2,7 +2,7 @@
 // Compares the Next.js fixture's prerendered app-router HTML between a
 // plugin-on build (.next-on/) and a plugin-off build (.next-off/), produced
 // by running `next build` / `MEONODE_COMPILER=0 next build` and renaming the
-// output directory each time (see e2e/scripts/run-e2e.mjs). Task 12 parity
+// output directory each time (see e2e/scripts/run-e2e.mjs). The parity
 // check, Next/Turbopack side.
 //
 // The whole prerendered document carries build-hashed asset URLs (chunk

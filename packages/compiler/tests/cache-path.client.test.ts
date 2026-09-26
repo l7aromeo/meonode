@@ -1,13 +1,13 @@
 // @vitest-environment jsdom
 //
-// Regression test for the stable-key hazard fixed alongside v0.2's leading-
-// spread support (Change 2). See `cache-path-spread.ts` and the doc comment
+// Regression test for the stable-key hazard that leading-spread support must
+// avoid. See `cache-path-spread.ts` and the doc comment
 // on `partition::rewrite_object` (crate side) for the full mechanism.
 //
 // Unlike `equivalence.test.ts`/`equivalence.client.test.ts` (which each
 // render a fixture's tree exactly ONCE and compare original-vs-compiled),
 // this test renders the SAME compiled call site TWICE, with different
-// spread contents, into the SAME React root. The bug was about what a
+// spread contents, into the SAME React root. The hazard is about what a
 // *second* evaluation returns, not whether the first is correct, so a
 // single-render suite structurally cannot catch it.
 //
