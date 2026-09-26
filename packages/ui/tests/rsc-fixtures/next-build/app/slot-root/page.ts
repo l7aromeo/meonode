@@ -1,13 +1,8 @@
-import { createElement, type ReactNode } from 'react'
-import { createNode, Node } from '@meonode/ui'
+import { Node } from '@meonode/ui'
+import { Button } from '../_shared/controls'
 import { Slot } from '../_shared/slots'
 
-function ServerButton(props: { children?: ReactNode; className?: string }) {
-  return createElement('button', props)
-}
-const Button = createNode(ServerButton)
-
-/** A server component whose output is one styled element, handed to an `asChild` slot. */
+/** A server component whose own render is one styled server-function-component element, handed to a cloning slot. */
 function StyledButton() {
   return Button({ css: { color: 'rgb(98, 76, 54)' }, 'data-testid': 'slotted', children: 'slotted' } as never).render()
 }

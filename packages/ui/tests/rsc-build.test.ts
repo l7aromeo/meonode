@@ -319,21 +319,32 @@ describe.each(['cc', 'plain'] as const)('server-compiled rules and the tree arou
   it('a visible element has its rule when the panel sharing it is rendered', () => hiddenPanel('/hidden-panel-open'))
   it.fails('a visible element keeps its rule when a panel sharing it is never rendered', () => hiddenPanel('/hidden-panel'))
 
-  /**
-   * A server component whose output is one styled element must reach the client
-   * as that element, so a parent that clones its child — an `asChild` slot —
-   * still can. `/slot-root-bare` has no css; `/slot-void` puts a void element at
-   * the root, which can hold no children.
-   */
-  const slotted = async (path: string, classes: number) => {
-    const html = await (await fetch(`http://localhost:${port(variant)}${path}`)).text()
-    const element = html.match(/<(?:button|input)\b[^>]*\bdata-testid="slotted"[^>]*>/)?.[0] ?? 'not rendered'
-    expect(element).toMatch(/\bdata-cloned="yes"/)
-    const page = await styles(variant, path)
-    expect(page.classes).toHaveLength(classes)
-    expect(page.undefinedClasses).toEqual([])
+  const slottedTag = async (path: string) => {
+    const response = await fetch(`http://localhost:${port(variant)}${path}`)
+    expect(response.status).toBe(200)
+    return (await response.text()).match(/<(?:button|input|a)\b[^>]*\bdata-testid="slotted"[^>]*>/)?.[0]
   }
 
-  it('a slot can clone an unstyled server component', () => slotted('/slot-root-bare', 0))
-  it.fails.each(['/slot-root', '/slot-void'])('a slot can clone a styled server component (%s)', path => slotted(path, 1))
+  /**
+   * A styled element handed to a parent that clones its child — an `asChild`
+   * slot — must reach it as that element, still styled. Passing the styled node
+   * to the slot as a child compiles it within the page's own render.
+   * `/slot-root-bare` is a server component with no css.
+   */
+  it.each(['/slot-root-bare', '/slot-child', '/slot-link'])('a slot clones a styled child (%s)', async path => {
+    expect(await slottedTag(path)).toMatch(/\bdata-cloned="yes"/)
+    const page = await styles(variant, path)
+    expect(page.classes).toHaveLength(path === '/slot-root-bare' ? 0 : 1)
+    expect(page.undefinedClasses).toEqual([])
+  })
+
+  /**
+   * The documented limitation: a render whose root is a component or a void
+   * element has no host to carry its rules, so they travel beside the root and
+   * the component's output reaches the client as an array. A slot that clones
+   * its child receives no single element and renders nothing.
+   */
+  it.each(['/slot-root', '/slot-void'])('a slot cannot clone a server component whose own render has no host (%s)', async path => {
+    expect(await slottedTag(path)).toBeUndefined()
+  })
 })
