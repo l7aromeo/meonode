@@ -1,23 +1,8 @@
-import { getGlobalState } from '@src/helper/common.helper.js'
 import type { Theme } from '@src/types/node.type.js'
 import { isLengthProperty, isSelectorOrAtRule, lengthVarRef, needsLengthVariant, toLengthVarName } from '@src/util/css-unit.util.js'
 
-const SERVER_ACTIVE_THEME_KEY = Symbol.for('@meonode/ui/serverActiveTheme')
-
-interface ServerThemeState {
-  activeTheme?: Theme
-}
-
 function toThemeVarName(path: string): string {
   return `--meonode-theme-${path.replace(/[^\w.-]/g, '-').replace(/\./g, '-')}`
-}
-
-export function getActiveServerTheme(): Theme | undefined {
-  return getGlobalState<ServerThemeState>(SERVER_ACTIVE_THEME_KEY, () => ({})).activeTheme
-}
-
-export function setActiveServerTheme(theme: Theme): void {
-  getGlobalState<ServerThemeState>(SERVER_ACTIVE_THEME_KEY, () => ({})).activeTheme = theme
 }
 
 /**

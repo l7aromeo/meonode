@@ -327,10 +327,17 @@ export type ThemedCSSObject = ThemedCSSPropertiesPartial & {
 }
 
 /**
- * Non-object shapes accepted by the `css` prop (strings, arrays, keyframes, …).
- * Object literals use {@link ThemedCSSObject} for contextual typing.
+ * Non-object shapes accepted by the `css` prop: strings, arrays, Emotion `css()`
+ * results, theme functions, and `boolean`/`null`/`undefined` for conditional styles
+ * (`css: active && {…}`). Object literals use {@link ThemedCSSObject} for contextual
+ * typing.
+ *
+ * `ComponentSelector` and `number` are valid *inside* a style — a selector key, a
+ * length — but meaningless as the whole of it, where they carry no declarations,
+ * so they are excluded here. `Keyframes` would be too, but Emotion declares it as
+ * `{…} & string`, so it always passes as the `string` this type must keep.
  */
-type CssPropNonObject = Exclude<ThemedCSSInterpolation, ThemedCSSObject>
+type CssPropNonObject = Exclude<ThemedCSSInterpolation, ThemedCSSObject | ComponentSelector | number>
 
 /**
  * The complete type for the `css` prop.

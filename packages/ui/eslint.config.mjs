@@ -8,7 +8,7 @@ import { importX } from 'eslint-plugin-import-x'
 
 const eslintConfig = [
   {
-    ignores: ['**/dist/**', '**/build/**', 'tests/rsc-fixtures/**/.next/**', 'tests/rsc-fixtures/**/node_modules/**'],
+    ignores: ['**/dist/**', '**/build/**', 'tests/rsc-fixtures/**/.next/**', 'tests/rsc-fixtures/**/.next-*/**', 'tests/rsc-fixtures/**/node_modules/**'],
   },
   {
     // Standalone benchmark scripts run as plain node processes, not under

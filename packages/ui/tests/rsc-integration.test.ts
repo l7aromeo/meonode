@@ -1,4 +1,4 @@
-import { chromium, type Browser, type BrowserContext } from '@playwright/test'
+import { chromium, type Browser, type BrowserContext, type Page } from '@playwright/test'
 
 /**
  * RSC boundary integration tests.
@@ -70,6 +70,19 @@ async function getComputedStylesFromPage(
   )
 }
 
+/**
+ * Resolves once the page has hydrated: the document has finished streaming and the
+ * root layout's `HydrationMark` has run its effect, which React calls after the
+ * hydration commit. Reports made while decoding the RSC payload and while hydrating
+ * the tree, content streamed through a Suspense boundary included, reach the
+ * console before it, so a console listener has seen them all when this resolves.
+ * The network going idle is no such signal: under a busy main thread it arrives
+ * before any of that work, and it may not arrive at all.
+ */
+async function waitForHydration(page: Page): Promise<void> {
+  await page.waitForFunction(() => document.readyState === 'complete' && document.documentElement.dataset.hydrated !== undefined)
+}
+
 async function getPage(
   pathname: string,
   options?: {
@@ -91,8 +104,10 @@ async function getPage(
   })
   try {
     const response = await page.goto(`${base()}${pathname}`, { waitUntil: 'domcontentloaded' })
-    await page.waitForLoadState('networkidle')
-    await page.waitForFunction(() => document.readyState === 'complete')
+    // An error response is Next's error page, which has no root layout and never
+    // hydrates, so the document finishing is all there is to wait for.
+    if ((response?.status() ?? 0) < 400) await waitForHydration(page)
+    else await page.waitForFunction(() => document.readyState === 'complete')
     await page.evaluate(
       () =>
         new Promise<void>(resolve => {
@@ -140,7 +155,9 @@ function getComputedStylesFromEmotionCss(html: string, testId: string, propertie
   const classAttr = elementTag.match(/\bclass=["']([^"']+)["']/i)?.[1] ?? ''
   const classes = classAttr.split(/\s+/).filter(Boolean)
 
-  const styleBlocks = [...html.matchAll(/<style[^>]*data-emotion="[^"]*"[^>]*>([\s\S]*?)<\/style>/gi)]
+  // Any <style> can define the element's rule: the registry's `data-emotion`
+  // block, or a hoisted `<style href precedence>` emitted with the RSC output.
+  const styleBlocks = [...html.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi)]
   const cssText = styleBlocks.map(m => m[1]).join('\n')
 
   const result: Record<string, string | null> = {}
@@ -198,8 +215,14 @@ describe('A. Server-only rendering', () => {
     expect(status).toBe(200)
     assertNoRscErrors(html)
     expect(html).toContain('styled from server')
-    // An Emotion <style> tag with our key should be present.
-    expect(html).toMatch(/data-emotion="meonode-css[^"]*"/)
+    // Every element carrying a server-compiled class has that class defined by a
+    // stylesheet on the page, whichever mechanism emitted the rule.
+    const serverClasses = [
+      ...new Set([...html.matchAll(/class="([^"]*)"/g)].flatMap(match => match[1].split(/\s+/)).filter(name => name.startsWith('meonode-css-'))),
+    ]
+    const pageCss = [...html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].map(match => match[1]).join('')
+    expect(serverClasses.length).toBeGreaterThan(0)
+    expect(serverClasses.filter(name => !pageCss.includes(`.${name}`))).toEqual([])
     // The color value should appear in the emitted styles (red == 255,0,0).
     expect(html.toLowerCase()).toMatch(/color:\s*rgb\(255,\s*0,\s*0\)|color:\s*#ff0000|color:red/)
   })
@@ -226,8 +249,14 @@ describe('A. Server-only rendering', () => {
     // `as` must be consumed, never emitted as a DOM attribute.
     expect(elementTag).not.toMatch(/\bas=/)
 
-    // Emotion critical CSS still emitted via the same server path.
-    expect(html).toMatch(/data-emotion="meonode-css[^"]*"/)
+    // Every element carrying a server-compiled class has that class defined by a
+    // stylesheet on the page, whichever mechanism emitted the rule.
+    const serverClasses = [
+      ...new Set([...html.matchAll(/class="([^"]*)"/g)].flatMap(match => match[1].split(/\s+/)).filter(name => name.startsWith('meonode-css-'))),
+    ]
+    const pageCss = [...html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].map(match => match[1]).join('')
+    expect(serverClasses.length).toBeGreaterThan(0)
+    expect(serverClasses.filter(name => !pageCss.includes(`.${name}`))).toEqual([])
     expect(html.toLowerCase()).toMatch(/color:\s*rgb\(255,\s*0,\s*0\)|color:\s*#ff0000|color:red/)
   })
 })
@@ -321,9 +350,14 @@ describe('C. Theme and provider boundaries', () => {
     assertNoRscErrors(html)
     expect(html).toContain('styled-a')
     expect(html).toContain('styled-b')
-    // Find all Emotion style tags with the meonode-css key.
-    const styleTagMatches = html.match(/<style [^>]*data-emotion="meonode-css[^"]*"/g) || []
-    expect(styleTagMatches.length).toBeGreaterThan(0)
+    // Every element carrying a server-compiled class has that class defined by a
+    // stylesheet on the page, whichever mechanism emitted the rule.
+    const serverClasses = [
+      ...new Set([...html.matchAll(/class="([^"]*)"/g)].flatMap(match => match[1].split(/\s+/)).filter(name => name.startsWith('meonode-css-'))),
+    ]
+    const pageCss = [...html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].map(match => match[1]).join('')
+    expect(serverClasses.length).toBeGreaterThan(0)
+    expect(serverClasses.filter(name => !pageCss.includes(`.${name}`))).toEqual([])
   })
 })
 
@@ -447,16 +481,19 @@ describe('G. Regression guards', () => {
     '/theme/resolution-link-node',
     '/boundary/server-node-client',
     '/boundary/server-createnode-neutral',
-    '/boundary/server-createnode-client',
     '/link/inline',
-    '/link/client-module',
     '/link/wrapped-client',
     '/async-await',
     '/async-nested',
   ]
 
   it.each(GUARD_PAGES)('no "[object Object]" attribute leaks on %s', async p => {
-    const { html } = await getPage(p)
+    const { status, html } = await getPage(p)
+    // The scan below only means something against the page's own content. An
+    // error page renders none of it, so a route that fails would pass this guard
+    // however badly it leaked. Deliberately rejected routes are asserted where
+    // that is intended, in B and D.
+    expect(status).toBe(200)
     assertNoObjectAttrLeaks(html)
   })
 
@@ -731,19 +768,14 @@ describe('Component HOC across the hydration boundary', () => {
   })
 })
 
-describe('server style scope under concurrency', () => {
+describe('server styles under concurrency', () => {
   // The server Emotion cache is what a render mutates while collecting styles,
-  // and `StyleRegistry` flushes it into the response. When that cache was a
-  // process-global, every request emitted every style the process had ever
-  // rendered: a page needing 32 KB shipped 166 KB on the documentation site,
-  // growing towards the union of every route as more were visited.
+  // and `StyleRegistry` flushes it into the response. A cache shared by every
+  // request would put every style the process has rendered into every response.
   //
-  // `StyleRegistry` now opens a scope per render. That scope is held in a
-  // module-level binding rather than an `AsyncLocalStorage`, because importing
-  // `node:async_hooks` from a module a client component also imports would pull
-  // a Node builtin into the browser bundle. A single binding is exactly the
-  // part worth testing: it assumes one render at a time, and overlapping
-  // requests are where that assumption would break.
+  // Each `StyleRegistry` instance collects into a cache of its own, one per
+  // render. Overlapping requests are where a cache shared between renders would
+  // show.
   //
   // The assertion is a comparison rather than a threshold. A route is fetched
   // alone to establish what it should emit, then fetched again while other
@@ -852,7 +884,7 @@ describe('the list marker across the RSC boundary', () => {
     page.on('pageerror', error => seen.push(error.message))
     try {
       await page.goto(`${base()}${pathname}`, { waitUntil: 'domcontentloaded' })
-      await page.waitForLoadState('networkidle')
+      await waitForHydration(page)
       return seen.filter(m => /unique "key"|each child in a list/i.test(m)).length
     } finally {
       await page.close()
@@ -860,8 +892,7 @@ describe('the list marker across the RSC boundary', () => {
   }
 
   // This is the case that actually covers the server-only branch: replacing
-  // `...childArguments` with `...finalChildren` there drops this to 0, which was
-  // measured both ways rather than assumed.
+  // `...childArguments` with `...finalChildren` there drops this to 0.
   //
   // It needs a host component that renders `children` itself. React validates
   // keys when an array is *reconciled*, not when it is created, and a component's
@@ -882,8 +913,7 @@ describe('the list marker across the RSC boundary', () => {
   // Which one it is depends on whether the plugin ran over the fixture, since
   // `Div({ children })` reads `children` as a bare identifier and the compiler
   // calls that generated. So both rows are real behaviour of the same code, and
-  // asserting either one alone is wrong in the other mode — which is exactly how
-  // this case broke the compiled RSC suite.
+  // asserting either one alone is wrong in the other mode.
   //
   // Not keyed off `MEONODE_COMPILED`: that says the suite is running compiled,
   // not that this plugin emits the marker, and a plugin predating it would fail
@@ -907,8 +937,8 @@ describe('the list marker across the RSC boundary', () => {
   // because it cannot see inside it. So the report survives composition, and
   // the pass-through over-report is what keeps it alive.
   //
-  // Renderer-independent — the same result was measured under jsdom — so this
-  // is cheap here but would be cheaper as a unit test.
+  // Renderer-independent — jsdom gives the same result — so this is cheap here
+  // but would be cheaper as a unit test.
   it('keeps the report when the wrapper node is itself marked', async () => {
     expect(await keyReports('/lm-row3')).toBeGreaterThan(0)
   })
@@ -918,9 +948,9 @@ describe('the list marker across the RSC boundary', () => {
   // This one is renderer-dependent, which is why it is pinned here rather than
   // only in a unit test. Under jsdom it reports nothing: the outer node spread
   // the children variadically, React marked them validated at that point, and
-  // they stay immune downstream. Under Flight, measured on an isolated server
-  // twice, it reports. Whatever makes validation sticky in the client
-  // reconciler does not carry across the RSC boundary here.
+  // they stay immune downstream. Under Flight it reports: whatever makes
+  // validation sticky in the client reconciler does not carry across the RSC
+  // boundary here.
   //
   // Asserted as the Flight behaviour because that is what this suite runs. If a
   // change makes the two agree, this is the expectation that will say so.

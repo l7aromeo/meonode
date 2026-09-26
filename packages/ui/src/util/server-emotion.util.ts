@@ -1,129 +1,164 @@
+import { cache as requestCache } from 'react'
 import createCache from '@emotion/cache'
-import type { EmotionCache } from '@emotion/cache'
 import { serializeStyles } from '@emotion/serialize'
-import { insertStyles } from '@emotion/utils'
-import { getGlobalState } from '@src/helper/common.helper.js'
+import { getRegisteredStyles, insertStyles } from '@emotion/utils'
 import type { CssProp } from '@src/types/node.type.js'
-
-const SERVER_EMOTION_CACHE_KEY = Symbol.for('@meonode/ui/serverEmotionCache')
-const SERVER_EMOTION_RULES_KEY = Symbol.for('@meonode/ui/serverEmotionRules')
-
-interface ServerEmotionRulesState {
-  byId: Map<string, string>
-}
-
-interface ServerEmotionScope {
-  cache: EmotionCache
-  rules: ServerEmotionRulesState
-}
+import { reportUncomposedClass } from '@src/util/theme-diagnostics.util.js'
 
 /**
- * The scope the current server render reads and writes.
+ * The emotion cache of one request in the React Server Components layer, the
+ * only place a server compile runs. It uses the key `StyleRegistry` gives its own
+ * cache, so a server component and a client component with the same css carry
+ * the same class.
  *
- * A render collects its styles by *mutating* an Emotion cache, so the cache has
- * to be reachable from `compileServerEmotionClassName`, which runs deep inside
- * the tree walk with no React context to read from. Reaching for a
- * process-global was the obvious way to do that and the wrong one: one cache
- * shared by every request accumulates every style the process has ever
- * rendered, and `StyleRegistry` flushes all of it into every response. A page
- * needing 32 KB of CSS was shipping 166 KB, growing towards the union of the
- * whole site as more routes were hit.
- *
- * `StyleRegistry` now opens a scope per request and this holds it for the
- * duration of that render. It is a module-level binding rather than an
- * `AsyncLocalStorage` on purpose: React renders one tree synchronously per
- * request in this path, and importing `node:async_hooks` from a module that
- * `StyleRegistry` — a client component — also imports would pull a Node
- * builtin into the browser bundle.
- *
- * `undefined` means no scope was opened, which is the case for a server render
- * that never mounts `StyleRegistry`. The process-global is the fallback there,
- * preserving the previous behaviour rather than silently dropping styles.
+ * Compat mode keeps each rule's text in `inserted` after its first insert, where
+ * otherwise the entry becomes `true`. Every render that compiles a rule carries
+ * it, so a second render compiling the same rule in the same request reads its
+ * text from there.
  */
-let activeScope: ServerEmotionScope | undefined
+const requestEmotionCache = requestCache(() => {
+  const emotionCache = createCache({ key: 'meonode-css' })
+  emotionCache.compat = true
+  return emotionCache
+})
 
 /**
- * Opens a fresh scope for one server render and returns it.
+ * The styles behind classes handed to components, by class name, for the life of
+ * this module instance.
  *
- * Called from `StyleRegistry`'s lazy initializer, which runs once per request
- * before any child renders, so every style compiled below it lands here rather
- * than in the process-global.
- * @returns The scope that subsequent compilation in this render will use.
+ * A component can receive a class compiled in another request cache: a caller
+ * outside a `'use cache'` scope hands its class to a component inside one, whose
+ * compile runs in the scope's own cache. Emotion composes a handed class by
+ * looking its styles up in the cache, so without this the two would stay separate
+ * classes, and which rule won a conflict would depend on stylesheet order. A class
+ * name is a hash of its styles, so an entry means the same thing in every request
+ * and scope; it carries no request identity.
+ *
+ * Only classes compiled for a component target are kept — the only ones a
+ * component can be handed. The store is bounded, and keeps the most recently used
+ * classes: at most {@link SHARED_CLASS_LIMIT} entries and
+ * {@link SHARED_STYLES_BYTE_LIMIT} characters of style text, and never a single
+ * entry larger than {@link SHARED_STYLES_ENTRY_LIMIT}. An evicted class falls
+ * back to being kept as a plain class beside the element's own.
+ *
+ * It is two generations of half those limits each. New and reused classes go into
+ * the current one; when it fills, it becomes the previous one and the previous
+ * one is dropped whole. Every operation is constant time, and a class survives at
+ * least half the limit of other classes being kept after it.
  */
-export function beginServerEmotionScope(): ServerEmotionScope {
-  const scope: ServerEmotionScope = { cache: createCache({ key: 'meonode-css' }), rules: { byId: new Map<string, string>() } }
+export const SHARED_CLASS_LIMIT = 10_000
+/** The most style text the store keeps in total, in characters. */
+export const SHARED_STYLES_BYTE_LIMIT = 4 * 1024 * 1024
+/** The largest single entry the store keeps, in characters. */
+export const SHARED_STYLES_ENTRY_LIMIT = 64 * 1024
+let currentClasses = new Map<string, string>()
+let currentLength = 0
+let previousClasses = new Map<string, string>()
+let previousLength = 0
 
-  // Adopt whatever this request already compiled before the scope existed.
-  //
-  // `StyleRegistry` is a client component, so it renders in the SSR pass —
-  // after the server components above it have already rendered and compiled
-  // their own `css` through the fallback. A server page styling a node with
-  // theme tokens does exactly that, and scoping without this step drops those
-  // rules on the floor: the class lands in the markup and its declaration
-  // never reaches the document.
-  //
-  // Draining rather than copying keeps them from being adopted twice by a
-  // later render.
-  const pending = getGlobalState(SERVER_EMOTION_RULES_KEY, () => ({ byId: new Map<string, string>() }))
-  for (const [id, cssText] of pending.byId) scope.rules.byId.set(id, cssText)
-  pending.byId.clear()
-
-  activeScope = scope
-  return scope
-}
-
-/**
- * Closes the current scope, so a later render that opens none falls back to the
- * process-global rather than inheriting a finished request's cache.
- * @param scope The scope to close. Ignored when it is no longer the active one,
- * which means another render has already opened its own.
- */
-export function endServerEmotionScope(scope: ServerEmotionScope): void {
-  if (activeScope === scope) activeScope = undefined
-}
-
-export function getServerEmotionCache(): EmotionCache {
-  return activeScope?.cache ?? getGlobalState(SERVER_EMOTION_CACHE_KEY, () => createCache({ key: 'meonode-css' }))
-}
-
-function getServerEmotionRulesState(): ServerEmotionRulesState {
-  return activeScope?.rules ?? getGlobalState(SERVER_EMOTION_RULES_KEY, () => ({ byId: new Map<string, string>() }))
-}
-
-/**
- * Compiles an Emotion-compatible css object to a stable className in server paths
- * without relying on @emotion/react runtime APIs.
- */
-export function compileServerEmotionClassName(css: CssProp): string | undefined {
-  if (!css || typeof css === 'string' || typeof css === 'number' || typeof css === 'boolean') {
-    return undefined
+function keepSharedClass(name: string, styles: string): void {
+  if (currentClasses.size >= SHARED_CLASS_LIMIT / 2 || currentLength + styles.length > SHARED_STYLES_BYTE_LIMIT / 2) {
+    previousClasses = currentClasses
+    previousLength = currentLength
+    currentClasses = new Map()
+    currentLength = 0
   }
+  currentClasses.set(name, styles)
+  currentLength += styles.length
+}
 
-  const cache = getServerEmotionCache()
-  const serialized = serializeStyles([css as any], cache.registered)
+function shareClass(name: string, styles: string): void {
+  if (styles.length > SHARED_STYLES_ENTRY_LIMIT || currentClasses.has(name)) return
+  keepSharedClass(name, styles)
+}
+
+function sharedClassStyles(name: string): string | undefined {
+  const current = currentClasses.get(name)
+  if (current !== undefined) return current
+  const previous = previousClasses.get(name)
+  if (previous !== undefined) keepSharedClass(name, previous)
+  return previous
+}
+
+/**
+ * Registers, in `registered`, every class of this cache's key in `className` that
+ * the cache does not know but the store does, so composing it works as it would
+ * in the request that compiled it. A class of this key found in neither is
+ * reported in development.
+ */
+function registerSharedClasses(registered: Record<string, string | true>, key: string, className: string): void {
+  for (const name of className.split(' ')) {
+    if (!name.startsWith(`${key}-`) || registered[name] !== undefined) continue
+    const styles = sharedClassStyles(name)
+    if (styles === undefined) {
+      reportUncomposedClass(name)
+      continue
+    }
+    registered[name] = styles
+  }
+}
+
+/** Test seam: how many classes the store holds, and how much style text. */
+export const __sharedClassStoreSize = (): { entries: number; length: number } => ({
+  entries: currentClasses.size + previousClasses.size,
+  length: currentLength + previousLength,
+})
+
+/** Test seam: empties the store. */
+export const __clearSharedClassStore = (): void => {
+  currentClasses = new Map()
+  previousClasses = new Map()
+  currentLength = 0
+  previousLength = 0
+}
+
+/** A server-compiled rule, and the classes of the element that uses it. */
+export interface ServerEmotionRule {
+  /**
+   * The classes the element carries: every class it was handed that is not
+   * registered in this cache, then `ownClassName`. Always present: it is what the
+   * markup needs, whatever happens to the rule.
+   */
+  className: string
+  /** The class this rule defines, which names it on the page. */
+  ownClassName: string
+  /** The emotion id: the rule's key in the cache. */
+  id: string
+  /** The rule's text. Empty only when it could not be recovered, in which case there is no rule to render. */
+  cssText: string
+}
+
+/**
+ * Compiles a css value to the classes an element carries and the rule behind them.
+ *
+ * Takes an object or an array of them — the array is what a non-map `css`
+ * resolves to — and produces the class Emotion's `css` prop gives the same input
+ * under the same cache key, so server and client output match.
+ *
+ * The element's own `className` is composed the way Emotion composes it on the
+ * client: each class registered in this cache is replaced by its styles, placed
+ * after `css` so they win a conflict, and every other class is kept as it is,
+ * ahead of the new one. A class compiled in another request cache — a `'use
+ * cache'` scope's — is found through the shared store when it was compiled for a
+ * component, and kept as a plain class when it is not there.
+ * @param css The resolved css for one element.
+ * @param className The element's own `className`, if any.
+ * @param options `share`: keep this rule's class in the shared store, for an
+ * element that is a component and so may hand the class on.
+ * @returns The rule, or `undefined` for a value that styles nothing.
+ */
+export function compileServerEmotionRule(css: CssProp, className?: unknown, options?: { share?: boolean }): ServerEmotionRule | undefined {
+  // Only an object or an array of them is compiled; anything else styles nothing.
+  if (!css || typeof css === 'string' || typeof css === 'number' || typeof css === 'boolean') return undefined
+  const cache = requestEmotionCache()
+  const styles: unknown[] = [css]
+  if (typeof className === 'string') registerSharedClasses(cache.registered as Record<string, string | true>, cache.key, className)
+  const otherClasses = typeof className === 'string' ? getRegisteredStyles(cache.registered, styles as string[], className) : ''
+  const serialized = serializeStyles(styles as any, cache.registered)
   const stylesForSSR = insertStyles(cache as any, serialized as any, false)
   const cachedStyle = (cache.inserted as Record<string, unknown>)[serialized.name]
   const cssText = typeof stylesForSSR === 'string' ? stylesForSSR : typeof cachedStyle === 'string' ? cachedStyle : undefined
-
-  if (cssText) {
-    const state = getServerEmotionRulesState()
-    if (!state.byId.has(serialized.name)) {
-      state.byId.set(serialized.name, cssText)
-    }
-  }
-
-  return `${cache.key}-${serialized.name}`
-}
-
-/**
- * Consumes pending server-compiled Emotion rules for injection into SSR output.
- * Rules are drained so each request only emits newly added styles once.
- */
-export function consumeServerEmotionRules(): Array<{ id: string; cssText: string }> {
-  const state = getServerEmotionRulesState()
-  if (state.byId.size === 0) return []
-
-  const drained = Array.from(state.byId.entries()).map(([id, cssText]) => ({ id, cssText }))
-  state.byId.clear()
-  return drained
+  const ownClassName = `${cache.key}-${serialized.name}`
+  if (options?.share) shareClass(ownClassName, serialized.styles)
+  return { className: `${otherClasses}${ownClassName}`, ownClassName, id: serialized.name, cssText: cssText ?? '' }
 }

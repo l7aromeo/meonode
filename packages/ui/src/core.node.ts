@@ -1,4 +1,6 @@
 import {
+  cache,
+  cloneElement,
   type ComponentProps,
   createElement,
   type ElementType,
@@ -28,11 +30,85 @@ import { getComponentType, getElementTypeName, hasNoStyleTag, getGlobalState } f
 import StyledRenderer from '@src/components/styled-renderer.client.js'
 import MeoMemo from '@src/components/meo-memo.client.js'
 import { LIST_MARKER, LOCATION_MARKER } from '@src/constant/common.const.js'
+import { isMergeableCss } from '@src/util/css.util.js'
 import { NodeUtil } from '@src/util/node.util.js'
-import { compileServerEmotionClassName } from '@src/util/server-emotion.util.js'
-import { getActiveServerTheme, replaceThemeTokensWithCssVars, setActiveServerTheme } from '@src/util/server-theme.util.js'
+import { IS_REACT_SERVER_LAYER } from '@src/util/react-layer.util.js'
+import { compileServerEmotionRule } from '@src/util/server-emotion.util.js'
+import { replaceThemeTokensWithCssVars } from '@src/util/server-theme.util.js'
 import { diagnosticsEnabled, reportThemeIssues } from '@src/util/theme-diagnostics.util.js'
 import { ThemeUtil } from '@src/util/theme.util.js'
+
+/**
+ * Hosts that cannot carry a rule in their children: void elements, elements
+ * whose children React treats as text or never renders, and the document
+ * scaffold. Anything inside `svg` or `math` is excluded separately, because a
+ * `<style>` there is an SVG or MathML element that renders in place instead of
+ * being hoisted, which would put the rule at a cascade position of its own.
+ */
+const RULE_ANCHOR_EXCLUDED = new Set([
+  'area',
+  'base',
+  'br',
+  'col',
+  'embed',
+  'hr',
+  'img',
+  'input',
+  'link',
+  'meta',
+  'source',
+  'track',
+  'wbr',
+  'textarea',
+  'option',
+  'title',
+  'style',
+  'script',
+  'noscript',
+  'template',
+  'html',
+  'head',
+  'svg',
+  'math',
+])
+
+/**
+ * Whether a server-compiled rule can travel in this element's children.
+ *
+ * A host renders every child it is given, so a rule placed among a host's
+ * children renders whenever anything inside that host does. That is what lets a
+ * rule sit with an ancestor of the element that uses it rather than beside it,
+ * leaving the element itself exactly as it would be without the rule.
+ */
+function canAnchorRules(renderTarget: unknown, props: Record<string, unknown>, inForeignNamespace: boolean): boolean {
+  return (
+    typeof renderTarget === 'string' &&
+    !inForeignNamespace &&
+    !RULE_ANCHOR_EXCLUDED.has(renderTarget) &&
+    !('dangerouslySetInnerHTML' in props && props.dangerouslySetInnerHTML != null)
+  )
+}
+
+/**
+ * The `<style>` element for a rule, one object per request.
+ *
+ * Every anchor that needs a rule gets it, so a subtree the client does not
+ * render cannot take another subtree's only copy with it. Reusing one element
+ * object for all of them lets the RSC payload carry the rule once and refer back
+ * to it. Its key and `href` are the class the rule defines, never the element's
+ * whole `className`, so React hoists and dedupes it by that class whatever else
+ * the element carries.
+ */
+const requestRuleElements = cache((): Map<string, ReactElement> => new Map())
+function ruleElement(rule: { id: string; ownClassName: string; cssText: string }): ReactElement {
+  const elements = requestRuleElements()
+  let element = elements.get(rule.id)
+  if (!element) {
+    element = createElement('style', { key: rule.ownClassName, href: rule.ownClassName, precedence: 'meonode' }, rule.cssText)
+    elements.set(rule.id, element)
+  }
+  return element
+}
 
 const RENDER_CONTEXT_POOL_KEY = Symbol.for('@meonode/ui/BaseNode/renderContextPool')
 
@@ -162,19 +238,6 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
     this.element = element
     this.rawProps = rawProps
     this._deps = deps
-
-    if (NodeUtil.isServer && NodeUtil.providesServerTheme(element)) {
-      const themeCandidate = (rawProps as { theme?: unknown }).theme
-      if (themeCandidate && typeof themeCandidate === 'object' && 'system' in (themeCandidate as object)) {
-        const resolvedTheme = themeCandidate as Theme
-        // Only the *active theme* is tracked globally, for server-side
-        // `theme.*` token -> `var(--meonode-theme-*)` resolution. The variable
-        // definitions themselves are emitted by ThemeProvider's own render
-        // output; they are deliberately not accumulated here, since a
-        // process-global map is shared across concurrent SSR requests.
-        setActiveServerTheme(resolvedTheme)
-      }
-    }
   }
 
   /**
@@ -245,6 +308,11 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
     let { workStack } = ctx
     const { renderedElements } = ctx
     let stackPointer = 0
+    // Server-compiled rules this render emits, keyed by the element that carries
+    // them in its children. `rootRules` holds the ones whose consumer has no host
+    // able to carry them anywhere above it in this render.
+    const anchoredRules = new Map<BaseNode, Map<string, ReactElement>>()
+    const rootRules = new Map<string, ReactElement>()
 
     try {
       // Fast capacity check with exponential growth
@@ -264,7 +332,7 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
       }
 
       // Push initial work item
-      workStack[stackPointer++] = { node: this, isProcessed: false, theme: undefined }
+      workStack[stackPointer++] = { node: this, isProcessed: false, theme: undefined, anchor: null, inForeignNamespace: false }
 
       // Iterative depth-first traversal with explicit begin/complete phases to avoid recursion.
       while (stackPointer > 0) {
@@ -273,14 +341,14 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
           stackPointer--
           continue
         }
-        const { node, isProcessed, theme: inheritedTheme } = currentWork
+        const { node, isProcessed, theme: inheritedTheme, anchor, inForeignNamespace } = currentWork
 
         const getActiveTheme = (props: FinalNodeProps, current?: Theme): Theme | undefined => {
           const candidate = (props as { theme?: unknown }).theme
           if (candidate && typeof candidate === 'object' && 'system' in (candidate as object)) {
             return candidate as Theme
           }
-          return current ?? getActiveServerTheme()
+          return current
         }
 
         if (!isProcessed) {
@@ -288,6 +356,12 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
           currentWork.isProcessed = true
           const children = node.props.children
           const activeTheme = getActiveTheme(node.props, inheritedTheme)
+          // The topmost host above each child that can carry its rules, and
+          // whether the child sits in SVG or MathML, where none can.
+          const beginAs = (node.props as { as?: NodeElementType }).as
+          const beginTarget = beginAs != null && isValidElementType(beginAs) ? beginAs : node.element
+          const childAnchor = anchor ?? (canAnchorRules(beginTarget, node.props as Record<string, unknown>, inForeignNamespace) ? node : null)
+          const childInForeignNamespace = inForeignNamespace || beginTarget === 'svg' || beginTarget === 'math'
 
           if (children) {
             // Only consider BaseNode children for further traversal; primitives and React elements are terminal.
@@ -316,7 +390,13 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
                 continue
               }
 
-              workStack[stackPointer++] = { node: child, isProcessed: false, theme: activeTheme }
+              workStack[stackPointer++] = {
+                node: child,
+                isProcessed: false,
+                theme: activeTheme,
+                anchor: childAnchor,
+                inForeignNamespace: childInForeignNamespace,
+              }
             }
           }
         } else {
@@ -365,12 +445,13 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
 
           let finalChildren: ReactNode[] = []
 
-          if (childrenInProps) {
+          const hostChildren = NodeUtil.resolveHostRenderProp(renderTarget, childrenInProps, disableEmotion) as typeof childrenInProps
+          if (hostChildren) {
             // Convert child placeholders into concrete React nodes:
             // - If it's a BaseNode, lookup its rendered ReactElement from the map.
             // - If it's already a React element, use it directly (with enhanced key).
             // - Otherwise treat as primitive ReactNode.
-            const childArray = Array.isArray(childrenInProps) ? childrenInProps : [childrenInProps]
+            const childArray = Array.isArray(hostChildren) ? hostChildren : [hostChildren]
             const childCount = childArray.length
             // Pre-allocate array to avoid resizing during iteration
             finalChildren = new Array(childCount)
@@ -515,7 +596,16 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
             // StyledRenderer handles SSR hydration and emotion CSS injection when css prop exists or element has style tags.
             // All element-shape decisions use `renderTarget` so an `as` swap is honored consistently.
             const isStyledComponent = !disableEmotion && (css || !hasNoStyleTag(renderTarget)) && Object.keys(css || {}).length > 0
-            const shouldBypassStyledRendererOnServer = NodeUtil.isServer && typeof renderTarget !== 'string'
+            // In the RSC layer an element's output is final: it never renders on
+            // the client, and a server function cannot be handed to the
+            // `StyledRenderer` client component at all. Its css is compiled to a
+            // class name here instead, which also keeps the css object out of the
+            // flight payload. Everywhere else — a client component's server
+            // render, or a server render outside Next — the client renders the
+            // same tree through `StyledRenderer` when it hydrates, so the server
+            // takes that path too: Emotion then composes a class the element is
+            // handed with its own css in one cache, the way the client does.
+            const shouldBypassStyledRendererOnServer = NodeUtil.isServer && IS_REACT_SERVER_LAYER
             // Keep server/client on the same StyledRenderer path for client references.
             // This avoids Emotion hash drift not only for theme tokens, but also for raw
             // CSS values (e.g. "red", "#ff0000") that would otherwise use different
@@ -544,10 +634,15 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
               // side happened to render it.
               reportThemeIssues(themedCss, activeTheme)
               const cssWithDefaults = ThemeUtil.resolveDefaultStyle(themedCss)
-              const serverCssClassName = compileServerEmotionClassName(cssWithDefaults)
-              const mergedClassName = [elementProps.className, serverCssClassName].filter(Boolean).join(' ') || undefined
-              const elementPropsWithClassName = mergedClassName ? { ...elementProps, className: mergedClassName } : elementProps
+              const rule = compileServerEmotionRule(cssWithDefaults, elementProps.className, { share: typeof renderTarget !== 'string' })
+              const elementPropsWithClassName = rule ? { ...elementProps, className: rule.className } : elementProps
               element = createElement(renderTarget, elementPropsWithClassName, ...childArguments)
+              if (rule?.cssText) {
+                const carrier = anchor ?? (canAnchorRules(renderTarget, elementProps as Record<string, unknown>, inForeignNamespace) ? node : null)
+                const rules = carrier ? (anchoredRules.get(carrier) ?? new Map<string, ReactElement>()) : rootRules
+                if (carrier) anchoredRules.set(carrier, rules)
+                rules.set(rule.id, ruleElement(rule))
+              }
             } else {
               // On server function components, keep css support for true server components.
               // For client references (e.g. next/link), do not forward css to avoid leaking
@@ -558,6 +653,12 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
             }
           }
 
+          // A host carrying rules gets them as one trailing keyed slot, after its
+          // own children, so none of those shift and the element stays the one
+          // element it would be without them.
+          const carriedRules = anchoredRules.get(node)
+          if (carriedRules) element = cloneElement(element, undefined, ...childArguments, [...carriedRules.values()])
+
           // Store the rendered element so parent nodes can reference it.
           renderedElements.set(node, element)
         }
@@ -565,8 +666,13 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
 
       // Get the final rendered element for the root node of this render cycle.
       const rootElement = renderedElements.get(this) as ReactElement<FinalNodeProps>
+      if (rootRules.size === 0) return rootElement
 
-      return rootElement
+      // Rules whose consumer has no host above it in this render that could carry
+      // them — a void, SVG or component element at the root, or under components
+      // only — travel beside the root. This is the one case where the root is not
+      // the element it would be without them.
+      return createElement(Fragment, { key: rootElement.key }, rootElement, [...rootRules.values()]) as ReactElement<FinalNodeProps>
     } finally {
       // Always release context back to pool, even if an exception occurred
       // Null out workStack slots to help GC before releasing
@@ -599,6 +705,66 @@ function Node<AdditionalProps, E extends NodeElementType, ExactProps extends obj
 export { Node }
 
 /**
+ * Merges two `css` maps the way flat CSS props already combine: key by key,
+ * recursing into nested selectors and at-rules, with `over` winning a conflict.
+ *
+ * An explicit `undefined` in `over` wins too, as it does for a flat prop. That is
+ * how a call site opts out of a single factory rule without losing the rest.
+ *
+ * Copy-on-write. `base` is the factory's `css`, one object shared by every call
+ * to that factory, so writing into it would leak one call site's rules into
+ * every later render. Nested objects that `over` does not touch are shared by
+ * reference, which is what the factory's `css` already was before this merge.
+ */
+function mergeCss(base: Record<string, unknown>, over: Record<string, unknown>): Record<string, unknown> {
+  const merged: Record<string, unknown> = { ...base }
+  for (const key of Object.keys(over)) {
+    const next = over[key]
+    const prev = merged[key]
+    merged[key] = isMergeableCss(prev) && isMergeableCss(next) ? mergeCss(prev, next) : next
+  }
+  return merged
+}
+
+/** Whether a `css` value can contribute rules: anything but nullish or a boolean. */
+function stylesSomething(css: unknown): boolean {
+  return css != null && typeof css !== 'boolean'
+}
+
+/**
+ * Combines a factory's initial props with a call site's.
+ *
+ * A shallow spread for everything but `css`. Flat CSS props are top-level keys,
+ * so the spread already combines them one by one; `css` is a single key holding
+ * a whole map of rules, which a spread would replace outright, dropping every
+ * pseudo-class, media query and `@supports` fallback the factory defined.
+ *
+ * Two mergeable maps are merged key by key. When either side is something else —
+ * an Emotion `css()` result, an array, a function, a string — the two are
+ * composed as `[factoryCss, callSiteCss]`, which Emotion serialises in order, so
+ * the call site still wins a conflict and the factory's rules are kept. A side
+ * that is absent or a boolean styles nothing, and the call site's value is used
+ * as it is.
+ *
+ * The shape of `props` does not matter here. A user-defined factory is not
+ * rewritten by `@meonode/compiler`, so its call sites arrive flat; a call to a
+ * factory the compiler does rewrite arrives with its flat CSS props moved into
+ * `__meo$c`, but `css` is one of the keys the compiler always leaves top-level,
+ * as a plain object whose `theme.*` tokens may already have been replaced.
+ */
+function combineFactoryProps(initialProps: Record<string, unknown> | undefined, props: Record<string, unknown> | undefined): Record<string, unknown> {
+  const combined: Record<string, unknown> = { ...initialProps, ...props }
+  const factoryCss = initialProps?.css
+  const callSiteCss = props?.css
+  if (isMergeableCss(factoryCss) && isMergeableCss(callSiteCss)) {
+    combined.css = mergeCss(factoryCss, callSiteCss)
+  } else if (stylesSomething(factoryCss) && stylesSomething(callSiteCss)) {
+    combined.css = [factoryCss, callSiteCss]
+  }
+  return combined
+}
+
+/**
  * Creates a curried node factory for a given React element or component type.
  * This is useful for creating reusable, specialized factory functions (e.g., `const Div = createNode('div')`).
  * @function createNode
@@ -620,7 +786,7 @@ export function createNode<AdditionalInitialProps, E extends NodeElementType, Ex
       element: E
     } {
   const Instance = <AdditionalProps, ExactProps extends object = object>(props?: MergedProps<E, AdditionalProps, ExactProps>, deps?: DependencyList) =>
-    Node(element, { ...initialProps, ...props } as any, deps)
+    Node(element, combineFactoryProps(initialProps as Record<string, unknown> | undefined, props as Record<string, unknown> | undefined) as any, deps)
   Instance.element = element
   return Instance as any
 }
@@ -650,7 +816,12 @@ export function createChildrenFirstNode<AdditionalInitialProps, E extends NodeEl
     children?: Children,
     props?: MergedProps<E, AdditionalProps, ExactProps> & { children?: never },
     deps?: DependencyList,
-  ) => Node(element, { ...initialProps, ...props, children } as any, deps)
+  ) =>
+    Node(
+      element,
+      { ...combineFactoryProps(initialProps as Record<string, unknown> | undefined, props as Record<string, unknown> | undefined), children } as any,
+      deps,
+    )
   Instance.element = element
   return Instance as any
 }

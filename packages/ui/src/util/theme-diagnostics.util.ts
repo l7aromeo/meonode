@@ -28,9 +28,9 @@ import { toLengthVarName, wouldEmotionAddPx as emotionWouldAddPx } from '@src/ut
  *
  * `NODE_ENV` is read defensively, since browser bundles may not define
  * `process`. A bundler that substitutes the expression folds the development
- * half to `false`, but it does not remove the call or the messages behind it:
- * measured on a minified esbuild bundle with `process.env.NODE_ENV` defined,
- * this survives as a runtime call and all eight diagnostic strings ship. That is
+ * half to `false`, but it does not remove the call or the messages behind it: in
+ * a minified bundle with `process.env.NODE_ENV` defined, this stays a runtime
+ * call and the diagnostic strings ship. That is
  * deliberate — it is what lets `setDebugMode(true)` work in production.
  * @returns `true` when diagnostics should be evaluated.
  */
@@ -298,6 +298,44 @@ export const reportThemeIssues = (value: unknown, theme: Theme | undefined, prop
       reportThemeIssues(child, theme, nextProperty, depth + 1)
     }
   }
+}
+
+/**
+ * A theme function (`theme => …`) in a style reached with no theme to call it with,
+ * and was dropped. Without this the author sees only a missing style.
+ * Reported once per property.
+ * @param property The CSS property the function was written against, when known.
+ */
+export const reportDroppedThemeFunction = (property?: string): void => {
+  if (!diagnosticsEnabled()) return
+  const seenKey = `dropped-function:${property ?? ''}`
+  if (reported.has(seenKey)) return
+  reported.add(seenKey)
+  console.warn(
+    `[MeoNode] A theme function ${property ? `for \`${property}\` ` : ''}was dropped because no ThemeProvider is above this node. ` +
+      `Theme functions (\`theme => …\`) only run under a provider: render the tree inside ThemeProvider, or write the value directly.`,
+  )
+}
+
+/**
+ * A server-compiled class handed to an element could not be composed with the
+ * element's own css: it was compiled in another cache scope — outside a
+ * `'use cache'` boundary the element is inside — and is no longer in the store
+ * that carries such classes across, or was never compiled for a component. The
+ * element keeps it as a separate class, and which rule wins a conflict then
+ * depends on stylesheet order. Reported once per class.
+ * @param className The class that could not be composed.
+ */
+export const reportUncomposedClass = (className: string): void => {
+  if (!diagnosticsEnabled()) return
+  const seenKey = `uncomposed-class:${className}`
+  if (reported.has(seenKey)) return
+  reported.add(seenKey)
+  console.warn(
+    `[MeoNode] The class \`${className}\` was handed to an element in another cache scope and could not be composed with its own css, ` +
+      `so the element carries both classes and which one wins a conflict depends on stylesheet order. ` +
+      `The shared store keeps the most recent classes compiled for components; pass the styles as \`css\` instead of a className to compose them in the element's own scope.`,
+  )
 }
 
 /** Test seam: clears the once-per-problem memo. */

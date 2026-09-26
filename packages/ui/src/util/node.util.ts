@@ -14,6 +14,7 @@ import { getCSSProps, getDOMProps, getElementTypeName, omitUndefined } from '@sr
 import { __DEBUG__, COMPILED_MARKER, COMPILER_SCHEMA_KEYS, LIST_MARKER, LOCATION_MARKER, SUPPORTED_COMPILER_SCHEMAS } from '@src/constant/common.const.js'
 import { BaseNode } from '@src/core.node.js'
 import { diagnosticsEnabled } from '@src/util/theme-diagnostics.util.js'
+import { isMergeableCss } from '@src/util/css.util.js'
 
 /**
  * NodeUtil provides a collection of static utility methods and properties
@@ -31,10 +32,21 @@ import { diagnosticsEnabled } from '@src/util/theme-diagnostics.util.js'
  */
 const isChildList = (children: Children): children is readonly Children[] => Array.isArray(children)
 
+/**
+ * Whether `value` is an instance of a React class component.
+ *
+ * The `react-server` build of React, which the React Server Components layer
+ * loads, exports no `Component`, so `instanceof React.Component` throws there. No
+ * class component can be constructed in that layer either, so the answer is false.
+ * @param value The value to test.
+ * @returns `true` when `value` is a class component instance.
+ */
+const isReactComponentInstance = (value: unknown): value is React.Component => typeof React.Component === 'function' && value instanceof React.Component
+
 export class NodeUtil {
   private constructor() {}
 
-  private static readBooleanFlag(value: unknown, key: '__meonodeAcceptsServerCss' | '__meonodeProvidesServerTheme' | '__meonodeShieldsOwnProps'): boolean {
+  private static readBooleanFlag(value: unknown, key: '__meonodeAcceptsServerCss' | '__meonodeShieldsOwnProps'): boolean {
     if (typeof value !== 'function') return false
     try {
       return (value as unknown as Record<string, unknown>)[key] === true
@@ -85,13 +97,6 @@ export class NodeUtil {
    */
   public static acceptsServerCss(value: unknown): boolean {
     return NodeUtil.readBooleanFlag(value, '__meonodeAcceptsServerCss')
-  }
-
-  /**
-   * Detects components that provide a theme scope for server-side style resolution.
-   */
-  public static providesServerTheme(value: unknown): boolean {
-    return NodeUtil.readBooleanFlag(value, '__meonodeProvidesServerTheme')
   }
 
   /**
@@ -217,8 +222,11 @@ export class NodeUtil {
     // Precedence mirrors legacy's "call props override initial props" merge: top-level
     // passthrough < compiler-classified `c`/`d` < explicit `css` prop. Always a fresh
     // object, never an alias of the compiler's bucket, so downstream consumers keep
-    // the same ownership guarantees the legacy path gave them.
-    const finalCssProps = { ...passthroughCssProps, ...markerCssProps, ...css }
+    // the same ownership guarantees the legacy path gave them. A `css` that is not a
+    // map is composed after the flat props instead; see `isSpreadableCss`.
+    const finalCssProps = NodeUtil.isSpreadableCss(css)
+      ? { ...passthroughCssProps, ...markerCssProps, ...css }
+      : [{ ...passthroughCssProps, ...markerCssProps }, css]
 
     if (__DEBUG__) {
       // A `c`/`d` bucket containing a special key (e.g. `ref`, `children`) would silently
@@ -253,6 +261,24 @@ export class NodeUtil {
     if (typeof compiledLocation === 'string') result[LOCATION_MARKER] = compiledLocation
 
     return result as FinalNodeProps
+  }
+
+  /**
+   * Whether a `css` prop can be spread over the flat CSS props.
+   *
+   * Only a map of rules can. An absent `css`, or the `false` of `css: active && {…}`,
+   * spreads to nothing and keeps that path too. Anything else — an array, a string,
+   * a function, an Emotion `css()` result — is handed to Emotion as
+   * `[flatCssProps, css]`, which it composes in order, so `css` still wins. Spreading
+   * them would key an array's entries by index (`.css-x 0{…}`, descendant selectors
+   * that never match), split a string into one declaration per character, drop a
+   * function, and build around a `css()` result an object Emotion reads only the
+   * `styles` string of, losing the flat props beside it.
+   * @param css The node's `css` prop.
+   * @returns `true` when spreading `css` is correct.
+   */
+  private static isSpreadableCss(css: unknown): boolean {
+    return !css || typeof css === 'boolean' || isMergeableCss(css)
   }
 
   /**
@@ -359,8 +385,11 @@ export class NodeUtil {
     const nonCachedCssProps = getCSSProps(nonCacheableProps)
     const domProps = getDOMProps(restRawProps) // DOM props are always processed fresh.
 
-    // 4. Assemble the final CSS object.
-    const finalCssProps = { ...cachedCssProps, ...nonCachedCssProps, ...css }
+    // 4. Assemble the final CSS: `css` over the flat props, spread when it is a map
+    //    and composed after them when it is not (see `isSpreadableCss`).
+    const finalCssProps = NodeUtil.isSpreadableCss(css)
+      ? { ...cachedCssProps, ...nonCachedCssProps, ...css }
+      : [{ ...cachedCssProps, ...nonCachedCssProps }, css]
 
     // --- Child Normalization ---
     const normalizedChildren = NodeUtil._processChildren(children, disableEmotion, generatedChildren)
@@ -565,11 +594,29 @@ export class NodeUtil {
     }
 
     // Handle component instances.
-    if (node instanceof React.Component) {
+    if (isReactComponentInstance(node)) {
       return NodeUtil.processRawNode(node.render(), disableEmotion)
     }
 
     return node
+  }
+
+  /**
+   * The children a host element receives when they are a single render prop.
+   *
+   * A component can take a function child and call it itself, so for a component
+   * target the function is passed through unchanged. A plain HTML tag has no one to
+   * call it, and React rejects a function there — a warning in the browser, a failed
+   * render in a server component — so for a host target it is resolved through
+   * `functionRenderer`, exactly as a render prop inside a children array is.
+   * @param renderTarget The element or component the node renders as.
+   * @param children The node's children.
+   * @param disableEmotion Inherited flag to disable Emotion styling for the result.
+   * @returns `children`, or an element that renders the render prop's result.
+   */
+  public static resolveHostRenderProp(renderTarget: unknown, children: unknown, disableEmotion?: boolean): unknown {
+    if (typeof renderTarget !== 'string' || !NodeUtil.isFunctionChild(children as NodeElement)) return children
+    return createElement(NodeUtil.functionRenderer as ElementType, { render: children, disableEmotion })
   }
 
   /**
@@ -658,7 +705,7 @@ export class NodeUtil {
     }
 
     // If the result is a React component instance (e.g., `new MyClassComponent()`).
-    if (result instanceof React.Component) {
+    if (isReactComponentInstance(result)) {
       return NodeUtil.renderProcessedNode({ processedElement: NodeUtil.processRawNode(result.render(), disableEmotion), disableEmotion })
     }
 
@@ -715,7 +762,7 @@ export class NodeUtil {
     if (isReactClassComponent(processedElement)) return new BaseNode(processedElement, { ...commonBaseNodeProps, disableEmotion }).render()
     // If the processed element is an instance of a React component (e.g., `new MyComponent()`).
     // Directly call its `render` method.
-    if (processedElement instanceof React.Component) return processedElement.render()
+    if (isReactComponentInstance(processedElement)) return processedElement.render()
     // If the processed element is a function (likely a functional component or a render prop that returned a component type).
     // Create a React element directly using `createElement`, passing the `passedKey`.
     if (typeof processedElement === 'function') return createElement(processedElement as ElementType, { key: passedKey })

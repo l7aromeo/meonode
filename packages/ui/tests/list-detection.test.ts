@@ -87,7 +87,7 @@ let uid = 0
  *     flat list,    three distinct parent tags   [1, 1, 1]
  *
  * The flat row is why this file's technique works; the nested row is why it
- * does not transfer. Both measured, here and independently by a second reader. The safe generalisation is that the budget is
+ * does not transfer. The safe generalisation is that the budget is
  * keyed on whatever fiber React reconciles the list under, which is not always
  * the tag you wrote.
  */
@@ -267,8 +267,7 @@ describe('authored children, unmarked', () => {
 //
 // Only ONE case here can assert a report. React keys the missing-key budget on
 // the parent's component name, and every Fragment answers to the same one — a
-// second Fragment-parented list is silent however fresh its rows are, which is
-// measured, not assumed. The keyed case is safe in any order because React
+// second Fragment-parented list is silent however fresh its rows are. The keyed case is safe in any order because React
 // spends the budget only when it actually reports.
 describe('a generated list under a Fragment', () => {
   it('is reported when its rows carry no key', () => {

@@ -47,7 +47,9 @@ export default function StyledRenderer<E extends NodeElement, TProps extends Rec
   // so no further processing is needed here. `css` still needs resolution
   // to execute any callable theme refs and to expand string tokens that
   // may have been provided directly via `css` rather than via `elementProps`.
-  const finalCss: CssProp = theme ? ThemeUtil.resolveObjWithTheme(css, theme, { processFunctions: true, themeStringsMode: 'vars' }) : css
+  // Called with no theme too, so a theme function it cannot run is dropped instead
+  // of reaching Emotion, which would print its source into the stylesheet.
+  const finalCss: CssProp = ThemeUtil.resolveObjWithTheme(css, theme, { processFunctions: true, themeStringsMode: 'vars' })
 
   // Development only: the last point where the live theme and the fully
   // resolved declarations are both in hand, so a token that names a variable
