@@ -6,8 +6,8 @@ const Link = createNode(NextLink)
 /**
  * #32: a factory around `next/link`, rendered from a server component.
  *
- * The intrinsic `A` beside it is the control — the issue says it gets its rule —
- * so a page where neither has one points at the harness rather than the bug.
+ * The intrinsic `A` beside it is the control, so a page where neither has its
+ * rule points at the harness rather than the link.
  */
 export default function Page() {
   return Div({

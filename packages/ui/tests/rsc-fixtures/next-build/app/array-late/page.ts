@@ -9,8 +9,8 @@ const WrappedDiv = createNode(ServerDiv)
 
 /**
  * A server-component factory given an array `css` — the shape a non-map `css`
- * resolves to before it is compiled — with the compile pinned after the
- * registry's drain (see `later`).
+ * resolves to before it is compiled — with the compile delayed past a
+ * macrotask (see `later`).
  */
 async function Rows() {
   'use cache'

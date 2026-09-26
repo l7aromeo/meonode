@@ -18,7 +18,7 @@ export const PALETTES = {
   dynamicB: ['#a1b2c3', '#b2c3d4', '#c3d4e5', '#d4e5f6'],
 } as const
 
-/** #34: rows whose class names come from `compileServerEmotionClassName`. */
+/** #34: rows whose class names are compiled on the server. */
 export const wrappedRows = (label: string, palette: readonly string[] = PALETTES.wrapped) =>
   palette.map((colour, i) =>
     WrappedDiv({ key: i, css: { color: colour, padding: '4px 8px', '&:hover': { backgroundColor: '#eee' } }, children: `${label} ${i}` }),

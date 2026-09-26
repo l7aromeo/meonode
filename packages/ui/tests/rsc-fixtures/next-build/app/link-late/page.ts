@@ -4,7 +4,7 @@ import { later } from '../_shared/late'
 
 const Link = createNode(NextLink)
 
-/** #32 with the compile pinned after the registry's drain — see `later`. */
+/** #32 with the compile delayed past a macrotask — see `later`. */
 async function LateLink() {
   'use cache'
   await later()

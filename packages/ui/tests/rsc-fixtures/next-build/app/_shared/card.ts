@@ -17,11 +17,3 @@ export const CardNode = createNode(Card)
  * keeps only one side's declarations shows.
  */
 export const CALLER = { color: 'rgb(255, 165, 0)', paddingLeft: '7px' }
-
-/** `Card` rendered inside its own `'use cache'` scope. */
-async function CachedCard(props: { className?: string; children?: string }) {
-  'use cache'
-  return Card(props)
-}
-
-export const CachedCardNode = createNode(CachedCard)

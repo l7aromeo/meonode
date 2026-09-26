@@ -756,12 +756,10 @@ describe('Component HOC across the hydration boundary', () => {
 
 describe('server style scope under concurrency', () => {
   // The server Emotion cache is what a render mutates while collecting styles,
-  // and `StyleRegistry` flushes it into the response. When that cache was a
-  // process-global, every request emitted every style the process had ever
-  // rendered: a page needing 32 KB shipped 166 KB on the documentation site,
-  // growing towards the union of every route as more were visited.
+  // and `StyleRegistry` flushes it into the response. A cache shared by every
+  // request would put every style the process has rendered into every response.
   //
-  // `StyleRegistry` now opens a scope per render. That scope is held in a
+  // `StyleRegistry` opens a scope per render. That scope is held in a
   // module-level binding rather than an `AsyncLocalStorage`, because importing
   // `node:async_hooks` from a module a client component also imports would pull
   // a Node builtin into the browser bundle. A single binding is exactly the
@@ -883,8 +881,7 @@ describe('the list marker across the RSC boundary', () => {
   }
 
   // This is the case that actually covers the server-only branch: replacing
-  // `...childArguments` with `...finalChildren` there drops this to 0, which was
-  // measured both ways rather than assumed.
+  // `...childArguments` with `...finalChildren` there drops this to 0.
   //
   // It needs a host component that renders `children` itself. React validates
   // keys when an array is *reconciled*, not when it is created, and a component's
@@ -905,8 +902,7 @@ describe('the list marker across the RSC boundary', () => {
   // Which one it is depends on whether the plugin ran over the fixture, since
   // `Div({ children })` reads `children` as a bare identifier and the compiler
   // calls that generated. So both rows are real behaviour of the same code, and
-  // asserting either one alone is wrong in the other mode — which is exactly how
-  // this case broke the compiled RSC suite.
+  // asserting either one alone is wrong in the other mode.
   //
   // Not keyed off `MEONODE_COMPILED`: that says the suite is running compiled,
   // not that this plugin emits the marker, and a plugin predating it would fail
@@ -930,8 +926,8 @@ describe('the list marker across the RSC boundary', () => {
   // because it cannot see inside it. So the report survives composition, and
   // the pass-through over-report is what keeps it alive.
   //
-  // Renderer-independent — the same result was measured under jsdom — so this
-  // is cheap here but would be cheaper as a unit test.
+  // Renderer-independent — jsdom gives the same result — so this is cheap here
+  // but would be cheaper as a unit test.
   it('keeps the report when the wrapper node is itself marked', async () => {
     expect(await keyReports('/lm-row3')).toBeGreaterThan(0)
   })
@@ -941,8 +937,7 @@ describe('the list marker across the RSC boundary', () => {
   // This one is renderer-dependent, which is why it is pinned here rather than
   // only in a unit test. Under jsdom it reports nothing: the outer node spread
   // the children variadically, React marked them validated at that point, and
-  // they stay immune downstream. Under Flight, measured on an isolated server
-  // twice, it reports. Whatever makes validation sticky in the client
+  // they stay immune downstream. Under Flight it reports. Whatever makes validation sticky in the client
   // reconciler does not carry across the RSC boundary here.
   //
   // Asserted as the Flight behaviour because that is what this suite runs. If a

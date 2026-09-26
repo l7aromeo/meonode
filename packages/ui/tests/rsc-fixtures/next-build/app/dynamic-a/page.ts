@@ -4,7 +4,7 @@ import { Div, Node } from '@meonode/ui'
 import { later } from '../_shared/late'
 import { PALETTES, wrappedRows } from '../_shared/rows'
 
-/** Request-time server-compiled rules, compiled after the drain — paired with `/dynamic-b`. */
+/** Request-time server-compiled rules, compiled after a macrotask — paired with `/dynamic-b`. */
 async function Rows() {
   await connection()
   await later()
