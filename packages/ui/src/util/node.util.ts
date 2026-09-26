@@ -610,6 +610,24 @@ export class NodeUtil {
   }
 
   /**
+   * The children a host element receives when they are a single render prop.
+   *
+   * A component can take a function child and call it itself, so for a component
+   * target the function is passed through unchanged. A plain HTML tag has no one to
+   * call it, and React rejects a function there — a warning in the browser, a failed
+   * render in a server component — so for a host target it is resolved through
+   * `functionRenderer`, exactly as a render prop inside a children array is.
+   * @param renderTarget The element or component the node renders as.
+   * @param children The node's children.
+   * @param disableEmotion Inherited flag to disable Emotion styling for the result.
+   * @returns `children`, or an element that renders the render prop's result.
+   */
+  public static resolveHostRenderProp(renderTarget: unknown, children: unknown, disableEmotion?: boolean): unknown {
+    if (typeof renderTarget !== 'string' || !NodeUtil.isFunctionChild(children as NodeElement)) return children
+    return createElement(NodeUtil.functionRenderer as ElementType, { render: children, disableEmotion })
+  }
+
+  /**
    * A helper to reliably identify if a given function is a "function-as-a-child" (render prop)
    * rather than a standard Function Component.
    * Distinguishes between render prop functions and component functions by checking for React component signatures.
