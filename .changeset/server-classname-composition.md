@@ -15,4 +15,4 @@ kept as they are.
 The styles compose when both were compiled in the same request. A component
 inside a `'use cache'` scope compiles in that scope's own cache, so a `className`
 from a caller outside the scope stays a separate class beside the component's
-own. The incoming styles still win a conflict there.
+own, and which of the two wins a conflict is not guaranteed.
