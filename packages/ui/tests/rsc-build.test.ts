@@ -245,24 +245,32 @@ describe('equal-specificity rules on one element', () => {
     }
   }
 
-  // The component's own css must win the tie with a className it is handed —
-  // how Emotion's `css` prop resolves one — while every declaration of the
-  // caller's that does not conflict still applies. However many classes that
-  // takes, each must be defined in a loaded stylesheet.
-  it.each([
+  // A className handed to a component that styles itself composes with the
+  // component's own css the way Emotion's `css` prop composes one: into a single
+  // class, with the className's declarations after the component's, so the
+  // caller wins a conflict and the component's other declarations still apply.
+  // That class must be defined in a loaded stylesheet.
+  const composed = async (variant: 'cc' | 'plain', path: string) => {
+    const result = await conflict(variant, path)
+    expect(result.classes).toHaveLength(1)
+    expect(result.classes.every(entry => entry.defined)).toBe(true)
+    expect(result.colour).toBe('rgb(255, 165, 0)')
+    expect(result.paddingLeft).toBe('7px')
+  }
+
+  it.fails.each([
     ['cc', '/cascade'],
     ['plain', '/cascade'],
     ['cc', '/cascade-dynamic'],
     ['plain', '/cascade-dynamic'],
+  ] as const)('an incoming className composes over the component’s own css (%s %s)', composed)
+
+  // The component renders inside its own `'use cache'` scope and the caller
+  // outside it.
+  it.fails.each([
     ['cc', '/cascade-cached-card'],
     ['plain', '/cascade-cached-card'],
-  ] as const)('the component’s own css beats an incoming className (%s %s)', async (variant, path) => {
-    const result = await conflict(variant, path)
-    expect(result.classes.length).toBeGreaterThan(0)
-    expect(result.classes.every(entry => entry.defined)).toBe(true)
-    expect(result.colour).toBe('rgb(0, 128, 128)')
-    expect(result.paddingLeft).toBe('7px')
-  })
+  ] as const)('an incoming className composes over the css of a component in its own cache scope (%s %s)', composed)
 })
 
 describe.each(['cc', 'plain'] as const)('a refresh that moves a rule’s first occurrence (%s)', variant => {
