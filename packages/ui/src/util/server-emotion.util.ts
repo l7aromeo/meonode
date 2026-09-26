@@ -21,24 +21,24 @@ const requestEmotionCache = requestCache(() => {
   return emotionCache
 })
 
-/** A server-compiled rule, and whether it has text to emit. */
+/** A server-compiled rule, and the classes of the element that uses it. */
 export interface ServerEmotionRule {
-  /** The class the element carries. Always present: it is what the markup needs, whatever happens to the rule. */
+  /**
+   * The classes the element carries: every class it was handed that is not
+   * registered in this cache, then `ownClassName`. Always present: it is what the
+   * markup needs, whatever happens to the rule.
+   */
   className: string
+  /** The class this rule defines, which names it on the page. */
+  ownClassName: string
   /** The emotion id: the rule's key in the cache. */
   id: string
-  /** The rule's text. Empty only when it could not be recovered, in which case `emit` is false. */
+  /** The rule's text. Empty only when it could not be recovered, in which case there is no rule to render. */
   cssText: string
-
-  /**
-   * Whether there is a rule to render, as a hoisted `<style href precedence>`:
-   * false only when the rule's text could not be recovered.
-   */
-  emit: boolean
 }
 
 /**
- * Compiles a css value to a class and says how its rule reaches the page.
+ * Compiles a css value to the classes an element carries and the rule behind them.
  *
  * Takes an object or an array of them — the array is what a non-map `css`
  * resolves to — and produces the class Emotion's `css` prop gives the same input
@@ -63,6 +63,6 @@ export function compileServerEmotionRule(css: CssProp, className?: unknown): Ser
   const stylesForSSR = insertStyles(cache as any, serialized as any, false)
   const cachedStyle = (cache.inserted as Record<string, unknown>)[serialized.name]
   const cssText = typeof stylesForSSR === 'string' ? stylesForSSR : typeof cachedStyle === 'string' ? cachedStyle : undefined
-  const ownClass = `${cache.key}-${serialized.name}`
-  return { className: `${otherClasses}${ownClass}`, id: serialized.name, cssText: cssText ?? '', emit: Boolean(cssText) }
+  const ownClassName = `${cache.key}-${serialized.name}`
+  return { className: `${otherClasses}${ownClassName}`, ownClassName, id: serialized.name, cssText: cssText ?? '' }
 }

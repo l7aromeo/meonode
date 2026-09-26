@@ -154,4 +154,15 @@ describe('a className passed into a styled host in the RSC layer', () => {
     expect(div.props.className).toMatch(/^utility meonode-css-[a-z0-9]+$/)
     expect(ruleOf(div)).not.toContain('rgb(255, 165, 0)')
   })
+
+  it('names its rule by its own class alone, so the rule is one element whatever classes sit beside it', () => {
+    const first = renderCard({ className: 'utility' })
+    const second = renderCard({ className: 'other-utility' })
+    const [firstRule] = slotOf(first)
+    const [secondRule] = slotOf(second)
+
+    expect(firstRule.props.href).toMatch(/^meonode-css-[a-z0-9]+$/)
+    expect(firstRule.props.href).toBe((first.props.className as string).split(' ').at(-1))
+    expect(secondRule).toBe(firstRule)
+  })
 })

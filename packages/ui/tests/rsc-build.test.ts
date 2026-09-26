@@ -381,11 +381,11 @@ describe.each(['cc', 'plain'] as const)('host tags rendered by a server componen
   /**
    * Composition needs the caller's class in the cache the component compiles in.
    * Across a `'use cache'` boundary the component compiles in the scope's own
-   * cache, so the caller's class stays a separate class beside the component's
-   * and the component's own colour wins. This is the documented limitation;
-   * without the boundary the two compose into one class and the caller's wins.
+   * cache, so the caller's class stays a separate class beside the component's.
+   * That is the documented limitation: the element carries two classes where
+   * the boundary-free case composes one. The caller's colour still wins.
    */
-  it('keeps two classes across a use-cache boundary, the component’s own winning', async () => {
+  it('keeps two classes across a use-cache boundary, the incoming one winning', async () => {
     const page = await browser!.newPage()
     try {
       await page.goto(`http://localhost:${port(variant)}/host-tags/cascade-cached`, { waitUntil: 'networkidle' })
@@ -396,10 +396,26 @@ describe.each(['cc', 'plain'] as const)('host tags rendered by a server componen
       })
       expect(result.undefinedClasses).toEqual([])
       expect(result.classes).toHaveLength(2)
-      expect(result.colour).toBe('rgb(0, 128, 128)')
+      expect(result.colour).toBe('rgb(255, 165, 0)')
     } finally {
       await page.close()
     }
+  })
+
+  /**
+   * Each server-compiled rule reaches the page as one hoisted `<style>`, named by
+   * its own class, however many renders carry it and whatever classes sit beside
+   * it on the element.
+   */
+  it('writes a rule used by a render prop and its siblings once', async () => {
+    const page = await html('/host-tags/rule-once')
+    const hrefs = [...page.matchAll(/<style[^>]*data-href="([^"]*)"/g)].flatMap(match => match[1].split(' '))
+    const { undefinedClasses } = await styles(variant, '/host-tags/rule-once')
+
+    for (const testid of ['from-render-prop', 'sibling-a', 'sibling-b']) expect(page).toContain(`data-testid="${testid}"`)
+    expect(undefinedClasses).toEqual([])
+    expect(hrefs.filter(href => !href.startsWith('meonode-css-'))).toEqual([])
+    expect(hrefs.filter((href, index) => hrefs.indexOf(href) !== index)).toEqual([])
   })
 
   it('keeps a pseudo-class, a media query and a theme token working', async () => {
