@@ -1,14 +1,15 @@
 import { Suspense } from 'react'
 import { connection } from 'next/server'
 import { Node } from '@meonode/ui'
-import { CALLER, CardNode } from '../_shared/card'
-import { later } from '../_shared/late'
+import { CALLER, CachedCardNode } from '../_shared/card'
 
-/** The cascade case at request time, inside a streamed boundary. */
+/**
+ * The cascade case with the component inside its own `'use cache'` scope and
+ * the caller outside it, rendered at request time.
+ */
 async function Content() {
   await connection()
-  await later()
-  return CardNode({ css: CALLER, children: 'conflict' }).render()
+  return CachedCardNode({ css: CALLER, children: 'conflict' }).render()
 }
 
 export default function Page() {
