@@ -558,8 +558,8 @@ export class ThemeUtil {
    */
   public static resolveDefaultStyle = (style: CssProp) => {
     // A composed `css` (`[flatCssProps, css]`, see `NodeUtil.isSpreadableCss`). Its
-    // entries cannot be spread into one object — that is the bug the array exists to
-    // avoid — so the defaults go in front as their own layer, and every declaration
+    // entries cannot be spread into one object, since a spread keys an array's entries
+    // by index, so the defaults go in front as their own layer, and every declaration
     // the author wrote follows and wins, including ones inside a string or a `css()`
     // result that the context below cannot see. The layout context is read from the
     // entries that are maps.
@@ -603,7 +603,7 @@ export class ThemeUtil {
       if (explicitFlexComponents) {
         flexShrink = explicitFlexComponents.shrink
       } else if (!hasFlexShorthand) {
-        // Apply context-based defaults. Never after a shorthand we could not parse: it still
+        // Apply context-based defaults. Never after a shorthand that does not parse: it still
         // sets flex-shrink, and the browser applies the author's value correctly on its own.
         if (isFlexContainer) {
           // FLEX CONTAINER LOGIC:

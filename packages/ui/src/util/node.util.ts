@@ -264,17 +264,16 @@ export class NodeUtil {
   }
 
   /**
-   * Whether a `css` prop can be spread over the flat CSS props, which is how the
-   * two have always been combined.
+   * Whether a `css` prop can be spread over the flat CSS props.
    *
    * Only a map of rules can. An absent `css`, or the `false` of `css: active && {…}`,
    * spreads to nothing and keeps that path too. Anything else — an array, a string,
    * a function, an Emotion `css()` result — is handed to Emotion as
-   * `[flatCssProps, css]`, which it composes in order, so `css` still wins. Spread,
-   * those shapes became rules keyed by index (`.css-x 0{…}`, descendant selectors
-   * that never match), one declaration per character of a string, nothing at all
-   * for a function, and for a `css()` result an object Emotion reads only the
-   * `styles` string of, silently dropping the flat props beside it.
+   * `[flatCssProps, css]`, which it composes in order, so `css` still wins. Spreading
+   * them would key an array's entries by index (`.css-x 0{…}`, descendant selectors
+   * that never match), split a string into one declaration per character, drop a
+   * function, and build around a `css()` result an object Emotion reads only the
+   * `styles` string of, losing the flat props beside it.
    * @param css The node's `css` prop.
    * @returns `true` when spreading `css` is correct.
    */

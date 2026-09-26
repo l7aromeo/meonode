@@ -15,8 +15,7 @@ const SHARED = { color: 'rgb(106, 4, 15)', padding: '4px 8px' }
 
 /**
  * One row, rendered by its own `.render()` call, so each row is a separate render
- * root and the request's claim on the shared rule moves between roots when the
- * order changes.
+ * root and which root first uses the shared rule changes with the order.
  */
 function RowItem({ id }: { id: string }) {
   return Row({ css: SHARED, children: createElement(Counter, { id }) }).render()

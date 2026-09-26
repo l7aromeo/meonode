@@ -1,8 +1,8 @@
 // @vitest-environment node
 //
 // Host tags rendered in the RSC layer. There a host tag's css is compiled on the
-// server into a class name and its rule travels beside the render root, the same
-// path a server function component takes, instead of becoming a `StyledRenderer`
+// server into a class name and its rule travels in the children of the nearest
+// host, the same path a server function component takes, instead of becoming a `StyledRenderer`
 // client element whose whole css object would be serialised into the flight
 // payload.
 //

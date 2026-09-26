@@ -55,8 +55,9 @@ describe('flex shorthand and the default flex-shrink', () => {
     })
   })
 
-  // Emitted before the fix; locked so the parser rewrite cannot move them.
-  describe('unchanged cases', () => {
+  // Values the shorthand parser does not decide: flex keywords, explicit flexShrink,
+  // and the container defaults.
+  describe('values the shorthand parser does not decide', () => {
     it.each<[string, SpanStyle, string[]]>([
       ['flex: 1', { flex: 1 }, ['1']],
       ["flex: 'auto'", { flex: 'auto' }, ['1']],

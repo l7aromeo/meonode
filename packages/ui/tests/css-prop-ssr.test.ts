@@ -1,9 +1,8 @@
 // @vitest-environment node
 //
-// Server-rendered bytes for `css` values that are maps, captured before the runtime
-// learned to compose non-map `css` values as `[flatCssProps, css]`. That change routes
-// only non-maps through the new path, so every row here must keep its exact class
-// name and rule text. Runs unchanged under `test:compiled`.
+// Server-rendered bytes for `css` values that are maps. A map is spread over the flat
+// props and never takes the `[flatCssProps, css]` composition, so each row's class
+// name and rule text are fixed. Runs unchanged under `test:compiled`.
 import { renderToString } from 'react-dom/server'
 import { keyframes } from '@emotion/react'
 import { Div, Node, type NodeInstance, type Theme, ThemeProvider } from '@src/main.js'
@@ -116,9 +115,8 @@ describe('css maps render byte-identically on the server', () => {
   })
 })
 
-// With no ThemeProvider there is no theme to call a theme function with. It used to
-// reach Emotion anyway, which printed an object value's source into the stylesheet
-// (`color:(t) =>t.system…`). All three places a function can sit agree: dropped.
+// With no ThemeProvider there is no theme to call a theme function with, so it is
+// dropped wherever it sits, and its source never reaches the stylesheet or the HTML.
 describe('theme functions with no provider are dropped on the server', () => {
   it.each<[string, () => NodeInstance]>([
     ['object value', () => Div({ children: 'x', css: { margin: 4, color: (t: Theme) => t.system.colors.primary } })],

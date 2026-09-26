@@ -736,9 +736,8 @@ function stylesSomething(css: unknown): boolean {
  *
  * A shallow spread for everything but `css`. Flat CSS props are top-level keys,
  * so the spread already combines them one by one; `css` is a single key holding
- * a whole map of rules, so the spread replaced it outright and a call site that
- * added one rule lost every pseudo-class, media query and `@supports` fallback
- * the factory had defined.
+ * a whole map of rules, which a spread would replace outright, dropping every
+ * pseudo-class, media query and `@supports` fallback the factory defined.
  *
  * Two mergeable maps are merged key by key. When either side is something else —
  * an Emotion `css()` result, an array, a function, a string — the two are

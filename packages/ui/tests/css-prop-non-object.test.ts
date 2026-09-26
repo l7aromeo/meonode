@@ -51,7 +51,7 @@ describe('css prop shapes other than a plain object', () => {
     it.each(shapes)('%s', (_, cssValue, decls, extra) => {
       const rules = emittedRules(cssValue, flat)
       expect(Object.keys(rules).sort()).toEqual(['', ...Object.keys(extra)].sort())
-      // The runtime's defaults survive too: a spread `css()` result used to drop them.
+      // The runtime's defaults are emitted for every shape, including a `css()` result.
       for (const decl of ['min-height:0', 'min-width:0', ...flatDecls, ...decls]) expect(rules['']).toContain(`${decl};`)
       for (const [suffix, extraDecls] of Object.entries(extra)) {
         for (const decl of extraDecls) expect(rules[suffix]).toContain(`${decl};`)
@@ -87,8 +87,8 @@ describe('css prop shapes other than a plain object', () => {
 
   // The server converts `theme.*` strings in any array. On the client, a node that is
   // a prop of its provider happens to be converted with the provider's props; one
-  // rendered from inside a React component is not, so the class hash differed from
-  // the server's. The expected classes are the server's, locked in css-prop-ssr.
+  // rendered from inside a React component is not, so the client resolves these
+  // strings itself and must produce the server's class. The expected classes are the server's, locked in css-prop-ssr.
   describe('theme strings inside arrays match the server', () => {
     const Wrap = ({ make }: { make: () => NodeInstance }) => make().render()
     const renderUnderComponent = (cssValue: CssValue) => {

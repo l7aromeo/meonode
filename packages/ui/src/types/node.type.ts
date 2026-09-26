@@ -333,7 +333,7 @@ export type ThemedCSSObject = ThemedCSSPropertiesPartial & {
  * typing.
  *
  * `ComponentSelector` and `number` are valid *inside* a style — a selector key, a
- * length — but meaningless as the whole of it, where they never rendered anything,
+ * length — but meaningless as the whole of it, where they carry no declarations,
  * so they are excluded here. `Keyframes` would be too, but Emotion declares it as
  * `{…} & string`, so it always passes as the `string` this type must keep.
  */

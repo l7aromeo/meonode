@@ -2,9 +2,9 @@
 //
 // A factory's `css` and a call site's `css` combine the way its flat CSS props
 // already do: key by key, recursing into nested selectors and at-rules, with the
-// call site winning a conflict. Before this, `css` was one key in a shallow
-// spread, so a call site that added a single rule dropped every pseudo-class,
-// media query and `@supports` fallback the factory had defined.
+// call site winning a conflict. A shallow spread would treat `css` as one key, so a
+// call site that added a single rule would drop every pseudo-class, media query
+// and `@supports` fallback the factory defined.
 //
 // Asserted on server-rendered CSS rather than on props, because the property
 // that matters is what reaches the stylesheet. Runs unchanged under
@@ -35,7 +35,7 @@ const FACTORY_CSS = {
 }
 
 describe('createNode: a call-site css extends the factory css', () => {
-  it('keeps the factory rules the issue reported losing', () => {
+  it('keeps every factory rule when the call site adds one', () => {
     const Card = createNode('div', { padding: 24, css: FACTORY_CSS })
     const css = cssOf(Card({ css: { margin: 4 }, children: 'x' }))
 

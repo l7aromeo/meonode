@@ -27,7 +27,7 @@ describe('a render prop as the only child', () => {
   })
 
   // Only a render prop is resolved. A class component type is not a function to
-  // call, so it reaches React exactly as written, which is what it did before.
+  // call, so it reaches React exactly as written.
   it('leaves a class component type given as the only child untouched', () => {
     class Widget extends Component {
       render() {

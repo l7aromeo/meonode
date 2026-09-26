@@ -491,9 +491,8 @@ describe('G. Regression guards', () => {
     const { status, html } = await getPage(p)
     // The scan below only means something against the page's own content. An
     // error page renders none of it, so a route that fails would pass this guard
-    // however badly it leaked — which is how two deliberately rejected routes sat
-    // in this list asserting nothing. Their rejection is asserted where it is
-    // intended, in B and D.
+    // however badly it leaked. Deliberately rejected routes are asserted where
+    // that is intended, in B and D.
     expect(status).toBe(200)
     assertNoObjectAttrLeaks(html)
   })
@@ -769,17 +768,14 @@ describe('Component HOC across the hydration boundary', () => {
   })
 })
 
-describe('server style scope under concurrency', () => {
+describe('server styles under concurrency', () => {
   // The server Emotion cache is what a render mutates while collecting styles,
   // and `StyleRegistry` flushes it into the response. A cache shared by every
   // request would put every style the process has rendered into every response.
   //
-  // `StyleRegistry` opens a scope per render. That scope is held in a
-  // module-level binding rather than an `AsyncLocalStorage`, because importing
-  // `node:async_hooks` from a module a client component also imports would pull
-  // a Node builtin into the browser bundle. A single binding is exactly the
-  // part worth testing: it assumes one render at a time, and overlapping
-  // requests are where that assumption would break.
+  // Each `StyleRegistry` instance collects into a cache of its own, one per
+  // render. Overlapping requests are where a cache shared between renders would
+  // show.
   //
   // The assertion is a comparison rather than a threshold. A route is fetched
   // alone to establish what it should emit, then fetched again while other
@@ -952,8 +948,9 @@ describe('the list marker across the RSC boundary', () => {
   // This one is renderer-dependent, which is why it is pinned here rather than
   // only in a unit test. Under jsdom it reports nothing: the outer node spread
   // the children variadically, React marked them validated at that point, and
-  // they stay immune downstream. Under Flight it reports. Whatever makes validation sticky in the client
-  // reconciler does not carry across the RSC boundary here.
+  // they stay immune downstream. Under Flight it reports: whatever makes
+  // validation sticky in the client reconciler does not carry across the RSC
+  // boundary here.
   //
   // Asserted as the Flight behaviour because that is what this suite runs. If a
   // change makes the two agree, this is the expectation that will say so.

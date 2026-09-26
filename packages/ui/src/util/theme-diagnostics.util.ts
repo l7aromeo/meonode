@@ -28,9 +28,9 @@ import { toLengthVarName, wouldEmotionAddPx as emotionWouldAddPx } from '@src/ut
  *
  * `NODE_ENV` is read defensively, since browser bundles may not define
  * `process`. A bundler that substitutes the expression folds the development
- * half to `false`, but it does not remove the call or the messages behind it:
- * measured on a minified esbuild bundle with `process.env.NODE_ENV` defined,
- * this survives as a runtime call and all eight diagnostic strings ship. That is
+ * half to `false`, but it does not remove the call or the messages behind it: in
+ * a minified bundle with `process.env.NODE_ENV` defined, this stays a runtime
+ * call and the diagnostic strings ship. That is
  * deliberate — it is what lets `setDebugMode(true)` work in production.
  * @returns `true` when diagnostics should be evaluated.
  */
@@ -302,8 +302,7 @@ export const reportThemeIssues = (value: unknown, theme: Theme | undefined, prop
 
 /**
  * A theme function (`theme => …`) in a style reached with no theme to call it with,
- * and was dropped. Without this the author sees only a missing style: the function
- * used to be stringified into the stylesheet instead, which the browser discarded.
+ * and was dropped. Without this the author sees only a missing style.
  * Reported once per property.
  * @param property The CSS property the function was written against, when known.
  */

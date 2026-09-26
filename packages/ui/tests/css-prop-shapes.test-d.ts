@@ -27,7 +27,7 @@ export const keyframesCss = Div({ css: fadeIn })
 export const keyframesValueCss = Div({ css: { animationName: fadeIn, margin: 4 } })
 export const keyframesInArrayCss = Div({ css: [{ margin: 4 }, { animation: `${fadeIn} 1s` }] })
 
-// --- Rejected at the top level: they never rendered anything meaningful ---
+// --- Rejected at the top level: not a style on their own ---
 // @ts-expect-error a number is not a style
 export const numberCss = Div({ css: 4 })
 // @ts-expect-error a component selector is not a style
