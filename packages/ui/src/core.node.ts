@@ -599,6 +599,75 @@ function Node<AdditionalProps, E extends NodeElementType, ExactProps extends obj
 export { Node }
 
 /**
+ * Whether a `css` value is a map of rules that can be merged key by key.
+ *
+ * Plain object literals only, and not every plain object literal: Emotion's
+ * `css()` and `keyframes()` return one too, but it is compiled output — a
+ * `styles` string plus a class name — rather than a map of selectors. Merging
+ * one key by key would turn `name` and `styles` into CSS declarations.
+ */
+function isMergeableCss(value: unknown): value is Record<string, unknown> {
+  if (typeof value !== 'object' || value === null) return false
+  const proto = Object.getPrototypeOf(value)
+  if (proto !== null && proto !== Object.prototype) return false
+  return typeof (value as { styles?: unknown }).styles !== 'string'
+}
+
+/**
+ * Merges two `css` maps the way flat CSS props already combine: key by key,
+ * recursing into nested selectors and at-rules, with `over` winning a conflict.
+ *
+ * An explicit `undefined` in `over` wins too, as it does for a flat prop. That is
+ * how a call site opts out of a single factory rule without losing the rest.
+ *
+ * Copy-on-write. `base` is the factory's `css`, one object shared by every call
+ * to that factory, so writing into it would leak one call site's rules into
+ * every later render. Nested objects that `over` does not touch are shared by
+ * reference, which is what the factory's `css` already was before this merge.
+ */
+function mergeCss(base: Record<string, unknown>, over: Record<string, unknown>): Record<string, unknown> {
+  const merged: Record<string, unknown> = { ...base }
+  for (const key of Object.keys(over)) {
+    const next = over[key]
+    const prev = merged[key]
+    merged[key] = isMergeableCss(prev) && isMergeableCss(next) ? mergeCss(prev, next) : next
+  }
+  return merged
+}
+
+/**
+ * Combines a factory's initial props with a call site's.
+ *
+ * A shallow spread for everything but `css`. Flat CSS props are top-level keys,
+ * so the spread already combines them one by one; `css` is a single key holding
+ * a whole map of rules, so the spread replaced it outright and a call site that
+ * added one rule lost every pseudo-class, media query and `@supports` fallback
+ * the factory had defined.
+ *
+ * `css` is merged only when both sides are mergeable maps. Anything else — an
+ * Emotion `css()` result, an array, a function — is left as the call site wrote
+ * it, which is the previous behaviour. Combining those would mean handing
+ * Emotion an array, and the runtime currently spreads an array `css` into an
+ * object keyed by index, so the composed rules would target descendant
+ * selectors named `0` and `1` that never match.
+ *
+ * The shape of `props` does not matter here. A user-defined factory is not
+ * rewritten by `@meonode/compiler`, so its call sites arrive flat; a call to a
+ * factory the compiler does rewrite arrives with its flat CSS props moved into
+ * `__meo$c`, but `css` is one of the keys the compiler always leaves top-level,
+ * as a plain object whose `theme.*` tokens may already have been replaced.
+ */
+function combineFactoryProps(initialProps: Record<string, unknown> | undefined, props: Record<string, unknown> | undefined): Record<string, unknown> {
+  const combined: Record<string, unknown> = { ...initialProps, ...props }
+  const factoryCss = initialProps?.css
+  const callSiteCss = props?.css
+  if (isMergeableCss(factoryCss) && isMergeableCss(callSiteCss)) {
+    combined.css = mergeCss(factoryCss, callSiteCss)
+  }
+  return combined
+}
+
+/**
  * Creates a curried node factory for a given React element or component type.
  * This is useful for creating reusable, specialized factory functions (e.g., `const Div = createNode('div')`).
  * @function createNode
@@ -620,7 +689,7 @@ export function createNode<AdditionalInitialProps, E extends NodeElementType, Ex
       element: E
     } {
   const Instance = <AdditionalProps, ExactProps extends object = object>(props?: MergedProps<E, AdditionalProps, ExactProps>, deps?: DependencyList) =>
-    Node(element, { ...initialProps, ...props } as any, deps)
+    Node(element, combineFactoryProps(initialProps as Record<string, unknown> | undefined, props as Record<string, unknown> | undefined) as any, deps)
   Instance.element = element
   return Instance as any
 }
@@ -650,7 +719,12 @@ export function createChildrenFirstNode<AdditionalInitialProps, E extends NodeEl
     children?: Children,
     props?: MergedProps<E, AdditionalProps, ExactProps> & { children?: never },
     deps?: DependencyList,
-  ) => Node(element, { ...initialProps, ...props, children } as any, deps)
+  ) =>
+    Node(
+      element,
+      { ...combineFactoryProps(initialProps as Record<string, unknown> | undefined, props as Record<string, unknown> | undefined), children } as any,
+      deps,
+    )
   Instance.element = element
   return Instance as any
 }
