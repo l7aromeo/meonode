@@ -414,9 +414,4 @@ export default function ThemeProvider({
   return Node(ThemeContext.Provider, { value: contextValue, children: composeChildren(children, tokens, mode as Theme['mode']) }).render()
 }
 
-// The mode path carries the same two flags. `providesServerTheme` reads
-// `rawProps.theme`, which this path does not have, and that is harmless:
-// server-side `theme.*` resolution and media-query keys both come out identical
-// either way — measured on both paths through `renderToString`.
 ;(ThemeProvider as { __meonodeAcceptsServerCss?: boolean }).__meonodeAcceptsServerCss = true
-;(ThemeProvider as { __meonodeProvidesServerTheme?: boolean }).__meonodeProvidesServerTheme = true
