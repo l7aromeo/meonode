@@ -40,7 +40,6 @@ describe('css prop shapes other than a plain object', () => {
     ['array holding a css() result', [emotionCss({ margin: 4 }), { borderWidth: 1 }], ['margin:4px', 'border-width:1px'], {}],
     ['css() result', emotionCss({ margin: 4, '&:hover': { color: 'red' } }), ['margin:4px'], { ':hover': ['color:red'] }],
     ['string', 'margin: 4px; &:hover { color: red; }', ['margin:4px'], { ':hover': ['color:red'] }],
-    ['function', () => ({ margin: 4 }), ['margin:4px'], {}],
     ['object with a keyframes animation', { animation: `${bounce} 1s linear` }, [`animation:${bounce.name} 1s linear`], {}],
     ['object with a keyframes animationName', { animationName: bounce }, [`animation-name:${bounce.name}`], {}],
   ]
@@ -75,6 +74,7 @@ describe('css prop shapes other than a plain object', () => {
   describe('under a ThemeProvider', () => {
     it.each<[string, CssValue]>([
       ['function receiving the theme', (t: Theme) => ({ color: t.system.colors.primary })],
+      ['function ignoring the theme', () => ({ margin: 4, color: 'rgb(255, 0, 0)' })],
       ['array holding a function', [{ margin: 4 }, (t: Theme) => ({ color: t.system.colors.primary })]],
       ['array holding a theme token', [{ margin: 4 }, { color: 'theme.colors.primary' }]],
     ])('%s', (_, cssValue) => {
@@ -104,6 +104,21 @@ describe('css prop shapes other than a plain object', () => {
       ['a string inside a composed css', [{ margin: 4 }, 'color: theme.colors.primary;'], 'css-74wits'],
     ])('%s', (_, cssValue, serverClass) => {
       expect(renderUnderComponent(cssValue).classList).toContain(serverClass)
+    })
+  })
+
+  describe('theme functions with no provider are dropped on the client', () => {
+    it.each<[string, CssValue, Record<string, unknown>]>([
+      ['object value', { margin: 4, color: (t: Theme) => t.system.colors.primary }, {}],
+      ['array item', [{ margin: 4 }, (t: Theme) => ({ color: t.system.colors.primary })], {}],
+      ['top-level css', (t: Theme) => ({ color: t.system.colors.primary }), { margin: 4 }],
+      ['function ignoring its theme', { margin: 4, color: () => 'red' }, {}],
+    ])('%s', (_, cssValue, flat) => {
+      const rules = emittedRules(cssValue, flat)
+      const text = Object.values(rules).join('')
+      expect(text).not.toContain('=>')
+      expect(text).not.toContain('color:')
+      expect(rules['']).toContain('margin:4px;')
     })
   })
 })

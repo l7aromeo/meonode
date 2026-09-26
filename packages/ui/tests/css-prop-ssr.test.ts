@@ -115,3 +115,20 @@ describe('css maps render byte-identically on the server', () => {
     expect(ssr(make())).toBe(expected)
   })
 })
+
+// With no ThemeProvider there is no theme to call a theme function with. It used to
+// reach Emotion anyway, which printed an object value's source into the stylesheet
+// (`color:(t) =>t.system…`). All three places a function can sit agree: dropped.
+describe('theme functions with no provider are dropped on the server', () => {
+  it.each<[string, () => NodeInstance]>([
+    ['object value', () => Div({ children: 'x', css: { margin: 4, color: (t: Theme) => t.system.colors.primary } })],
+    ['array item', () => Div({ children: 'x', css: [{ margin: 4 }, (t: Theme) => ({ color: t.system.colors.primary })] })],
+    ['top-level css', () => Div({ children: 'x', margin: 4, css: (t: Theme) => ({ color: t.system.colors.primary }) })],
+    ['function ignoring its theme', () => Div({ children: 'x', css: { margin: 4, color: () => 'red' } })],
+  ])('%s', (_, make) => {
+    const html = ssr(make())
+    expect(html).not.toContain('=>')
+    expect(html).not.toContain('color:')
+    expect(html).toContain('margin:4px;')
+  })
+})
