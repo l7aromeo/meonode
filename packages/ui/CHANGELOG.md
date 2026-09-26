@@ -1,5 +1,175 @@
 # @meonode/ui
 
+## 3.1.0
+
+### Minor Changes
+
+- [#36](https://github.com/l7aromeo/meonode/pull/36) [`af53324`](https://github.com/l7aromeo/meonode/commit/af533247cf1adf007cb0dcf1b078edc8724e0aab) Thanks [@l7aromeo](https://github.com/l7aromeo)! - React Server Components: every server-compiled style now reaches the page, and host tags no longer ship their `css` in the flight payload.
+
+  - **Rules reach prerendered pages ([#34](https://github.com/l7aromeo/meonode/issues/34)).** A node whose `css` is compiled on the
+    server into a class name got its class but not its rule when the page was
+    statically prerendered, so it rendered unstyled. The rule now travels with the
+    render that compiled it, as a `<style href precedence="meonode">` React hoists
+    into the document head, so it arrives however the page is rendered:
+    prerendered, streamed, or cached.
+  - **`createNode(next/link)` from a server component gets its rule ([#32](https://github.com/l7aromeo/meonode/issues/32)).** The
+    link had its class and the browser's default link styles.
+  - **Each request keeps its own rules.** Server-compiled rules were queued in one
+    process-wide list and flushed by whichever render drained it next, so a rule
+    could land in another request's HTML, two requests rendering at once could each
+    take part of the other's rules, and a prerendered page could carry the next
+    page's rules instead of its own.
+  - **Host tags compile on the server ([#34](https://github.com/l7aromeo/meonode/issues/34)).** A `Div`, `Span`, `Button`, … with
+    styles in a server component was rendered as a client component carrying its
+    whole `css` object, so the styles reached the browser twice. It now renders as
+    the element itself with a server-compiled class. `:hover`, media queries and
+    theme tokens behave as before. A 200-row page's flight payload drops from
+    55.1 KB to 24.5 KB. Host tags inside `'use client'` components are unchanged.
+  - **A `className` passed into a styled server component overrides its own
+    `css`**, composed into one class as Emotion does on the client. Before, the
+    element kept both classes and the winner depended on the order the rules
+    reached the page. Classes meonode did not generate, such as utility classes,
+    are kept as they are. This holds across a `'use cache'` boundary too: a class
+    handed into a cached component is looked up in a bounded store of classes
+    compiled for components (the most recently used 10,000 classes, at most 4 MiB
+    of style text). A class that has left the store stays a separate class, and is
+    reported once in development.
+  - **A render stays one element.** The `<style>` elements go into the children of
+    the topmost host element above the node that uses them, after its own
+    children, so the root of `.render()` is the element it would be without styles:
+    a cloning parent (`Slot`, Radix `asChild`, `Children.only`) still receives it,
+    and reordering siblings does not remount them. When nothing in a render can
+    hold its rules, because the root is a void element such as `Img`, an `svg`, or
+    a component with no host above the styled node, the root is returned as a
+    Fragment of the element and its rules, and a cloning parent receives that
+    Fragment. Pass the node rather than its rendered element to avoid it:
+
+    ```ts
+    const Link = createNode(NextLink)
+
+    Node(Slot, { children: Link({ href: '/', color: 'red' }) }) // cloned
+    Node(Slot, { children: Link({ href: '/', color: 'red' }).render() }) // Fragment
+    ```
+
+  - **No crash on unrecognised children.** The `react-server` build of React
+    exports no `Component`, and checking `instanceof React.Component` threw
+    `TypeError: Right-hand side of 'instanceof' is not an object` for any child
+    that reached it, including a `Promise`. Such children are now handed to React
+    as written.
+
+### Patch Changes
+
+- [#36](https://github.com/l7aromeo/meonode/pull/36) [`af53324`](https://github.com/l7aromeo/meonode/commit/af533247cf1adf007cb0dcf1b078edc8724e0aab) Thanks [@l7aromeo](https://github.com/l7aromeo)! - The `css` prop: a call site extends a factory's `css`, every shape the type accepts renders, and theme values resolve the same on server and client.
+
+  - **A call-site `css` extends a factory's instead of replacing it ([#31](https://github.com/l7aromeo/meonode/issues/31)).**
+    `createNode` and `createChildrenFirstNode` combined props with a shallow
+    spread, so a call site that added one rule dropped every pseudo-class, media
+    query and `@supports` fallback the factory defined. Two maps now merge key by
+    key, recursing into nested selectors and at-rules, with the call site winning a
+    conflict; an explicit `undefined` still drops one factory rule. When either
+    side is an Emotion `css()` result, an array, a function or a string, the two are
+    composed as `[factoryCss, callSiteCss]`, so both apply and the call site wins.
+    `css: false` or `null` at the call site still replaces the factory's.
+
+    ```ts
+    const Card = createNode('div', { padding: 24, css: { '&:hover': { color: 'blue' } } })
+
+    Card({ css: { margin: 4 } }) // keeps :hover
+    ```
+
+  - **Non-object `css` renders.** It was spread into one object with the flat CSS
+    props, which is only right for a map: an array became rules keyed by index
+    (`.css-x 0{…}`, never matching), a string one declaration per character, a
+    function vanished, and a `css()` result dropped the flat props and runtime
+    defaults beside it. It is now composed after the flat props, so `css` still
+    wins. A `css` map renders exactly as before.
+  - **Type:** the top-level `css` prop no longer accepts a `number` or a
+    `ComponentSelector`, which never produced a style as the whole value; both are
+    still valid inside one. `boolean`, `null` and `undefined` are still accepted, so
+    `css: active && { … }` works.
+  - **`theme.*` strings inside arrays** (`fontFamily: ['Arial', 'theme.font.body']`,
+    a string `css`, a string inside an array `css`) now resolve to their CSS
+    variable on the client as they already did on the server, so both produce the
+    same class.
+  - **Theme functions with no `ThemeProvider` are dropped** wherever they sit,
+    instead of reaching Emotion, which printed their source into the stylesheet and
+    the server HTML (`color:(t) =>t.system.primary;`). In development a warning
+    names the property, once.
+
+- [#36](https://github.com/l7aromeo/meonode/pull/36) [`003c4a7`](https://github.com/l7aromeo/meonode/commit/003c4a7d40640cc3572ba2f4c193a7f2b32c5a0a) Thanks [@l7aromeo](https://github.com/l7aromeo)! - Stop the default `flex-shrink: 0` from overriding the `flex` shorthand ([#33](https://github.com/l7aromeo/meonode/issues/33)).
+
+  A node that set `flex: '1 1 auto'` had `flex-shrink: 0` emitted after the
+  shorthand, so it never shrank: a truncating label in a flex row pushed its
+  siblings past the container edge instead of ellipsizing. Only numbers and the
+  `none`, `auto` and `initial` keywords were read; every multi-value shorthand fell
+  through to the layout defaults.
+
+  The shorthand is now parsed by the CSS grammar — one value (a number is the grow
+  factor, anything else the basis), `<grow> <shrink>`, `<grow> <basis>`,
+  `<grow> <shrink> <basis>`, and the basis-first orders — and its shrink factor is
+  used. A shorthand that cannot be read with certainty, such as `var(--flex)` or
+  `inherit`, gets no default `flex-shrink` at all, so the browser applies it as
+  written.
+
+  Behaviour change: `flex: 0` (number or string) now emits `flex-shrink: 1`
+  instead of `0`. CSS reads `flex: 0` as `0 1 0%`, so the old default overrode the
+  author the same way; a zero slipped past because the check was a truthiness
+  test. A node that relied on `flex: 0` not shrinking should set `flex: '0 0 0%'`
+  or `flexShrink: 0`.
+
+  `flex: 1`, `auto`, `none`, `initial`, an explicit `flexShrink`, and the defaults for
+  flex containers and plain flex items emit exactly what they did before.
+
+- [#29](https://github.com/l7aromeo/meonode/pull/29) [`3856136`](https://github.com/l7aromeo/meonode/commit/385613645bdab4c54dbb63ded9592220ac129980) Thanks [@l7aromeo](https://github.com/l7aromeo)! - Name the missing prop instead of dying inside a layout effect.
+
+  `ThemeProvider` called without `modes` threw
+  `Cannot read properties of undefined (reading 'includes')` from a minified
+  helper during React's commit phase — and only for some readers. Adoption reads
+  storage and the attribute, and with neither present the expression
+  short-circuited before it touched `modes`, so a first-time visitor was fine while
+  anyone who had ever chosen a theme got a dead page.
+
+  `tokens`, `modes` and `defaultMode` are required props, so TypeScript catches a
+  missing one for a caller it sees. A sandbox, a JavaScript consumer, a CDN-cached
+  bundle and a stale copy of a sample are callers it does not. Those are now told
+  which prop is missing and what it is for, along with a `defaultMode` or
+  `defaultPreference` that names a mode `modes` does not declare.
+
+  The checks are not behind `setDebugMode` or a development build: a caller that
+  was never typechecked is most likely running a production bundle, so a check that
+  goes quiet there protects nobody. This matches what `themeScript` already does
+  with its own configuration.
+
+- [#36](https://github.com/l7aromeo/meonode/pull/36) [`53083d5`](https://github.com/l7aromeo/meonode/commit/53083d55719dab059f6028a58488d5d36039d3c4) Thanks [@l7aromeo](https://github.com/l7aromeo)! - A render-prop function given as the only child of an HTML element renders its result.
+
+  `Div({ children: () => … })` passed the function to React unchanged, which
+  cannot render a function as a child: the browser rendered an empty element, and
+  a server component failed to prerender. The same function inside an array,
+  `children: [() => …]`, already rendered its result, and now both do. A component
+  still receives a function child unchanged, so it can call it itself.
+
+- [#36](https://github.com/l7aromeo/meonode/pull/36) [`af53324`](https://github.com/l7aromeo/meonode/commit/af533247cf1adf007cb0dcf1b078edc8724e0aab) Thanks [@l7aromeo](https://github.com/l7aromeo)! - Outside the React Server Components layer, function components with `css` render the same on the server as on the client.
+
+  A function component given `css` (one built with `createNode`, an Emotion
+  `styled` component, a MUI component) had its styles compiled on the server into
+  a class of its own, handed to it as a plain `className`, while the client renders
+  it through Emotion. The two disagreed: the server's class had a different prefix,
+  a component passing the `className` on to a styled element kept two classes where
+  the client merged them, and without Next's `StyleRegistry` the class's rule was
+  never written. Hydration reported that the attributes did not match.
+
+  In a plain `renderToString` or `renderToPipeableStream` app, and in the server
+  pass of a Next client component, these components now render through Emotion on
+  the server too, so both sides produce the same classes, with or without an
+  Emotion `CacheProvider`, and every class has its rule in the page.
+
+- [#36](https://github.com/l7aromeo/meonode/pull/36) [`f97eb1e`](https://github.com/l7aromeo/meonode/commit/f97eb1e4cbe316e25853f775f21a77340b6bce08) Thanks [@l7aromeo](https://github.com/l7aromeo)! - `StyleRegistry` emits each Emotion rule once per page when Next's Cache Components are on, instead of twice ([#35](https://github.com/l7aromeo/meonode/issues/35)).
+
+  With Cache Components, Next renders the client tree twice under one prerender,
+  and each pass's registry flushed the whole page's rules. The flushed set is now
+  shared by both passes of one render and kept apart between concurrent requests,
+  and every rule the page needs is still emitted.
+
 ## 3.0.0
 
 ### Major Changes
