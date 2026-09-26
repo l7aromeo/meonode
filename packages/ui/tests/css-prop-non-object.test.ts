@@ -121,4 +121,12 @@ describe('css prop shapes other than a plain object', () => {
       expect(rules['']).toContain('margin:4px;')
     })
   })
+
+  // The shape a factory composing its css with a call site's produces: the whole
+  // array becomes the second entry of `[flatCssProps, css]`. The order is the one
+  // the plain-map path gives — flat props, then the factory, then the call site.
+  it('composes flat props, then each css entry, in order', () => {
+    const rule = emittedRules([{ color: 'red' }, { color: 'blue' }], { color: 'green' })['']
+    expect([...rule.matchAll(/(?:^|;)color:([^;]+)/g)].map(m => m[1])).toEqual(['green', 'red', 'blue'])
+  })
 })
