@@ -9,10 +9,9 @@ import { beginServerEmotionScope } from '@src/util/server-emotion.util.js'
 /**
  * The cache this render collects into.
  *
- * On the server this opens a scope so the cache belongs to *this* request.
- * Sharing one across requests meant `cache.inserted` accumulated every style
- * the process had ever rendered, and the flush below — which reads all of it —
- * put the union of the whole site into every response.
+ * On the server this opens a scope so the cache belongs to *this* request. The
+ * flush below reads all of `cache.inserted`, so a cache shared across requests
+ * would put every style the process has rendered into every response.
  * @returns A cache scoped to this render.
  */
 function createEmotionCache() {
@@ -30,7 +29,7 @@ function createEmotionCache() {
  * inserted-HTML list per prerender and renders the client tree under it twice —
  * a prospective pass and the final one — so two `StyleRegistry` instances each
  * register a flush callback, each with an emotion cache holding the whole page.
- * A set held per instance cannot see across that, and every rule shipped twice.
+ * A set held per instance cannot see across that, and would ship every rule twice.
  *
  * The context value is also distinct per render, so concurrent requests never
  * share a set; and a `WeakMap` lets each one go when its render does. The
