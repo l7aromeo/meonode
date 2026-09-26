@@ -493,4 +493,17 @@ describe.each(['cc', 'plain'] as const)('host tags rendered by a server componen
   it('does report a mismatch where there is one', async () => {
     expect((await hydrate('/host-tags/client-mismatch')).errors.length).toBeGreaterThan(0)
   })
+
+  /**
+   * A function component given `css` inside a client component, passing the
+   * class on to its own styled element: the server's pass must produce the one
+   * composed class the browser does.
+   */
+  it('hydrates a client component’s styled function component with no mismatch', async () => {
+    const result = await hydrate('/host-tags/client-function')
+
+    expect(result.errors).toEqual([])
+    expect(result.served?.split(' ')).toHaveLength(1)
+    expect(result.hydrated).toBe(result.served)
+  })
 })
