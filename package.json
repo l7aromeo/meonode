@@ -27,7 +27,7 @@
     "lint": "bun run --filter @meonode/ui lint && bun run --filter @meonode/mui lint",
     "typecheck": "bun run --filter @meonode/compiler-repo typecheck",
     "test:ui": "bun run --filter @meonode/ui test && bun run --filter @meonode/ui test:compiled",
-    "test:rsc": "bun run --filter @meonode/ui test:rsc && bun run --filter @meonode/ui test:rsc:compiled",
+    "test:rsc": "bun run --filter @meonode/ui test:rsc && bun run --filter @meonode/ui test:rsc:compiled && bun run --filter @meonode/ui test:rsc:build && bun run --filter @meonode/ui test:rsc:build:compiled",
     "test:compiler": "cargo test --manifest-path packages/compiler/Cargo.toml --workspace && bun run --filter @meonode/compiler-repo test",
     "test:e2e": "bun run --filter @meonode/compiler-repo test:e2e",
     "check:drift": "bun run --filter @meonode/compiler-repo check:drift",
