@@ -87,4 +87,17 @@ describe('the runtime in the React Server Components layer', () => {
     const result = Promise.resolve(1)
     expect(nodeUtil.functionRenderer({ render: () => [result] } as never)).toEqual([result])
   })
+
+  // A function in a host element's props cannot be serialized to the client, so the
+  // render prop must reach React already wrapped in a server-side renderer.
+  it.each([
+    ['unstyled', {}],
+    ['styled', { padding: 8 }],
+  ])('hands a render prop given as the only child of a %s host element to React as an element', (_, style) => {
+    const element = main.Div({ ...style, children: () => 'from a render prop' }).render() as ReactElement<{ children: unknown }>
+    // A styled host also carries its server-compiled rule among its children.
+    const children = [element.props.children].flat(Infinity)
+    expect(children.some(child => typeof child === 'function')).toBe(false)
+    expect(children.some(child => isValidElement(child) && child.type === nodeUtil.functionRenderer)).toBe(true)
+  })
 })

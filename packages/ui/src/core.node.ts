@@ -444,12 +444,13 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
 
           let finalChildren: ReactNode[] = []
 
-          if (childrenInProps) {
+          const hostChildren = NodeUtil.resolveHostRenderProp(renderTarget, childrenInProps, disableEmotion) as typeof childrenInProps
+          if (hostChildren) {
             // Convert child placeholders into concrete React nodes:
             // - If it's a BaseNode, lookup its rendered ReactElement from the map.
             // - If it's already a React element, use it directly (with enhanced key).
             // - Otherwise treat as primitive ReactNode.
-            const childArray = Array.isArray(childrenInProps) ? childrenInProps : [childrenInProps]
+            const childArray = Array.isArray(hostChildren) ? hostChildren : [hostChildren]
             const childCount = childArray.length
             // Pre-allocate array to avoid resizing during iteration
             finalChildren = new Array(childCount)
