@@ -318,6 +318,27 @@ export const reportDroppedThemeFunction = (property?: string): void => {
   )
 }
 
+/**
+ * A server-compiled class handed to an element could not be composed with the
+ * element's own css: it was compiled in another cache scope — outside a
+ * `'use cache'` boundary the element is inside — and is no longer in the store
+ * that carries such classes across, or was never compiled for a component. The
+ * element keeps it as a separate class, and which rule wins a conflict then
+ * depends on stylesheet order. Reported once per class.
+ * @param className The class that could not be composed.
+ */
+export const reportUncomposedClass = (className: string): void => {
+  if (!diagnosticsEnabled()) return
+  const seenKey = `uncomposed-class:${className}`
+  if (reported.has(seenKey)) return
+  reported.add(seenKey)
+  console.warn(
+    `[MeoNode] The class \`${className}\` was handed to an element in another cache scope and could not be composed with its own css, ` +
+      `so the element carries both classes and which one wins a conflict depends on stylesheet order. ` +
+      `The shared store keeps the most recent classes compiled for components; pass the styles as \`css\` instead of a className to compose them in the element's own scope.`,
+  )
+}
+
 /** Test seam: clears the once-per-problem memo. */
 export const __resetThemeDiagnostics = (): void => {
   reported.clear()

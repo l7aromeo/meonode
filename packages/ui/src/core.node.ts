@@ -95,15 +95,16 @@ function canAnchorRules(renderTarget: unknown, props: Record<string, unknown>, i
  * Every anchor that needs a rule gets it, so a subtree the client does not
  * render cannot take another subtree's only copy with it. Reusing one element
  * object for all of them lets the RSC payload carry the rule once and refer back
- * to it. Outside the RSC layer `cache` memoises nothing and each render builds
- * its own; React dedupes hoisted styles by `href` there.
+ * to it. Its key and `href` are the class the rule defines, never the element's
+ * whole `className`, so React hoists and dedupes it by that class whatever else
+ * the element carries.
  */
 const requestRuleElements = cache((): Map<string, ReactElement> => new Map())
-function ruleElement(rule: { id: string; className: string; cssText: string }): ReactElement {
+function ruleElement(rule: { id: string; ownClassName: string; cssText: string }): ReactElement {
   const elements = requestRuleElements()
   let element = elements.get(rule.id)
   if (!element) {
-    element = createElement('style', { key: rule.id, href: rule.className, precedence: 'meonode' }, rule.cssText)
+    element = createElement('style', { key: rule.ownClassName, href: rule.ownClassName, precedence: 'meonode' }, rule.cssText)
     elements.set(rule.id, element)
   }
   return element
@@ -633,10 +634,10 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
               // side happened to render it.
               reportThemeIssues(themedCss, activeTheme)
               const cssWithDefaults = ThemeUtil.resolveDefaultStyle(themedCss)
-              const rule = compileServerEmotionRule(cssWithDefaults, elementProps.className)
+              const rule = compileServerEmotionRule(cssWithDefaults, elementProps.className, { share: typeof renderTarget !== 'string' })
               const elementPropsWithClassName = rule ? { ...elementProps, className: rule.className } : elementProps
               element = createElement(renderTarget, elementPropsWithClassName, ...childArguments)
-              if (rule?.emit) {
+              if (rule?.cssText) {
                 const carrier = anchor ?? (canAnchorRules(renderTarget, elementProps as Record<string, unknown>, inForeignNamespace) ? node : null)
                 const rules = carrier ? (anchoredRules.get(carrier) ?? new Map<string, ReactElement>()) : rootRules
                 if (carrier) anchoredRules.set(carrier, rules)
