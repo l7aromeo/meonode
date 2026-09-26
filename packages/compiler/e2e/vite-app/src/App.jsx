@@ -28,10 +28,7 @@ export default function App() {
           // Intentionally a no-op: only present so this prop is bucketed as
           // dynamic; this render never invokes it.
         },
-        children: [
-          P('Hello world', { color: '#333333', fontSize: '16px' }),
-          Span('Second paragraph', { fontWeight: 'bold' }),
-        ],
+        children: [P('Hello world', { color: '#333333', fontSize: '16px' }), Span('Second paragraph', { fontWeight: 'bold' })],
       }),
       Card({
         backgroundColor: '#ffffff',

@@ -10,9 +10,6 @@ export default function StaticStyles() {
   return Div({
     padding: '20px',
     backgroundColor: '#f0f0f0',
-    children: [
-      P('Hello world', { color: '#333333', fontSize: '16px' }),
-      P('Second paragraph', { fontWeight: 'bold', marginTop: '8px' }),
-    ],
+    children: [P('Hello world', { color: '#333333', fontSize: '16px' }), P('Second paragraph', { fontWeight: 'bold', marginTop: '8px' })],
   })
 }

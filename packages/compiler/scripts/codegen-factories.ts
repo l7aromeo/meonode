@@ -26,64 +26,58 @@
  *                   relative to this repo's root).
  */
 
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { dirname, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
-const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const OUT_PATH = join(REPO_ROOT, "crates/meonode-swc-plugin/src/factories.rs");
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const OUT_PATH = join(REPO_ROOT, 'crates/meonode-swc-plugin/src/factories.rs')
 
 // Matches the opening line of a factory declaration, e.g.:
 //   export const Div = createNode('div')
 //   export const Root = createNode('div', {
 //   export const P = createChildrenFirstNode('p')
-const CREATOR_LINE_RE =
-  /^export const ([A-Za-z_$][A-Za-z0-9_$]*) = (createNode|createChildrenFirstNode)\(/;
+const CREATOR_LINE_RE = /^export const ([A-Za-z_$][A-Za-z0-9_$]*) = (createNode|createChildrenFirstNode)\(/
 
 // Matches a bare alias re-export, e.g.:
 //   export const Container = Div
 //   export const Text = P
-const ALIAS_LINE_RE =
-  /^export const ([A-Za-z_$][A-Za-z0-9_$]*) = ([A-Za-z_$][A-Za-z0-9_$]*)$/;
+const ALIAS_LINE_RE = /^export const ([A-Za-z_$][A-Za-z0-9_$]*) = ([A-Za-z_$][A-Za-z0-9_$]*)$/
 
 function main() {
-  const uiDir = resolve(REPO_ROOT, process.env.MEONODE_UI_DIR ?? "../ui");
-  const srcPath = join(uiDir, "src/components/html.node.ts");
+  const uiDir = resolve(REPO_ROOT, process.env.MEONODE_UI_DIR ?? '../ui')
+  const srcPath = join(uiDir, 'src/components/html.node.ts')
 
-  let text: string;
+  let text: string
   try {
-    text = readFileSync(srcPath, "utf8");
+    text = readFileSync(srcPath, 'utf8')
   } catch (err) {
-    throw new Error(
-      `Failed to read ${srcPath}: ${(err as Error).message}. Set MEONODE_UI_DIR to point at a valid @meonode/ui checkout.`,
-    );
+    throw new Error(`Failed to read ${srcPath}: ${(err as Error).message}. Set MEONODE_UI_DIR to point at a valid @meonode/ui checkout.`)
   }
 
-  const factories = new Map<string, boolean>(); // name -> children_first
+  const factories = new Map<string, boolean>() // name -> children_first
 
-  for (const rawLine of text.split("\n")) {
-    const line = rawLine.trim();
+  for (const rawLine of text.split('\n')) {
+    const line = rawLine.trim()
 
-    const creatorMatch = CREATOR_LINE_RE.exec(line);
+    const creatorMatch = CREATOR_LINE_RE.exec(line)
     if (creatorMatch) {
-      const [, name, creator] = creatorMatch;
-      factories.set(name, creator === "createChildrenFirstNode");
-      continue;
+      const [, name, creator] = creatorMatch
+      factories.set(name, creator === 'createChildrenFirstNode')
+      continue
     }
 
-    const aliasMatch = ALIAS_LINE_RE.exec(line);
+    const aliasMatch = ALIAS_LINE_RE.exec(line)
     if (aliasMatch) {
-      const [, alias, target] = aliasMatch;
+      const [, alias, target] = aliasMatch
       if (factories.has(target)) {
-        factories.set(alias, factories.get(target)!);
+        factories.set(alias, factories.get(target)!)
       }
     }
   }
 
   if (factories.size === 0) {
-    throw new Error(
-      `No factory declarations found in ${srcPath}. Expected lines like \`export const Div = createNode('div')\`.`,
-    );
+    throw new Error(`No factory declarations found in ${srcPath}. Expected lines like \`export const Div = createNode('div')\`.`)
   }
 
   // Sort-order verification (see scripts/codegen-css-set.ts for the full
@@ -95,35 +89,29 @@ function main() {
     if (!/^[\x00-\x7f]*$/.test(name)) {
       throw new Error(
         `Non-ASCII factory name encountered: ${JSON.stringify(name)}. ` +
-          "JS UTF-16 sort order and Rust byte order are no longer " +
-          "guaranteed to match; codegen aborted.",
-      );
+          'JS UTF-16 sort order and Rust byte order are no longer ' +
+          'guaranteed to match; codegen aborted.',
+      )
     }
   }
 
-  const sortedNames = [...factories.keys()].sort();
+  const sortedNames = [...factories.keys()].sort()
   for (let i = 1; i < sortedNames.length; i++) {
     if (!(sortedNames[i - 1] < sortedNames[i])) {
-      throw new Error(
-        `Sort invariant violated at index ${i}: ${JSON.stringify(sortedNames[i - 1])} >= ${JSON.stringify(sortedNames[i])}`,
-      );
+      throw new Error(`Sort invariant violated at index ${i}: ${JSON.stringify(sortedNames[i - 1])} >= ${JSON.stringify(sortedNames[i])}`)
     }
   }
 
-  const rustFile = renderRust(sortedNames.map((name) => [name, factories.get(name)!] as const));
+  const rustFile = renderRust(sortedNames.map(name => [name, factories.get(name)!] as const))
 
-  mkdirSync(dirname(OUT_PATH), { recursive: true });
-  writeFileSync(OUT_PATH, rustFile, "utf8");
+  mkdirSync(dirname(OUT_PATH), { recursive: true })
+  writeFileSync(OUT_PATH, rustFile, 'utf8')
 
-  console.log(
-    `Wrote ${sortedNames.length} factory entries to ${OUT_PATH.replace(REPO_ROOT + "/", "")}`,
-  );
+  console.log(`Wrote ${sortedNames.length} factory entries to ${OUT_PATH.replace(REPO_ROOT + '/', '')}`)
 }
 
 function renderRust(entries: readonly (readonly [string, boolean])[]): string {
-  const rows = entries
-    .map(([name, childrenFirst]) => `    (${JSON.stringify(name)}, ${childrenFirst}),`)
-    .join("\n");
+  const rows = entries.map(([name, childrenFirst]) => `    (${JSON.stringify(name)}, ${childrenFirst}),`).join('\n')
 
   return `// @generated by scripts/codegen-factories.ts — do not edit. Source: @meonode/ui src/components/html.node.ts
 //
@@ -198,7 +186,7 @@ mod tests {
         assert_eq!(factory_children_first("NotARealFactory"), None);
     }
 }
-`;
+`
 }
 
-main();
+main()

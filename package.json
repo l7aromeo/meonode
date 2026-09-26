@@ -33,20 +33,22 @@
     "check:drift": "bun run --filter @meonode/compiler-repo check:drift",
     "ci": "bun run ci:build && bun run ci:static && bun run ci:test",
     "ci:build": "bun run build:compiler && bun run build:ui && bun run --filter @meonode/ui prepare:rsc-fixture && bun run build:mui",
-    "ci:static": "bun run lint && bun run typecheck && bun run check:drift",
+    "ci:static": "bun run lint && bun run check:format && bun run typecheck && bun run check:drift",
     "ci:test": "bun run test:ui && bun run test:rsc && bun run test:compiler && bun run test:e2e",
     "ci:generated": "bun run build:ui && bun run --filter @meonode/mui generate:lib && git diff --exit-code -- packages/mui",
     "prepare": "husky",
     "changeset": "changeset",
     "version": "changeset version && bun install --lockfile-only",
     "release": "changeset publish",
+    "check:format": "prettier --check packages/compiler",
     "check:changesets": "bun run scripts/check-changeset-coverage.ts",
     "release:dry": "bun run scripts/release-dryrun.ts"
   },
   "devDependencies": {
     "@changesets/changelog-github": "^0.7.0",
     "@changesets/cli": "^2.31.1",
-    "husky": "^9.1.7"
+    "husky": "^9.1.7",
+    "prettier": "^3.9.6"
   },
   "trustedDependencies": [
     "@swc/core"
