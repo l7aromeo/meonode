@@ -1,4 +1,6 @@
 import {
+  cache,
+  cloneElement,
   type ComponentProps,
   createElement,
   type ElementType,
@@ -29,10 +31,81 @@ import StyledRenderer from '@src/components/styled-renderer.client.js'
 import MeoMemo from '@src/components/meo-memo.client.js'
 import { LIST_MARKER, LOCATION_MARKER } from '@src/constant/common.const.js'
 import { NodeUtil } from '@src/util/node.util.js'
-import { claimServerRule, compileServerEmotionRule } from '@src/util/server-emotion.util.js'
+import { compileServerEmotionRule } from '@src/util/server-emotion.util.js'
 import { getActiveServerTheme, replaceThemeTokensWithCssVars, setActiveServerTheme } from '@src/util/server-theme.util.js'
 import { diagnosticsEnabled, reportThemeIssues } from '@src/util/theme-diagnostics.util.js'
 import { ThemeUtil } from '@src/util/theme.util.js'
+
+/**
+ * Hosts that cannot carry a rule in their children: void elements, elements
+ * whose children React treats as text or never renders, and the document
+ * scaffold. Anything inside `svg` or `math` is excluded separately, because a
+ * `<style>` there is an SVG or MathML element that renders in place instead of
+ * being hoisted, which would put the rule at a cascade position of its own.
+ */
+const RULE_ANCHOR_EXCLUDED = new Set([
+  'area',
+  'base',
+  'br',
+  'col',
+  'embed',
+  'hr',
+  'img',
+  'input',
+  'link',
+  'meta',
+  'source',
+  'track',
+  'wbr',
+  'textarea',
+  'option',
+  'title',
+  'style',
+  'script',
+  'noscript',
+  'template',
+  'html',
+  'head',
+  'svg',
+  'math',
+])
+
+/**
+ * Whether a server-compiled rule can travel in this element's children.
+ *
+ * A host renders every child it is given, so a rule placed among a host's
+ * children renders whenever anything inside that host does. That is what lets a
+ * rule sit with an ancestor of the element that uses it rather than beside it,
+ * leaving the element itself exactly as it would be without the rule.
+ */
+function canAnchorRules(renderTarget: unknown, props: Record<string, unknown>, inForeignNamespace: boolean): boolean {
+  return (
+    typeof renderTarget === 'string' &&
+    !inForeignNamespace &&
+    !RULE_ANCHOR_EXCLUDED.has(renderTarget) &&
+    !('dangerouslySetInnerHTML' in props && props.dangerouslySetInnerHTML != null)
+  )
+}
+
+/**
+ * The `<style>` element for a rule, one object per request.
+ *
+ * Every anchor that needs a rule gets it, so a subtree the client does not
+ * render cannot take another subtree's only copy with it. Reusing one element
+ * object for all of them lets the RSC payload carry the rule once and refer back
+ * to it. Outside the RSC layer `cache` memoises nothing and each render builds
+ * its own; React dedupes hoisted styles by `href` there.
+ */
+const requestRuleElements = cache((): Map<string, ReactElement> => new Map())
+function ruleElement(rule: { id: string; className: string; cssText: string }): ReactElement {
+  const elements = requestRuleElements()
+  let element = elements.get(rule.id)
+  if (!element) {
+    element = createElement('style', { key: rule.id, href: rule.className, precedence: 'meonode' }, rule.cssText)
+    elements.set(rule.id, element)
+  }
+  return element
+}
 
 const RENDER_CONTEXT_POOL_KEY = Symbol.for('@meonode/ui/BaseNode/renderContextPool')
 
@@ -245,12 +318,11 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
     let { workStack } = ctx
     const { renderedElements } = ctx
     let stackPointer = 0
-    // Rules this render compiled with no registry scope open, to emit beside its
-    // root. `serverRulesEmitted` records that any were compiled at all, which is
-    // what decides the root's shape; `serverRuleStyles` holds only the ones this
-    // render was the first in the request to claim.
-    let serverRulesEmitted = false
-    const serverRuleStyles: ReactElement[] = []
+    // Server-compiled rules this render emits, keyed by the element that carries
+    // them in its children. `rootRules` holds the ones whose consumer has no host
+    // able to carry them anywhere above it in this render.
+    const anchoredRules = new Map<BaseNode, Map<string, ReactElement>>()
+    const rootRules = new Map<string, ReactElement>()
 
     try {
       // Fast capacity check with exponential growth
@@ -270,7 +342,7 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
       }
 
       // Push initial work item
-      workStack[stackPointer++] = { node: this, isProcessed: false, theme: undefined }
+      workStack[stackPointer++] = { node: this, isProcessed: false, theme: undefined, anchor: null, inForeignNamespace: false }
 
       // Iterative depth-first traversal with explicit begin/complete phases to avoid recursion.
       while (stackPointer > 0) {
@@ -279,7 +351,7 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
           stackPointer--
           continue
         }
-        const { node, isProcessed, theme: inheritedTheme } = currentWork
+        const { node, isProcessed, theme: inheritedTheme, anchor, inForeignNamespace } = currentWork
 
         const getActiveTheme = (props: FinalNodeProps, current?: Theme): Theme | undefined => {
           const candidate = (props as { theme?: unknown }).theme
@@ -294,6 +366,12 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
           currentWork.isProcessed = true
           const children = node.props.children
           const activeTheme = getActiveTheme(node.props, inheritedTheme)
+          // The topmost host above each child that can carry its rules, and
+          // whether the child sits in SVG or MathML, where none can.
+          const beginAs = (node.props as { as?: NodeElementType }).as
+          const beginTarget = beginAs != null && isValidElementType(beginAs) ? beginAs : node.element
+          const childAnchor = anchor ?? (canAnchorRules(beginTarget, node.props as Record<string, unknown>, inForeignNamespace) ? node : null)
+          const childInForeignNamespace = inForeignNamespace || beginTarget === 'svg' || beginTarget === 'math'
 
           if (children) {
             // Only consider BaseNode children for further traversal; primitives and React elements are terminal.
@@ -322,7 +400,13 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
                 continue
               }
 
-              workStack[stackPointer++] = { node: child, isProcessed: false, theme: activeTheme }
+              workStack[stackPointer++] = {
+                node: child,
+                isProcessed: false,
+                theme: activeTheme,
+                anchor: childAnchor,
+                inForeignNamespace: childInForeignNamespace,
+              }
             }
           }
         } else {
@@ -555,10 +639,10 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
               const elementPropsWithClassName = mergedClassName ? { ...elementProps, className: mergedClassName } : elementProps
               element = createElement(renderTarget, elementPropsWithClassName, ...childArguments)
               if (rule?.emit) {
-                serverRulesEmitted = true
-                if (claimServerRule(rule.id)) {
-                  serverRuleStyles.push(createElement('style', { key: rule.id, href: rule.className, precedence: 'meonode' }, rule.cssText))
-                }
+                const carrier = anchor ?? (canAnchorRules(renderTarget, elementProps as Record<string, unknown>, inForeignNamespace) ? node : null)
+                const rules = carrier ? (anchoredRules.get(carrier) ?? new Map<string, ReactElement>()) : rootRules
+                if (carrier) anchoredRules.set(carrier, rules)
+                rules.set(rule.id, ruleElement(rule))
               }
             } else {
               // On server function components, keep css support for true server components.
@@ -570,6 +654,12 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
             }
           }
 
+          // A host carrying rules gets them as one trailing keyed slot, after its
+          // own children, so none of those shift and the element stays the one
+          // element it would be without them.
+          const carriedRules = anchoredRules.get(node)
+          if (carriedRules) element = cloneElement(element, undefined, ...childArguments, [...carriedRules.values()])
+
           // Store the rendered element so parent nodes can reference it.
           renderedElements.set(node, element)
         }
@@ -577,22 +667,13 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
 
       // Get the final rendered element for the root node of this render cycle.
       const rootElement = renderedElements.get(this) as ReactElement<FinalNodeProps>
-      if (!serverRulesEmitted) return rootElement
+      if (rootRules.size === 0) return rootElement
 
-      // With no registry scope open — the RSC layer, or any server render outside
-      // Next — nothing else emits a server-compiled rule, so this render's rules
-      // travel with it as hoisted `<style href precedence>` elements, each once
-      // per request.
-      //
-      // They sit beside the root rather than beside each element, so every
-      // element keeps the type and position it has without them: a parent that
-      // clones its child still receives the element, and a reorder that moves a
-      // rule's first occurrence cannot change any element's type. The root is at
-      // position 0 and the rules share one keyed array slot after it, so the
-      // number of rules claimed in a render never shifts the root. The wrapper
-      // depends only on whether this render compiled any such rule — not on
-      // whether it claimed one — so its own shape is stable across refreshes.
-      return createElement(Fragment, { key: rootElement.key }, rootElement, serverRuleStyles) as ReactElement<FinalNodeProps>
+      // Rules whose consumer has no host above it in this render that could carry
+      // them — a void, SVG or component element at the root, or under components
+      // only — travel beside the root. This is the one case where the root is not
+      // the element it would be without them.
+      return createElement(Fragment, { key: rootElement.key }, rootElement, [...rootRules.values()]) as ReactElement<FinalNodeProps>
     } finally {
       // Always release context back to pool, even if an exception occurred
       // Null out workStack slots to help GC before releasing

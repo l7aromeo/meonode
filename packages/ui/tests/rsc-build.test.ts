@@ -317,7 +317,7 @@ describe.each(['cc', 'plain'] as const)('server-compiled rules and the tree arou
    * panel rendered.
    */
   it('a visible element has its rule when the panel sharing it is rendered', () => hiddenPanel('/hidden-panel-open'))
-  it.fails('a visible element keeps its rule when a panel sharing it is never rendered', () => hiddenPanel('/hidden-panel'))
+  it('a visible element keeps its rule when a panel sharing it is never rendered', () => hiddenPanel('/hidden-panel'))
 
   const slottedTag = async (path: string) => {
     const response = await fetch(`http://localhost:${port(variant)}${path}`)

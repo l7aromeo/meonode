@@ -1,112 +1,123 @@
 // @vitest-environment node
 //
 // Where a server-compiled rule goes when no registry scope is open, and so
-// nothing else will emit it: beside the root of the `.render()` call that
-// compiled it, as a hoisted `<style href precedence>`, never around the element.
+// nothing else will emit it: into the children of the topmost host above the
+// element that uses it, in the same `.render()` call, as one trailing slot of
+// hoisted `<style href precedence>` elements.
 //
-// Two properties rest on that. Every element keeps the type and position it has
-// without the rule, so a parent that clones its child receives the element, and
-// a refresh that moves a rule's first occurrence to another element cannot change
-// any element's type — RSC output is reconciled against the live client tree on
-// every refresh, and a type change at a keyed position is a remount. The
-// end-to-end form of the second, a real `router.refresh()` counting mounts, is in
-// the production build suite.
-//
-// `claimServerRule` is controlled here because outside the RSC layer the real one
-// claims every time: `React.cache` memoises nothing there, so a real render never
-// reaches the "already claimed" case.
+// A host renders every child it is given, so a rule placed there renders
+// whenever anything inside that host does — whichever of its other subtrees a
+// client component chooses not to render. The element carrying the rules stays
+// the one element it would be without them, so a parent that clones or checks
+// its child still receives it. Every render carries each rule it compiled; a
+// render that is never shown takes only its own copy with it.
 import { cloneElement, createElement, Fragment, type ReactElement, type ReactNode } from 'react'
 import { renderToString } from 'react-dom/server'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-
-const claims: boolean[] = []
-vi.mock('@src/util/server-emotion.util.js', async importOriginal => {
-  const actual = await importOriginal<typeof import('@src/util/server-emotion.util.js')>()
-  return { ...actual, claimServerRule: vi.fn(() => claims.shift() ?? true) }
-})
-
-const { createNode, Div, Node } = await import('@src/main.js')
+import { describe, expect, it } from 'vitest'
+import { createNode, Div, Node, Svg } from '@src/main.js'
 
 /** A plain server function component: its css reaches it as a compiled class name. */
 function ServerRow(props: { children?: ReactNode; className?: string }) {
   return createElement('div', props)
 }
 const Row = createNode(ServerRow)
+
+/** A component that renders its child untouched. */
+function Pass({ children }: { children?: ReactNode }) {
+  return createElement(Fragment, null, children)
+}
+
 const SHARED = { color: 'rgb(106, 4, 15)', padding: '4px 8px' }
 
 type Element = ReactElement<{ children?: unknown; className?: string; href?: string; precedence?: string }>
 
-/** Renders two rows sharing one rule under an unstyled root, telling the claims what to answer. */
-const renderRows = (...answers: boolean[]) => {
-  claims.push(...answers)
-  const root = Div({
-    key: 'list',
-    id: 'rows',
-    children: [Row({ key: 'a', css: SHARED, children: 'a' }), Row({ key: 'b', css: SHARED, children: 'b' })],
-  }).render() as Element
-  const [inner, styles] = root.props.children as [Element, Element[]]
-  const rows = (inner.props.children as Element[]).flat() as Element[]
-  return { root, inner, styles, rows }
+const childrenOf = (element: Element) => {
+  const children = element.props.children
+  return (Array.isArray(children) ? children : [children]) as unknown[]
 }
+/** The trailing rules slot of a host carrying rules. */
+const slotOf = (element: Element) => childrenOf(element).at(-1) as Element[]
 
-beforeEach(() => {
-  claims.length = 0
-})
+const rows = () => [Row({ key: 'a', css: SHARED, children: 'a' }), Row({ key: 'b', css: SHARED, children: 'b' })]
 
 describe('a server-compiled rule with no registry scope open', () => {
-  it('leaves every element unwrapped, whether or not it claimed the rule', () => {
-    const { rows } = renderRows(true, false)
-
-    expect(rows.map(row => row.type)).toEqual([ServerRow, ServerRow])
-    expect(rows.map(row => row.key)).toEqual(['a', 'b'])
-    expect(rows[0].props.className).toBe(rows[1].props.className)
-  })
-
-  it('wraps the render root in a keyed Fragment, root first', () => {
-    const { root, inner } = renderRows(true, false)
-
-    expect(root.type).toBe(Fragment)
-    expect(root.key).toBe('list')
-    expect(inner.type).toBe('div')
-  })
-
-  it('emits each rule this render claimed, and only those', () => {
-    const claimed = renderRows(true, false).styles
-    const unclaimed = renderRows(false, false).styles
-
-    expect(claimed).toHaveLength(1)
-    expect(claimed[0].type).toBe('style')
-    expect(claimed[0].props.precedence).toBe('meonode')
-    expect(claimed[0].props.href).toBe(renderRows(true, false).rows[0].props.className)
-    expect(unclaimed).toEqual([])
-  })
-
-  it('keeps the same root shape when it claimed nothing', () => {
-    // The wrapper depends on whether this render compiled a rule, not on whether
-    // it was the first to claim one, so a refresh that moves the claim elsewhere
-    // leaves this render's root the same type.
-    const claimed = renderRows(true, false)
-    const unclaimed = renderRows(false, false)
-
-    expect(unclaimed.root.type).toBe(claimed.root.type)
-    expect(unclaimed.root.key).toBe(claimed.root.key)
-    expect(unclaimed.inner.type).toBe(claimed.inner.type)
-  })
-
-  it('returns the root unwrapped when the render compiled no rule', () => {
-    const root = Div({ key: 'plain', id: 'plain', children: 'x' }).render() as Element
+  it('is carried in the children of the host root, which stays that one element', () => {
+    const root = Div({ key: 'list', id: 'rows', children: rows() }).render() as Element
 
     expect(root.type).toBe('div')
+    expect(root.key).toBe('list')
+    const slot = slotOf(root)
+    expect(slot).toHaveLength(1)
+    expect(slot[0].type).toBe('style')
+    expect(slot[0].props.precedence).toBe('meonode')
   })
 
-  it('lets a parent that clones its child reach the element', () => {
-    // An `asChild`-style parent injects props into the element it is given; a
-    // wrapper around the element would take them instead, silently.
+  it('goes after the host’s own children, leaving every element unwrapped', () => {
+    const root = Div({ key: 'list', children: rows() }).render() as Element
+    // Everything before the slot is the host's own. A list arrives as one array
+    // child when the compiler has marked it and spread otherwise; the slot is
+    // last either way.
+    const elements = (childrenOf(root).slice(0, -1) as unknown[]).flat() as Element[]
+
+    expect(elements.map(element => element.type)).toEqual([ServerRow, ServerRow])
+    expect(elements.map(element => element.key)).toEqual(['a', 'b'])
+    expect(slotOf(root)[0].props.href).toBe(elements[0].props.className)
+  })
+
+  it('is carried by every render that compiled it', () => {
+    // No render can rely on another render's copy: either may be the one a client
+    // component leaves unrendered.
+    const first = Div({ children: rows() }).render() as Element
+    const second = Div({ children: rows() }).render() as Element
+
+    expect(slotOf(first)).toHaveLength(1)
+    expect(slotOf(second)).toHaveLength(1)
+  })
+
+  it('reaches a host above a component, so the component still receives its child', () => {
+    // An `asChild`-style parent injects props into the element it is given; the
+    // rule rides on the host above it, not around the element.
     function Cloner({ children }: { children: ReactElement }) {
       return cloneElement(children, { 'data-cloned': 'yes' } as never)
     }
-    const html = renderToString(Node(Cloner, { children: Row({ css: SHARED, children: 'x' }) }).render() as never)
+    const html = renderToString(Div({ children: Node(Cloner, { children: Row({ css: SHARED, children: 'x' }) }) }).render() as never)
 
     expect(html).toMatch(/<div[^>]*data-cloned="yes"[^>]*>x<\/div>/)
+  })
+
+  it('uses the nearest host below a root that cannot carry it, leaving that root unwrapped', () => {
+    const root = Node(Pass, { key: 'pass', children: Div({ children: rows() }) }).render() as Element
+
+    expect(root.type).toBe(Pass)
+    const host = childrenOf(root)[0] as Element
+    expect(host.type).toBe('div')
+    expect(slotOf(host)).toHaveLength(1)
+  })
+
+  it('falls back to a keyed Fragment beside a root no host can carry it for', () => {
+    // A server function component at the root, and nothing above it in this
+    // render: the one case where the root is not the element it would otherwise
+    // be. Pass the node as a child instead of its rendered element, and the rule
+    // lands on a host in the parent's render.
+    const root = Row({ key: 'alone', css: SHARED, children: 'x' }).render() as Element
+
+    expect(root.type).toBe(Fragment)
+    expect(root.key).toBe('alone')
+    const [element, rules] = root.props.children as [Element, Element[]]
+    expect(element.type).toBe(ServerRow)
+    expect(rules[0].type).toBe('style')
+  })
+
+  it('does not place a rule inside svg, where a style would not be hoisted', () => {
+    const root = Svg({ key: 'icon', children: Row({ css: SHARED, children: 'x' }) }).render() as Element
+
+    expect(root.type).toBe(Fragment)
+  })
+
+  it('leaves a render with no server-compiled rule untouched', () => {
+    const root = Div({ key: 'plain', children: 'x' }).render() as Element
+
+    expect(root.type).toBe('div')
+    expect(root.props.children).toBe('x')
   })
 })
