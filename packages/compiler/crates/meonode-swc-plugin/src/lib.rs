@@ -41,13 +41,13 @@ mod keys;
 // `replaceThemeTokensWithCssVars`, which it must mirror quirk-for-quirk.
 pub mod theme;
 
-// Evaluation-order safety analysis — the standalone,
+// Evaluation-order safety analysis (v0.2 rule, Change 1) — the standalone,
 // AST-agnostic core of "would compiling this reorder an effectful value
 // relative to another effectful value". Public so its unit tests double as
 // the documented contract for the rule; `detect` is the only real caller.
 pub mod order;
 
-// Plugin configuration (`factoryModules`, `callSiteLocations`). Public so
+// Plugin configuration (`factoryModules`, Change 4). Public so
 // `tests/fixture.rs` can construct a `CompileConfig` directly for
 // config-driven fixtures (the plugin-metadata path itself is untestable
 // outside a real wasm32 host — see its module docs).
@@ -58,7 +58,7 @@ pub mod config;
 // drive the real detection pass directly.
 pub mod detect;
 
-// Prop partitioning + call-site key emission. Public for the same
+// Prop partitioning + call-site key emission (Task 9). Public for the same
 // reason as `detect`.
 pub mod partition;
 
@@ -71,7 +71,7 @@ pub mod partition;
 /// here already carry resolved `SyntaxContext`s.
 ///
 /// The plugin's own config (the `{}` second element of the `swcPlugins`
-/// tuple, e.g. `{ factoryModules: ['@meonode/mui'] }`) is read via
+/// tuple, e.g. `{ factoryModules: ['@meonode/mui'] }` — Change 4) is read via
 /// `get_transform_plugin_config` and parsed by `config::CompileConfig`, which
 /// degrades to its default (no extra modules, current behavior) on a
 /// missing or malformed config rather than failing the build.

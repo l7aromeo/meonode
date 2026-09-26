@@ -40,7 +40,7 @@ pub fn is_special_key(name: &str) -> bool {
 /// `Ident`/`Str`, or from `partition::rewrite_object` on an already-
 /// `Decision::Compilable` call site), computed/numeric/bigint keys have
 /// already been rejected — only `Ident` and identifier-or-not `Str` keys
-/// (see `detect::validate_key`) survive.
+/// (see the v0.2 quoted-string-key rule) survive.
 pub fn key_name_atom(key: &PropName) -> Atom {
     match key {
         PropName::Ident(id) => id.sym.clone(),

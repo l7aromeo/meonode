@@ -1,4 +1,4 @@
-// Semantic equivalence suite — THE correctness gate.
+// Semantic equivalence suite (Task 11) — THE correctness gate.
 //
 // For each fixture module under `equivalence-fixtures/`, this suite:
 //   1. Transforms the fixture's source through @swc/core TWICE: once with the
@@ -74,13 +74,13 @@ const FIXTURES: FixtureSpec[] = [
   { name: 'custom-factory', expectMarker: true },
   { name: 'nested-children', expectMarker: true },
   { name: 'as-polymorphism', expectMarker: true },
-  // Leading spreads, a single effectful value, and quoted string keys.
+  // v0.2: newly-compilable shapes (see the design doc's Change 1-3).
   { name: 'leading-spread', expectMarker: true },
   { name: 'key-only-trailing-spread', expectMarker: true },
   { name: 'bailout-non-literal-props', expectMarker: false },
   { name: 'keyed-list', expectMarker: true },
   { name: 'quoted-data-attribute', expectMarker: true },
-  // Build-time theme-token rewriting, and the values-only boundary it
+  // v0.4: build-time theme-token rewriting, and the values-only boundary it
   // must respect (tokens in media-query/selector keys stay raw).
   { name: 'theme-tokens-in-keys', expectMarker: true },
 ]

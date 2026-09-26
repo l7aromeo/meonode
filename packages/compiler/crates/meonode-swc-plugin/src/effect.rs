@@ -5,10 +5,10 @@
 //! longer evaluate in their original source positions: all `c` values run
 //! before all `d` values, and special keys move to the tail.
 //!
-//! Demanding that every prop value be side-effect-free would bail common
-//! shapes, and demanding only that effectful values keep their order is
-//! unsound — effect-free is not value-stable. See `order.rs` for the worked
-//! counterexample.
+//! An earlier version demanded every prop value be side-effect-free. That was
+//! both too strict (bailing common shapes) and, once relaxed to "only
+//! effectful values must keep their order", unsound — effect-free is not
+//! value-stable. See `order.rs` for the worked counterexample.
 //!
 //! This module is the single source of truth for three related judgments:
 //!
@@ -50,7 +50,7 @@ use swc_core::ecma::ast::*;
 ///
 /// Rejected (falls through to `_ => false`): calls, `new`, member expressions
 /// (getter risk), templates with substitutions, `await`/`yield`, assignments,
-/// tagged templates, conditionals (ternary), and
+/// tagged templates, conditionals (ternary) — kept simple for v1 — and
 /// anything else not explicitly listed above (binary/logical/sequence
 /// expressions, `this`, classes, JSX, optional chaining, etc.).
 pub fn is_effect_free(expr: &Expr) -> bool {
@@ -129,8 +129,9 @@ pub fn is_inline_function(expr: &Expr) -> bool {
 }
 
 /// effect-free yet still count as dynamic here: an identifier needs a binding
-/// lookup, and nested object/array literals are conservatively treated as
-/// dynamic too (rather than trying to prove they're deeply constant).
+/// lookup, and Task 9's spec conservatively treats nested object/array
+/// literals as dynamic too (rather than trying to prove they're deeply
+/// constant).
 ///
 /// Accepted as static: string/number/bool/null/bigint/regex literals, `-x`/
 /// `+x` over a numeric literal, and template literals with no substitutions.

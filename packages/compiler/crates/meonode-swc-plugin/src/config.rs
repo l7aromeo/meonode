@@ -1,6 +1,7 @@
 //! Plugin configuration — the `{}` second element of the `swcPlugins` tuple:
 //! `[['@meonode/compiler', { factoryModules: ['@meonode/mui'] }]]`.
 //!
+//! See the v0.2 design doc's "Factory recognition beyond @meonode/ui" section.
 //! Packages that wrap `Node()` in their own factory helper (e.g.
 //! `@meonode/mui`'s `createMuiNode`) are invisible to per-file detection,
 //! since detection only traces `@meonode/ui` imports and same-file
@@ -21,7 +22,7 @@ pub struct CompileConfig {
     /// named imports (helper functions, e.g. `createMuiNode`,
     /// `isProbablyMuiTheme`) are always ignored, regardless of this list.
     /// Empty by default: no extra modules are recognized beyond
-    /// `@meonode/ui`/`@meonode/ui/client`.
+    /// `@meonode/ui`/`@meonode/ui/client`, matching pre-v0.2 behavior.
     pub factory_modules: Vec<String>,
     /// Emit `__meo$loc` — the source position of a call site whose `children`
     /// are generated — alongside the list marker.

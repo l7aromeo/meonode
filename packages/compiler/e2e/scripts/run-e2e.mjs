@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Orchestrates the two e2e fixtures end to end:
+// Orchestrates Task 12's two e2e fixtures end to end:
 //
 //   1. bun install each fixture, then overlay the workspace packages:
 //      @meonode/compiler is file:-linked against ../../npm, and @meonode/ui is
@@ -52,11 +52,11 @@ async function replaceDir(from, to) {
  * tarball path.
  *
  * The fixtures keep an ordinary registry pin for @meonode/ui so that
- * `bun install` still resolves its peer dependencies normally. Testing against
- * that pin would compare the plugin from this checkout with a published runtime
- * that drifts behind it, when these fixtures' entire job is proving the
- * compiler and the runtime agree — so the installed copy is replaced with this
- * checkout's build.
+ * `bun install` still resolves its peer dependencies normally. That pin used to
+ * be what the suite actually tested against, which meant these fixtures — whose
+ * entire job is proving the compiler and the runtime agree — were comparing the
+ * plugin from this checkout against a published runtime, and the pin drifted
+ * three minor versions behind before anyone noticed.
  *
  * Packing rather than linking is deliberate. `file:` pointed at packages/ui
  * makes bun follow ui's own `@meonode/compiler` dependency, and these fixtures
@@ -117,9 +117,8 @@ await overlayUi(NEXT_APP_DIR, uiTarball)
 // Turbopack's package.json reader can't parse that shape, so normalize
 // @meonode/compiler (still file:-linked against ../../npm) into a plain
 // directory symlink after every install — bun re-creates the broken shape
-// on each `bun install`. @meonode/ui doesn't need this: it is a registry
-// dependency installed as a normal package directory, which `overlayUi` then
-// replaces with the packed workspace build.
+// on each `bun install`. @meonode/ui no longer needs this: it's an ordinary
+// npm registry dependency now, installed as a normal package directory.
 run(
   'node',
   [path.join(SCRIPTS_DIR, 'link-local-packages.mjs'), 'node_modules/@meonode/compiler', '../../npm'],

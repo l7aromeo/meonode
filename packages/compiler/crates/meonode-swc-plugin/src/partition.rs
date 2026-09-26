@@ -1,4 +1,4 @@
-//! Prop partitioning + call-site key emission.
+//! Task 9: prop partitioning + call-site key emission.
 //!
 //! Rewrites every `Decision::Compilable` call site's props object literal
 //! (see `detect.rs`) into `@meonode/ui`'s pre-partitioned marker-prop shape:
@@ -65,13 +65,13 @@ const BUCKET_DOM_KEY: &str = "__meo$d";
 /// Their consumer is an **older `@meonode/ui`**. From 1.7.0 up to (not
 /// including) 2.0.0, the runtime derives an identity for each memoized node
 /// from `k` plus the values `dyn` names, and keys `BaseNode.elementCache`
-/// with it. In the published 1.7.0 tarball, `BaseNode._getStableKey` reads
+/// with it. Verified against the published 1.7.0 tarball rather than inferred
+/// from this repository: its `BaseNode._getStableKey` reads
 /// `props[schemaKeys.key]`, takes the fast path only when that is a non-empty
 /// string, and then folds in `props[schemaKeys.dyn]` via `hashDynamicValues`.
 /// (That same guard is why the `k`-less schema 3 object
 /// [`synthesized_props_arg`] emits degrades cleanly on 1.8.x, which does
-/// support schema 3: the key is absent, so the fast path is simply skipped.)
-/// The plugin supports that range on purpose: `README.md` sets the
+/// support schema 3: the key is absent, so the fast path is simply skipped.) The plugin supports that range on purpose: `README.md` sets the
 /// compatibility floor at `@meonode/ui@1.7.0` and *recommends* 2.0.0-beta or
 /// later — a recommendation, not a requirement.
 ///
@@ -86,7 +86,7 @@ const BUCKET_DOM_KEY: &str = "__meo$d";
 /// runtime has no use for".
 ///
 /// **So grepping this repository for the consumer finds nothing, and that
-/// absence proves nothing.** The consumer is a supported older
+/// absence proves nothing.** It means the consumer is a supported older
 /// version, not that the rule is dead. Every doc comment in this crate that
 /// reasons about stable keys — the "Leading spreads and the stable-key
 /// hazard" sections in this module and in `detect.rs`, `keys.rs`'s
@@ -95,7 +95,8 @@ const BUCKET_DOM_KEY: &str = "__meo$d";
 /// that no test in this repository can demonstrate, because the `@meonode/ui`
 /// vendored here is 2.x.
 ///
-/// Check `README.md`'s floor before treating these keys as dead.
+/// Two readers have already drawn the opposite conclusion from that silence.
+/// Check `README.md`'s floor before concluding it a third time.
 const BUCKET_SITE_KEY: &str = "__meo$k";
 
 /// Schema emitted for call sites that get a key but no prop partitioning.
@@ -112,31 +113,36 @@ const BUCKET_DYN_KEY: &str = "__meo$dyn";
 /// bucket names sit unprefixed at the top level, where they collide with real
 /// props, and this compiler does not emit that schema at all.
 ///
-/// ## Runtimes older than 2.1.0 do not consume it, and are not silent about it
+/// ## No published `@meonode/ui` consumes this yet, and none is silent about it
 ///
 /// A runtime strips only the marker keys its own `COMPILER_SCHEMA_KEYS` names,
-/// and the compiled path matches them by exact name. `@meonode/ui` 2.1.0 is the
-/// first version whose schema 2 and 3 entries carry a `list` field; 1.x and
-/// 2.0.0 through 2.0.2 have none. That is a source-level check — the constant
-/// is internal and not exported, so it is not the advice the published README
-/// gives a user, which points at the console symptom instead. On an older
-/// runtime this key survives into `passthrough`, reaches `getDOMProps` — a
-/// denylist, which forwards anything that is not a CSS property — and React
-/// rejects the attribute name, logging `Invalid attribute name: __meo$list`
-/// once per render per marked call site.
+/// and the compiled path matches them by exact name. *No published version*
+/// has a `list` entry there — not 1.x, and not 2.0.0 through 2.0.2, the newest
+/// at the time of writing. The consumer is the runtime half shipping alongside
+/// this change, whose changeset declares a minor bump. Rather than pin a
+/// version that has not been cut: a runtime supports this key when its schema 2
+/// and 3 entries in `COMPILER_SCHEMA_KEYS` carry a `list` field. That is a
+/// source-level check, stated here because this comment's audience can open
+/// `@meonode/ui` and look — the constant is internal and not exported, so it is
+/// deliberately not the advice the published README gives a user, which points
+/// at the console symptom instead. Until then this key survives into
+/// `passthrough`, reaches `getDOMProps` — a denylist, which forwards anything
+/// that is not a CSS property — and React rejects the attribute name, logging
+/// `Invalid attribute name: __meo$list` once per render per marked call site.
 ///
-/// Against the published tarballs, each rendered in its own process because
+/// Measured against the published tarballs, each in its own process because
 /// React deduplicates by attribute name: 1.8.7 (the newest 1.x) logs it on
 /// schema 2 and on schema 3, and the same call site without this key is
-/// silent, so the key is the whole difference. 2.0.x behaves the same way.
-/// Nothing reaches the DOM — React refuses to write the attribute rather than
-/// writing it — so the cost is console noise, on the same channel the
-/// missing-key reports use.
+/// silent, so the key is the whole difference. 2.0.x behaves the same way —
+/// it has no `list` entry either. Nothing reaches the DOM —
+/// React refuses to write the attribute rather than writing it — so the cost
+/// is console noise, on the same channel the missing-key reports use.
 ///
-/// Hiding the key inside one an older runtime already strips would overload a
-/// key that means something else, so the floor is declared instead (see
-/// `README.md`'s runtime version requirements, which also record that schema 3
-/// needs 1.8.0 for a separate and older reason).
+/// It is not a workaround to hide the key inside one an older runtime already
+/// strips. Overloading a key that means something else is how the traps in
+/// this file got written in the first place; the floor is declared instead
+/// (see `README.md`'s runtime version requirements, which also record that
+/// schema 3 needs 1.8.0 for a separate and older reason).
 const BUCKET_LIST_KEY: &str = "__meo$list";
 /// The source position of a call site whose children are generated, as
 /// `file:line:column`, emitted only when `callSiteLocations` is enabled.
@@ -379,8 +385,8 @@ fn stamp_call_site_key(
 
 /// Partitions `obj`'s props into `__meo$`/leading-props/`c`/`d`/`k`/`dyn`
 /// plus any special keys, and rewrites `obj.props` in place. `span` is the
-/// *call expression's* span (not the object literal's): `k` identifies the
-/// call site, not the object.
+/// *call expression's* span (not the object literal's), matching Task 9's
+/// spec for `k`.
 ///
 /// Emit order: `__meo$`, every leading `...spread` **and** (when a spread is
 /// present) every non-static-literal non-special prop, in their combined
@@ -411,8 +417,8 @@ fn stamp_call_site_key(
 /// classifies them generically via its "passthrough" fast path
 /// (`getCSSProps`/`getDOMProps` over whatever the spread merges in), with the
 /// compiler-bucketed `c`/`d` static props applied on top — reproducing
-/// plain-JS "later key wins" semantics exactly (see this module's tests
-/// asserting `c`'s value wins).
+/// plain-JS "later key wins" semantics exactly (see the v0.2 design doc's
+/// Change 2, and this module's tests asserting `c`'s value wins).
 ///
 /// But a spread's contents are equally invisible to `k`: `k` is a pure
 /// function of call-site *source position*, so it's identical across every
@@ -716,7 +722,7 @@ fn rewrite_object(
 
     for prop_or_spread in old_props {
         let prop = match prop_or_spread {
-            // Leading spread: `detect::validate_object` already
+            // Leading spread (Change 2): `detect::validate_object` already
             // guaranteed every spread precedes every static prop, so it's
             // always safe to leave it exactly where it was — right after
             // `__meo$` once every leading prop has been collected.
@@ -927,7 +933,7 @@ impl VisitMut for Rewriter<'_> {
 /// shape (see module docs). `filename` is used to compute each call site's
 /// `k` value — pass the real source filename in production (see
 /// `lib.rs::process_transform`) or a fixed name in tests. `config` carries
-/// the `factoryModules` list through to `detect::detect`.
+/// Change 4's `factoryModules` list through to `detect::detect`.
 ///
 /// No-op (and skips the rewrite pass entirely) if there are no compilable
 /// call sites, so files untouched by @meonode/ui factories pay no additional
@@ -997,7 +1003,7 @@ mod tests {
     }
 
     /// Like [`transformed_objects`], but with a caller-supplied
-    /// [`CompileConfig`] — used to exercise the `factoryModules`
+    /// [`CompileConfig`] — used to exercise Change 4's `factoryModules`
     /// option end to end through the real rewrite pass.
     fn transformed_objects_with_config(
         src: &str,
@@ -1548,7 +1554,7 @@ mod tests {
         assert_eq!(dyn_names(&obj), vec!["onClick", "width"]);
     }
 
-    // --- Leading spreads ---
+    // --- Change 2: leading spreads ---
 
     #[test]
     fn leading_spread_stays_top_level_right_after_marker() {
@@ -1720,7 +1726,7 @@ mod tests {
 
     /// Multiple leading spreads plus a mixed static/dynamic set of other
     /// props (both spreads must stay contiguous and precede every static
-    /// prop — the leading-spread rule; interleaving a spread *between*
+    /// prop — Change 2's leading-spread rule; interleaving a spread *between*
     /// static props is a `TrailingSpread` bail, covered separately in
     /// `detect.rs`'s tests): the static prop still buckets, the dynamic one
     /// stays flat with the spreads, and their combined relative source order
@@ -1769,7 +1775,7 @@ mod tests {
         assert!(has_prop(c, "padding"));
     }
 
-    // --- Quoted string keys ---
+    // --- Change 3: quoted string keys ---
 
     #[test]
     fn quoted_non_identifier_key_is_bucketed_into_d_with_original_quoted_key() {
@@ -1798,7 +1804,7 @@ mod tests {
         );
     }
 
-    // --- `factoryModules` plugin config ---
+    // --- Change 4: `factoryModules` plugin config ---
 
     #[test]
     fn factory_module_call_site_is_rewritten_when_configured() {

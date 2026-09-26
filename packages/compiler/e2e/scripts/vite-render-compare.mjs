@@ -2,10 +2,10 @@
 // Renders the Vite fixture's built entry.js (plugin-on and plugin-off
 // builds, produced separately as dist-on/ and dist-off/) inside jsdom via
 // react-dom/client's createRoot, then compares the #root-marker subtree's
-// innerHTML between the two builds (the parity check, Vite side).
+// innerHTML between the two builds (Task 12 parity check).
 //
-// The least machinery that does the job: no puppeteer/playwright, no
-// vitest — a plain Node script that boots jsdom
+// This is the "least machinery" approach called for in the task: no
+// puppeteer/playwright, no vitest — a plain Node script that boots jsdom
 // globals, dynamic-imports the built ESM bundle (which runs
 // createRoot(...).render(<App/>) itself, same as it would in a real
 // browser), and reads back the DOM it produced.

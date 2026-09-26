@@ -11,12 +11,14 @@
 // `ThemeUtil.resolveObjWithTheme`, which holds the live theme, and documents
 // that same values-only invariant on `replaceThemeTokensWithCssVars`.
 //
-// Media queries and pseudo-selectors live inside a `css:` block, and the
-// rewrite recurses into `css` values, so the invariant is enforced by the
-// walker itself, and this fixture is what proves it: on the real docs site
-// every one of the 19 media-query theme tokens is inside a `css:` block, and a
-// rewrite that reached one of those keys would show up here as diverging HTML
-// rather than as silently dead responsive styles in production.
+// The invariant used to hold structurally — media queries and pseudo-selectors
+// live inside a `css:` block, `css` is a special key, and special keys were
+// never walked at all. Since v0.5 the rewrite does recurse into `css` values, so
+// the invariant is now enforced by the walker rather than by its absence, and
+// this fixture is what proves it: on the real docs site every one of the 19
+// media-query theme tokens is inside a `css:` block, and a rewrite that reached
+// one of those keys would show up here as diverging HTML rather than as silently
+// dead responsive styles in production.
 //
 // The `css:` block below therefore covers the nesting rules too: a value under a
 // media-query key (property back in scope one level down), a value under a

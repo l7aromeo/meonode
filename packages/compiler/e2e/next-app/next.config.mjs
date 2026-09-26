@@ -5,7 +5,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 // Toggle the @meonode/compiler SWC plugin via MEONODE_COMPILER=0/1 so the
 // same fixture can be built twice (plugin-on / plugin-off) for HTML parity
-// comparison. Package-name form: Next resolves '@meonode/compiler'
+// comparison (Task 12). Package-name form: Next resolves '@meonode/compiler'
 // via node_modules and reads its package.json "main" (-> the .wasm binary).
 const useMeonode = process.env.MEONODE_COMPILER !== '0'
 

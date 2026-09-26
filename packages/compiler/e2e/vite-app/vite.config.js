@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react-swc'
 
 // Toggle the @meonode/compiler SWC plugin via MEONODE_COMPILER=0/1 so the
 // same fixture can be built twice (plugin-on / plugin-off) for render parity
-// comparison.
+// comparison (Task 12).
 const useMeonode = process.env.MEONODE_COMPILER !== '0'
 
 export default defineConfig({

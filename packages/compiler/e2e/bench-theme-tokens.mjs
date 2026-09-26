@@ -1,19 +1,21 @@
-// End-to-end benchmark for the build-time theme-token rewrite.
+// End-to-end benchmark for v0.4's build-time theme-token rewrite.
 //
-// This drives the *real* wasm plugin rather than hand-written marker props:
+// Unlike the density experiment that motivated the feature (which hand-wrote
+// marker props to model compiled output), this drives the *real* wasm plugin:
 // the same source is transformed twice, once with the plugin and once without,
 // and both are rendered through `renderToPipeableStream` under production
-// React/Emotion. So the number here is what the transform actually buys.
+// React/Emotion. So the number here is what the transform actually buys, not
+// what a model of it predicted.
 //
 // The tree's token density (~1 token per call site) is matched to the real
 // @meonode/ui docs site, which averages ~0.8 quoted token strings across its
-// 872 compiled call sites. Density matters a lot: at 7 tokens per node the win
-// comes out roughly 2x larger than at the real density.
+// 872 compiled call sites. Density matters a lot: an earlier run at 7 tokens
+// per node overstated the win by roughly 2x.
 //
 // Pass `--no-tokens` to run the identical tree with every theme token replaced
 // by its literal equivalent. The plugin then only partitions props, so the gap
 // between the two runs isolates the theme rewrite's own contribution from the
-// prop-partitioning gain.
+// prop-partitioning gain that shipped earlier.
 //
 // Usage: node e2e/bench-theme-tokens.mjs [iterations] [--no-tokens]
 import { transform } from '@swc/core'
