@@ -32,6 +32,17 @@ import { isMergeableCss } from '@src/util/css.util.js'
  */
 const isChildList = (children: Children): children is readonly Children[] => Array.isArray(children)
 
+/**
+ * Whether `value` is an instance of a React class component.
+ *
+ * The `react-server` build of React, which the React Server Components layer
+ * loads, exports no `Component`, so `instanceof React.Component` throws there. No
+ * class component can be constructed in that layer either, so the answer is false.
+ * @param value The value to test.
+ * @returns `true` when `value` is a class component instance.
+ */
+const isReactComponentInstance = (value: unknown): value is React.Component => typeof React.Component === 'function' && value instanceof React.Component
+
 export class NodeUtil {
   private constructor() {}
 
@@ -591,7 +602,7 @@ export class NodeUtil {
     }
 
     // Handle component instances.
-    if (node instanceof React.Component) {
+    if (isReactComponentInstance(node)) {
       return NodeUtil.processRawNode(node.render(), disableEmotion)
     }
 
@@ -684,7 +695,7 @@ export class NodeUtil {
     }
 
     // If the result is a React component instance (e.g., `new MyClassComponent()`).
-    if (result instanceof React.Component) {
+    if (isReactComponentInstance(result)) {
       return NodeUtil.renderProcessedNode({ processedElement: NodeUtil.processRawNode(result.render(), disableEmotion), disableEmotion })
     }
 
@@ -741,7 +752,7 @@ export class NodeUtil {
     if (isReactClassComponent(processedElement)) return new BaseNode(processedElement, { ...commonBaseNodeProps, disableEmotion }).render()
     // If the processed element is an instance of a React component (e.g., `new MyComponent()`).
     // Directly call its `render` method.
-    if (processedElement instanceof React.Component) return processedElement.render()
+    if (isReactComponentInstance(processedElement)) return processedElement.render()
     // If the processed element is a function (likely a functional component or a render prop that returned a component type).
     // Create a React element directly using `createElement`, passing the `passedKey`.
     if (typeof processedElement === 'function') return createElement(processedElement as ElementType, { key: passedKey })
