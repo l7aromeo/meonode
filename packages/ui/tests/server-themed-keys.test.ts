@@ -44,7 +44,10 @@ function elements(node: unknown, found: Element[] = []): Element[] {
   return found
 }
 const inTree = (root: Element) => elements(root.type === Fragment ? root : createElement(Fragment, null, root))
-const serverRules = (root: Element) => inTree(root).filter(e => e.type === 'style').map(e => e.props.children as string)
+const serverRules = (root: Element) =>
+  inTree(root)
+    .filter(e => e.type === 'style')
+    .map(e => e.props.children as string)
 const themedRules = (root: Element) => inTree(root).filter(e => e.type === ThemedRule) as ReactElement<{ className: string; css: Record<string, unknown> }>[]
 /** The class of the element carrying `marker` as its text. */
 const classOf = (root: Element, marker: string) =>
@@ -137,6 +140,21 @@ describe('a theme token in a key with a theme in scope', () => {
     const root = Div({ theme, css: { '@media (width >= theme.breakpoint.wide)': { color: 'crimson' } }, children: 'x' } as never).render() as Element
 
     expect(serverRules(root).join('')).toContain('@media (width >= 1000px)')
+    expect(themedRules(root)).toEqual([])
+  })
+})
+
+describe('a theme token in a key naming a value the theme in scope lacks', () => {
+  it('is left out of the server rule, with no ThemedRule', () => {
+    const theme = { mode: 'light', system: { breakpoint: { wide: '1000px' } } }
+    const root = Div({
+      theme,
+      css: { color: 'red', '@media (width >= theme.breakpoint.huge)': { color: 'crimson' } },
+      children: 'x',
+    } as never).render() as Element
+
+    expect(serverRules(root).join('')).toContain('color:red')
+    expect(serverRules(root).filter(text => text.includes('theme.'))).toEqual([])
     expect(themedRules(root)).toEqual([])
   })
 })

@@ -655,7 +655,8 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
                 if (carrier) anchoredRules.set(carrier, rules)
                 if (rule.cssText) rules.set(rule.id, ruleElement(rule))
                 const clientCss = rule.clientCss ?? themed
-                if (clientCss) rules.set(`${rule.id}:themed`, createElement(ThemedRule, { key: `${rule.id}:themed`, className: rule.ownClassName, css: clientCss }))
+                if (clientCss)
+                  rules.set(`${rule.id}:themed`, createElement(ThemedRule, { key: `${rule.id}:themed`, className: rule.ownClassName, css: clientCss }))
               }
             } else {
               // On server function components, keep css support for true server components.

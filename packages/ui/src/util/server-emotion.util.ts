@@ -51,6 +51,7 @@ export const SHARED_CLASS_LIMIT = 10_000
 export const SHARED_STYLES_BYTE_LIMIT = 4 * 1024 * 1024
 /** The largest single entry the store keeps, in characters. */
 export const SHARED_STYLES_ENTRY_LIMIT = 64 * 1024
+
 /**
  * A class kept for composing elsewhere: its registered styles, and, for a class
  * whose css holds a theme token in a key, that whole css, which only the client
@@ -147,6 +148,7 @@ export interface ServerEmotionRule {
   id: string
   /** The rule's text. Empty only when it could not be recovered, in which case there is no rule to render. */
   cssText: string
+
   /**
    * The whole css to compile on the client instead, when a class the element was
    * handed holds a theme token in a key: its own css, then each handed class in

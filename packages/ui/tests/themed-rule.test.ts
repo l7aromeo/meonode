@@ -31,7 +31,14 @@ afterEach(() => {
 
 const unresolved = () => warnings.filter(text => text.includes('could not be resolved'))
 const themed = (children: unknown) =>
-  renderToString(ThemeProvider({ tokens: { breakpoint: { wide: '1000px' }, size: { lg: '12px' } }, modes: ['light'], defaultMode: 'light', children } as never).render() as never)
+  renderToString(
+    ThemeProvider({
+      tokens: { breakpoint: { wide: '1000px' }, size: { lg: '12px' } },
+      modes: ['light'],
+      defaultMode: 'light',
+      children,
+    } as never).render() as never,
+  )
 const styleText = (html: string) => [...html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].map(match => match[1]).join('')
 
 describe('ThemedRule under a ThemeProvider', () => {
@@ -93,7 +100,9 @@ describe('ThemedRule with no ThemeProvider', () => {
 
 describe('StyledRenderer with no ThemeProvider', () => {
   it('hands no token to Emotion in a key', () => {
-    const html = renderToString(Div({ css: { color: 'red', '@media (width >= theme.breakpoint.wide)': { color: 'crimson' } }, children: 'x' }).render() as never)
+    const html = renderToString(
+      Div({ css: { color: 'red', '@media (width >= theme.breakpoint.wide)': { color: 'crimson' } }, children: 'x' }).render() as never,
+    )
 
     expect(styleText(html)).toContain('color:red')
     expect(styleText(html)).not.toContain('theme.')

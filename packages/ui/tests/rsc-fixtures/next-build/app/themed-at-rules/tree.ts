@@ -2,7 +2,17 @@ import type { ReactNode } from 'react'
 import { Div, Node } from '@meonode/ui'
 
 /** A plain function component: its css reaches it as a compiled class name. */
-function Card({ className, children, 'data-case': dataCase, 'data-size': dataSize }: { className?: string; children?: ReactNode; 'data-case'?: string; 'data-size'?: string }) {
+function Card({
+  className,
+  children,
+  'data-case': dataCase,
+  'data-size': dataSize,
+}: {
+  className?: string
+  children?: ReactNode
+  'data-case'?: string
+  'data-size'?: string
+}) {
   return Div({ className, 'data-case': dataCase, 'data-size': dataSize, children }).render()
 }
 
