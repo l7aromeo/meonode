@@ -1,5 +1,23 @@
 # @meonode/ui
 
+## 3.1.2
+
+### Patch Changes
+
+- [#43](https://github.com/l7aromeo/meonode/pull/43) [`6ade6d4`](https://github.com/l7aromeo/meonode/commit/6ade6d46097a5b625a5bb52e39719489b7b19251) Thanks [@l7aromeo](https://github.com/l7aromeo)! - Server memory no longer grows with every distinct dynamic style a process renders.
+
+  On the server, Emotion keeps each rule it compiles in a memo that lasts as long
+  as the process, shared by every cache built on its default plugins. A long-running
+  server rendering styles that vary per request, such as colours or sizes computed
+  from data, grew by roughly 330 to 860 MiB per million distinct styles and never
+  gave the memory back. The caches meonode creates on the server now keep that memo
+  with the render that uses it: the React Server Components request cache, the
+  `StyleRegistry` cache, and the cache a styled element outside any `CacheProvider`
+  gets, where a bounded memo shared across renders keeps repeated styles fast. The
+  rules, class names and markup are byte for byte what they were.
+
+  `ThemedRule` rules now carry the same vendor prefixes as the rest of the page.
+
 ## 3.1.1
 
 ### Patch Changes
