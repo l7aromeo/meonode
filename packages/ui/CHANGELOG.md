@@ -16,7 +16,7 @@
   gets, where a bounded memo shared across renders keeps repeated styles fast. The
   rules, class names and markup are byte for byte what they were.
 
-  `ThemedRule` rules now carry the same vendor prefixes as the rest of the page.
+  A `css` key whose at-rule condition or selector holds a theme token now gets the same vendor prefixes as the rest of the page.
 
 ## 3.1.1
 
