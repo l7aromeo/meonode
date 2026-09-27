@@ -376,6 +376,14 @@ export class ThemeUtil {
     }
   }
 
+  /**
+   * Whether a style holds a theme function anywhere — a value that may read the
+   * theme's mode when it is called. Allocation-free.
+   * @param value The style.
+   * @returns `true` when one is found, or the style nests too deep to tell.
+   */
+  public static hasThemeFunction = (value: unknown): boolean => containsFunction(value, 0)
+
   public static isPlainObject = (value: unknown): value is Record<string, unknown> => {
     if (typeof value !== 'object' || value === null) {
       return false

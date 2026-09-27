@@ -720,3 +720,189 @@ describe.each(['cc', 'plain'] as const)('providers rendered from a server compon
     }
   })
 })
+
+describe.each(['cc', 'plain'] as const)('a Suspense boundary still dehydrated when ThemeProvider mounts (%s)', variant => {
+  let browser: Browser | null = null
+  beforeAll(async () => {
+    browser = await chromium.launch({ headless: true })
+  })
+  afterAll(async () => {
+    await browser?.close()
+  })
+
+  const CHUNK_MARKER = '__meonode_delayed_hydration_chunk__'
+
+  /** The build's client chunks that carry the marker, read from its output once it exists. */
+  let markedChunks = new Set<string>()
+  beforeAll(() => {
+    const chunks = path.resolve(FIXTURE, variant === 'cc' ? '.next-cc' : '.next-plain', 'static/chunks')
+    markedChunks = new Set(readdirSync(chunks).filter(name => name.endsWith('.js') && readFileSync(path.resolve(chunks, name), 'utf8').includes(CHUNK_MARKER)))
+  })
+
+  /**
+   * Holds the marked chunks back for 1.5 s and lets them through untouched, and
+   * leaves every other request alone.
+   * @returns How many marked chunks have been held so far.
+   */
+  async function holdMarkedChunks(page: import('@playwright/test').Page) {
+    const held = { count: 0 }
+    await page.route(
+      url => markedChunks.has(url.pathname.split('/').pop() ?? ''),
+      async route => {
+        held.count++
+        await new Promise(resolve => setTimeout(resolve, 1500))
+        await route.continue()
+      },
+    )
+    return held
+  }
+
+  /**
+   * Loads `path#target` with the boundary held dehydrated while the provider
+   * mounts, and reports what became of its server-rendered content.
+   *
+   * `/hydration/streamed` holds it by streaming the content 1.5 s after the
+   * shell; `/hydration/chunk` sends the content in the HTML but holds back the
+   * on-demand chunk of the component inside the boundary. `stored` puts a mode
+   * other than the default in storage before the page loads. The same pages
+   * under `/hydration-control` have no `ThemeProvider` above them.
+   */
+  async function load(path: string, stored: boolean) {
+    const context = await browser!.newContext()
+    const page = await context.newPage()
+    const errors: string[] = []
+    page.on('console', message => message.type() === 'error' && errors.push(message.text()))
+    page.on('pageerror', error => errors.push(String(error)))
+    await page.addInitScript(
+      ({ stored }) => {
+        if (stored) localStorage.setItem('theme', 'dark')
+        // Frames painted after the mode reader first committed, while it still
+        // showed a mode other than the reader's.
+        const expected = stored ? 'dark' : 'light'
+        const w = window as { __modeProbeCommitted?: boolean; __lagFrames?: number }
+        w.__lagFrames = 0
+        const tick = () => {
+          const probe = document.querySelector('[data-mode-probe]')
+          if (w.__modeProbeCommitted && probe && probe.getAttribute('data-mode-probe') !== expected) w.__lagFrames!++
+          if (performance.now() < 4000) requestAnimationFrame(tick)
+        }
+        requestAnimationFrame(tick)
+        // The first content element to enter the document: the server's.
+        new MutationObserver(() => {
+          const content = document.querySelector('[data-testid="content"]')
+          if (content && !(window as { __firstContent?: Element }).__firstContent) (window as { __firstContent?: Element }).__firstContent = content
+        }).observe(document, { childList: true, subtree: true })
+      },
+      { stored },
+    )
+    const held = path.endsWith('/chunk') ? await holdMarkedChunks(page) : null
+    try {
+      await page.goto(`http://localhost:${port(variant)}${path}#target`, { waitUntil: 'load' })
+      await page.waitForFunction(() => (window as { __articleMounted?: number }).__articleMounted)
+      await page.waitForTimeout(300)
+      return {
+        ...(await page.evaluate(() => {
+          const content = document.querySelector('[data-testid="content"]') as HTMLElement | null
+          const target = document.getElementById('target')
+          return {
+            sameNode: content !== null && content === (window as { __firstContent?: Element }).__firstContent,
+            renderedOn: content?.getAttribute('data-rendered-on'),
+            mounts: (window as { __articleMounted?: number }).__articleMounted,
+            scrolled: (content?.scrollTop ?? 0) > 0,
+            targetInView: !!content && !!target && Math.abs(target.getBoundingClientRect().top - content.getBoundingClientRect().top) < 5,
+            mode: document.documentElement.getAttribute('data-theme'),
+            probe: document.querySelector('[data-mode-probe]')?.getAttribute('data-mode-probe') ?? null,
+            lagFrames: (window as { __lagFrames?: number }).__lagFrames,
+          }
+        })),
+        errors,
+        held: held?.count ?? null,
+      }
+    } finally {
+      await context.close()
+    }
+  }
+
+  /**
+   * A css theme function reading `theme.mode`, as the theming guide shows,
+   * inside a boundary whose on-demand chunk is held back, for a reader whose
+   * stored mode is not the default. The colour must follow the reader's mode
+   * after hydration and after a toggle, and the boundary must still hydrate.
+   */
+  it('lets a css theme function follow the reader’s mode, and keeps its boundary', async () => {
+    const context = await browser!.newContext()
+    const page = await context.newPage()
+    const errors: string[] = []
+    page.on('console', message => message.type() === 'error' && errors.push(message.text()))
+    page.on('pageerror', error => errors.push(String(error)))
+    await page.addInitScript(() => localStorage.setItem('theme', 'dark'))
+    const held = await holdMarkedChunks(page)
+    try {
+      await page.goto(`http://localhost:${port(variant)}/hydration/theme-fn`, { waitUntil: 'load' })
+      await page.waitForFunction(() => (window as { __themeProbeMounted?: number }).__themeProbeMounted)
+      await page.waitForTimeout(300)
+      const read = () =>
+        page.$eval('[data-testid="theme-fn"]', element => ({
+          colour: getComputedStyle(element).color,
+          renderedOn: element.getAttribute('data-rendered-on'),
+        }))
+      const hydrated = await read()
+      await page.click('[data-testid="to-light"]')
+      await page.waitForTimeout(300)
+      const toggled = await read()
+      expect({ hydrated: hydrated.colour, toggled: toggled.colour, held: held.count, errors }).toEqual({
+        hydrated: 'rgb(1, 2, 3)',
+        toggled: 'rgb(4, 5, 6)',
+        held: 1,
+        errors: [],
+      })
+      expect(hydrated.renderedOn).toBe('server')
+    } finally {
+      await context.close()
+    }
+  })
+
+  // `lagFrames` counts frames painted after a component reading the mode first
+  // committed while it still showed the default for a reader whose stored mode
+  // differs: a fix that defers adoption would show one.
+  //
+  // The article's `data-rendered-on` is the direct signal: `client` means the
+  // boundary's server HTML was discarded and rendered again. Production React
+  // reports nothing to the console when that happens, so `errors` guards only
+  // against other failures.
+  //
+  // A streamed boundary's server node may never enter the document once its
+  // boundary has switched to client rendering, and Chrome does not scroll to a
+  // fragment inside content that streams in, so node identity and the fragment
+  // scroll are asserted for the on-demand chunk, whose server HTML is in the
+  // document from the start.
+  it.each([
+    ['/hydration-control/streamed', false],
+    ['/hydration-control/chunk', false],
+    ['/hydration/streamed', false],
+    ['/hydration/streamed', true],
+    ['/hydration/chunk', false],
+    ['/hydration/chunk', true],
+  ] as const)('hydrates the server HTML in place (%s, stored mode: %s)', async (path, stored) => {
+    const result = await load(path, stored)
+    const control = path.startsWith('/hydration-control')
+    const chunk = path.endsWith('/chunk')
+    expect({
+      renderedOn: result.renderedOn,
+      mounts: result.mounts,
+      mode: result.mode,
+      probe: result.probe,
+      lagFrames: result.lagFrames,
+      errors: result.errors,
+      ...(chunk && { sameNode: result.sameNode, scrolled: result.scrolled, targetInView: result.targetInView, held: result.held }),
+    }).toEqual({
+      renderedOn: 'server',
+      mounts: 1,
+      mode: control ? null : stored ? 'dark' : 'light',
+      probe: control ? null : stored ? 'dark' : 'light',
+      lagFrames: 0,
+      errors: [],
+      ...(chunk && { sameNode: true, scrolled: true, targetInView: true, held: 1 }),
+    })
+  })
+})

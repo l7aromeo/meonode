@@ -1,10 +1,11 @@
 'use client'
 import { createElement, type ElementType, type JSX, type ReactElement, type ReactNode, useContext } from 'react'
 import { __unsafe_useEmotionCache as useEmotionCache, CacheProvider, jsx } from '@emotion/react'
+import type { EmotionCache } from '@emotion/cache'
 import { serializeStyles } from '@emotion/serialize'
 import { compile, middleware, serialize, stringify } from 'stylis'
-import type { CssProp, NodeElement } from '@src/types/node.type.js'
-import { ThemeContext } from '@src/components/theme-provider.client.js'
+import type { CssProp, NodeElement, Theme } from '@src/types/node.type.js'
+import { ThemeContext, type ThemeSnapshot, useThemeSnapshot } from '@src/components/theme-provider.client.js'
 import { ThemeUtil } from '@src/util/theme.util.js'
 import { reportThemeIssues, reportUnresolvedThemeKey } from '@src/util/theme-diagnostics.util.js'
 import { isValidElementType } from '@src/helper/react-is.helper.js'
@@ -27,15 +28,36 @@ export interface StyledRendererProps<E extends NodeElement> {
  * @param props
  * @returns {JSX.Element} The rendered JSX element.
  */
+const selectMode = (snapshot: ThemeSnapshot) => snapshot.mode
+
 export default function StyledRenderer<E extends NodeElement, TProps extends Record<string, any>>({
   element,
   children,
   ...props
 }: StyledRendererProps<E> & TProps): JSX.Element {
   const context = useContext(ThemeContext)
-  const theme = context?.theme
   const emotionCache = useEmotionCache()
 
+  // Tokens and plain values resolve the same whatever the mode, so such an
+  // element reads no mode and never re-renders when it changes. A theme function
+  // is handed the theme and may read its mode, so an element with one follows the
+  // reader's. The same hooks run either way, so an element whose css gains or
+  // loses a function keeps its identity and everything below it.
+  const mode = useThemeSnapshot(context?.store ?? null, ThemeUtil.hasThemeFunction(props.css) ? selectMode : null)
+  const theme = context && mode !== undefined ? { ...context.theme, mode: mode as typeof context.theme.mode } : context?.theme
+  return renderStyled(element, children, props, theme, emotionCache)
+}
+
+StyledRenderer.displayName = 'Styled'
+
+/** Resolves an element's css against the theme and renders it with Emotion. */
+function renderStyled(
+  element: NodeElement,
+  children: ReactNode,
+  props: Record<string, any>,
+  theme: Theme | undefined,
+  emotionCache: EmotionCache | null,
+): JSX.Element {
   // `as` is consumed (never spread onto the DOM). It swaps the render target,
   // mirroring the swap done in `core.node.ts`. This is belt-and-braces: the core
   // path already strips `as` and forwards the resolved element, but if `as` ever
@@ -77,7 +99,6 @@ export default function StyledRenderer<E extends NodeElement, TProps extends Rec
   return createElement(CacheProvider, { value: createServerCssCache() }, styled)
 }
 
-StyledRenderer.displayName = 'Styled'
 ;(StyledRenderer as { __meonodeAcceptsServerCss?: boolean }).__meonodeAcceptsServerCss = true
 
 export interface ThemedRuleProps {
