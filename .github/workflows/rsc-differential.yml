@@ -28,6 +28,9 @@ concurrency:
 
 env:
   HUSKY: 0
+  # Routes read at once. Each has its own browser contexts, so this changes only
+  # the time: the runner's four cores are mostly idle at the default of two.
+  RSC_DIFF_CONCURRENCY: 4
 
 jobs:
   differential:

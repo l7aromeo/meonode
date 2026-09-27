@@ -263,14 +263,16 @@ async function collectRoute(browser, port, route) {
   try {
     const page = await served.newPage()
     await page.goto(url)
+    await park(page)
     entry.probes = await readProbes(page, true)
     await page.setViewportSize({ width: 390, height: 800 })
+    await park(page)
     mergeComputed(entry.probes, await readProbes(page, false), 'vp390')
     await page.setViewportSize({ width: 1280, height: 800 })
     for (const name of Object.keys(entry.probes)) {
       const handle = await page.$(`[data-probe="${name}"]`)
       if (!handle) continue
-      await page.mouse.move(0, 0)
+      await park(page)
       await handle.hover({ force: true }).catch(() => {})
       const hovered = await readProbes(page, false)
       entry.probes[name].computed.hover1280 = hovered[name]?.computed.vp1280
@@ -293,6 +295,7 @@ async function collectRoute(browser, port, route) {
     // A streamed Suspense boundary's content sits in a hidden template until it is revealed.
     await page.waitForFunction(() => [...document.querySelectorAll('[data-probe]')].every(el => el.getClientRects().length > 0), null, { timeout: 5000 }).catch(() => consoleLines.push('harness: a probe never became visible'))
     await page.waitForTimeout(150)
+    await park(page)
     const hydrated = await readProbes(page, false)
     for (const [name, probe] of Object.entries(hydrated)) {
       entry.probes[name] ??= { classes: [], rules: [], computed: {} }
@@ -303,6 +306,19 @@ async function collectRoute(browser, port, route) {
     await live.close()
   }
   return entry
+}
+
+/**
+ * Rests the pointer on the fixture's parking spot, so no probe is under it.
+ * Where a headless browser places the pointer before any move is its own
+ * business, and on Linux it is over the page origin, where most probes render.
+ */
+async function park(page) {
+  const { width, height } = page.viewportSize()
+  // Resolves once the browser has handled the move; the next getComputedStyle
+  // recalculates style with the new hover state. Each reading records `:hover`,
+  // so compare.mjs can tell if this ever stops holding.
+  await page.mouse.move(width - 6, height - 6)
 }
 
 function mergeComputed(target, source, key) {
@@ -349,6 +365,9 @@ async function readProbes(page, withRules) {
         const cs = getComputedStyle(el)
         const before = getComputedStyle(el, '::before')
         const computed = Object.fromEntries(props.map(p => [p, cs.getPropertyValue(p).trim()]))
+        // Instrument state, not style: compare.mjs refuses a static reading taken
+        // while the probe was hovered, and a hover reading taken while it was not.
+        computed[':hover'] = String(el.matches(':hover'))
         computed['::before content'] = before.getPropertyValue('content')
         computed['::before color'] = before.getPropertyValue('color')
         const rules = []

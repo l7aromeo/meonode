@@ -86,6 +86,7 @@ function describe(entry) {
 }
 
 const FOLLOWS_COLOR = ['border-top-color', 'outline-color', '::before color']
+const instrumentErrors = []
 
 /** Every difference in one route, as records an expectation can match field by field. */
 function diffRoute(b, t, streamed) {
@@ -115,9 +116,19 @@ function diffRoute(b, t, streamed) {
       ['hover1280', bp.computed.hover1280, tp.computed.hover1280],
       ['hydrated1280', bp.hydratedComputed, tp.hydratedComputed],
     ]
+    // The pointer is part of the instrument. A static reading of a hovered probe, or a
+    // hover reading of one that was not hovered, measured something else.
+    for (const [phase, bc = {}, tc = {}] of phases) {
+      for (const [side, c] of [['base', bc], ['head', tc]]) {
+        if (c[':hover'] === undefined) continue
+        const want = phase === 'hover1280' ? 'true' : 'false'
+        if (c[':hover'] !== want) instrumentErrors.push(`${side} read probe ${name} at ${phase} with :hover ${c[':hover']}`)
+      }
+    }
     const styles = new Map()
     for (const [phase, bc = {}, tc = {}] of phases) {
       for (const prop of new Set([...Object.keys(bc), ...Object.keys(tc)])) {
+        if (prop === ':hover') continue
         // Sampled mid-animation, so it differs between two runs of one build.
         if (prop === 'opacity' || bc[prop] === tc[prop]) continue
         // These default to currentColor; a change that only follows `color` is not news.
@@ -188,9 +199,12 @@ for (const config of configs) {
   }
   for (const key of new Set([...Object.keys(base.results), ...Object.keys(head.results)])) {
     const [layout, id] = key.split('/')
+    const before = instrumentErrors.length
     for (const diff of diffRoute(describe(base.results[key]), describe(head.results[key]), layout === 'cpd')) diffs.push({ case: id, layout, config, ...diff })
+    for (let i = before; i < instrumentErrors.length; i++) instrumentErrors[i] = `${config} ${key}: ${instrumentErrors[i]}`
   }
 }
+if (instrumentErrors.length) fail(`the pointer was not where a reading needs it:\n  ${instrumentErrors.slice(0, 20).join('\n  ')}${instrumentErrors.length > 20 ? `\n  … ${instrumentErrors.length - 20} more` : ''}`)
 
 // Group identical differences across layouts and configs.
 const groups = new Map()
