@@ -1,13 +1,15 @@
 'use client'
 import { createElement, type ElementType, type JSX, type ReactElement, type ReactNode, useContext } from 'react'
-import { jsx } from '@emotion/react'
+import { __unsafe_useEmotionCache as useEmotionCache, CacheProvider, jsx } from '@emotion/react'
 import { serializeStyles } from '@emotion/serialize'
-import { compile, middleware, prefixer, serialize, stringify } from 'stylis'
+import { compile, middleware, serialize, stringify } from 'stylis'
 import type { CssProp, NodeElement } from '@src/types/node.type.js'
 import { ThemeContext } from '@src/components/theme-provider.client.js'
 import { ThemeUtil } from '@src/util/theme.util.js'
 import { reportThemeIssues, reportUnresolvedThemeKey } from '@src/util/theme-diagnostics.util.js'
 import { isValidElementType } from '@src/helper/react-is.helper.js'
+import { prefixer } from '@src/util/emotion-prefixer.util.js'
+import { createServerCssCache } from '@src/util/server-css-cache.util.js'
 
 export interface StyledRendererProps<E extends NodeElement> {
   element: E
@@ -32,6 +34,7 @@ export default function StyledRenderer<E extends NodeElement, TProps extends Rec
 }: StyledRendererProps<E> & TProps): JSX.Element {
   const context = useContext(ThemeContext)
   const theme = context?.theme
+  const emotionCache = useEmotionCache()
 
   // `as` is consumed (never spread onto the DOM). It swaps the render target,
   // mirroring the swap done in `core.node.ts`. This is belt-and-braces: the core
@@ -64,7 +67,14 @@ export default function StyledRenderer<E extends NodeElement, TProps extends Rec
   // out rather than handed to Emotion.
   const cssForEmotion = ThemeUtil.resolveDefaultStyle(ThemeUtil.dropThemedKeys(finalCss, reportUnresolvedThemeKey))
 
-  return jsx(renderTarget, { ...otherProps, css: cssForEmotion }, children)
+  const styled = jsx(renderTarget, { ...otherProps, css: cssForEmotion }, children)
+  // With no cache above it — only on the server, since the browser always has
+  // Emotion's default one — Emotion would create a `css` cache here itself, whose
+  // memo of compiled rules is shared by all such caches for the life of the
+  // process. This one, for the elements below it as Emotion's would be, writes
+  // the same rules and classes with that memo bounded.
+  if (emotionCache !== null) return styled
+  return createElement(CacheProvider, { value: createServerCssCache() }, styled)
 }
 
 StyledRenderer.displayName = 'Styled'

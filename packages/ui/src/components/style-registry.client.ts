@@ -3,6 +3,7 @@ import { createElement, type ReactElement, useContext, useState } from 'react'
 import { CacheProvider } from '@emotion/react'
 import createCache from '@emotion/cache'
 import { Node } from '@src/core.node.js'
+import { prefixer } from '@src/util/emotion-prefixer.util.js'
 import { ServerInsertedHTMLContext, useServerInsertedHTML } from 'next/navigation.js'
 
 /**
@@ -36,9 +37,10 @@ export default function StyleRegistry({ children }: { children: ReactElement }) 
   // server — collects into its own. The flush below reads all of
   // `cache.inserted`, so a cache shared across requests would put every style
   // the process has rendered into every response. Compat mode keeps each rule's
-  // text there for the flush.
+  // text there for the flush. Its own plugins array keeps the rules Emotion
+  // memoizes on the server with this cache, not in a process-wide memo.
   const [cache] = useState(() => {
-    const emotionCache = createCache({ key: 'meonode-css' })
+    const emotionCache = createCache({ key: 'meonode-css', stylisPlugins: [prefixer] })
     emotionCache.compat = true
     return emotionCache
   })
