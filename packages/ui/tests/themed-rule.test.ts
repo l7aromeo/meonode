@@ -10,7 +10,7 @@ import { createElement } from 'react'
 import { renderToString } from 'react-dom/server'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { serializeStyles } from '@emotion/serialize'
-import { compile, middleware, prefixer, serialize, stringify } from 'stylis'
+import createCache from '@emotion/cache'
 import { Div, ThemeProvider } from '@src/main.js'
 import { ThemeUtil } from '@src/util/theme.util.js'
 import { compileServerEmotionRule } from '@src/util/server-emotion.util.js'
@@ -74,6 +74,18 @@ describe('ThemedRule under a ThemeProvider', () => {
 
     expect(styleText(html)).not.toContain('theme.')
     expect(unresolved()).toHaveLength(1)
+  })
+})
+
+describe('ThemedRule vendor prefixes', () => {
+  it('writes the prefixes Emotion writes, and none it leaves out', () => {
+    const css = { '@media (width >= theme.breakpoint.wide)': { display: 'grid', tabSize: 4, userSelect: 'none', '&::placeholder': { color: 'gray' } } }
+    const text = ruleText(themed(createElement(ThemedRule, { className: 'meonode-css-x', css })))
+
+    expect(text).toBe(
+      '@media (width >= 1000px){.meonode-css-x{display:grid;tab-size:4;-webkit-user-select:none;-moz-user-select:none;-ms-user-select:none;user-select:none;}' +
+        '.meonode-css-x::-webkit-input-placeholder{color:gray;}.meonode-css-x::-moz-placeholder{color:gray;}.meonode-css-x:-ms-input-placeholder{color:gray;}.meonode-css-x::placeholder{color:gray;}}',
+    )
   })
 })
 
@@ -161,9 +173,14 @@ describe('what ThemedRule treats as a token in a key', () => {
 })
 
 describe('the server rule and ThemedRule together', () => {
-  /** The css as Emotion writes it for one class, with the theme's values written in. */
-  const emotionRule = (className: string, css: Record<string, unknown>) =>
-    serialize(compile(`.${className}{${serializeStyles([css as never]).styles}}`), middleware([prefixer, stringify]))
+  /** The css as an Emotion cache writes it for one class, with the theme's values written in. */
+  const emotionRule = (className: string, css: Record<string, unknown>) => {
+    const cache = createCache({ key: 'reference' })
+    cache.compat = true
+    const serialized = serializeStyles([css as never])
+    cache.insert(`.${className}`, serialized, cache.sheet, true)
+    return cache.inserted[serialized.name] as string
+  }
 
   it.each([
     [
@@ -181,6 +198,15 @@ describe('the server rule and ThemedRule together', () => {
         '@media (width >= theme.breakpoint.wide)': { color: 'crimson', '&:hover': { color: 'teal' } },
         '&:focus': { color: 'blue' },
         color: 'black',
+      },
+    ],
+    [
+      'properties Emotion prefixes, and ones it leaves alone, on both sides',
+      {
+        display: 'grid',
+        userSelect: 'none',
+        '@media (width >= theme.breakpoint.wide)': { display: 'flex', tabSize: 4, '&::placeholder': { color: 'gray' } },
+        '&:read-only': { justifySelf: 'center' },
       },
     ],
   ])('write what Emotion writes for the whole css: %s', (_, css) => {
