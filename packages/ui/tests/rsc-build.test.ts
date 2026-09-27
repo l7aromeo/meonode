@@ -625,6 +625,8 @@ describe.each(['cc', 'plain'] as const)('a theme token in an at-rule condition o
                 container: style.backgroundColor === 'rgb(0, 0, 255)',
                 supports: style.borderLeftWidth === '7px',
                 selector: style.letterSpacing === '3px',
+                nested: style.textDecorationLine === 'underline',
+                own: style.paddingLeft === '5px',
               },
             ]
           }),
@@ -635,11 +637,16 @@ describe.each(['cc', 'plain'] as const)('a theme token in an at-rule condition o
     }
   }
 
+  /** Every shape a page renders: the server pages add components in their own `'use cache'` scope. */
+  const shapes = (path: string) => ['host', 'fn', 'composed', 'factory', 'as', ...(path.endsWith('/client') ? [] : ['cached', 'cached-composed'])]
+  /** Each shape's expected result, with `own` true only where the component composes css of its own. */
+  const each = <T extends object>(names: string[], value: T) => Object.fromEntries(names.map(name => [name, { ...value, own: name.endsWith('composed') }]))
+
   it.each(PATHS)('applies every themed rule at a wide viewport, and the width conditions only there (%s)', async path => {
-    const wide = { media: true, container: true, supports: true, selector: true }
-    const narrow = { media: false, container: false, supports: true, selector: true }
-    expect(await applied(path, 1280)).toEqual({ host: wide, fn: wide })
-    expect(await applied(path, 800)).toEqual({ host: narrow, fn: narrow })
+    const wide = { media: true, container: true, supports: true, selector: true, nested: true }
+    const narrow = { media: false, container: false, supports: true, selector: true, nested: false }
+    expect(await applied(path, 1280)).toEqual(each(shapes(path), wide))
+    expect(await applied(path, 800)).toEqual(each(shapes(path), narrow))
   })
 
   // With no theme a token has no value, so a rule keyed on one has nothing to
@@ -651,9 +658,65 @@ describe.each(['cc', 'plain'] as const)('a theme token in an at-rule condition o
     const css = [...html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].map(match => match[1]).join('\n')
     expect(css).not.toContain('theme.')
     expect(css).not.toMatch(/@media|@container|@supports|\[data-size=/)
-    expect(await applied('/themed-at-rules-bare', 1280)).toEqual({
-      host: { media: false, container: false, supports: false, selector: false },
-      fn: { media: false, container: false, supports: false, selector: false },
-    })
+    expect(await applied('/themed-at-rules-bare', 1280)).toEqual(
+      each(['host', 'fn', 'composed', 'factory', 'as'], { media: false, container: false, supports: false, selector: false, nested: false }),
+    )
+  })
+})
+
+describe.each(['cc', 'plain'] as const)('providers rendered from a server component (%s)', variant => {
+  let browser: Browser | null = null
+  beforeAll(async () => {
+    browser = await chromium.launch({ headless: true })
+  })
+  afterAll(async () => {
+    await browser?.close()
+  })
+
+  /**
+   * A hook below a provider must find it whether the provider is rendered from a
+   * server component or a client one. Every page also renders a `'use cache'`
+   * function, and the probes are client modules importing the library. The
+   * probes catch a hook's missing-provider error and report `no-provider`, so
+   * `/providers/none` is a control that renders rather than fails.
+   */
+  const CASES = [
+    ['/providers/theme-server', { theme: 'dark' }],
+    ['/providers/theme-client', { theme: 'dark' }],
+    ['/providers/portal-server', { portal: 'provider' }],
+    ['/providers/portal-client', { portal: 'provider' }],
+    ['/providers/none', { theme: 'no-provider', portal: 'no-provider' }],
+  ] as const
+
+  const probes = (read: (name: 'theme' | 'portal') => string | null | undefined, expected: { theme?: string; portal?: string }) =>
+    Object.fromEntries(Object.keys(expected).map(name => [name, read(name as 'theme' | 'portal')]))
+
+  it.each(CASES)('renders the provider’s value into the server HTML (%s)', async (path, expected) => {
+    const response = await fetch(`http://localhost:${port(variant)}${path}`)
+    expect(response.status).toBe(200)
+    const html = await response.text()
+    expect(html).toContain('data-cached="yes"')
+    expect(probes(name => html.match(new RegExp(`data-${name}-probe="([^"]*)"`))?.[1], expected)).toEqual(expected)
+  })
+
+  it.each(CASES)('keeps it after hydration, with no console errors (%s)', async (path, expected) => {
+    const page = await browser!.newPage()
+    const errors: string[] = []
+    page.on('console', message => message.type() === 'error' && errors.push(message.text()))
+    page.on('pageerror', error => errors.push(String(error)))
+    try {
+      await page.goto(`http://localhost:${port(variant)}${path}`, { waitUntil: 'networkidle' })
+      if ('portal' in expected && expected.portal === 'provider') await page.waitForSelector('[data-portal-layer="open"]')
+      const seen = await page.evaluate(() => ({
+        theme: document.querySelector('[data-theme-probe]')?.getAttribute('data-theme-probe'),
+        portal: document.querySelector('[data-portal-probe]')?.getAttribute('data-portal-probe'),
+        layer: document.querySelector('[data-portal-layer]')?.getAttribute('data-portal-layer') ?? null,
+      }))
+      expect(probes(name => seen[name], expected)).toEqual(expected)
+      expect(seen.layer).toBe('portal' in expected && expected.portal === 'provider' ? 'open' : null)
+      expect(errors).toEqual([])
+    } finally {
+      await page.close()
+    }
   })
 })
