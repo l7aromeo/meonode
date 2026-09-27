@@ -4,7 +4,7 @@
 // element it styles follows the reader's mode: after hydration, and after
 // `setMode`. Only such an element re-renders when the mode changes; one whose
 // css holds no function never does, so nothing it wraps is disturbed.
-import { act, createElement, lazy, Profiler, type ReactNode, Suspense, useLayoutEffect } from 'react'
+import { act, createElement, lazy, Profiler, type ReactNode, Suspense, useEffect, useLayoutEffect } from 'react'
 import { createRoot, hydrateRoot } from 'react-dom/client'
 import { renderToString } from 'react-dom/server'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -25,22 +25,22 @@ function Setter() {
   return null
 }
 
+let content: () => ReactNode = () => null
+/** Renders whatever the current test hands `page`, as one component type every render. */
+function Page() {
+  return content() as never
+}
+
 /** The page, below a component boundary so nothing is resolved as the provider's own props. */
-const page = (children: () => ReactNode) =>
-  ThemeProvider({
+const page = (children: () => ReactNode) => {
+  content = children
+  return ThemeProvider({
     tokens: TOKENS,
     modes: MODES,
     defaultMode: 'morning',
-    children: [
-      createElement(Setter, { key: 'setter' }),
-      Node(
-        function Page() {
-          return children() as never
-        },
-        { key: 'page' },
-      ),
-    ],
+    children: [createElement(Setter, { key: 'setter' }), Node(Page, { key: 'page' })],
   } as never).render() as ReactNode
+}
 
 function stubStorage(stored: string) {
   const map = new Map([['theme', stored]])
@@ -89,6 +89,42 @@ describe('a css theme function reading `theme.mode`', () => {
     await act(async () => setMode('morning'))
     expect(colorOf('styled')).toBe(MORNING)
     act(() => root.unmount())
+  })
+
+  it('styles its element for the reader’s mode before the browser can paint, with no other reader of the mode', async () => {
+    stubStorage('night')
+    let afterCommit: string | null | undefined
+    /** Reads the element in a microtask queued by the hydration commit: after that commit's synchronous work. */
+    function FirstFrame() {
+      useLayoutEffect(() => {
+        queueMicrotask(() => {
+          afterCommit ??= colorOf('styled')
+        })
+      }, [])
+      return null
+    }
+    const tree = () =>
+      ThemeProvider({
+        tokens: TOKENS,
+        modes: MODES,
+        defaultMode: 'morning',
+        children: [Div({ key: 'styled', id: 'styled', css: byMode, children: 'x' }), createElement(FirstFrame, { key: 'frame' })],
+      } as never).render() as ReactNode
+    const container = document.createElement('div')
+    container.innerHTML = renderToString(tree())
+    document.body.appendChild(container)
+
+    // React's own scheduler rather than `act`, which would run the commit's
+    // passive effects before the microtask.
+    ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = false
+    const root = hydrateRoot(container, tree(), { onRecoverableError: () => {} })
+    try {
+      await new Promise(resolve => setTimeout(resolve, 50))
+      expect(afterCommit).toBe(NIGHT)
+    } finally {
+      root.unmount()
+      ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+    }
   })
 
   it.each([
@@ -161,14 +197,22 @@ describe('a css theme function reading `theme.mode`', () => {
 })
 
 describe('an element whose css gains or loses a theme function between renders', () => {
-  it('is styled for the reader’s mode while it has one, and by its values once it has none', async () => {
+  it('is styled for the reader’s mode while it has one, keeps everything below it, and is styled by its values once it has none', async () => {
     stubStorage('night')
     let withFunction = false
+    let mounts = 0
+    function Child() {
+      useEffect(() => void mounts++, [])
+      return createElement('input', { id: 'field', defaultValue: '' })
+    }
     const container = document.body.appendChild(document.createElement('div'))
     const root = createRoot(container)
-    const render = () => root.render(page(() => Div({ id: 'styled', css: withFunction ? byMode : { color: 'rgb(0, 0, 3)' }, children: 'x' }).render()))
+    const render = () =>
+      root.render(page(() => Div({ id: 'styled', css: withFunction ? byMode : { color: 'rgb(0, 0, 3)' }, children: createElement(Child) }).render()))
     await act(async () => render())
     expect(colorOf('styled')).toBe('rgb(0, 0, 3)')
+    const field = document.getElementById('field') as HTMLInputElement
+    field.value = 'typed'
 
     withFunction = true
     await act(async () => render())
@@ -177,6 +221,9 @@ describe('an element whose css gains or loses a theme function between renders',
     withFunction = false
     await act(async () => render())
     expect(colorOf('styled')).toBe('rgb(0, 0, 3)')
+    expect(mounts).toBe(1)
+    expect(document.getElementById('field')).toBe(field)
+    expect(field.value).toBe('typed')
     act(() => root.unmount())
   })
 })

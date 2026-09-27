@@ -201,14 +201,25 @@ export interface ThemeStore {
   subscribe: (listener: () => void) => () => void
   /** Replaces part of the adopted state and tells every reader. */
   update: (next: Partial<Omit<ThemeSnapshot, 'hydrated'>>) => void
+  /** Whether a reader has rendered the server's snapshot since this was last asked, which clears it. */
+  takeServerReads: () => boolean
 }
 
 function createThemeStore(serverSnapshot: ThemeSnapshot, adopt: () => ThemeSnapshot): ThemeStore {
   let adopted: ThemeSnapshot | undefined
+  let serverReads = false
   const listeners = new Set<() => void>()
   const getSnapshot = () => (adopted ??= adopt())
   return {
-    getServerSnapshot: () => serverSnapshot,
+    getServerSnapshot() {
+      serverReads = true
+      return serverSnapshot
+    },
+    takeServerReads() {
+      const read = serverReads
+      serverReads = false
+      return read
+    },
     getSnapshot,
     subscribe(listener) {
       listeners.add(listener)
@@ -249,29 +260,27 @@ const increment = (count: number) => count + 1
 
 /**
  * A value derived from the provider's store, read the way a hydrating reader
- * must: the server's snapshot while it hydrates, and its own once it has, taken
- * in the same commit, before paint. `useSyncExternalStore` alone would catch up
- * only in a passive effect, after a frame showing the server's value.
+ * must: the server's snapshot while it hydrates, and its own once it has. Only
+ * the component calling it re-renders when the value changes. Reading nothing
+ * — no store, or no selector — subscribes to nothing.
  *
- * Only the component calling it re-renders when the value changes. Reading
- * nothing — no store, or no selector — costs a subscription to nothing and a
- * layout effect that runs once, at mount.
+ * A reader that hydrates with its provider takes its own value in the same
+ * commit, before paint: the provider's handover makes React run the commit's
+ * subscriptions and render such readers again before it returns. One that
+ * hydrates later, in a boundary of its own, takes it when React runs that
+ * commit's subscriptions, which may be a frame after it paints; a reader that
+ * must not show that frame checks in its own layout effect, as `useTheme` does.
  * @param store The provider's store, or `null` with no provider above.
  * @param select What to read from a snapshot, or `null` to read nothing and never re-render.
  * @returns The value, or `undefined` when nothing is read.
  */
 export function useThemeSnapshot<T>(store: ThemeStore | null, select: ((snapshot: ThemeSnapshot) => T) | null): T | undefined {
   const reads = store !== null && select !== null
-  const getSnapshot = reads ? () => select(store.getSnapshot()) : readNothing
-  const getServerSnapshot = reads ? () => select(store.getServerSnapshot()) : readNothing
-  const value = useSyncExternalStore<T | undefined>(reads ? store.subscribe : subscribeToNothing, getSnapshot, getServerSnapshot)
-  const [, renderAgain] = useReducer(increment, 0)
-  // A render that hydrated used the server's snapshot; one after that already
-  // reads the store, and a change to it arrives through the subscription.
-  useIsomorphicLayoutEffect(() => {
-    if (reads && getSnapshot() !== value) renderAgain()
-  }, [reads, store, value])
-  return value
+  return useSyncExternalStore<T | undefined>(
+    reads ? store.subscribe : subscribeToNothing,
+    reads ? () => select(store.getSnapshot()) : readNothing,
+    reads ? () => select(store.getServerSnapshot()) : readNothing,
+  )
 }
 
 /**
@@ -323,6 +332,27 @@ function composeChildren(children: Children | undefined, system: Theme['system']
   // Prepend the style rather than nesting an array inside `children`, so the
   // shape stays a flat `Children` list.
   return [themeVariablesStyle, ...(Array.isArray(children) ? children : children == null ? [] : [children])] as Children
+}
+
+/**
+ * Brings readers that hydrated with the server's snapshot up to date before the
+ * browser paints.
+ *
+ * React checks a reader's snapshot against the store only as it attaches the
+ * reader's subscription, in a passive effect, which may run after a paint. A
+ * synchronous update scheduled from a layout effect makes React run the commit's
+ * passive effects first and render the readers they find stale, before it
+ * returns. This component is the one updated: it renders nothing, so the update
+ * costs one empty render and reaches nothing else.
+ * @returns Nothing.
+ */
+function ReaderCatchUp({ store }: { store: ThemeStore }): null {
+  const [, renderAgain] = useReducer(increment, 0)
+  // Every reader in this commit has rendered by the time layout effects run.
+  useIsomorphicLayoutEffect(() => {
+    if (store.takeServerReads()) renderAgain()
+  })
+  return null
 }
 
 export default function ThemeProvider({
@@ -512,7 +542,14 @@ export default function ThemeProvider({
     [store, defaultMode, tokens, modes, setMode, setPreference],
   )
 
-  return Node(ThemeContext.Provider, { value: contextValue, children: composeChildren(children, tokens, defaultMode as Theme['mode']) }).render()
+  const composed = composeChildren(children, tokens, defaultMode as Theme['mode'])
+  return Node(ThemeContext.Provider, {
+    value: contextValue,
+    children: [
+      createElement(ReaderCatchUp, { key: 'catch-up', store }),
+      ...(Array.isArray(composed) ? composed : composed == null ? [] : [composed]),
+    ] as Children,
+  }).render()
 }
 
 ;(ThemeProvider as { __meonodeAcceptsServerCss?: boolean }).__meonodeAcceptsServerCss = true

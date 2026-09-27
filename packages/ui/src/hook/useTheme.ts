@@ -1,6 +1,10 @@
 'use client'
-import { useContext, useMemo } from 'react'
+import { useContext, useEffect, useLayoutEffect, useMemo, useReducer } from 'react'
 import { ThemeContext, type ThemeContextValue, type ThemeSnapshot, useThemeSnapshot } from '@src/components/theme-provider.client.js'
+
+/** `useLayoutEffect` on the client, `useEffect` on the server, where a layout effect never runs and React warns about one. */
+const useIsomorphicLayoutEffect = typeof window === 'undefined' ? useEffect : useLayoutEffect
+const increment = (count: number) => count + 1
 
 const wholeSnapshot = (snapshot: ThemeSnapshot) => snapshot
 
@@ -30,6 +34,15 @@ export const useTheme = (): ThemeContextValue => {
 
   // A store and a selector are both given, so a snapshot is always read.
   const snapshot = useThemeSnapshot(context.store, wholeSnapshot) as ThemeSnapshot
+
+  // A reader that hydrates in a boundary of its own, after its provider, is not
+  // caught up by the provider's handover, and React would compare its snapshot
+  // with the store only in a passive effect, after a frame showing the default.
+  // It checks in its own commit instead, before paint.
+  const [, renderAgain] = useReducer(increment, 0)
+  useIsomorphicLayoutEffect(() => {
+    if (context.store.getSnapshot() !== snapshot) renderAgain()
+  }, [context.store, snapshot])
 
   return useMemo(
     () => ({

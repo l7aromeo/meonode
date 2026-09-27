@@ -3,7 +3,7 @@
 // The provider's context never changes with the mode: readers take the mode from
 // the provider's store, each on its own. These are the behaviours that rest on
 // that, on a hydrated page and on a page rendered in the browser alone.
-import { act, createElement, type ReactNode, useContext, useLayoutEffect } from 'react'
+import { act, createElement, lazy, type ReactNode, Suspense, useContext, useLayoutEffect } from 'react'
 import { createRoot, hydrateRoot } from 'react-dom/client'
 import { renderToString } from 'react-dom/server'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -116,6 +116,42 @@ describe('a reader of the mode', () => {
       await new Promise(resolve => setTimeout(resolve, 50))
 
       expect(seen).toEqual(['morning/false', 'night/true'])
+      expect(afterCommit).toBe('night')
+    } finally {
+      root.unmount()
+      ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+    }
+  })
+
+  it('in a boundary that hydrates after its provider, renders the reader’s mode before the browser can paint', async () => {
+    stubStorage('night')
+    let afterCommit: string | null | undefined
+    /** Reads the reader in a microtask queued by the boundary's own hydration commit. */
+    function FirstFrame() {
+      useLayoutEffect(() => {
+        queueMicrotask(() => {
+          afterCommit ??= document.querySelector('#reader')?.getAttribute('data-mode')
+        })
+      }, [])
+      return null
+    }
+    function Late() {
+      return [createElement(ModeReader, { key: 'read' }), createElement(FirstFrame, { key: 'frame' })]
+    }
+    let loadChunk!: () => void
+    const chunk = new Promise<{ default: typeof Late }>(resolve => (loadChunk = () => resolve({ default: Late })))
+    const LazyLate = lazy(() => chunk)
+    const tree = (content: ReactNode) => provider(createElement(Suspense, { fallback: null }, content))
+    const container = document.createElement('div')
+    container.innerHTML = renderToString(tree(createElement(Late)))
+    document.body.appendChild(container)
+
+    ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = false
+    const root = hydrateRoot(container, tree(createElement(LazyLate)), { onRecoverableError: () => {} })
+    try {
+      await new Promise(resolve => setTimeout(resolve, 30))
+      loadChunk()
+      await new Promise(resolve => setTimeout(resolve, 50))
       expect(afterCommit).toBe('night')
     } finally {
       root.unmount()
