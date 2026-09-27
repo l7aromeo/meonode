@@ -1,5 +1,5 @@
 'use client'
-import { createContext, createElement, type ReactNode, useCallback, useEffect, useLayoutEffect, useState } from 'react'
+import { createContext, createElement, type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react'
 import type { Children, ResolvedThemeMode, ResolvedThemePreference, ResolvedThemeSystem, Theme, ThemeSystemModes } from '@src/types/node.type.js'
 import { Node } from '@src/core.node.js'
 import { buildThemeVariablesCss } from '@src/util/server-theme.util.js'
@@ -37,12 +37,14 @@ export interface ThemeContextValue {
   setPreference: (preference: ResolvedThemePreference) => void
 
   /**
-   * False until the provider has adopted the reader's real mode.
+   * False while this reader shows the server's default rather than the reader's
+   * real mode.
    *
-   * The first client render must match the server's, so it renders the default
-   * whatever the reader stored. A consumer rendering markup from `mode` — a
-   * toggle position, a different icon — can gate on this to avoid showing the
-   * default for one commit.
+   * A render that hydrates server markup must match the server's, so it renders
+   * the default whatever the reader stored, and the reader's mode follows in the
+   * same commit, before paint. A consumer rendering markup from `mode` — a toggle
+   * position, a different icon — can gate on this. Where nothing was
+   * server-rendered it is true from the first render.
    *
    * Page-level theming does not need it: CSS keyed off `[data-theme="…"]` is
    * correct from the first painted frame, because the pre-paint script sets the
@@ -160,7 +162,75 @@ function writeStored(key: string, value: string): void {
   }
 }
 
-export const ThemeContext = createContext<ThemeContextValue | null>(null)
+/** What a reader of the theme sees at one moment: the mode, their choice, and whether it is theirs yet. */
+export interface ThemeSnapshot {
+  mode: ResolvedThemeMode
+  preference: ResolvedThemePreference
+  hydrated: boolean
+}
+
+/**
+ * The reader's mode, held outside React state so that adopting it never changes
+ * the provider's context value.
+ *
+ * Every Suspense boundary still dehydrated below a provider sits under its
+ * context, and React discards such a boundary's server HTML and client-renders
+ * it when that context changes before it has hydrated: at any priority while
+ * the server is still streaming its content, and at anything but a transition
+ * while hydrating it suspends on a chunk. Adoption happens as the provider
+ * hydrates, which on a slow load is while such boundaries exist. So the context
+ * carries this store, which never changes, and each reader subscribes to it:
+ * a reader updates when it has hydrated itself, and nothing else re-renders.
+ */
+export interface ThemeStore {
+  /** What the server rendered and what hydration must reproduce: the defaults. */
+  getServerSnapshot: () => ThemeSnapshot
+  /** The reader's own state, adopted from the document and storage the first time it is asked for. */
+  getSnapshot: () => ThemeSnapshot
+  subscribe: (listener: () => void) => () => void
+  /** Replaces part of the adopted state and tells every reader. */
+  update: (next: Partial<Omit<ThemeSnapshot, 'hydrated'>>) => void
+}
+
+function createThemeStore(serverSnapshot: ThemeSnapshot, adopt: () => ThemeSnapshot): ThemeStore {
+  let adopted: ThemeSnapshot | undefined
+  const listeners = new Set<() => void>()
+  const getSnapshot = () => (adopted ??= adopt())
+  return {
+    getServerSnapshot: () => serverSnapshot,
+    getSnapshot,
+    subscribe(listener) {
+      listeners.add(listener)
+      return () => void listeners.delete(listener)
+    },
+    update(next) {
+      const current = getSnapshot()
+      if ((next.mode ?? current.mode) === current.mode && (next.preference ?? current.preference) === current.preference) return
+      adopted = { ...current, ...next }
+      listeners.forEach(listener => listener())
+    },
+  }
+}
+
+/**
+ * What the provider hands its readers. It changes only with the provider's own
+ * props — never with the mode, which readers take from `store`.
+ */
+export interface ThemeContextState {
+  store: ThemeStore
+
+  /**
+   * The token map, as the styled renderer consumes it. Its `mode` is the
+   * default and does not follow the reader's: styles resolve tokens to
+   * variables, and the palettes are CSS keyed by `[data-theme="…"]`.
+   */
+  theme: Theme
+  modes: readonly ResolvedThemeMode[]
+  setMode: (mode: ResolvedThemeMode) => void
+  setPreference: (preference: ResolvedThemePreference) => void
+}
+
+export const ThemeContext = createContext<ThemeContextState | null>(null)
 
 /**
  * The internal implementation of the ThemeProvider component.
@@ -197,16 +267,14 @@ export const ThemeContext = createContext<ThemeContextValue | null>(null)
  * does.
  * @param children The provider's own children.
  * @param system The token map to emit.
- * @param mode The mode in force, for the day the block depends on it.
+ * @param mode The default mode: the block must not depend on the reader's, which the server cannot know.
  * @returns The children with the variable block prepended, as a flat list.
  */
 function composeChildren(children: Children | undefined, system: Theme['system'], mode: Theme['mode']): Children {
-  // `mode` is passed through rather than filled in with a literal. It is unused
-  // by `buildThemeVariablesCss` today, which reads `system` alone — that is what
-  // makes the block a pure function of the tokens, and so what makes the mode
-  // path cacheable. Handing it a real mode anyway costs nothing and means the
-  // day that stops being true, this does not silently emit one mode's variables
-  // for every reader.
+  // `buildThemeVariablesCss` reads `system` alone, so the block is a pure
+  // function of the tokens — what lets the server send one document to every
+  // reader. It is handed the default, the one mode the server and every render
+  // agree on.
   const themeVariablesCss = buildThemeVariablesCss({ mode, system })
   if (!themeVariablesCss) return children
   const themeVariablesStyle = createElement('style', { 'data-meonode-theme-vars': '', children: themeVariablesCss })
@@ -261,19 +329,6 @@ export default function ThemeProvider({
     throw new Error(`ThemeProvider: \`defaultPreference\` is '${String(defaultPreference)}', which is not one of \`modes\` (${modes.join(', ')}) nor 'system'.`)
   }
 
-  // Seeded once, like the theme path above: `defaultMode` is the initial mode,
-  // not a controlled prop, and passing a different one later changes nothing.
-  // `tokens` is not state and does flow through on every render, so the variable
-  // block follows it.
-  //
-  // Both pieces of state start at the default and are adopted after mount. No
-  // `document` and no `localStorage` during render — see the note on the
-  // component.
-  // A prop, so both renders agree on it without reading anything the server
-  // cannot see.
-  const [preference, setPreferenceState] = useState<ResolvedThemePreference>(defaultPreference ?? defaultMode)
-  const [hydrated, setHydrated] = useState(false)
-
   const resolveSystemMode = useCallback((): ResolvedThemeMode => {
     if (!system) return defaultMode
     try {
@@ -283,7 +338,41 @@ export default function ThemeProvider({
     }
   }, [defaultMode, system])
 
-  const [mode, setModeState] = useState<ResolvedThemeMode>(defaultMode)
+  // Seeded once: `defaultMode` is the initial mode, not a controlled prop, and
+  // passing a different one later changes nothing. `tokens` is not state and
+  // does flow through on every render, so the variable block follows it.
+  //
+  // The server, and the first client render when it hydrates, show the
+  // defaults: neither may read `document` or `localStorage`, since the server
+  // cannot. The reader's own mode is adopted the first time the client asks for
+  // it — during the first render of a client-only mount, where nothing has to
+  // match, and after the fact when hydrating.
+  const [store] = useState(() =>
+    createThemeStore({ mode: defaultMode, preference: defaultPreference ?? defaultMode, hydrated: false }, () => {
+      // The attribute is preferred over raw storage because the script has
+      // already validated it against `modes` and resolved `system` against the
+      // OS; storage is the fallback for a reader whose attribute did not
+      // survive, and it is validated here instead.
+      const stamped = globalThis.document?.documentElement?.getAttribute('data-theme')
+      const stored = readStored(storageKey)
+
+      const declaredStored = asDeclaredMode(stored, modes)
+      const declaredStamped = asDeclaredMode(stamped, modes)
+
+      const fallbackPreference: ResolvedThemePreference = defaultPreference ?? defaultMode
+      const preference: ResolvedThemePreference =
+        stored === 'system' && canFollowSystem
+          ? 'system'
+          : (declaredStored ??
+            // Nothing stored: the application's own default outranks the
+            // attribute, since the attribute is the script's rendering of that
+            // same default.
+            (fallbackPreference === 'system' ? 'system' : (declaredStamped ?? fallbackPreference)))
+
+      const mode: ResolvedThemeMode = preference === 'system' ? (declaredStamped ?? resolveSystemMode()) : (declaredStamped ?? preference)
+      return { mode, preference, hydrated: true }
+    }),
+  )
 
   /** Assert both attributes from the values given. No cache, no comparison. */
   const writeAttributes = useCallback((nextMode: ResolvedThemeMode, nextPreference: ResolvedThemePreference) => {
@@ -296,59 +385,34 @@ export default function ThemeProvider({
     element.setAttribute('data-theme-preference', nextPreference)
   }, [])
 
-  const applyMode = useCallback((next: ResolvedThemeMode) => setModeState(next), [])
-
-  // Adoption, in a layout effect so it lands in the same commit as hydration and
-  // before anything paints — a passive effect would leave a frame showing the
-  // default.
-  //
-  // The attribute is preferred over raw storage because the script has already
-  // validated it against `modes` and resolved `system` against the OS; storage
-  // is the fallback for a reader whose attribute did not survive, and it is
-  // validated here instead.
-  useIsomorphicLayoutEffect(() => {
-    const stamped = globalThis.document?.documentElement?.getAttribute('data-theme')
-    const stored = readStored(storageKey)
-
-    const declaredStored = asDeclaredMode(stored, modes)
-    const declaredStamped = asDeclaredMode(stamped, modes)
-
-    const fallbackPreference: ResolvedThemePreference = defaultPreference ?? defaultMode
-    const nextPreference: ResolvedThemePreference =
-      stored === 'system' && canFollowSystem
-        ? 'system'
-        : (declaredStored ??
-          // Nothing stored: the application's own default outranks the
-          // attribute, since the attribute is the script's rendering of that
-          // same default.
-          (fallbackPreference === 'system' ? 'system' : (declaredStamped ?? fallbackPreference)))
-
-    const nextMode: ResolvedThemeMode = nextPreference === 'system' ? (declaredStamped ?? resolveSystemMode()) : (declaredStamped ?? nextPreference)
-
-    setPreferenceState(nextPreference)
-    setModeState(nextMode)
-    setHydrated(true)
-    writeAttributes(nextMode, nextPreference)
-    // Mount only: this is the handover from the pre-paint script, which happens
-    // once. Everything after it goes through the setters.
-  }, [])
-
-  // Write-through: the document is asserted from state whenever the provider
-  // renders, so anything that discards the attribute — a view transition, an
-  // extension, a framework touching the root — is repaired on the next render
-  // rather than leaving every `[data-theme=…]` selector unmatched.
-  //
-  // Gated on `hydrated` so it cannot run before adoption. Effects belong to the
-  // render that scheduled them, and the mount render still holds the default:
-  // without this gate, the passive effect from that render would write the
-  // default *after* the layout effect had written the reader's real mode.
-  useEffect(() => {
-    if (!hydrated) return
+  /** Asserts the document from the adopted state. */
+  const writeCurrent = useCallback(() => {
+    const { mode, preference } = store.getSnapshot()
     writeAttributes(mode, preference)
-  })
+  }, [store, writeAttributes])
+
+  // The handover from the pre-paint script, in a layout effect so the document
+  // is asserted before anything paints. It adopts the reader's mode if no reader
+  // has asked for it yet. It sets no React state: readers catch up from the
+  // store as each of them hydrates.
+  useIsomorphicLayoutEffect(writeCurrent, [])
+
+  // Write-through: the document is asserted from the adopted state whenever the
+  // provider renders, so anything that discards the attribute — a view
+  // transition, an extension, a framework touching the root — is repaired on the
+  // next render rather than leaving every `[data-theme=…]` selector unmatched.
+  useEffect(writeCurrent)
+
+  const applyMode = useCallback(
+    (next: ResolvedThemeMode) => {
+      store.update({ mode: next })
+      writeCurrent()
+    },
+    [store, writeCurrent],
+  )
 
   useEffect(() => {
-    if (preference !== 'system' || !system) return
+    if (!system) return
     let media: MediaQueryList | undefined
     try {
       media = globalThis.matchMedia?.('(prefers-color-scheme: dark)')
@@ -356,10 +420,13 @@ export default function ThemeProvider({
       return
     }
     if (!media?.addEventListener) return
-    const onChange = (event: MediaQueryListEvent) => applyMode(event.matches ? system.dark : system.light)
+    // Only a reader following the OS moves with it.
+    const onChange = (event: MediaQueryListEvent) => {
+      if (store.getSnapshot().preference === 'system') applyMode(event.matches ? system.dark : system.light)
+    }
     media.addEventListener('change', onChange)
     return () => media?.removeEventListener('change', onChange)
-  }, [applyMode, preference, system])
+  }, [applyMode, store, system])
 
   const setPreference = useCallback(
     (next: ResolvedThemePreference) => {
@@ -384,34 +451,26 @@ export default function ThemeProvider({
         }
         return
       }
-      setPreferenceState(next)
       writeStored(storageKey, next)
-      const nextMode = next === 'system' ? resolveSystemMode() : next
-      applyMode(nextMode)
-      // Directly as well as through the effect: choosing the mode already in
-      // state is a no-op re-render, so the effect would not run — and that is
+      store.update({ preference: next, mode: next === 'system' ? resolveSystemMode() : next })
+      // Written even when nothing changed: choosing the mode already in force is
       // exactly the call someone makes when the document has lost the attribute
       // and the control looks stuck.
-      writeAttributes(nextMode, next)
+      writeCurrent()
     },
-    [applyMode, canFollowSystem, modes, resolveSystemMode, storageKey, writeAttributes],
+    [canFollowSystem, modes, resolveSystemMode, storageKey, store, writeCurrent],
   )
 
   const setMode = useCallback((next: ResolvedThemeMode) => setPreference(next), [setPreference])
 
-  const theme: Theme = { mode: mode as Theme['mode'], system: tokens }
+  // Stable across renders that change nothing it holds, and so across every
+  // change of mode: a new value here would reach every boundary below.
+  const contextValue = useMemo<ThemeContextState>(
+    () => ({ store, theme: { mode: defaultMode as Theme['mode'], system: tokens }, modes, setMode, setPreference }),
+    [store, defaultMode, tokens, modes, setMode, setPreference],
+  )
 
-  const contextValue: ThemeContextValue = {
-    theme,
-    mode,
-    preference,
-    setMode,
-    setPreference,
-    hydrated,
-    modes,
-  }
-
-  return Node(ThemeContext.Provider, { value: contextValue, children: composeChildren(children, tokens, mode as Theme['mode']) }).render()
+  return Node(ThemeContext.Provider, { value: contextValue, children: composeChildren(children, tokens, defaultMode as Theme['mode']) }).render()
 }
 
 ;(ThemeProvider as { __meonodeAcceptsServerCss?: boolean }).__meonodeAcceptsServerCss = true
