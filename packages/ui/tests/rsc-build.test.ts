@@ -732,6 +732,31 @@ describe.each(['cc', 'plain'] as const)('a Suspense boundary still dehydrated wh
 
   const CHUNK_MARKER = '__meonode_delayed_hydration_chunk__'
 
+  /** The build's client chunks that carry the marker, read from its output once it exists. */
+  let markedChunks = new Set<string>()
+  beforeAll(() => {
+    const chunks = path.resolve(FIXTURE, variant === 'cc' ? '.next-cc' : '.next-plain', 'static/chunks')
+    markedChunks = new Set(readdirSync(chunks).filter(name => name.endsWith('.js') && readFileSync(path.resolve(chunks, name), 'utf8').includes(CHUNK_MARKER)))
+  })
+
+  /**
+   * Holds the marked chunks back for 1.5 s and lets them through untouched, and
+   * leaves every other request alone.
+   * @returns How many marked chunks have been held so far.
+   */
+  async function holdMarkedChunks(page: import('@playwright/test').Page) {
+    const held = { count: 0 }
+    await page.route(
+      url => markedChunks.has(url.pathname.split('/').pop() ?? ''),
+      async route => {
+        held.count++
+        await new Promise(resolve => setTimeout(resolve, 1500))
+        await route.continue()
+      },
+    )
+    return held
+  }
+
   /**
    * Loads `path#target` with the boundary held dehydrated while the provider
    * mounts, and reports what became of its server-rendered content.
@@ -770,18 +795,7 @@ describe.each(['cc', 'plain'] as const)('a Suspense boundary still dehydrated wh
       },
       { stored },
     )
-    let held = 0
-    if (path.endsWith('/chunk')) {
-      await page.route('**/_next/static/chunks/**', async route => {
-        const response = await route.fetch()
-        const body = await response.text()
-        if (body.includes(CHUNK_MARKER)) {
-          held++
-          await new Promise(resolve => setTimeout(resolve, 1500))
-        }
-        await route.fulfill({ response, body })
-      })
-    }
+    const held = path.endsWith('/chunk') ? await holdMarkedChunks(page) : null
     try {
       await page.goto(`http://localhost:${port(variant)}${path}#target`, { waitUntil: 'load' })
       await page.waitForFunction(() => (window as { __articleMounted?: number }).__articleMounted)
@@ -802,7 +816,7 @@ describe.each(['cc', 'plain'] as const)('a Suspense boundary still dehydrated wh
           }
         })),
         errors,
-        held: path.endsWith('/chunk') ? held : null,
+        held: held?.count ?? null,
       }
     } finally {
       await context.close()
@@ -822,16 +836,7 @@ describe.each(['cc', 'plain'] as const)('a Suspense boundary still dehydrated wh
     page.on('console', message => message.type() === 'error' && errors.push(message.text()))
     page.on('pageerror', error => errors.push(String(error)))
     await page.addInitScript(() => localStorage.setItem('theme', 'dark'))
-    let held = 0
-    await page.route('**/_next/static/chunks/**', async route => {
-      const response = await route.fetch()
-      const body = await response.text()
-      if (body.includes(CHUNK_MARKER)) {
-        held++
-        await new Promise(resolve => setTimeout(resolve, 1500))
-      }
-      await route.fulfill({ response, body })
-    })
+    const held = await holdMarkedChunks(page)
     try {
       await page.goto(`http://localhost:${port(variant)}/hydration/theme-fn`, { waitUntil: 'load' })
       await page.waitForFunction(() => (window as { __themeProbeMounted?: number }).__themeProbeMounted)
@@ -845,7 +850,7 @@ describe.each(['cc', 'plain'] as const)('a Suspense boundary still dehydrated wh
       await page.click('[data-testid="to-light"]')
       await page.waitForTimeout(300)
       const toggled = await read()
-      expect({ hydrated: hydrated.colour, toggled: toggled.colour, held, errors }).toEqual({
+      expect({ hydrated: hydrated.colour, toggled: toggled.colour, held: held.count, errors }).toEqual({
         hydrated: 'rgb(1, 2, 3)',
         toggled: 'rgb(4, 5, 6)',
         held: 1,
