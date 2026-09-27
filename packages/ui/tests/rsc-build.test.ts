@@ -809,20 +809,6 @@ describe.each(['cc', 'plain'] as const)('a Suspense boundary still dehydrated wh
     }
   }
 
-  // `lagFrames` counts frames painted after a component reading the mode first
-  // committed while it still showed the default for a reader whose stored mode
-  // differs: a fix that defers adoption would show one.
-  //
-  // The article's `data-rendered-on` is the direct signal: `client` means the
-  // boundary's server HTML was discarded and rendered again. Production React
-  // reports nothing to the console when that happens, so `errors` guards only
-  // against other failures.
-  //
-  // A streamed boundary's server node may never enter the document once its
-  // boundary has switched to client rendering, and Chrome does not scroll to a
-  // fragment inside content that streams in, so node identity and the fragment
-  // scroll are asserted for the on-demand chunk, whose server HTML is in the
-  // document from the start.
   /**
    * A css theme function reading `theme.mode`, as the theming guide shows,
    * inside a boundary whose on-demand chunk is held back, for a reader whose
@@ -871,6 +857,20 @@ describe.each(['cc', 'plain'] as const)('a Suspense boundary still dehydrated wh
     }
   })
 
+  // `lagFrames` counts frames painted after a component reading the mode first
+  // committed while it still showed the default for a reader whose stored mode
+  // differs: a fix that defers adoption would show one.
+  //
+  // The article's `data-rendered-on` is the direct signal: `client` means the
+  // boundary's server HTML was discarded and rendered again. Production React
+  // reports nothing to the console when that happens, so `errors` guards only
+  // against other failures.
+  //
+  // A streamed boundary's server node may never enter the document once its
+  // boundary has switched to client rendering, and Chrome does not scroll to a
+  // fragment inside content that streams in, so node identity and the fragment
+  // scroll are asserted for the on-demand chunk, whose server HTML is in the
+  // document from the start.
   it.each([
     ['/hydration-control/streamed', false],
     ['/hydration-control/chunk', false],
