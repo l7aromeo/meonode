@@ -1,5 +1,6 @@
 import { cache as requestCache } from 'react'
 import createCache from '@emotion/cache'
+import { prefixer } from '@src/util/emotion-prefixer.util.js'
 import { serializeStyles } from '@emotion/serialize'
 import { getRegisteredStyles, insertStyles } from '@emotion/utils'
 import type { CssProp } from '@src/types/node.type.js'
@@ -17,7 +18,9 @@ import { reportUncomposedClass } from '@src/util/theme-diagnostics.util.js'
  * text from there.
  */
 const requestEmotionCache = requestCache(() => {
-  const emotionCache = createCache({ key: 'meonode-css' })
+  // Its own plugins array, so the rules Emotion memoizes on the server go with
+  // this cache rather than into the process-wide memo for the default plugins.
+  const emotionCache = createCache({ key: 'meonode-css', stylisPlugins: [prefixer] })
   emotionCache.compat = true
   return emotionCache
 })
