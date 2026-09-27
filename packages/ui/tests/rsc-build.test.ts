@@ -809,6 +809,54 @@ describe.each(['cc', 'plain'] as const)('a Suspense boundary still dehydrated wh
     }
   }
 
+  /**
+   * A css theme function reading `theme.mode`, as the theming guide shows,
+   * inside a boundary whose on-demand chunk is held back, for a reader whose
+   * stored mode is not the default. The colour must follow the reader's mode
+   * after hydration and after a toggle, and the boundary must still hydrate.
+   */
+  it('lets a css theme function follow the reader’s mode, and keeps its boundary', async () => {
+    const context = await browser!.newContext()
+    const page = await context.newPage()
+    const errors: string[] = []
+    page.on('console', message => message.type() === 'error' && errors.push(message.text()))
+    page.on('pageerror', error => errors.push(String(error)))
+    await page.addInitScript(() => localStorage.setItem('theme', 'dark'))
+    let held = 0
+    await page.route('**/_next/static/chunks/**', async route => {
+      const response = await route.fetch()
+      const body = await response.text()
+      if (body.includes(CHUNK_MARKER)) {
+        held++
+        await new Promise(resolve => setTimeout(resolve, 1500))
+      }
+      await route.fulfill({ response, body })
+    })
+    try {
+      await page.goto(`http://localhost:${port(variant)}/hydration/theme-fn`, { waitUntil: 'load' })
+      await page.waitForFunction(() => (window as { __themeProbeMounted?: number }).__themeProbeMounted)
+      await page.waitForTimeout(300)
+      const read = () =>
+        page.$eval('[data-testid="theme-fn"]', element => ({
+          colour: getComputedStyle(element).color,
+          renderedOn: element.getAttribute('data-rendered-on'),
+        }))
+      const hydrated = await read()
+      await page.click('[data-testid="to-light"]')
+      await page.waitForTimeout(300)
+      const toggled = await read()
+      expect({ hydrated: hydrated.colour, toggled: toggled.colour, held, errors }).toEqual({
+        hydrated: 'rgb(1, 2, 3)',
+        toggled: 'rgb(4, 5, 6)',
+        held: 1,
+        errors: [],
+      })
+      expect(hydrated.renderedOn).toBe('server')
+    } finally {
+      await context.close()
+    }
+  })
+
   // `lagFrames` counts frames painted after a component reading the mode first
   // committed while it still showed the default for a reader whose stored mode
   // differs: a fix that defers adoption would show one.
