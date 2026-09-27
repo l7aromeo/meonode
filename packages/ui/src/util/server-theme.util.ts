@@ -1,5 +1,6 @@
 import type { Theme } from '@src/types/node.type.js'
 import { isLengthProperty, isSelectorOrAtRule, lengthVarRef, needsLengthVariant, toLengthVarName } from '@src/util/css-unit.util.js'
+import { isInPrelude } from '@src/util/theme-key.util.js'
 
 function toThemeVarName(path: string): string {
   return `--meonode-theme-${path.replace(/[^\w.-]/g, '-').replace(/\./g, '-')}`
@@ -104,8 +105,12 @@ const replaceString = (input: string, property?: string): string => {
   if (!input.includes('theme.')) return input
   themeRegex.lastIndex = 0
   const wantsLength = property !== undefined && isLengthProperty(property)
+  // In CSS text a token in a prelude or a selector needs the theme's concrete
+  // value, so it is left for the resolver that has the theme.
+  const isCssText = input.includes('{')
   let hasChanged = false
-  const next = input.replace(themeRegex, (_, path: string) => {
+  const next = input.replace(themeRegex, (match, path: string, offset: number) => {
+    if (isCssText && isInPrelude(input, offset)) return match
     hasChanged = true
     const varName = toThemeVarName(path)
     return wantsLength ? lengthVarRef(varName) : `var(${varName})`
