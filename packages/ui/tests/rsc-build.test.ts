@@ -751,6 +751,17 @@ describe.each(['cc', 'plain'] as const)('a Suspense boundary still dehydrated wh
     await page.addInitScript(
       ({ stored }) => {
         if (stored) localStorage.setItem('theme', 'dark')
+        // Frames painted after the mode reader first committed, while it still
+        // showed a mode other than the reader's.
+        const expected = stored ? 'dark' : 'light'
+        const w = window as { __modeProbeCommitted?: boolean; __lagFrames?: number }
+        w.__lagFrames = 0
+        const tick = () => {
+          const probe = document.querySelector('[data-mode-probe]')
+          if (w.__modeProbeCommitted && probe && probe.getAttribute('data-mode-probe') !== expected) w.__lagFrames!++
+          if (performance.now() < 4000) requestAnimationFrame(tick)
+        }
+        requestAnimationFrame(tick)
         // The first content element to enter the document: the server's.
         new MutationObserver(() => {
           const content = document.querySelector('[data-testid="content"]')
@@ -786,6 +797,8 @@ describe.each(['cc', 'plain'] as const)('a Suspense boundary still dehydrated wh
             scrolled: (content?.scrollTop ?? 0) > 0,
             targetInView: !!content && !!target && Math.abs(target.getBoundingClientRect().top - content.getBoundingClientRect().top) < 5,
             mode: document.documentElement.getAttribute('data-theme'),
+            probe: document.querySelector('[data-mode-probe]')?.getAttribute('data-mode-probe') ?? null,
+            lagFrames: (window as { __lagFrames?: number }).__lagFrames,
           }
         })),
         errors,
@@ -796,6 +809,10 @@ describe.each(['cc', 'plain'] as const)('a Suspense boundary still dehydrated wh
     }
   }
 
+  // `lagFrames` counts frames painted after a component reading the mode first
+  // committed while it still showed the default for a reader whose stored mode
+  // differs: a fix that defers adoption would show one.
+  //
   // The article's `data-rendered-on` is the direct signal: `client` means the
   // boundary's server HTML was discarded and rendered again. Production React
   // reports nothing to the console when that happens, so `errors` guards only
@@ -821,12 +838,16 @@ describe.each(['cc', 'plain'] as const)('a Suspense boundary still dehydrated wh
       renderedOn: result.renderedOn,
       mounts: result.mounts,
       mode: result.mode,
+      probe: result.probe,
+      lagFrames: result.lagFrames,
       errors: result.errors,
       ...(chunk && { sameNode: result.sameNode, scrolled: result.scrolled, targetInView: result.targetInView, held: result.held }),
     }).toEqual({
       renderedOn: 'server',
       mounts: 1,
       mode: control ? null : stored ? 'dark' : 'light',
+      probe: control ? null : stored ? 'dark' : 'light',
+      lagFrames: 0,
       errors: [],
       ...(chunk && { sameNode: true, scrolled: true, targetInView: true, held: 1 }),
     })
