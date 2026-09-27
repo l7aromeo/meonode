@@ -1,9 +1,10 @@
 'use client'
 import { createElement, type ElementType, type JSX, type ReactElement, type ReactNode, useContext, useMemo } from 'react'
 import { __unsafe_useEmotionCache as useEmotionCache, CacheProvider, jsx } from '@emotion/react'
+import type { EmotionCache } from '@emotion/cache'
 import { serializeStyles } from '@emotion/serialize'
 import { compile, middleware, serialize, stringify } from 'stylis'
-import type { CssProp, NodeElement } from '@src/types/node.type.js'
+import type { CssProp, NodeElement, Theme } from '@src/types/node.type.js'
 import { ThemeContext, type ThemeSnapshot, useThemeSnapshot } from '@src/components/theme-provider.client.js'
 import { ThemeUtil } from '@src/util/theme.util.js'
 import { reportThemeIssues, reportUnresolvedThemeKey } from '@src/util/theme-diagnostics.util.js'
@@ -37,18 +38,47 @@ export default function StyledRenderer<E extends NodeElement, TProps extends Rec
   const context = useContext(ThemeContext)
   const emotionCache = useEmotionCache()
 
+  // Tokens and plain values resolve the same whatever the mode, so such an
+  // element reads no mode and never re-renders when it changes. A theme function
+  // is handed the theme and may read its mode, so an element with one is
+  // rendered by `ModeStyledRenderer`, which follows the reader's. An element
+  // whose css gains or loses its last function between renders is mounted
+  // afresh.
+  if (ThemeUtil.hasThemeFunction(props.css)) return createElement(ModeStyledRenderer, { element, children, ...props })
+  return renderStyled(element, children, props, context?.theme, emotionCache)
+}
+
+StyledRenderer.displayName = 'Styled'
+
+/** A styled element whose css holds a theme function, which is handed the theme with the reader's mode. */
+function ModeStyledRenderer<E extends NodeElement, TProps extends Record<string, any>>({
+  element,
+  children,
+  ...props
+}: StyledRendererProps<E> & TProps): JSX.Element {
+  const context = useContext(ThemeContext)
+  const emotionCache = useEmotionCache()
+  const mode = useThemeSnapshot(context?.store ?? null, selectMode)
+  const theme = useMemo(() => (context && mode !== undefined ? { ...context.theme, mode: mode as typeof context.theme.mode } : context?.theme), [context, mode])
+  return renderStyled(element, children, props, theme, emotionCache)
+}
+
+ModeStyledRenderer.displayName = 'Styled'
+
+/** Resolves an element's css against the theme and renders it with Emotion. */
+function renderStyled(
+  element: NodeElement,
+  children: ReactNode,
+  props: Record<string, any>,
+  theme: Theme | undefined,
+  emotionCache: EmotionCache | null,
+): JSX.Element {
   // `as` is consumed (never spread onto the DOM). It swaps the render target,
   // mirroring the swap done in `core.node.ts`. This is belt-and-braces: the core
   // path already strips `as` and forwards the resolved element, but if `as` ever
   // reaches here we honor it instead of leaking it as a bogus attribute.
   // `isValidElementType` narrows `asTarget` to `ElementType`, so no cast is needed there.
   const { css, as: asTarget, ...otherProps } = props
-
-  // Tokens and plain values resolve the same whatever the mode, so such an
-  // element never re-renders when it changes. A theme function is handed the
-  // theme and may read its mode, so an element with one follows the reader's.
-  const mode = useThemeSnapshot(context?.store ?? null, ThemeUtil.hasThemeFunction(css) ? selectMode : null, undefined)
-  const theme = useMemo(() => (context && mode !== undefined ? { ...context.theme, mode: mode as typeof context.theme.mode } : context?.theme), [context, mode])
   let renderTarget = element as ElementType
   if (asTarget != null && isValidElementType(asTarget)) {
     renderTarget = asTarget
@@ -84,7 +114,6 @@ export default function StyledRenderer<E extends NodeElement, TProps extends Rec
   return createElement(CacheProvider, { value: createServerCssCache() }, styled)
 }
 
-StyledRenderer.displayName = 'Styled'
 ;(StyledRenderer as { __meonodeAcceptsServerCss?: boolean }).__meonodeAcceptsServerCss = true
 
 export interface ThemedRuleProps {

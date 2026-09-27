@@ -160,6 +160,27 @@ describe('a css theme function reading `theme.mode`', () => {
   })
 })
 
+describe('an element whose css gains or loses a theme function between renders', () => {
+  it('is styled for the reader’s mode while it has one, and by its values once it has none', async () => {
+    stubStorage('night')
+    let withFunction = false
+    const container = document.body.appendChild(document.createElement('div'))
+    const root = createRoot(container)
+    const render = () => root.render(page(() => Div({ id: 'styled', css: withFunction ? byMode : { color: 'rgb(0, 0, 3)' }, children: 'x' }).render()))
+    await act(async () => render())
+    expect(colorOf('styled')).toBe('rgb(0, 0, 3)')
+
+    withFunction = true
+    await act(async () => render())
+    expect(colorOf('styled')).toBe(NIGHT)
+
+    withFunction = false
+    await act(async () => render())
+    expect(colorOf('styled')).toBe('rgb(0, 0, 3)')
+    act(() => root.unmount())
+  })
+})
+
 describe('an element whose css holds no theme function', () => {
   it('does not re-render when the reader’s mode is adopted, or when it is set', async () => {
     stubStorage('night')

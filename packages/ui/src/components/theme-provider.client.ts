@@ -244,6 +244,8 @@ export interface ThemeContextState {
 export const ThemeContext = createContext<ThemeContextState | null>(null)
 
 const subscribeToNothing = () => () => {}
+const readNothing = () => undefined
+const increment = (count: number) => count + 1
 
 /**
  * A value derived from the provider's store, read the way a hydrating reader
@@ -251,21 +253,24 @@ const subscribeToNothing = () => () => {}
  * in the same commit, before paint. `useSyncExternalStore` alone would catch up
  * only in a passive effect, after a frame showing the server's value.
  *
- * Only the component calling it re-renders when the value changes.
+ * Only the component calling it re-renders when the value changes. Reading
+ * nothing — no store, or no selector — costs a subscription to nothing and a
+ * layout effect that runs once, at mount.
  * @param store The provider's store, or `null` with no provider above.
  * @param select What to read from a snapshot, or `null` to read nothing and never re-render.
- * @param fallback The value when there is no store or nothing to read.
- * @returns The value.
+ * @returns The value, or `undefined` when nothing is read.
  */
-export function useThemeSnapshot<T>(store: ThemeStore | null, select: ((snapshot: ThemeSnapshot) => T) | null, fallback: T): T {
+export function useThemeSnapshot<T>(store: ThemeStore | null, select: ((snapshot: ThemeSnapshot) => T) | null): T | undefined {
   const reads = store !== null && select !== null
-  const getSnapshot = () => (reads ? select(store.getSnapshot()) : fallback)
-  const getServerSnapshot = () => (reads ? select(store.getServerSnapshot()) : fallback)
-  const value = useSyncExternalStore(reads ? store.subscribe : subscribeToNothing, getSnapshot, getServerSnapshot)
-  const [, renderAgain] = useReducer((count: number) => count + 1, 0)
+  const getSnapshot = reads ? () => select(store.getSnapshot()) : readNothing
+  const getServerSnapshot = reads ? () => select(store.getServerSnapshot()) : readNothing
+  const value = useSyncExternalStore<T | undefined>(reads ? store.subscribe : subscribeToNothing, getSnapshot, getServerSnapshot)
+  const [, renderAgain] = useReducer(increment, 0)
+  // A render that hydrated used the server's snapshot; one after that already
+  // reads the store, and a change to it arrives through the subscription.
   useIsomorphicLayoutEffect(() => {
-    if (getSnapshot() !== value) renderAgain()
-  })
+    if (reads && getSnapshot() !== value) renderAgain()
+  }, [reads, store, value])
   return value
 }
 

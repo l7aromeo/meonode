@@ -28,7 +28,8 @@ export const useTheme = (): ThemeContextValue => {
     throw new Error('useTheme must be used within a ThemeProvider')
   }
 
-  const snapshot = useThemeSnapshot(context.store, wholeSnapshot, context.store.getServerSnapshot())
+  // A store and a selector are both given, so a snapshot is always read.
+  const snapshot = useThemeSnapshot(context.store, wholeSnapshot) as ThemeSnapshot
 
   return useMemo(
     () => ({
