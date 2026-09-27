@@ -1,5 +1,5 @@
 'use client'
-import { useContext, createElement, Fragment, type ReactNode } from 'react'
+import { useContext, createElement, Fragment, type ReactNode, useSyncExternalStore } from 'react'
 import { PortalContext } from '@src/components/portal-provider.client.js'
 import { useDataChannel } from '@src/hook/useDataChannel.js'
 import type { PortalStackEntry } from '@src/types/node.type.js'
@@ -43,6 +43,9 @@ PortalLayerRenderer.displayName = 'PortalLayerRenderer'
  * Renders nothing when the stack is empty.
  * Must be used within a `PortalProvider`.
  */
+const SERVER_STACK: PortalStackEntry[] = []
+const getServerStack = () => SERVER_STACK
+
 export default function PortalHost(): ReactNode {
   const ctx = useContext(PortalContext)
 
@@ -50,7 +53,9 @@ export default function PortalHost(): ReactNode {
     throw new Error('PortalHost must be used within a PortalProvider')
   }
 
-  const { stack, hidePortalById } = ctx
+  const { hidePortalById } = ctx
+  // No layer is open on the server, and hydration has to reproduce that.
+  const stack = useSyncExternalStore(ctx.subscribe, ctx.getStack, getServerStack)
 
   if (stack.length === 0) return null
 
