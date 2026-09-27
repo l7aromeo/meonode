@@ -635,7 +635,7 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
               // report in `StyledRenderer` so a bad token surfaces on whichever
               // side happened to render it.
               reportThemeIssues(themedCss, activeTheme)
-              const cssWithDefaults = ThemeUtil.resolveDefaultStyle(themedCss)
+              const cssWithDefaults = themedCss
               // A key holding a theme token needs the theme's concrete value. With
               // a theme in scope it has been resolved above, and one still holding
               // a token names a value the theme lacks, so it is left out. With none,
