@@ -15,7 +15,7 @@ import { act, createElement, lazy, type ReactNode, Suspense, use } from 'react'
 import { hydrateRoot } from 'react-dom/client'
 import { renderToString } from 'react-dom/server'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ThemeProvider } from '@src/main.js'
+import { Div, ThemeProvider } from '@src/main.js'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -96,6 +96,12 @@ describe('a boundary still dehydrated when the provider adopts the reader’s mo
   })
 })
 
+function stubStored(stored: string) {
+  const map = new Map([['theme', stored]])
+  vi.stubGlobal('localStorage', { getItem: (k: string) => map.get(k) ?? null, setItem: (k: string, v: string) => void map.set(k, v) })
+  document.documentElement.setAttribute('data-theme', stored)
+}
+
 describe('a boundary whose content the server is still streaming when the provider adopts the reader’s mode', () => {
   /** React's own markup for a pending boundary, and the chunk that completes it. */
   const streamed = JSON.parse(execFileSync(process.execPath, [join(import.meta.dirname, '_suspense-stream.mjs')], { encoding: 'utf8' })) as {
@@ -108,7 +114,13 @@ describe('a boundary whose content the server is still streaming when the provid
     return createElement('p', { id: 'content' }, use(data))
   }
 
-  it('hydrates the content the server streamed, rather than rendering its own', async () => {
+  it.each([
+    ['directly below the provider', (boundary: ReactNode) => boundary],
+    [
+      'inside an element styled from the mode, which re-renders as the reader’s mode is adopted',
+      (boundary: ReactNode) => Div({ css: { color: (theme: { mode: string }) => (theme.mode === 'night' ? 'navy' : 'gold') }, children: boundary }).render(),
+    ],
+  ])('hydrates the content the server streamed, rather than rendering its own, %s', async (_, wrap) => {
     // The document is still loading while the stream is open; React client-renders
     // a boundary still pending once it is not.
     let readyState: DocumentReadyState = 'loading'
@@ -117,11 +129,19 @@ describe('a boundary whose content the server is still streaming when the provid
     ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = false
 
     const container = document.createElement('div')
-    container.innerHTML = renderToString(page(createElement('i', { id: 'slot' }))).replace('<!--$--><i id="slot"></i><!--/$-->', streamed.boundary)
+    stubStored('night')
+    const streamPage = (content: ReactNode) =>
+      ThemeProvider({
+        tokens: TOKENS,
+        modes: MODES,
+        defaultMode: 'morning',
+        children: wrap(createElement(Suspense, { fallback: createElement('p', { id: 'fallback' }, 'loading') }, content)),
+      } as never).render() as ReactNode
+    container.innerHTML = renderToString(streamPage(createElement('i', { id: 'slot' }))).replace('<!--$--><i id="slot"></i><!--/$-->', streamed.boundary)
     document.body.appendChild(container)
     let resolveData!: (text: string) => void
     const data = new Promise<string>(resolve => (resolveData = resolve))
-    const root = hydrateRoot(container, page(createElement(StreamedContent, { data })), { onRecoverableError: () => {} })
+    const root = hydrateRoot(container, streamPage(createElement(StreamedContent, { data })), { onRecoverableError: () => {} })
     try {
       await wait(30)
       expect(container.querySelector('template')).not.toBeNull()

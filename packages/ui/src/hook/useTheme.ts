@@ -1,9 +1,8 @@
 'use client'
-import { useContext, useEffect, useLayoutEffect, useMemo, useReducer, useSyncExternalStore } from 'react'
-import { ThemeContext, type ThemeContextValue } from '@src/components/theme-provider.client.js'
+import { useContext, useMemo } from 'react'
+import { ThemeContext, type ThemeContextValue, type ThemeSnapshot, useThemeSnapshot } from '@src/components/theme-provider.client.js'
 
-/** `useLayoutEffect` on the client, `useEffect` on the server, where a layout effect never runs and React warns about one. */
-const useIsomorphicLayoutEffect = typeof window === 'undefined' ? useEffect : useLayoutEffect
+const wholeSnapshot = (snapshot: ThemeSnapshot) => snapshot
 
 /**
  * Access to the theme context.
@@ -29,16 +28,7 @@ export const useTheme = (): ThemeContextValue => {
     throw new Error('useTheme must be used within a ThemeProvider')
   }
 
-  const { store } = context
-  const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getServerSnapshot)
-
-  // A render during hydration used the server's snapshot. When the reader's own
-  // differs, render again before paint; React would otherwise catch up only in a
-  // passive effect, after a frame showing the default.
-  const [, renderAgain] = useReducer((count: number) => count + 1, 0)
-  useIsomorphicLayoutEffect(() => {
-    if (store.getSnapshot() !== snapshot) renderAgain()
-  })
+  const snapshot = useThemeSnapshot(context.store, wholeSnapshot, context.store.getServerSnapshot())
 
   return useMemo(
     () => ({

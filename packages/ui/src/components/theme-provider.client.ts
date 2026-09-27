@@ -1,5 +1,16 @@
 'use client'
-import { createContext, createElement, type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react'
+import {
+  createContext,
+  createElement,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useReducer,
+  useState,
+  useSyncExternalStore,
+} from 'react'
 import type { Children, ResolvedThemeMode, ResolvedThemePreference, ResolvedThemeSystem, Theme, ThemeSystemModes } from '@src/types/node.type.js'
 import { Node } from '@src/core.node.js'
 import { buildThemeVariablesCss } from '@src/util/server-theme.util.js'
@@ -231,6 +242,32 @@ export interface ThemeContextState {
 }
 
 export const ThemeContext = createContext<ThemeContextState | null>(null)
+
+const subscribeToNothing = () => () => {}
+
+/**
+ * A value derived from the provider's store, read the way a hydrating reader
+ * must: the server's snapshot while it hydrates, and its own once it has, taken
+ * in the same commit, before paint. `useSyncExternalStore` alone would catch up
+ * only in a passive effect, after a frame showing the server's value.
+ *
+ * Only the component calling it re-renders when the value changes.
+ * @param store The provider's store, or `null` with no provider above.
+ * @param select What to read from a snapshot, or `null` to read nothing and never re-render.
+ * @param fallback The value when there is no store or nothing to read.
+ * @returns The value.
+ */
+export function useThemeSnapshot<T>(store: ThemeStore | null, select: ((snapshot: ThemeSnapshot) => T) | null, fallback: T): T {
+  const reads = store !== null && select !== null
+  const getSnapshot = () => (reads ? select(store.getSnapshot()) : fallback)
+  const getServerSnapshot = () => (reads ? select(store.getServerSnapshot()) : fallback)
+  const value = useSyncExternalStore(reads ? store.subscribe : subscribeToNothing, getSnapshot, getServerSnapshot)
+  const [, renderAgain] = useReducer((count: number) => count + 1, 0)
+  useIsomorphicLayoutEffect(() => {
+    if (getSnapshot() !== value) renderAgain()
+  })
+  return value
+}
 
 /**
  * The internal implementation of the ThemeProvider component.
