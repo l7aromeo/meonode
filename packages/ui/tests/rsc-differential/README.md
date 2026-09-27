@@ -80,7 +80,7 @@ Each entry names the `case`, why it differs (`change`) and what intends it
 
 ```json
 {
-  "baseline": "3.1.1",
+  "baseline": "3.1.2",
   "differences": [
     {
       "case": "flex-defaults",
