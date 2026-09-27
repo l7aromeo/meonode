@@ -720,3 +720,115 @@ describe.each(['cc', 'plain'] as const)('providers rendered from a server compon
     }
   })
 })
+
+describe.each(['cc', 'plain'] as const)('a Suspense boundary still dehydrated when ThemeProvider mounts (%s)', variant => {
+  let browser: Browser | null = null
+  beforeAll(async () => {
+    browser = await chromium.launch({ headless: true })
+  })
+  afterAll(async () => {
+    await browser?.close()
+  })
+
+  const CHUNK_MARKER = '__meonode_delayed_hydration_chunk__'
+
+  /**
+   * Loads `path#target` with the boundary held dehydrated while the provider
+   * mounts, and reports what became of its server-rendered content.
+   *
+   * `/hydration/streamed` holds it by streaming the content 1.5 s after the
+   * shell; `/hydration/chunk` sends the content in the HTML but holds back the
+   * on-demand chunk of the component inside the boundary. `stored` puts a mode
+   * other than the default in storage before the page loads. The same pages
+   * under `/hydration-control` have no `ThemeProvider` above them.
+   */
+  async function load(path: string, stored: boolean) {
+    const context = await browser!.newContext()
+    const page = await context.newPage()
+    const errors: string[] = []
+    page.on('console', message => message.type() === 'error' && errors.push(message.text()))
+    page.on('pageerror', error => errors.push(String(error)))
+    await page.addInitScript(
+      ({ stored }) => {
+        if (stored) localStorage.setItem('theme', 'dark')
+        // The first content element to enter the document: the server's.
+        new MutationObserver(() => {
+          const content = document.querySelector('[data-testid="content"]')
+          if (content && !(window as { __firstContent?: Element }).__firstContent) (window as { __firstContent?: Element }).__firstContent = content
+        }).observe(document, { childList: true, subtree: true })
+      },
+      { stored },
+    )
+    let held = 0
+    if (path.endsWith('/chunk')) {
+      await page.route('**/_next/static/chunks/**', async route => {
+        const response = await route.fetch()
+        const body = await response.text()
+        if (body.includes(CHUNK_MARKER)) {
+          held++
+          await new Promise(resolve => setTimeout(resolve, 1500))
+        }
+        await route.fulfill({ response, body })
+      })
+    }
+    try {
+      await page.goto(`http://localhost:${port(variant)}${path}#target`, { waitUntil: 'load' })
+      await page.waitForFunction(() => (window as { __articleMounted?: number }).__articleMounted)
+      await page.waitForTimeout(300)
+      return {
+        ...(await page.evaluate(() => {
+          const content = document.querySelector('[data-testid="content"]') as HTMLElement | null
+          const target = document.getElementById('target')
+          return {
+            sameNode: content !== null && content === (window as { __firstContent?: Element }).__firstContent,
+            renderedOn: content?.getAttribute('data-rendered-on'),
+            mounts: (window as { __articleMounted?: number }).__articleMounted,
+            scrolled: (content?.scrollTop ?? 0) > 0,
+            targetInView: !!content && !!target && Math.abs(target.getBoundingClientRect().top - content.getBoundingClientRect().top) < 5,
+            mode: document.documentElement.getAttribute('data-theme'),
+          }
+        })),
+        errors,
+        held: path.endsWith('/chunk') ? held : null,
+      }
+    } finally {
+      await context.close()
+    }
+  }
+
+  // The article's `data-rendered-on` is the direct signal: `client` means the
+  // boundary's server HTML was discarded and rendered again. Production React
+  // reports nothing to the console when that happens, so `errors` guards only
+  // against other failures.
+  //
+  // A streamed boundary's server node may never enter the document once its
+  // boundary has switched to client rendering, and Chrome does not scroll to a
+  // fragment inside content that streams in, so node identity and the fragment
+  // scroll are asserted for the on-demand chunk, whose server HTML is in the
+  // document from the start.
+  it.each([
+    ['/hydration-control/streamed', false],
+    ['/hydration-control/chunk', false],
+    ['/hydration/streamed', false],
+    ['/hydration/streamed', true],
+    ['/hydration/chunk', false],
+    ['/hydration/chunk', true],
+  ] as const)('hydrates the server HTML in place (%s, stored mode: %s)', async (path, stored) => {
+    const result = await load(path, stored)
+    const control = path.startsWith('/hydration-control')
+    const chunk = path.endsWith('/chunk')
+    expect({
+      renderedOn: result.renderedOn,
+      mounts: result.mounts,
+      mode: result.mode,
+      errors: result.errors,
+      ...(chunk && { sameNode: result.sameNode, scrolled: result.scrolled, targetInView: result.targetInView, held: result.held }),
+    }).toEqual({
+      renderedOn: 'server',
+      mounts: 1,
+      mode: control ? null : stored ? 'dark' : 'light',
+      errors: [],
+      ...(chunk && { sameNode: true, scrolled: true, targetInView: true, held: 1 }),
+    })
+  })
+})
