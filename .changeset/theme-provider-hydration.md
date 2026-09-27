@@ -18,3 +18,7 @@ have the reader's mode from their first render.
 `PortalProvider` had the same problem when a layer was opened while the page was
 still hydrating, from a mount effect for instance: opening one now re-renders
 `PortalHost` alone.
+
+A `css` theme function reading `theme.mode` inside a boundary that hydrates after
+the provider now shows the reader's mode. It kept the default mode's style until
+something else re-rendered it.
