@@ -14,8 +14,9 @@ const eslintConfig = [
     // Standalone benchmark scripts run as plain node processes, not under
     // vitest, so they legitimately use node globals. The same goes for the
     // helper scripts the package.json invokes directly, and the RSC fixture's
-    // Next config is node-side build configuration for the same reason.
-    files: ['bench/**/*.mjs', 'scripts/**/*.mjs', 'tests/rsc-fixtures/**/next.config.mjs'],
+    // Next config is node-side build configuration for the same reason, and so is
+    // the RSC differential harness, which drives Next and Chromium from node.
+    files: ['bench/**/*.mjs', 'scripts/**/*.mjs', 'tests/rsc-fixtures/**/next.config.mjs', 'tests/rsc-differential/**/*.mjs'],
     languageOptions: {
       ecmaVersion: 2023,
       sourceType: 'module',
