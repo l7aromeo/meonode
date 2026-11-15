@@ -1,0 +1,50 @@
+# Runs the compiler on the newest hosts every night.
+#
+# A plugin and its host have to share swc's AST generation, and a new
+# generation arrives with a host release, not with a change here: the next
+# @swc/core, Next or @vitejs/plugin-react-swc. ci.yml checks the latest hosts
+# only when a pull request runs, so without this a new generation would reach
+# users before anything here turned red. See the compiler README's Version
+# compatibility.
+name: Compiler hosts
+
+on:
+  schedule:
+    - cron: '41 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  HUSKY: 0
+
+jobs:
+  latest-hosts:
+    name: Compiler on the latest hosts
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip1
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: packages/compiler
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun run build:compiler
+      - name: Install the latest @swc/core
+        working-directory: ${{ runner.temp }}
+        run: |
+          mkdir host && cd host
+          echo '{ "private": true }' > package.json
+          bun add @swc/core@latest
+      - run: bunx vitest run tests/host-compat.test.ts
+        working-directory: packages/compiler
+        env:
+          MEONODE_SWC_HOST: ${{ runner.temp }}/host
+      - run: bun run test:e2e
+        env:
+          MEONODE_E2E_LATEST: '1'
