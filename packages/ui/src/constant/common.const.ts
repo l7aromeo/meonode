@@ -43,9 +43,21 @@ export let __DEBUG__ = false
  */
 let __DEV_MODE__ = readDevMode()
 
+/**
+ * Written as the bare `process.env.NODE_ENV` because that is the expression
+ * bundlers substitute with a string literal — Vite in dev (pre-bundled or not)
+ * and in its builds, webpack and Turbopack — so in a browser bundle it never
+ * reaches `process` and folds to a constant in production. Vite leaves a
+ * `typeof process` guard alone, and a browser has no `process`, so a guard in
+ * front of the read would turn development off under `vite dev`.
+ *
+ * Where nothing substitutes it and no `process` exists — a bundle that defines
+ * nothing, or the ESM build loaded straight from an import map — the read throws
+ * a ReferenceError, and that counts as production.
+ */
 function readDevMode(): boolean {
   try {
-    return typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production'
+    return process.env.NODE_ENV !== 'production'
   } catch {
     return false
   }
