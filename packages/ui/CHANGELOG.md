@@ -1,5 +1,22 @@
 # @meonode/ui
 
+## 3.1.4
+
+### Patch Changes
+
+- [#61](https://github.com/l7aromeo/meonode/pull/61) [`621f248`](https://github.com/l7aromeo/meonode/commit/621f248f96f7b7d885412fd9c95ac7b2304f3e20) Thanks [@l7aromeo](https://github.com/l7aromeo)! - Development warnings now appear under `vite dev` ([#54](https://github.com/l7aromeo/meonode/issues/54)). MeoNode decided it was in
+  development only when a `process` global existed, and Vite gives the browser
+  none, so every warning — an undefined theme token, a number written as a
+  string, a unitless media query, a dropped theme function — stayed silent in
+  Vite apps.
+
+  `NODE_ENV` is now read as the `process.env.NODE_ENV` that bundlers substitute,
+  so it is on under `vite dev` and `next dev`, in Node and in Vitest, and off in
+  production builds, where the check still folds to a constant. A browser bundle
+  in which nothing substitutes it counts as production.
+
+- [#59](https://github.com/l7aromeo/meonode/pull/59) [`e3e7edd`](https://github.com/l7aromeo/meonode/commit/e3e7eddfb85c75454a21530108de93e937552d03) Thanks [@l7aromeo](https://github.com/l7aromeo)! - The development warning for a theme function (`theme => …`) dropped in a server component no longer says that no `ThemeProvider` is above the element. A provider may well be above it; a server component cannot run the function. The warning now says so, and points to a `theme.*` token string or a client component. On the client, where the cause is a missing provider, the wording is unchanged. Fixes [#52](https://github.com/l7aromeo/meonode/issues/52).
+
 ## 3.1.3
 
 ### Patch Changes
