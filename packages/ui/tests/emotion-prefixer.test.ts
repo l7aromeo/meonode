@@ -6,9 +6,15 @@
 // default plugins write; this fails the day an Emotion release changes them.
 import createCache from '@emotion/cache'
 import { serializeStyles } from '@emotion/serialize'
-import { prefixer as stylisPrefixer } from 'stylis'
+import { createRequire } from 'node:module'
 import { describe, expect, it } from 'vitest'
 import { prefixer } from '@src/util/emotion-prefixer.util.js'
+
+// Emotion may resolve a different stylis release from the one meonode depends on, and
+// stylis's own prefixer cannot run inside another release's pipeline. The comparison
+// takes it from the copy Emotion itself loads.
+const emotionRequire = createRequire(createRequire(import.meta.url).resolve('@emotion/cache'))
+const { prefixer: stylisPrefixer } = emotionRequire('stylis') as typeof import('stylis')
 
 /** Every declaration and selector shape either Emotion's prefixer or stylis's handles. */
 const CORPUS: Record<string, unknown>[] = [

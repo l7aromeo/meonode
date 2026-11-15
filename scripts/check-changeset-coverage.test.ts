@@ -44,6 +44,9 @@ function repo(): string {
   write(dir, 'packages/pkg/README.md', '# pkg\n')
   write(dir, 'packages/pkg/src/index.ts', 'export const a = 1\n')
   write(dir, 'packages/pkg/tests/index.test.ts', 'test\n')
+  // @manypkg/get-packages picks the package manager, and so finds the workspaces, by
+  // which lockfile exists; without one it sees the root package alone.
+  write(dir, 'bun.lock', '{}\n')
   git(dir, 'init', '-q', '-b', 'main')
   git(dir, 'config', 'user.email', 'test@example.com')
   git(dir, 'config', 'user.name', 'test')

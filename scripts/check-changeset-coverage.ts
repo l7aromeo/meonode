@@ -172,6 +172,13 @@ const [{ packages }, changedFiles, editedChangesetFiles, allChangesets] = await 
 
 const sources = readPublishedSources()
 
+// With no lockfile to detect the package manager by, @manypkg/get-packages falls back
+// to the root package alone, and every package would silently count as unchanged.
+if (!packages.some(p => !p.packageJson.private)) {
+  console.error(`Found no publishable packages under ${cwd}, so nothing could be checked.`)
+  process.exit(1)
+}
+
 /** Each publishable package whose published content changed, with what changed. Private packages are never published. */
 const changed = new Map<string, string[]>()
 for (const pkg of packages) {

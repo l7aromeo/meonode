@@ -385,7 +385,9 @@ function saveExcludedCache(cache) {
 }
 
 function runTypeCheck() {
-  const tscBin = require.resolve('typescript/bin/tsc')
+  // The TypeScript 7 compiler. `typescript` resolves to the 6.0 API package that the build
+  // tools need, and `@typescript/native` does not export its bin path.
+  const tscBin = path.join(path.dirname(require.resolve('@typescript/native/package.json')), 'bin/tsc')
   return spawnSync(process.execPath, [tscBin, '--noEmit', '--pretty', 'false'], {
     cwd: ROOT,
     encoding: 'utf8',
