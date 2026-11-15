@@ -1514,7 +1514,7 @@ mod tests {
         let Expr::Arrow(arrow) = find_prop(d, "onClick") else {
             panic!("expected onClick's value to still be an arrow expr");
         };
-        let BlockStmtOrExpr::Expr(body) = &*arrow.body else {
+        let ArrowFunctionBody::Expr(body) = &*arrow.body else {
             panic!("expected an expression arrow body");
         };
         let Expr::Call(nested_call) = &**body else {

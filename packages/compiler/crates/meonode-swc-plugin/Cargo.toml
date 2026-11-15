@@ -12,12 +12,12 @@ publish = false
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-swc_core = { version = "74", features = ["ecma_plugin_transform"] }
+swc_core = { version = "84", features = ["ecma_plugin_transform"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
 [dev-dependencies]
-swc_core = { version = "74", features = ["testing_transform", "ecma_parser"] }
+swc_core = { version = "84", features = ["testing_transform", "ecma_parser"] }
 
 # Compiles to a single .wasm plugin binary consumed by:
 #   - Next.js (Turbopack/webpack) via experimental.swcPlugins

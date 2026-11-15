@@ -24,6 +24,9 @@ const compiled = process.env.MEONODE_COMPILED === '1'
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: false,
+  // `next dev` otherwise writes an AGENTS.md into this fixture when it detects a
+  // coding agent in the environment.
+  agentRules: false,
   // Package name, not a resolved path — Turbopack resolves the plugin itself
   // and fails on an absolute path.
   ...(compiled ? { experimental: { swcPlugins: [['@meonode/compiler', {}]] } } : {}),
