@@ -259,6 +259,43 @@ jobs:
       # `cargo build` alone cannot show.
       - run: bun run --filter @meonode/compiler-repo test
 
+  # The plugin and its host have to share swc's AST generation; a mismatch fails
+  # the build (see the compiler README's Version compatibility). Each entry loads
+  # one plugin build in one @swc/core: this checkout on the line it serves,
+  # including the latest @swc/core so a new generation fails here first, and the
+  # published 0.9.0 on the older line it still serves.
+  host-compat:
+    name: Host compat (${{ matrix.plugin }} on @swc/core ${{ matrix.swc }})
+    needs: [changes, wasm]
+    if: needs.changes.outputs.compiler == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { plugin: this checkout, swc: 1.16.0 }
+          - { plugin: this checkout, swc: latest }
+          - { plugin: 0.9.0, swc: 1.15.47, published: true }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - uses: actions/download-artifact@v8
+        with:
+          name: meonode-swc-plugin
+          path: packages/compiler/npm
+      - name: Install the host
+        working-directory: ${{ runner.temp }}
+        run: |
+          mkdir host && cd host
+          echo '{ "private": true }' > package.json
+          bun add "@swc/core@${{ matrix.swc }}" ${{ matrix.published && format('@meonode/compiler@{0}', matrix.plugin) || '' }}
+      - run: bunx vitest run tests/host-compat.test.ts
+        working-directory: packages/compiler
+        env:
+          MEONODE_SWC_HOST: ${{ runner.temp }}/host
+          MEONODE_PLUGIN_WASM: ${{ matrix.published && format('{0}/host/node_modules/@meonode/compiler/meonode_swc_plugin.wasm', runner.temp) || '' }}
+
   css-drift:
     name: CSS prop + factory drift
     needs: changes
@@ -295,6 +332,41 @@ jobs:
           name: meonode-swc-plugin
           path: packages/compiler/npm
       - run: bun run test:e2e
+
+  # The same fixtures on hosts the lockfiles do not pin: the latest Next,
+  # @vitejs/plugin-react-swc and @swc/core, so a new host generation fails CI
+  # before it reaches users; and the published 0.9.0 on Next 16.3.8 and
+  # @swc/core 1.15.47, the older line it still serves, against this checkout's
+  # @meonode/ui.
+  e2e-hosts:
+    name: E2E hosts (${{ matrix.name }})
+    needs: [changes, wasm]
+    if: needs.changes.outputs.compiler == 'true' || needs.changes.outputs.ui == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: this checkout on the latest hosts
+            latest: '1'
+          - name: 0.9.0 on Next 16.3.8 and @swc/core 1.15.47
+            compiler: 0.9.0
+            next: 16.3.8
+            swc: 1.15.47
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - uses: actions/download-artifact@v8
+        with:
+          name: meonode-swc-plugin
+          path: packages/compiler/npm
+      - run: bun run test:e2e
+        env:
+          MEONODE_E2E_LATEST: ${{ matrix.latest }}
+          MEONODE_E2E_COMPILER: ${{ matrix.compiler }}
+          MEONODE_E2E_NEXT: ${{ matrix.next }}
+          MEONODE_E2E_SWC: ${{ matrix.swc }}
 
   mui-generated-sync:
     name: mui generated files in sync
