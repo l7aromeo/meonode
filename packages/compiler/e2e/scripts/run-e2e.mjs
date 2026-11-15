@@ -19,12 +19,26 @@
 // NOT part of the default `bun run test`, since spawning two real bundler
 // builds is much slower than the unit/vitest suite.
 //
-// Next.js is built via Turbopack only here (the fixture's default `build`
-// script); `build:webpack` / `build:webpack:no-plugin` exist in
-// e2e/next-app/package.json for manual/CI diagnostic use if Turbopack ever
-// rejects the plugin, but aren't part of this automated pass.
+// Next.js is built with Turbopack and with webpack. Next runs swc plugins in
+// its own native host under both, so each bundler is a separate place the
+// plugin can fail to load.
+//
+// The fixtures' lockfiles pin the hosts. CI also runs this against other hosts
+// and other plugin builds, through these variables (unset means the lockfile's
+// version, or this checkout's plugin):
+//   MEONODE_E2E_TARGETS   which builds to run: any of turbopack,webpack,vite
+//   MEONODE_E2E_COMPILER  a published @meonode/compiler version to test instead
+//                         of this checkout's wasm
+//   MEONODE_E2E_NEXT      the next version for next-app
+//   MEONODE_E2E_SWC       the @swc/core version for vite-app
+//   MEONODE_E2E_LATEST=1  the latest next, @vitejs/plugin-react-swc and
+//                         @swc/core, so a new host generation turns CI red
+// Overrides install with `bun add --no-save`, leaving package.json and the
+// lockfile as they are.
 import { execFileSync } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { existsSync, readFileSync, realpathSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { cp, mkdir, readdir, rm } from 'node:fs/promises'
 import path from 'node:path'
 
@@ -76,9 +90,24 @@ async function packWorkspaceUi() {
   return path.join(PACK_DIR, tarball)
 }
 
-/** Replaces a fixture's installed @meonode/ui with the packed workspace build. */
-async function overlayUi(fixtureDir, tarball) {
-  const dest = path.join(fixtureDir, 'node_modules/@meonode/ui')
+/**
+ * Fetches a published @meonode/compiler tarball. Installing it by version would be a
+ * no-op whenever that version equals the one the fixtures' `file:` link points at,
+ * which bun treats as already satisfied.
+ */
+async function packPublishedCompiler(version) {
+  const dir = path.join(E2E_DIR, '.compiler-pack')
+  await rm(dir, { recursive: true, force: true })
+  await mkdir(dir, { recursive: true })
+  run('npm', ['pack', `@meonode/compiler@${version}`, '--pack-destination', dir], E2E_DIR)
+  const tarball = (await readdir(dir)).find(f => f.endsWith('.tgz'))
+  if (!tarball) throw new Error(`npm pack produced no @meonode/compiler@${version} tarball in ${dir}`)
+  return path.join(dir, tarball)
+}
+
+/** Replaces a fixture's installed `name` with the contents of a packed tarball. */
+async function overlayPackage(fixtureDir, name, tarball) {
+  const dest = path.join(fixtureDir, 'node_modules', name)
   await rm(dest, { recursive: true, force: true })
   await mkdir(dest, { recursive: true })
   // --strip-components=1 drops npm's leading `package/` directory.
@@ -95,58 +124,139 @@ async function buildTwice({ label, cwd, outDir, buildScript, noPluginScript, onD
   await replaceDir(path.join(cwd, outDir), path.join(cwd, offDir))
 }
 
+/** An override variable, with an empty value read as unset (a CI matrix entry that leaves it out passes ''). */
+const setting = name => process.env[name] || undefined
+
+const TARGETS = new Set((setting('MEONODE_E2E_TARGETS') ?? 'turbopack,webpack,vite').split(',').map(t => t.trim()))
+for (const target of TARGETS) {
+  if (!['turbopack', 'webpack', 'vite'].includes(target)) throw new Error(`unknown MEONODE_E2E_TARGETS entry: ${target}`)
+}
+const LATEST = setting('MEONODE_E2E_LATEST') === '1'
+const PUBLISHED_COMPILER = setting('MEONODE_E2E_COMPILER')
+const NEXT_VERSION = setting('MEONODE_E2E_NEXT') ?? (LATEST ? 'latest' : undefined)
+const SWC_VERSION = setting('MEONODE_E2E_SWC') ?? (LATEST ? 'latest' : undefined)
+const runNext = TARGETS.has('turbopack') || TARGETS.has('webpack')
+const runVite = TARGETS.has('vite')
+
 // `main` in npm/package.json is the wasm file itself, so when it is missing the
 // bundlers report the whole package as unresolvable — "Module not found: Can't
 // resolve '@meonode/compiler'" — which says nothing about the actual cause.
-if (!existsSync(path.join(E2E_DIR, '../npm/meonode_swc_plugin.wasm'))) {
+if (!PUBLISHED_COMPILER && !existsSync(path.join(E2E_DIR, '../npm/meonode_swc_plugin.wasm'))) {
   throw new Error('e2e needs the @meonode/compiler wasm artifact, which has not been built.\n' + 'Run `bun run build:compiler` from the repo root first.')
 }
 
+/** Installs the overriding versions into a fixture without touching its package.json or lockfile. */
+function addNoSave(fixtureDir, specs) {
+  if (specs.length > 0) run('bun', ['add', '--no-save', ...specs], fixtureDir)
+}
+
+/**
+ * The directory of `name` as installed for code at `fromDir`, found along Node's own
+ * lookup paths. Read from disk rather than through `require`, because several of
+ * these packages do not export their package.json.
+ */
+function installedDir(name, fromDir) {
+  const candidates = createRequire(path.join(fromDir, 'package.json')).resolve.paths(name) ?? []
+  const dir = candidates.map(base => path.join(base, name)).find(d => existsSync(path.join(d, 'package.json')))
+  if (!dir) throw new Error(`${name} is not installed for ${fromDir}`)
+  return realpathSync(dir)
+}
+
+const versionAt = dir => JSON.parse(readFileSync(path.join(dir, 'package.json'), 'utf8')).version
+
+/** Prints the hosts and plugin a fixture actually resolved, read from the installed packages. */
+function reportResolved(label, fixtureDir, hostPackages) {
+  const versions = hostPackages.map(([name, from]) => {
+    const fromDir = from ? installedDir(from, fixtureDir) : fixtureDir
+    return `${name}@${versionAt(installedDir(name, fromDir))}`
+  })
+  const compilerDir = installedDir('@meonode/compiler', fixtureDir)
+  const wasm = readFileSync(path.join(compilerDir, 'meonode_swc_plugin.wasm'))
+  // The version alone cannot tell the published build from this checkout's, whose
+  // manifest may carry the same version, and bun copies a `file:` dependency rather than
+  // linking it. The bytes can.
+  const checkoutWasm = path.join(E2E_DIR, '../npm/meonode_swc_plugin.wasm')
+  const isCheckout = existsSync(checkoutWasm) && wasm.equals(readFileSync(checkoutWasm))
+  if (PUBLISHED_COMPILER && (versionAt(compilerDir) !== PUBLISHED_COMPILER || isCheckout)) {
+    throw new Error(`${label} resolved @meonode/compiler@${versionAt(compilerDir)} with this checkout's wasm, not the published ${PUBLISHED_COMPILER}`)
+  }
+  const sha = createHash('sha256').update(wasm).digest('hex').slice(0, 16)
+  console.log(`\n=== ${label} resolved: ${versions.join(' ')} @meonode/compiler@${versionAt(compilerDir)} (wasm sha256 ${sha}…) ===`)
+}
+
 const uiTarball = await packWorkspaceUi()
+const compilerTarball = PUBLISHED_COMPILER ? await packPublishedCompiler(PUBLISHED_COMPILER) : undefined
 
-console.log('=== bun install: e2e/next-app ===')
-run('bun', ['install'], NEXT_APP_DIR)
-await overlayUi(NEXT_APP_DIR, uiTarball)
+if (runNext) {
+  console.log('=== bun install: e2e/next-app ===')
+  run('bun', ['install'], NEXT_APP_DIR)
+  addNoSave(NEXT_APP_DIR, [...(NEXT_VERSION ? [`next@${NEXT_VERSION}`] : [])])
+  await overlayPackage(NEXT_APP_DIR, '@meonode/ui', uiTarball)
 
-// bun installs a `file:` dep's node_modules entry as a symlink per
-// top-level file rather than one directory symlink (see
-// link-local-packages.mjs's own header comment for the full story).
-// Turbopack's package.json reader can't parse that shape, so normalize
-// @meonode/compiler (still file:-linked against ../../npm) into a plain
-// directory symlink after every install — bun re-creates the broken shape
-// on each `bun install`. @meonode/ui doesn't need this: it is a registry
-// dependency installed as a normal package directory, which `overlayUi` then
-// replaces with the packed workspace build.
-run('node', [path.join(SCRIPTS_DIR, 'link-local-packages.mjs'), 'node_modules/@meonode/compiler', '../../npm'], NEXT_APP_DIR)
+  // bun installs a `file:` dep's node_modules entry as a symlink per
+  // top-level file rather than one directory symlink (see
+  // link-local-packages.mjs's own header comment for the full story).
+  // Turbopack's package.json reader can't parse that shape, so normalize
+  // @meonode/compiler (still file:-linked against ../../npm) into a plain
+  // directory symlink after every install — bun re-creates the broken shape
+  // on each `bun install`. @meonode/ui doesn't need this: it is a registry
+  // dependency installed as a normal package directory, which `overlayPackage` then
+  // replaces with the packed workspace build.
+  if (compilerTarball) await overlayPackage(NEXT_APP_DIR, '@meonode/compiler', compilerTarball)
+  else run('node', [path.join(SCRIPTS_DIR, 'link-local-packages.mjs'), 'node_modules/@meonode/compiler', '../../npm'], NEXT_APP_DIR)
+  reportResolved('next-app', NEXT_APP_DIR, [['next']])
+}
 
-console.log('\n=== bun install: e2e/vite-app ===')
-run('bun', ['install'], VITE_APP_DIR)
-await overlayUi(VITE_APP_DIR, uiTarball)
+if (runVite) {
+  console.log('\n=== bun install: e2e/vite-app ===')
+  run('bun', ['install'], VITE_APP_DIR)
+  addNoSave(VITE_APP_DIR, [...(LATEST ? ['@vitejs/plugin-react-swc@latest'] : []), ...(SWC_VERSION ? [`@swc/core@${SWC_VERSION}`] : [])])
+  await overlayPackage(VITE_APP_DIR, '@meonode/ui', uiTarball)
+  if (compilerTarball) await overlayPackage(VITE_APP_DIR, '@meonode/compiler', compilerTarball)
+  // The @swc/core that matters is the one the Vite plugin loads, so it is read from there.
+  reportResolved('vite-app', VITE_APP_DIR, [['vite'], ['@vitejs/plugin-react-swc'], ['@swc/core', '@vitejs/plugin-react-swc']])
+}
 
-await buildTwice({
-  label: 'next-app (Turbopack)',
-  cwd: NEXT_APP_DIR,
-  outDir: '.next',
-  buildScript: 'build',
-  noPluginScript: 'build:no-plugin',
-  onDir: '.next-on',
-  offDir: '.next-off',
-})
+if (TARGETS.has('turbopack')) {
+  await buildTwice({
+    label: 'next-app (Turbopack)',
+    cwd: NEXT_APP_DIR,
+    outDir: '.next',
+    buildScript: 'build',
+    noPluginScript: 'build:no-plugin',
+    onDir: '.next-on',
+    offDir: '.next-off',
+  })
+  console.log('\n=== next-app (Turbopack) parity check ===')
+  run('node', [path.join(SCRIPTS_DIR, 'next-render-compare.mjs')], E2E_DIR)
+}
 
-await buildTwice({
-  label: 'vite-app',
-  cwd: VITE_APP_DIR,
-  outDir: 'dist',
-  buildScript: 'build',
-  noPluginScript: 'build:no-plugin',
-  onDir: 'dist-on',
-  offDir: 'dist-off',
-})
+if (TARGETS.has('webpack')) {
+  await buildTwice({
+    label: 'next-app (webpack)',
+    cwd: NEXT_APP_DIR,
+    outDir: '.next',
+    buildScript: 'build:webpack',
+    noPluginScript: 'build:webpack:no-plugin',
+    onDir: '.next-webpack-on',
+    offDir: '.next-webpack-off',
+  })
+  console.log('\n=== next-app (webpack) parity check ===')
+  run('node', [path.join(SCRIPTS_DIR, 'next-render-compare.mjs'), '.next-webpack-on', '.next-webpack-off'], E2E_DIR)
+}
 
-console.log('\n=== next-app parity check ===')
-run('node', [path.join(SCRIPTS_DIR, 'next-render-compare.mjs')], E2E_DIR)
+if (runVite) {
+  await buildTwice({
+    label: 'vite-app',
+    cwd: VITE_APP_DIR,
+    outDir: 'dist',
+    buildScript: 'build',
+    noPluginScript: 'build:no-plugin',
+    onDir: 'dist-on',
+    offDir: 'dist-off',
+  })
+  console.log('\n=== vite-app parity check ===')
+  run('node', [path.join(SCRIPTS_DIR, 'vite-render-compare.mjs')], E2E_DIR)
+}
 
-console.log('\n=== vite-app parity check ===')
-run('node', [path.join(SCRIPTS_DIR, 'vite-render-compare.mjs')], E2E_DIR)
-
-console.log('\nOK: e2e Next (Turbopack) + Vite parity fixtures both pass')
+console.log(`\nOK: e2e parity passes for ${[...TARGETS].join(', ')}`)
