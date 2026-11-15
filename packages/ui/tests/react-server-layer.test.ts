@@ -32,8 +32,10 @@ const clientReference = (name: string) =>
 
 type Main = typeof import('@src/main.js')
 type NodeUtilModule = typeof import('@src/util/node.util.js')
+type DiagnosticsModule = typeof import('@src/util/theme-diagnostics.util.js')
 let main: Main
 let nodeUtil: NodeUtilModule['NodeUtil']
+let diagnostics: DiagnosticsModule
 
 beforeAll(async () => {
   // Export names come from the client graph, which loads these modules for real.
@@ -51,6 +53,7 @@ beforeAll(async () => {
   }
   main = await import('@src/main.js')
   nodeUtil = (await import('@src/util/node.util.js')).NodeUtil
+  diagnostics = await import('@src/util/theme-diagnostics.util.js')
 })
 
 afterAll(() => {
@@ -76,6 +79,24 @@ describe('the runtime in the React Server Components layer', () => {
     const child = { unknown: true }
     const element = main.Div({ children: child as never }).render() as ReactElement<{ children: unknown }>
     expect(element.props.children).toBe(child)
+  })
+
+  // A provider may be above a server component; a function still cannot run there.
+  it('says a dropped theme function cannot run in a server component, not that a provider is missing', () => {
+    diagnostics.__resetThemeDiagnostics()
+    const warnings: string[] = []
+    const spy = vi.spyOn(console, 'warn').mockImplementation((...args: unknown[]) => void warnings.push(String(args[0])))
+    try {
+      main.Div({ css: { color: theme => String(theme.mode) }, children: 'x' }).render()
+    } finally {
+      spy.mockRestore()
+    }
+    const dropped = warnings.filter(w => w.includes('theme function'))
+    expect(dropped).toHaveLength(1)
+    expect(dropped[0]).toContain('for `color`')
+    expect(dropped[0]).toContain('server component')
+    expect(dropped[0]).toContain('client component')
+    expect(dropped[0]).not.toContain('no ThemeProvider')
   })
 
   it('returns what a render-prop child returns', () => {
