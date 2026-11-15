@@ -33,7 +33,7 @@
     "check:drift": "bun run --filter @meonode/compiler-repo check:drift",
     "ci": "bun run ci:build && bun run ci:static && bun run ci:test",
     "ci:build": "bun run build:compiler && bun run build:ui && bun run --filter @meonode/ui prepare:rsc-fixture && bun run build:mui",
-    "ci:static": "bun run lint && bun run check:format && bun run typecheck && bun run check:drift",
+    "ci:static": "bun run lint && bun run check:format && bun run typecheck && bun run check:drift && bun run test:scripts",
     "ci:test": "bun run test:ui && bun run test:rsc && bun run test:compiler && bun run test:e2e",
     "ci:generated": "bun run build:ui && bun run --filter @meonode/mui generate:lib && git diff --exit-code -- packages/mui",
     "prepare": "husky",
@@ -42,6 +42,7 @@
     "release": "changeset publish",
     "check:format": "prettier --check packages/compiler",
     "check:changesets": "bun run scripts/check-changeset-coverage.ts",
+    "test:scripts": "bun test scripts",
     "release:dry": "bun run scripts/release-dryrun.ts"
   },
   "devDependencies": {

@@ -61,9 +61,9 @@ Changesets. Describe the change and the bump it wants:
 bun run changeset
 ```
 
-Commit the generated `.changeset/*.md` alongside the code. CI requires one on
-any pull request touching a published package — use `bunx changeset add --empty`
-for changes that ship nothing.
+Commit the generated `.changeset/*.md` alongside the code. CI requires one
+naming each package whose published content changes; a change that publishes
+nothing, such as a devDependency bump or a test, needs none.
 
 Merging to `main` opens a "Version Packages" pull request with the bumps and
 changelog entries. Merging *that* publishes to npm via trusted publishing and

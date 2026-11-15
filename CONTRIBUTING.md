@@ -152,7 +152,7 @@ Before requesting a review, ensure:
 - [ ] TypeScript types are correct and compile.
 - [ ] The PR description explains the rationale and any backward compatibility impacts.
 - [ ] Update docs/README if public APIs changed.
-- [ ] Include a changeset (`bun run changeset`) for anything user-facing, or `bunx changeset add --empty` if the change ships nothing. CI checks for one.
+- [ ] Include a changeset (`bun run changeset`) naming each package whose published content changes. CI checks that each one is named; a change that publishes nothing needs none.
 
 ---
 
@@ -177,12 +177,13 @@ bun run changeset
 ```
 
 Commit the generated `.changeset/*.md` file with your code — it is part of the review, so the
-release it implies is visible in the diff rather than inferred from a commit message. For changes
-that ship nothing (CI, internal refactors), record that explicitly:
+release it implies is visible in the diff rather than inferred from a commit message.
 
-```bash
-bunx changeset add --empty
-```
+CI asks for a changeset only when something a package publishes changes: a file in its tarball,
+a source its build turns into one (listed in `.changeset/published-sources.json`), or a
+`package.json` field that reaches users, such as `dependencies` or `peerDependencies`. A change to
+`devDependencies`, scripts, tests or CI ships nothing and needs no changeset.
+`bun run check:changesets` runs the same check locally.
 
 Merging to `main` opens a "Version Packages" pull request holding the version bumps and changelog
 entries. Merging *that* publishes to npm and tags each released package as
