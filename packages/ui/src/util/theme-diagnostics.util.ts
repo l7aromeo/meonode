@@ -1,6 +1,7 @@
 import { __DEBUG__, isDevMode, refreshDevMode } from '@src/constant/common.const.js'
 import type { Theme } from '@src/types/node.type.js'
 import { toLengthVarName, wouldEmotionAddPx as emotionWouldAddPx } from '@src/util/css-unit.util.js'
+import { IS_REACT_SERVER_LAYER } from '@src/util/react-layer.util.js'
 
 /**
  * Development-time diagnostics for `theme.*` tokens.
@@ -324,6 +325,12 @@ export const reportUnresolvedThemeKey = (key: string): void => {
  * A theme function (`theme => …`) in a style reached with no theme to call it with,
  * and was dropped. Without this the author sees only a missing style.
  * Reported once per property.
+ *
+ * The cause, and so the fix, depends on where the element rendered. On the client
+ * it is a missing ThemeProvider. In a server component a provider may well be
+ * above it, but the provider holds the theme on the client, and a function cannot
+ * be handed across to run there; the value has to be a token string, or the
+ * element has to move into a client component.
  * @param property The CSS property the function was written against, when known.
  */
 export const reportDroppedThemeFunction = (property?: string): void => {
@@ -331,9 +338,13 @@ export const reportDroppedThemeFunction = (property?: string): void => {
   const seenKey = `dropped-function:${property ?? ''}`
   if (reported.has(seenKey)) return
   reported.add(seenKey)
+  const subject = `[MeoNode] A theme function ${property ? `for \`${property}\` ` : ''}was dropped`
   console.warn(
-    `[MeoNode] A theme function ${property ? `for \`${property}\` ` : ''}was dropped because no ThemeProvider is above this node. ` +
-      `Theme functions (\`theme => …\`) only run under a provider: render the tree inside ThemeProvider, or write the value directly.`,
+    IS_REACT_SERVER_LAYER
+      ? `${subject} because it is in a server component, which cannot run one: the theme is held by ThemeProvider on the client. ` +
+          `Write the value as a \`theme.*\` token string, which resolves on the server, or move this element into a client component.`
+      : `${subject} because no ThemeProvider is above this node. ` +
+          `Theme functions (\`theme => …\`) only run under a provider: render the tree inside ThemeProvider, or write the value directly.`,
   )
 }
 
