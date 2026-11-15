@@ -1,4 +1,6 @@
+import { readFileSync } from 'node:fs'
 import { chromium, type Browser, type BrowserContext, type Page } from '@playwright/test'
+import { SERVER_LOG } from './globalSetup.rsc.js'
 
 /**
  * RSC boundary integration tests.
@@ -89,7 +91,7 @@ async function getPage(
     allowRuntimeErrors?: boolean
     computedStyles?: readonly { testId: string; properties: readonly string[] }[]
   },
-): Promise<{ status: number; html: string; computedStyles: Record<string, Record<string, string>> }> {
+): Promise<{ status: number; html: string; computedStyles: Record<string, Record<string, string>>; messages: string[] }> {
   if (!browserContext) {
     throw new Error('Playwright browser context is not initialized')
   }
@@ -129,7 +131,7 @@ async function getPage(
       }
     }
 
-    return { status, html, computedStyles }
+    return { status, html, computedStyles, messages: runtimeMessages }
   } finally {
     await page.close()
   }
@@ -520,6 +522,19 @@ describe('G. Regression guards', () => {
 // ----- Category L -----
 
 describe('L. Diagnostics and anti-pattern documentation', () => {
+  it('reports an undefined theme token in development, on the server and in the browser', async () => {
+    const warning = 'theme.primary.missing (used for `color`) is not defined by the active theme'
+    const { status, messages } = await getPage('/theme/undefined-token')
+    expect(status).toBe(200)
+    expect(messages.some(text => text.includes(warning))).toBe(true)
+    // `next dev` echoes browser output into its own log under `[browser]`; the
+    // server's render of the client component is reported without it.
+    const serverLines = readFileSync(SERVER_LOG, 'utf8')
+      .split('\n')
+      .filter(line => !line.includes('[browser]'))
+    expect(serverLines.some(line => line.includes(warning))).toBe(true)
+  })
+
   it('direct client function call from server (documents behavior)', async () => {
     const { status, html } = await getPage('/diagnostic/server-direct-client', { allowRuntimeErrors: true })
     expect(status).toBeGreaterThanOrEqual(200)

@@ -1,5 +1,5 @@
 import { execSync, spawn } from 'node:child_process'
-import { writeFileSync, readFileSync, existsSync, copyFileSync, readdirSync } from 'node:fs'
+import { appendFileSync, writeFileSync, readFileSync, existsSync, copyFileSync, readdirSync } from 'node:fs'
 import { createServer } from 'node:net'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -11,6 +11,8 @@ const ROOT = path.resolve(__dirname, '..')
 const FIXTURE = path.resolve(ROOT, 'tests/rsc-fixtures/next-app')
 const PID_FILE = path.resolve(ROOT, 'tests/rsc-fixtures/.rsc-server-pid')
 const PORT_FILE = path.resolve(ROOT, 'tests/rsc-fixtures/.rsc-server-port')
+/** Everything `next dev` prints, for tests that check what the server reported. */
+export const SERVER_LOG = path.resolve(ROOT, 'tests/rsc-fixtures/.rsc-server.log')
 
 async function getFreePort(): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -160,6 +162,7 @@ export async function setup() {
   // Forwarded as it arrives, and kept by line so the warm-up can read what the
   // server reported while compiling.
   const serverOutput: string[] = []
+  writeFileSync(SERVER_LOG, '')
   for (const [stream, sink] of [
     [proc.stdout, process.stdout],
     [proc.stderr, process.stderr],
@@ -167,6 +170,7 @@ export async function setup() {
     stream.on('data', (chunk: Buffer) => {
       sink.write(chunk)
       serverOutput.push(...chunk.toString('utf8').split('\n'))
+      appendFileSync(SERVER_LOG, chunk)
     })
     ;(stream as unknown as { unref?: () => void }).unref?.()
   }

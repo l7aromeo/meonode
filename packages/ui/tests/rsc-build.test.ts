@@ -3,6 +3,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { chromium, type Browser } from '@playwright/test'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { serverLog } from './globalSetup.build.js'
 
 /**
  * What a production build of a MeoNode app emits.
@@ -904,5 +905,32 @@ describe.each(['cc', 'plain'] as const)('a Suspense boundary still dehydrated wh
       errors: [],
       ...(chunk && { sameNode: true, scrolled: true, targetInView: true, held: 1 }),
     })
+  })
+})
+
+describe.each(['cc', 'plain'] as const)('development diagnostics in a production build (%s)', variant => {
+  let browser: Browser | null = null
+  beforeAll(async () => {
+    browser = await chromium.launch({ headless: true })
+  })
+  afterAll(async () => {
+    await browser?.close()
+  })
+
+  it('stay silent for an undefined theme token, on the server and in the browser', async () => {
+    const warning = 'theme.primary.missing (used for `color`) is not defined by the active theme'
+    const page = await browser!.newPage()
+    const messages: string[] = []
+    page.on('console', message => messages.push(message.text()))
+    page.on('pageerror', error => messages.push(error.message))
+    try {
+      await page.goto(`http://localhost:${port(variant)}/undefined-token`)
+      await page.getByTestId('undefined-token').waitFor()
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+    } finally {
+      await page.close()
+    }
+    expect(messages).toEqual([])
+    expect(readFileSync(serverLog(variant), 'utf8')).not.toContain(warning)
   })
 })

@@ -1,5 +1,5 @@
 import { execSync, spawn } from 'node:child_process'
-import { copyFileSync, existsSync, rmSync, writeFileSync } from 'node:fs'
+import { appendFileSync, copyFileSync, existsSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:net'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -21,6 +21,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.resolve(__dirname, '..')
 const FIXTURE = path.resolve(ROOT, 'tests/rsc-fixtures/next-build')
 const STATE_FILE = path.resolve(ROOT, 'tests/rsc-fixtures/.build-servers.json')
+/** Everything a variant's `next start` prints, for tests that check what the server reported. */
+export const serverLog = (variant: string) => path.resolve(ROOT, `tests/rsc-fixtures/.build-server-${variant}.log`)
 
 export const VARIANTS = {
   cc: { cacheComponents: true, distDir: '.next-cc' },
@@ -89,8 +91,21 @@ export async function setup() {
     execSync('bunx next build', { cwd: FIXTURE, stdio: 'inherit', env })
 
     const port = await getFreePort()
-    const child = spawn('bunx', ['next', 'start', '-p', String(port)], { cwd: FIXTURE, stdio: ['ignore', 'inherit', 'inherit'], detached: true, env })
+    const child = spawn('bunx', ['next', 'start', '-p', String(port)], { cwd: FIXTURE, stdio: ['ignore', 'pipe', 'pipe'], detached: true, env })
     child.unref()
+    // Forwarded as before, and kept in a file so a test can read what the server reported.
+    const log = serverLog(name)
+    writeFileSync(log, '')
+    for (const [stream, sink] of [
+      [child.stdout, process.stdout],
+      [child.stderr, process.stderr],
+    ] as const) {
+      stream.on('data', (chunk: Buffer) => {
+        sink.write(chunk)
+        appendFileSync(log, chunk)
+      })
+      ;(stream as unknown as { unref?: () => void }).unref?.()
+    }
     if (!child.pid) throw new Error(`failed to spawn next start (${name})`)
     servers[name] = { pid: child.pid, port }
     writeFileSync(STATE_FILE, JSON.stringify(servers))
