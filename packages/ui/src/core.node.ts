@@ -519,8 +519,8 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
           // reached people who already knew to look for it.
           //
           // Condition order is deliberate and a tidy-up would undo it.
-          // `diagnosticsEnabled()` is a call with a try/catch and a `process.env`
-          // read, so it goes last, behind two property comparisons.
+          // `diagnosticsEnabled()` is a function call, so it goes last, behind two
+          // property comparisons.
           // `callSiteLocation` is undefined unless the plugin ran with
           // `callSiteLocations` — nearly every build — so almost everyone
           // short-circuits on the first term and never reaches the call.

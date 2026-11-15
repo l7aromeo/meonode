@@ -15,6 +15,7 @@
       "@src/*": ["./src/*"],
       "@tests/*": ["./tests/*"],
       "@meonode/ui": ["./src/main.ts"],
+      "@meonode/ui/client": ["./src/client.ts"],
       "@meonode/ui/nextjs-registry": ["./src/nextjs-registry/index.ts"]
     }
   },

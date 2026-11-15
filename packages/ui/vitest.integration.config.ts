@@ -14,6 +14,7 @@ export default defineConfig({
       './tests/rsc-theme-flicker.test.ts',
       './tests/build-output.test.ts',
       './tests/theme-length-browser.test.ts',
+      './tests/dev-mode-environments.test.ts',
     ],
     exclude: ['**/node_modules/**', '**/dist/**'],
     globalSetup: ['./tests/globalSetup.rsc.ts'],

@@ -317,7 +317,8 @@ Set it at module scope in your entry file, not in a `useEffect` — theme diagno
 an effect runs too late to catch the first render's worth.
 
 In a production build the flag also turns the first group back on. That group is quiet there because `NODE_ENV` says
-`production` — read at runtime on Node, or substituted by a bundler, which folds that half of the gate to `false`. The
+`production` — read at runtime on Node, or substituted by a bundler, which folds that half of the gate to `false`; a
+browser bundle in which nothing substitutes it counts as production too. The
 messages themselves ship either way: the flag is a runtime binding, not a build-time constant, so bundlers cannot strip
 the text, and a minified bundle built with `process.env.NODE_ENV` substituted still contains every one of them. That is
 deliberate — the bugs worth this much logging are usually the ones that only reproduce in production.
