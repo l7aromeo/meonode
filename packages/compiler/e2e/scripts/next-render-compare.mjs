@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 // Compares the Next.js fixture's prerendered app-router HTML between a
-// plugin-on build (.next-on/) and a plugin-off build (.next-off/), produced
-// by running `next build` / `MEONODE_COMPILER=0 next build` and renaming the
-// output directory each time (see e2e/scripts/run-e2e.mjs). The parity
-// check, Next/Turbopack side.
+// plugin-on build and a plugin-off build, produced by running `next build` /
+// `MEONODE_COMPILER=0 next build` and renaming the output directory each time
+// (see e2e/scripts/run-e2e.mjs). The parity check, Next side: .next-on/ and
+// .next-off/ (Turbopack) by default, or the two directories given as
+// arguments (the webpack builds).
 //
 // The whole prerendered document carries build-hashed asset URLs (chunk
 // filenames, __next_f RSC payload ids) that legitimately differ between the
@@ -88,7 +89,11 @@ async function countTransformMarker(buildDirName) {
   return count
 }
 
-const [onHtml, offHtml] = await Promise.all([loadMarkerHtml('.next-on'), loadMarkerHtml('.next-off')])
+// The two output directories to compare: Turbopack's by default, or the ones given
+// on the command line (the webpack builds).
+const [ON_DIR = '.next-on', OFF_DIR = '.next-off'] = process.argv.slice(2)
+
+const [onHtml, offHtml] = await Promise.all([loadMarkerHtml(ON_DIR), loadMarkerHtml(OFF_DIR)])
 
 const equal = onHtml === offHtml
 
@@ -103,10 +108,10 @@ if (!equal) {
   console.log(offHtml)
 }
 
-const [onMarkerCount, offMarkerCount] = await Promise.all([countTransformMarker('.next-on'), countTransformMarker('.next-off')])
+const [onMarkerCount, offMarkerCount] = await Promise.all([countTransformMarker(ON_DIR), countTransformMarker(OFF_DIR)])
 
-console.log('transform marker occurrences in .next-on/static/chunks:', onMarkerCount)
-console.log('transform marker occurrences in .next-off/static/chunks:', offMarkerCount)
+console.log(`transform marker occurrences in ${ON_DIR}/static/chunks:`, onMarkerCount)
+console.log(`transform marker occurrences in ${OFF_DIR}/static/chunks:`, offMarkerCount)
 
 const guardOk = onMarkerCount > 0 && offMarkerCount === 0
 

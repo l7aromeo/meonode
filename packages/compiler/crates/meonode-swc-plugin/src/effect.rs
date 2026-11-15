@@ -318,7 +318,7 @@ mod tests {
         let Expr::Arrow(arrow) = unwrap_parens(callee) else {
             panic!("expected an arrow callee, got {callee:?}");
         };
-        let BlockStmtOrExpr::Expr(body) = &*arrow.body else {
+        let ArrowFunctionBody::Expr(body) = &*arrow.body else {
             panic!("expected an expression arrow body");
         };
         assert!(matches!(&**body, Expr::Await(_)));

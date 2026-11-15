@@ -24,3 +24,4 @@ e2e/.bench-tmp/
 # Tarball of the workspace @meonode/ui, packed by e2e/scripts/run-e2e.mjs so the
 # fixtures test this checkout rather than the published package.
 e2e/.ui-pack/
+e2e/.compiler-pack/

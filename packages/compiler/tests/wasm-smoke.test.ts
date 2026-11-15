@@ -4,13 +4,12 @@
 // through @swc/core's real plugin host (the same wasmer-based loader/ABI
 // bridge next-swc and Vite's swc plugin use), not through the crate's own
 // Rust-side unit/fixture tests. That distinction is the whole point: the
-// crate is built against swc_core 74.0.2, and @swc/core embeds its own
-// swc_core-derived ABI. If those two versions' plugin ABI (rkyv-encoded
-// Program, bytecheck-validated) had drifted apart, @swc/core would reject
-// the module at load/deserialize time with a bytecheck/ABI error — the
-// exact failure mode this suite exists to catch. A green run here is
-// evidence the artifact loads and executes correctly against a real host,
-// not just that the Rust source compiles.
+// crate is built against one swc_core, and @swc/core embeds its own. If their
+// AST schemas had drifted apart, @swc/core would fail to deserialize the
+// program it hands the plugin. A green run here is evidence the artifact
+// loads and executes correctly against a real host, not just that the Rust
+// source compiles. host-compat.test.ts covers the schema boundary itself,
+// across hosts.
 //
 // Run via `bun run build:wasm` (produces the artifact this suite loads)
 // followed by `bun run test`.
