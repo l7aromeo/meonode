@@ -196,7 +196,7 @@ export default {
 }
 ```
 
-Verified against **Next 16.2.11**:
+Needs **Next 16.4 or later**. Verified against **Next 16.4.6**:
 
 - **Turbopack** (`next build`, `next dev`) — the default bundler as of
   Next 16, and the primary target for this config shape.
@@ -204,11 +204,21 @@ Verified against **Next 16.2.11**:
   config works unchanged; Next's webpack build path loads SWC plugins
   through the same `next-swc` binary as Turbopack does.
 
+On Next 16.3 or earlier, use `@meonode/compiler` 0.9.x — see
+[Version compatibility](#version-compatibility).
+
 ### Vite
 
 Requires [`@vitejs/plugin-react-swc`](https://www.npmjs.com/package/@vitejs/plugin-react-swc)
-(verified at `4.3.2`) — Vite's default `@vitejs/plugin-react` uses Babel, not
+(verified at `4.3.3`) — Vite's default `@vitejs/plugin-react` uses Babel, not
 SWC, and can't load SWC plugins at all.
+
+The plugin runs inside the `@swc/core` that `@vitejs/plugin-react-swc`
+loads, and it needs **`@swc/core` 1.16 or later**. The Vite plugin accepts
+`@swc/core` `^1.15.46`, so an existing lockfile can keep a 1.15 copy, even
+nested under the Vite plugin, after everything else is upgraded. Check with
+`npm ls @swc/core`, and add `@swc/core@^1.16` to your devDependencies if
+1.15 shows up.
 
 ```js
 // vite.config.js
@@ -226,10 +236,18 @@ export default defineConfig({
 
 ### If the plugin doesn't load
 
-Bailing is always safe — see [Version compatibility](#version-compatibility)
-below for the SWC WASM ABI caveat if the plugin fails to load under a given
-host/`@swc/core` combination. Everything still runs correctly through
-`@meonode/ui`'s normal runtime classification path; you just don't get the
+A plugin built for a different swc generation than its host does not fall
+back to the runtime path. The host fails on the first file that contains a
+function, with an error like
+
+```
+Failed to deserialize program received from host
+```
+
+and the build stops. Install the `@meonode/compiler` version made for your
+host; [Version compatibility](#version-compatibility) lists them. To build
+without the plugin, remove it from the config: `@meonode/ui` runs correctly
+without it, through its normal runtime classification, just without the
 build-time speedup.
 
 ## What gets compiled vs. bailed
@@ -493,31 +511,47 @@ rule.
 
 ## Version compatibility
 
-Plugin crate pinned to **`swc_core = "74"`** (currently resolving to
-`74.0.2`), feature `ecma_plugin_transform`.
+The host hands the plugin the whole program, serialized in the host's own
+AST schema, so the plugin has to be built for the same swc AST generation as
+its host. `@swc/core` 1.16.0 changed that schema for every function body
+(swc_core 77, "Introduce FunctionBody", marked breaking in the swc
+changelog), which splits the hosts into two lines:
 
-| Host | Version | Bundler | Status |
+| `@meonode/compiler` | Built on | Next.js | `@swc/core` (directly, or under `@vitejs/plugin-react-swc`) |
 |---|---|---|---|
-| Next.js | 16.2.11 | Turbopack | Verified |
-| Next.js | 16.2.11 | webpack (`next build --webpack`) | Manually verified (not in automated e2e; Turbopack + Vite are) |
-| Vite (`@vitejs/plugin-react-swc`) | 4.3.2 | esbuild/Rollup + SWC transform | Verified |
-| `@swc/core` | 1.15.46 | (used directly by wasm-smoke tests) | Verified |
+| 0.10.0 and later | `swc_core` 84 | 16.4.0 and later | 1.16.0 and later |
+| 0.9.x | `swc_core` 74 | 16.3.x and earlier | 1.15.x |
 
-**SWC WASM ABI caveat**: the plugin/host boundary is a versioned wire
-protocol (`ecma_plugin_transform`), not a linked ABI — the AST is serialized
-across the WASM boundary, so a plugin built against a newer `swc_core` can
-generally run under an older host as long as both sides speak a compatible
-schema generation. This is *not* an unconditional guarantee: hosts do
-occasionally bump their accepted plugin ABI generation in ways that reject
-older or newer plugins outright. If the plugin fails to load under your
-exact host/`@swc/core` version, check
-[plugins.swc.rs](https://plugins.swc.rs) for the ABI/version compatibility
-matrix before filing an issue — and remember bailing (plugin not loading at
-all) is always safe; `@meonode/ui` runs correctly without it.
+A plugin on the wrong side of the line fails the build; see
+[If the plugin doesn't load](#if-the-plugin-doesnt-load).
 
-Release policy: a new `@meonode/compiler` release ships for every `swc_core`
-minor version bump this crate adopts, so the published version compatibility
-table above stays current with what's actually pinned in `Cargo.toml`.
+**Upgrading.** On Next 16.3 or earlier, or `@swc/core` 1.15, stay on 0.9.x.
+A `^0.9.0` range never installs 0.10.0, so nothing changes until you move it.
+Move to `^0.10.0` in the same change that moves the host to Next 16.4 or
+`@swc/core` 1.16.
+
+CI checks both lines on every compiler change, with markers required in the
+compiled output and the compiled page required to render the same as an
+uncompiled build:
+
+| Plugin | Host |
+|---|---|
+| this checkout | `@swc/core` 1.16.0, and the latest `@swc/core` |
+| this checkout | Next 16.4.6, Turbopack and webpack |
+| this checkout | Vite 8.3.8, `@vitejs/plugin-react-swc` 4.3.3, `@swc/core` 1.16.22 |
+| this checkout | the latest Next, `@vitejs/plugin-react-swc` and `@swc/core`, resolved fresh, so a new host generation fails CI |
+| 0.9.0 from npm | `@swc/core` 1.15.47 |
+| 0.9.0 from npm | Next 16.3.8, Turbopack and webpack |
+
+The swc project's own table at
+[plugins.swc.rs](https://plugins.swc.rs/versions/range) maps `swc_core`
+51–76 to Next 16.1.6–16.3.8 and `@swc/core` 1.15.6–1.15.47, and `swc_core` 77
+to `@swc/core` 1.16.0–1.16.1. It lists no range above `swc_core` 78 yet, so
+the 0.10.0 line above is measured, not taken from that table.
+
+Release policy: when swc changes the AST generation again, the plugin moves
+to it in a new minor version, and this table gains a line saying which
+version serves which hosts.
 
 ## Development
 
