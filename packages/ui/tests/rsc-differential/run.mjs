@@ -12,7 +12,8 @@
 // to a tarball packed under a version no registry has (a matching version would
 // be served from the registry instead of the file).
 import { spawn, spawnSync } from 'node:child_process'
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { availableParallelism } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -52,8 +53,27 @@ function prepare(label, spec) {
   const installed = JSON.parse(readFileSync(path.join(dir, 'node_modules/@meonode/ui/package.json'), 'utf8')).version
   const lock = readFileSync(path.join(dir, 'bun.lock'), 'utf8')
   const lockLine = lock.split('\n').find(line => line.includes('"@meonode/ui@')) ?? ''
-  writeFileSync(path.join(dir, 'installed.json'), JSON.stringify({ spec, installed, lockLine: lockLine.trim() }, null, 2))
-  log(`${label}: installed @meonode/ui ${installed} (${lockLine.trim().slice(0, 140)})`)
+  const compiler = useCheckoutCompiler(dir)
+  writeFileSync(path.join(dir, 'installed.json'), JSON.stringify({ spec, installed, lockLine: lockLine.trim(), compiler }, null, 2))
+  log(`${label}: installed @meonode/ui ${installed} (${lockLine.trim().slice(0, 140)}), compiler wasm sha256 ${compiler.slice(0, 16)}…`)
+}
+
+/**
+ * Puts this checkout's compiler build in place of the fixture's registry copy, and
+ * returns its sha256.
+ *
+ * The differential measures @meonode/ui, so the compiled configs hold the compiler
+ * constant: both sides run the same build. The registry copy would also tie the
+ * fixture to the host generation of whatever was last published, which fails the
+ * build when Next moves to a new swc generation first.
+ */
+function useCheckoutCompiler(dir) {
+  const built = path.resolve(HERE, '../../../compiler/npm/meonode_swc_plugin.wasm')
+  if (!existsSync(built)) {
+    throw new Error(`The compiled configs need this checkout's @meonode/compiler build at ${built}. Run \`bun run build:compiler\` from the repo root first.`)
+  }
+  copyFileSync(built, path.join(dir, 'node_modules/@meonode/compiler/meonode_swc_plugin.wasm'))
+  return createHash('sha256').update(readFileSync(built)).digest('hex')
 }
 
 function writeCases(dir) {

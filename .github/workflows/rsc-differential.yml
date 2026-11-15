@@ -14,6 +14,8 @@ on:
       - 'packages/ui/src/**'
       - 'packages/ui/package.json'
       - 'packages/ui/tests/rsc-differential/**'
+      - 'packages/compiler/crates/**'
+      - 'packages/compiler/Cargo.lock'
       - '.github/workflows/rsc-differential.yml'
   schedule:
     - cron: '23 3 * * *'
@@ -55,9 +57,19 @@ jobs:
         working-directory: .
       - run: bunx playwright install --with-deps chromium
         working-directory: .
+      # The compiled configs run this checkout's compiler on both sides.
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip1
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: packages/compiler
+      - run: bun run build:compiler
+        working-directory: .
 
       # The baseline is whatever a user installs today. Its results depend only on
-      # that version and on the harness, so they are collected once and cached.
+      # that version, the harness and the compiler build, so they are collected once
+      # per combination and cached.
       - name: Resolve the baseline
         id: baseline
         run: echo "version=$(npm view @meonode/ui version)" >> "$GITHUB_OUTPUT"
@@ -66,7 +78,7 @@ jobs:
         uses: actions/cache/restore@v6
         with:
           path: ${{ env.RSC_DIFF_WORK }}/base/*.json
-          key: rsc-differential-${{ steps.baseline.outputs.version }}-${{ hashFiles('packages/ui/tests/rsc-differential/corpus.mjs', 'packages/ui/tests/rsc-differential/run.mjs', 'packages/ui/tests/rsc-differential/fixture/**') }}
+          key: rsc-differential-${{ steps.baseline.outputs.version }}-${{ hashFiles('packages/ui/tests/rsc-differential/corpus.mjs', 'packages/ui/tests/rsc-differential/run.mjs', 'packages/ui/tests/rsc-differential/fixture/**') }}-compiler-${{ hashFiles('packages/compiler/npm/meonode_swc_plugin.wasm') }}
       - name: Collect the baseline (@meonode/ui ${{ steps.baseline.outputs.version }})
         if: steps.cache.outputs.cache-hit != 'true'
         run: node run.mjs all base ${{ steps.baseline.outputs.version }}
