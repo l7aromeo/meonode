@@ -25,7 +25,7 @@ use swc_core::common::Mark;
 use swc_core::ecma::ast::{Pass, Program};
 use swc_core::ecma::parser::{EsSyntax, Syntax};
 use swc_core::ecma::transforms::base::resolver;
-use swc_core::ecma::transforms::testing::{test_fixture, FixtureTestConfig, Tester};
+use swc_core::ecma::transforms::testing::{FixtureTestConfig, Tester, test_fixture};
 
 /// Fixed filename fed to `partition::transform_program` across every rewrite
 /// fixture case. There's no plugin host metadata in a fixture test (see
@@ -66,7 +66,7 @@ impl Pass for Partition {
     }
 }
 
-fn tr(_tester: &mut Tester) -> impl Pass {
+fn tr(_tester: &mut Tester) -> impl Pass + use<> {
     // Fresh marks per fixture run, exactly like `resolver`'s own docs and
     // real-world swc plugin fixtures do. In production this pass isn't run
     // by the plugin at all — the host runs it before handing the program to
@@ -81,7 +81,7 @@ fn tr(_tester: &mut Tester) -> impl Pass {
     )
 }
 
-fn tr_partition(_tester: &mut Tester) -> impl Pass {
+fn tr_partition(_tester: &mut Tester) -> impl Pass + use<> {
     (
         resolver(Mark::new(), Mark::new(), false),
         Partition {

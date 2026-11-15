@@ -210,11 +210,7 @@ pub fn rewrite_theme_tokens_for(input: &str, wants_length: bool) -> Option<Strin
         i += ch.len_utf8();
     }
 
-    if matched {
-        Some(out)
-    } else {
-        None
-    }
+    if matched { Some(out) } else { None }
 }
 
 #[cfg(test)]

@@ -87,10 +87,10 @@ pub fn order_preserved(
 ) -> bool {
     let mut prev: Option<EmitRank> = None;
     for rank in effectful_ranks_in_source_order {
-        if let Some(prev_rank) = prev {
-            if rank < prev_rank {
-                return false;
-            }
+        if let Some(prev_rank) = prev
+            && rank < prev_rank
+        {
+            return false;
         }
         prev = Some(rank);
     }

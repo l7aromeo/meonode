@@ -46,7 +46,7 @@ use crate::css_props::is_css_prop;
 use crate::effect::{is_effect_free, is_order_inert, is_static_literal};
 use crate::factories::factory_children_first;
 use crate::keys::{is_special_key, key_name_atom};
-use crate::order::{order_preserved, EmitRank};
+use crate::order::{EmitRank, order_preserved};
 
 const UI_MODULE: &str = "@meonode/ui";
 const UI_MODULE_CLIENT: &str = "@meonode/ui/client";
@@ -1117,7 +1117,7 @@ pub fn transform_program(program: &Program, config: &CompileConfig) -> Vec<CallS
 mod tests {
     use super::*;
     use swc_core::common::sync::Lrc;
-    use swc_core::common::{FileName, Globals, Mark, SourceMap, GLOBALS};
+    use swc_core::common::{FileName, GLOBALS, Globals, Mark, SourceMap};
     use swc_core::ecma::ast::EsVersion;
     use swc_core::ecma::parser::lexer::Lexer;
     use swc_core::ecma::parser::{EsSyntax, Parser, StringInput, Syntax};

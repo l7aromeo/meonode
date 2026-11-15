@@ -34,8 +34,8 @@
 use std::collections::HashMap;
 use std::mem;
 
-use swc_core::common::errors::SourceMapper;
 use swc_core::common::Span;
+use swc_core::common::errors::SourceMapper;
 use swc_core::ecma::ast::*;
 use swc_core::ecma::atoms::Atom;
 use swc_core::ecma::visit::{VisitMut, VisitMutWith};
@@ -979,7 +979,7 @@ pub fn transform_program(
 mod tests {
     use super::*;
     use swc_core::common::sync::Lrc;
-    use swc_core::common::{FileName, Globals, Mark, SourceMap, GLOBALS};
+    use swc_core::common::{FileName, GLOBALS, Globals, Mark, SourceMap};
     use swc_core::ecma::ast::EsVersion;
     use swc_core::ecma::parser::lexer::Lexer;
     use swc_core::ecma::parser::{EsSyntax, Parser, StringInput, Syntax};
@@ -1059,10 +1059,10 @@ mod tests {
             }
             impl Visit for Collector {
                 fn visit_call_expr(&mut self, call: &CallExpr) {
-                    if let Some(arg) = call.args.get(self.arg_idx) {
-                        if let Expr::Object(obj) = &*arg.expr {
-                            self.found.push(obj.clone());
-                        }
+                    if let Some(arg) = call.args.get(self.arg_idx)
+                        && let Expr::Object(obj) = &*arg.expr
+                    {
+                        self.found.push(obj.clone());
                     }
                     call.visit_children_with(self);
                 }
