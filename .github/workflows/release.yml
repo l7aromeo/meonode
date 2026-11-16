@@ -148,11 +148,19 @@ jobs:
         run: |
           echo "::warning title=Release PR will have no checks::RELEASE_PAT is not set, so the version PR is opened by GITHUB_TOKEN and GitHub will not start its workflows. It cannot satisfy branch protection until someone pushes a commit to changeset-release/main from a real account."
 
-      - uses: changesets/action@v1.9.0
+      # v2 is the line that runs Changesets CLI 3; v1 is for CLI 2. It takes the
+      # token only through `github-token`, not from the environment.
+      - uses: changesets/action@v2.1.2
         with:
-          version: bun run version
-          publish: bun run release
-          commit: "chore(release): version packages"
-          title: "chore(release): version packages"
-        env:
-          GITHUB_TOKEN: ${{ secrets.RELEASE_PAT || secrets.GITHUB_TOKEN }}
+          version-script: bun run version
+          publish-script: bun run release
+          commit-message: "chore(release): version packages"
+          pr-title: "chore(release): version packages"
+          github-token: ${{ secrets.RELEASE_PAT || secrets.GITHUB_TOKEN }}
+          # Push with git, as v1 did by default. The API mode creates each tag
+          # as a lightweight ref at GITHUB_SHA, which under `workflow_run` is
+          # the default branch's latest commit: a `beta` release would be tagged
+          # on `main`, and a push that lands while CI runs would move the tag
+          # off the released commit. Git pushes the annotated tag that
+          # `changeset publish` made at the checked-out commit.
+          push-with-git-cli: true

@@ -23,7 +23,12 @@ a stubbed graph renders nothing for the older side of the comparison.
   - `np`: no provider
   - `cpd`: `cp`, rendered per request and streamed
 - **Four builds:** `plain`, `cc` (Cache Components), and each of those compiled
-  with `@meonode/compiler`.
+  with `@meonode/compiler`. The compiled builds use this checkout's compiler on
+  both sides (`run.mjs prepare` copies `packages/compiler/npm/meonode_swc_plugin.wasm`
+  over the fixture's registry copy, so run `bun run build:compiler` first). The
+  comparison measures `@meonode/ui`; a compiler change moves both sides together.
+  The baseline cache in CI is keyed on that wasm's hash, so a compiler change
+  recollects the baseline.
 
 For each probe, `run.mjs collect` reads the computed style in Chromium:
 - in the served document with JavaScript off, at 1280 and 390 px
