@@ -157,3 +157,10 @@ jobs:
           commit-message: "chore(release): version packages"
           pr-title: "chore(release): version packages"
           github-token: ${{ secrets.RELEASE_PAT || secrets.GITHUB_TOKEN }}
+          # Push with git, as v1 did by default. The API mode creates each tag
+          # as a lightweight ref at GITHUB_SHA, which under `workflow_run` is
+          # the default branch's latest commit: a `beta` release would be tagged
+          # on `main`, and a push that lands while CI runs would move the tag
+          # off the released commit. Git pushes the annotated tag that
+          # `changeset publish` made at the checked-out commit.
+          push-with-git-cli: true
