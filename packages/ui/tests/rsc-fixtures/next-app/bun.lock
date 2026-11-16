@@ -13,7 +13,7 @@
         "react-dom": "^19.3.1",
       },
       "devDependencies": {
-        "@meonode/compiler": "^0.6.1",
+        "@meonode/compiler": "^0.10.0",
         "@types/node": "^26.6.6",
         "@types/react": "^19.3.0",
         "@types/react-dom": "^19.3.0",
@@ -130,7 +130,7 @@
 
     "@jridgewell/trace-mapping": ["@jridgewell/trace-mapping@0.3.31", "https://registry.npmmirror.com/@jridgewell/trace-mapping/-/trace-mapping-0.3.31.tgz", { "dependencies": { "@jridgewell/resolve-uri": "^3.1.0", "@jridgewell/sourcemap-codec": "^1.4.14" } }, "sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw=="],
 
-    "@meonode/compiler": ["@meonode/compiler@0.6.1", "https://registry.npmmirror.com/@meonode/compiler/-/compiler-0.6.1.tgz", {}, "sha512-Dcwey3VSV3xymiwU09F1rCtN3W+vtG6hLYyi/QvWuYL18h2DPuDnENASCZBlNq5iyrgyx9T7bHxJQkh+RZ3bjQ=="],
+    "@meonode/compiler": ["@meonode/compiler@0.10.0", "", {}, "sha512-IbiSsUaAKfx+LTJb91Ejhoz5iYQEs5tHIfl8BlTjxHvAvN4YDl+/9A4qhm09+lT7nhw3RIMw4Rr7JE+CetOGrg=="],
 
     "@next/env": ["@next/env@16.4.6", "", {}, "sha512-SunBjJ6t+oBtecS3dTjdVuMhUogP5wD/vrGL5EVuQYM1iS4O5ilL51HkiJ3sPjMzRHiCChvr4dbaSJbR7F3lxA=="],
 

@@ -12,7 +12,7 @@
         "react-dom": "19.3.1",
       },
       "devDependencies": {
-        "@meonode/compiler": "^0.6.1",
+        "@meonode/compiler": "^0.10.0",
         "@types/node": "^26.6.6",
         "@types/react": "^19.3.0",
         "@types/react-dom": "^19.3.0",
@@ -129,7 +129,7 @@
 
     "@jridgewell/trace-mapping": ["@jridgewell/trace-mapping@0.3.31", "", { "dependencies": { "@jridgewell/resolve-uri": "^3.1.0", "@jridgewell/sourcemap-codec": "^1.4.14" } }, "sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw=="],
 
-    "@meonode/compiler": ["@meonode/compiler@0.6.2", "", {}, "sha512-EEeH4FDHCLC/pwIRhNPGxIMHtrtTA0z80WKB8UVgN6zX/7Z0yyU0wnkffZ6CSioiEDv0zljebUwZnDsL7gQ2GQ=="],
+    "@meonode/compiler": ["@meonode/compiler@0.10.0", "", {}, "sha512-IbiSsUaAKfx+LTJb91Ejhoz5iYQEs5tHIfl8BlTjxHvAvN4YDl+/9A4qhm09+lT7nhw3RIMw4Rr7JE+CetOGrg=="],
 
     "@next/env": ["@next/env@16.4.6", "", {}, "sha512-SunBjJ6t+oBtecS3dTjdVuMhUogP5wD/vrGL5EVuQYM1iS4O5ilL51HkiJ3sPjMzRHiCChvr4dbaSJbR7F3lxA=="],
 
