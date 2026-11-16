@@ -1,5 +1,21 @@
 # @meonode/ui
 
+## 3.1.5
+
+### Patch Changes
+
+- [#57](https://github.com/l7aromeo/meonode/pull/57) [`a1b14b0`](https://github.com/l7aromeo/meonode/commit/a1b14b0222ae3c25f7e070ab626c8025d20892b1) Thanks [@l7aromeo](https://github.com/l7aromeo)! - A node now renders wherever a component renders what it is given, not only in `children`. Fixes [#51](https://github.com/l7aromeo/meonode/issues/51).
+  
+  You can pass a node as a Suspense `fallback`, in a component's slot prop such as an icon or a footer, as what a render prop returns, or inside a nested prop object, and the component renders it. Before, React threw "Objects are not valid as a React child" there, and a node handed from a server component to a client component failed with "Only plain objects … can be passed to Client Components". This works on the client, in server rendering and across the server-to-client boundary. A component that takes the node itself, to call its `render()` or pass it on, still receives the node.
+  
+  Where a component prop is typed `ReactNode`, its type now accepts a node too, so `Suspense({ fallback: Div({ children: 'Loading…' }) })` type-checks. A render prop's return type and a nested object's fields keep their declared types. Props typed narrower than `ReactNode`, such as `ReactElement`, are unchanged, and a node in an HTML attribute still throws, as before.
+  
+  In development, React can report a missing key once for a node given as a positional child when a transition render pauses between that child's parent and the child itself. The page renders correctly; only the warning is spurious.
+
+- [#63](https://github.com/l7aromeo/meonode/pull/63) [`89822d5`](https://github.com/l7aromeo/meonode/commit/89822d5de18bdf16a4043f6e6e602a32bb0f29ba) Thanks [@l7aromeo](https://github.com/l7aromeo)! - Depend on `stylis` `^4.4.0` instead of `^4.2.0`.
+  
+  A fresh install of 3.1.3 already resolves stylis 4.4.0 from the old range, so nothing changes for most projects; this makes 4.4.0, which the test suite now runs against, the lowest version installed.
+
 ## 3.1.4
 
 ### Patch Changes
