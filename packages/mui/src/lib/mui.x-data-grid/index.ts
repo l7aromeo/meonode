@@ -50,6 +50,7 @@ export { default as GridEditSingleSelectCell } from './GridEditSingleSelectCell.
 export { default as GridExpandMoreIcon } from './GridExpandMoreIcon.js'
 export { default as GridFilterAltIcon } from './GridFilterAltIcon.js'
 export { default as GridFilterForm } from './GridFilterForm.js'
+export { default as GridFilterFormColumnInput } from './GridFilterFormColumnInput.js'
 export { default as GridFilterInputBoolean } from './GridFilterInputBoolean.js'
 export { default as GridFilterInputDate } from './GridFilterInputDate.js'
 export { default as GridFilterInputMultipleSingleSelect } from './GridFilterInputMultipleSingleSelect.js'
