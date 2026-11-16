@@ -1,5 +1,11 @@
 # @meonode/compiler
 
+## 0.10.1
+
+### Patch Changes
+
+- [#63](https://github.com/l7aromeo/meonode/pull/63) [`0cef14a`](https://github.com/l7aromeo/meonode/commit/0cef14ae6250d996f977c4fb296b470e4db0779a) Thanks [@l7aromeo](https://github.com/l7aromeo)! - Build with the Rust 2024 edition. The plugin's output is unchanged.
+
 ## 0.10.0
 
 ### Minor Changes
