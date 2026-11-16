@@ -136,113 +136,28 @@ function isRuntimeReactComponent(value) {
   return true
 }
 
-function getPackageEntryFile(importPath) {
-  const packageJsonPath = require.resolve(`${importPath}/package.json`)
-  const packageDir = path.dirname(packageJsonPath)
-  const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'))
-  const relEntry = packageJson.module ?? packageJson.main ?? 'index.js'
-  return path.resolve(packageDir, relEntry)
-}
-
-function getImportEntryFile(importPath) {
+/**
+ * A package's runtime exports. Each export is checked at runtime to tell components from
+ * everything else, so a package that fails to load fails the generation, with the cause,
+ * rather than being wrapped from a guess at its export list.
+ *
+ * Loaded through `import()`, the entry an ESM project or a bundler resolves. A package's
+ * CommonJS entry exports the same names when it loads, but it can be broken on its own:
+ * `@mui/x-charts` 9.18.0's needs `lib-vendor/d3-scale`, which `@mui/x-charts-vendor`
+ * 9.18.0 does not ship.
+ */
+async function loadRuntimeExports(importPath) {
   try {
-    return getPackageEntryFile(importPath)
-  } catch {
-    return require.resolve(importPath)
+    return await import(importPath)
+  } catch (error) {
+    throw new Error(`Cannot load ${importPath} to read its exports: ${String(error.message).split('\n')[0]}`, { cause: error })
   }
 }
 
-function collectExportedNamesFromEntry(importPath) {
-  const entryPath = getImportEntryFile(importPath)
-  return Array.from(collectExportedNamesFromFile(entryPath, new Set()))
-}
-
-function tryLoadRuntimeExports(importPath) {
-  try {
-    return require(importPath)
-  } catch {
-    return null
-  }
-}
-
-function resolveRequiredFile(fromFile, requestPath) {
-  const base = path.resolve(path.dirname(fromFile), requestPath)
-  const candidates = [base, `${base}.js`, `${base}.cjs`, path.join(base, 'index.js')]
-  for (const candidate of candidates) {
-    if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) return candidate
-  }
-  return null
-}
-
-function collectExportedNamesFromFile(filePath, visited) {
-  const realPath = path.resolve(filePath)
-  if (visited.has(realPath)) return new Set()
-  visited.add(realPath)
-
-  const source = fs.readFileSync(realPath, 'utf8')
-  const names = new Set()
-
-  const directExportPattern = /Object\.defineProperty\(exports,\s*"([A-Za-z0-9_]+)"/g
-  let match = directExportPattern.exec(source)
-  while (match) {
-    names.add(match[1])
-    match = directExportPattern.exec(source)
-  }
-
-  const requireMap = new Map()
-  const requirePattern = /var\s+(_[A-Za-z0-9_]+)\s*=\s*require\("([^"]+)"\);/g
-  match = requirePattern.exec(source)
-  while (match) {
-    requireMap.set(match[1], match[2])
-    match = requirePattern.exec(source)
-  }
-
-  const exportNamesBlockMatch = /var _exportNames = \{([\s\S]*?)};/.exec(source)
-  if (exportNamesBlockMatch) {
-    const block = exportNamesBlockMatch[1]
-    const keyPattern = /^\s*([A-Za-z0-9_]+):\s*true,?$/gm
-    let keyMatch = keyPattern.exec(block)
-    while (keyMatch) {
-      names.add(keyMatch[1])
-      keyMatch = keyPattern.exec(block)
-    }
-  }
-
-  const objectKeysPattern = /Object\.keys\((_[A-Za-z0-9_]+)\)\.forEach\(function \(key\) \{[\s\S]*?}\);/g
-  match = objectKeysPattern.exec(source)
-  while (match) {
-    const varName = match[1]
-    const requestPath = requireMap.get(varName)
-    if (requestPath?.startsWith('.')) {
-      const targetFile = resolveRequiredFile(realPath, requestPath)
-      if (targetFile) {
-        const nested = collectExportedNamesFromFile(targetFile, visited)
-        for (const name of nested) names.add(name)
-      }
-    }
-    match = objectKeysPattern.exec(source)
-  }
-
-  const defaultAsPattern = /export\s*\{\s*default\s+as\s+([A-Za-z0-9_]+)\s*}\s*from/g
-  match = defaultAsPattern.exec(source)
-  while (match) {
-    names.add(match[1])
-    match = defaultAsPattern.exec(source)
-  }
-
-  const namedPattern = /export\s*\{\s*([^}]+)}\s*from/g
-  match = namedPattern.exec(source)
-  while (match) {
-    const parts = match[1].split(',').map(token => token.trim())
-    for (const part of parts) {
-      if (!part) continue
-      const aliasMatch = /\bas\s+([A-Za-z0-9_]+)$/.exec(part)
-      names.add(aliasMatch ? aliasMatch[1] : part)
-    }
-    match = namedPattern.exec(source)
-  }
-
-  return names
+/** Every configured import path's runtime exports, by import path. */
+async function loadAllRuntimeExports() {
+  const importPaths = MODULE_CONFIGS.flatMap(config => [config.importPath, ...(config.additionalImportPaths ?? [])])
+  return new Map(await Promise.all(importPaths.map(async importPath => [importPath, await loadRuntimeExports(importPath)])))
 }
 
 function toPosix(filePath) {
@@ -302,11 +217,11 @@ function renderModuleFiles(config, importEntries, wrappedMuiSet) {
   }
 }
 
-function generateModule(config, autoWrappedMap = {}, excludedMap = {}) {
+function generateModule(config, exportsByPath, autoWrappedMap = {}, excludedMap = {}) {
   const allImportPaths = [config.importPath, ...(config.additionalImportPaths ?? [])]
   const importEntries = allImportPaths.map(importPath => {
-    const runtimeExports = tryLoadRuntimeExports(importPath)
-    const candidateNames = runtimeExports ? Object.keys(runtimeExports) : collectExportedNamesFromEntry(importPath)
+    const runtimeExports = exportsByPath.get(importPath)
+    const candidateNames = Object.keys(runtimeExports)
     return {
       importPath,
       runtimeExports,
@@ -316,7 +231,6 @@ function generateModule(config, autoWrappedMap = {}, excludedMap = {}) {
 
   for (const entry of importEntries) {
     const runtimeExports = entry.runtimeExports
-    if (!runtimeExports) continue
     entry.componentNames = entry.componentNames.filter(name => name in runtimeExports && isRuntimeReactComponent(runtimeExports[name]))
   }
 
@@ -349,9 +263,9 @@ export * from '@src/lib/mui.core/index.js'
   fs.writeFileSync(mainPath, content)
 }
 
-function generateAllModules(autoWrappedMap = {}, excludedMap = {}) {
+function generateAllModules(exportsByPath, autoWrappedMap = {}, excludedMap = {}) {
   for (const config of MODULE_CONFIGS) {
-    generateModule(config, autoWrappedMap, excludedMap)
+    generateModule(config, exportsByPath, autoWrappedMap, excludedMap)
   }
   generateMainSource()
 }
@@ -462,14 +376,15 @@ function printCheckStats() {
   }
 }
 
-function main() {
+async function main() {
+  const exportsByPath = await loadAllRuntimeExports()
   let wrappedCache = loadWrappedCache()
   let excludedCache = loadExcludedCache()
   let lastWrappedSnapshot = JSON.stringify(wrappedCache)
   let lastExcludedSnapshot = JSON.stringify(excludedCache)
 
   for (let i = 0; i < MAX_GENERATE_PASSES; i += 1) {
-    generateAllModules(wrappedCache, excludedCache)
+    generateAllModules(exportsByPath, wrappedCache, excludedCache)
     const discovered = runTypeCheckAndCollectCandidates()
     const nextWrapped = mergeWrappedMaps(wrappedCache, discovered.wrapped)
     const nextExcluded = mergeWrappedMaps(excludedCache, discovered.excluded)
@@ -491,7 +406,7 @@ function main() {
 
   saveWrappedCache(wrappedCache)
   saveExcludedCache(excludedCache)
-  generateAllModules(wrappedCache, excludedCache)
+  generateAllModules(exportsByPath, wrappedCache, excludedCache)
 
   const finalTypeCheck = runTypeCheck()
   if (finalTypeCheck.status !== 0) {
@@ -503,7 +418,7 @@ function main() {
 }
 
 try {
-  main()
+  await main()
 } catch (err) {
   console.error(err)
   process.exitCode = 1
