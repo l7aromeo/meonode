@@ -1,0 +1,20 @@
+{
+  "name": "meonode-mui-peer-floor",
+  "private": true,
+  "description": "Each @mui peer of @meonode/mui at the lowest version its range allows. tests/peer-floor.test.ts checks the published types against it.",
+  "dependencies": {
+    "@mui/lab": "9.0.0-beta.9",
+    "@mui/material": "9.5.0",
+    "@mui/material-nextjs": "9.4.0",
+    "@mui/x-charts": "9.18.0",
+    "@mui/x-charts-pro": "9.18.0",
+    "@mui/x-data-grid": "9.18.0",
+    "@mui/x-data-grid-premium": "9.18.0",
+    "@mui/x-data-grid-pro": "9.18.0",
+    "@mui/x-date-pickers": "9.18.0",
+    "@mui/x-date-pickers-pro": "9.18.0",
+    "@mui/x-tree-view": "9.18.0",
+    "@mui/x-tree-view-pro": "9.18.0",
+    "@types/react": "19.3.0"
+  }
+}
