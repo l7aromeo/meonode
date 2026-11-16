@@ -25,7 +25,7 @@ import type {
   Theme,
   WorkItem,
 } from '@src/types/node.type.js'
-import { isFragment, isValidElementType } from '@src/helper/react-is.helper.js'
+import { isFragment, isValidElementType, REACT_LAZY_TYPE } from '@src/helper/react-is.helper.js'
 import { getComponentType, getElementTypeName, hasNoStyleTag, getGlobalState } from '@src/helper/common.helper.js'
 import StyledRenderer, { ThemedRule } from '@src/components/styled-renderer.client.js'
 import MeoMemo from '@src/components/meo-memo.client.js'
@@ -701,7 +701,64 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
   }
 
   // --- Utilities ---
+
+  // A node is also a React lazy value, and its own payload. React resolves a lazy
+  // value wherever it renders a node, in the client reconciler, Fizz and Flight,
+  // by calling `_init(_payload)`. So a node handed to any prop a component renders
+  // as a React node (a Suspense `fallback`, a slot) renders as the element its
+  // `render()` returns, while the component itself still receives the node.
+  // Declared in the class body so the prototype keeps its shape.
+
+  protected get $$typeof(): symbol {
+    return REACT_LAZY_TYPE
+  }
+
+  protected get _payload(): this {
+    return this
+  }
+
+  /**
+   * In development, `createElement` and `jsx` exempt a positional child from the
+   * key check, and for a lazy child they do it through `_payload.value` when
+   * `_payload.status` is `'fulfilled'`. React then resolves the lazy, more than
+   * once per reconcile, and checks the element `_init` returns. `value` renders
+   * the node and holds the element for the rest of the current task, and `_init`
+   * returns it while it is held, so the exemption lands on the element React
+   * checks. A concurrent render that yields between creating the parent element
+   * and reconciling its children outlives the hold, and React then reports a
+   * missing key for that node once.
+   */
+  protected get status(): 'fulfilled' {
+    return 'fulfilled'
+  }
+
+  protected get value(): ReactElement {
+    let element = heldForKeyCheck.get(this)
+    if (!element) {
+      element = this.render()
+      heldForKeyCheck.set(this, element)
+      heldCount++
+      queueMicrotask(() => {
+        heldForKeyCheck.delete(this)
+        heldCount--
+      })
+    }
+    return element
+  }
+
+  protected _init(node: BaseNode): ReactElement {
+    return (heldCount > 0 && heldForKeyCheck.get(node)) || node.render()
+  }
 }
+
+/**
+ * Elements a node rendered for React's development key check, held until the end
+ * of the current task so `_init` hands React the element that check exempted.
+ * Empty in production, where React reads no `value`; `heldCount` keeps `_init`
+ * from consulting it then.
+ */
+const heldForKeyCheck = new WeakMap<BaseNode, ReactElement>()
+let heldCount = 0
 
 // --- Factory Functions ---
 

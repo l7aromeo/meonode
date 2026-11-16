@@ -479,9 +479,27 @@ export interface CompiledMarkerProps {
   __meo$dyn?: string[]
 }
 
+/** A React node, a MeoNode node, or an array of either, nested to any depth. */
+type ReactNodeOrNode = ReactNode | NodeInstance | readonly ReactNodeOrNode[]
+
+/**
+ * Props with every prop that takes any React node also taking a MeoNode node, the
+ * way `children` does. React renders a node wherever it renders a React node (a
+ * node carries React's lazy shape), so a Suspense `fallback` or a slot prop can
+ * take one directly. A prop typed narrower than `ReactNode`, such as `ReactElement`
+ * or `string`, keeps its type. No host attribute but `children` is typed to take a
+ * React node (`download` and `inlist` accept one only because they are `any`), so
+ * host props come through unchanged. Applying this to every element, rather than
+ * branching on whether it is a host tag, keeps augmented-theme programs within the
+ * checker's memory.
+ * @template P - The props to widen
+ */
+type WithNodeProps<P> = { [K in keyof P]: ReactNode extends P[K] ? P[K] | ReactNodeOrNode : P[K] }
+
 /**
  * Public API for node creation props, providing a flexible and type-safe interface:
  * - Preserves original component props while allowing direct style properties (conditionally)
+ * - Accepts a node in any component prop typed `ReactNode` (see {@link WithNodeProps})
  * - Supports both single and array children
  * - Maintains React's key prop for reconciliation
  *
@@ -492,7 +510,7 @@ export interface CompiledMarkerProps {
  * prop names into an unsatisfiable type.
  * @template E - The element type these props apply to
  */
-export type NodeProps<E extends NodeElementType = NodeElementType> = Omit<PropsOf<E>, keyof CSSProperties | 'children' | 'props' | 'key'> &
+export type NodeProps<E extends NodeElementType = NodeElementType> = WithNodeProps<Omit<PropsOf<E>, keyof CSSProperties | 'children' | 'props' | 'key'>> &
   React.Attributes &
   React.RefAttributes<unknown> &
   (HasCSSCompatibleStyleProp<PropsOf<E>> extends true ? ThemedCSSProperties : object) &

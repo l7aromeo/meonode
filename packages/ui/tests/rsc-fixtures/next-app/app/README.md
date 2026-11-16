@@ -6,6 +6,7 @@ This fixture app uses taxonomy-first routes so each page has one clear test purp
 
 - `/boundary/*`:
   - server/client boundary semantics (`Node`, `createNode`, client component handoff)
+  - `/boundary/node-in-prop`: a node in a prop the receiver renders as a React node (server slot, client slot across Flight, Suspense fallback)
 - `/theme/*`:
   - ThemeProvider boundaries and token resolution
 - `/providers/*`:
