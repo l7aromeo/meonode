@@ -401,3 +401,6 @@ jobs:
           path: packages/compiler/npm
         continue-on-error: true
       - run: bun run build:ui && bun run build:mui
+      # The types just built are compiled against mui's devDependencies; a user can
+      # have the oldest version each peer range allows. tests/peer-floor installs those.
+      - run: bun run --filter @meonode/mui test:peer-floor
