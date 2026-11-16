@@ -1,0 +1,70 @@
+# Runs @meonode/ui's unit suites against React's canary release.
+#
+# A node is also a React lazy value (`$$typeof`, `_payload`, `_init`), which is
+# how React renders one in any prop, not only in `children`; React's development
+# key check also reads that payload's `status` and `value`. None of that is public
+# API, so a React release could change it. This job is the early warning: it runs
+# nightly and on pull requests that touch the ui package. It is deliberately not a
+# required check: a canary that breaks something unrelated must not block merges,
+# but a red nightly says a coming React release needs attention.
+name: React canary
+
+on:
+  pull_request:
+    paths:
+      - 'packages/ui/src/**'
+      - 'packages/ui/tests/**'
+      - 'packages/ui/package.json'
+      - '.github/workflows/react-canary.yml'
+  schedule:
+    - cron: '41 2 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: react-canary-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  HUSKY: 0
+
+jobs:
+  ui:
+    name: React canary (${{ matrix.mode }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [plain, compiled]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: lts/*
+      - uses: oven-sh/setup-bun@v2
+      - uses: dtolnay/rust-toolchain@stable
+        if: matrix.mode == 'compiled'
+        with:
+          targets: wasm32-wasip1
+      - uses: Swatinem/rust-cache@v2
+        if: matrix.mode == 'compiled'
+        with:
+          workspaces: packages/compiler
+      # One exact version for both packages, so react and react-dom never come
+      # from two different canaries published minutes apart.
+      - name: Use React canary
+        run: |
+          version=$(npm view react@canary version)
+          node -e "
+            const fs = require('node:fs')
+            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'))
+            pkg.overrides = { ...pkg.overrides, react: process.argv[1], 'react-dom': process.argv[1] }
+            fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n')
+          " "$version"
+          bun install
+          node -e "for (const p of ['react', 'react-dom']) console.log(p, require(p + '/package.json').version)"
+      - run: bun run build:compiler
+        if: matrix.mode == 'compiled'
+      - run: bun run --filter @meonode/ui ${{ matrix.mode == 'compiled' && 'test:compiled' || 'test' }}

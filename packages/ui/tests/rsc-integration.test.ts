@@ -983,3 +983,31 @@ describe('the list marker across the RSC boundary', () => {
     }
   })
 })
+
+describe('a node in a prop the receiving component renders', () => {
+  const PAGE = '/boundary/node-in-prop'
+
+  it('renders in a server slot, in a client slot across Flight, and as a Suspense fallback', async () => {
+    const { status, html, computedStyles } = await getPage(PAGE, {
+      computedStyles: [
+        { testId: 'server-slot-span', properties: ['color'] },
+        { testId: 'client-slot-span', properties: ['color'] },
+      ],
+    })
+
+    expect(status).toBe(200)
+    assertNoRscErrors(html)
+    assertNoObjectAttrLeaks(html)
+    expect(html).toContain('server-slot-content')
+    expect(html).toContain('client-slot-content')
+    expect(html).toContain('suspended-content')
+    expect(computedStyles['server-slot-span']?.color).toBe('rgb(255, 0, 0)')
+    expect(computedStyles['client-slot-span']?.color).toBe('rgb(255, 0, 0)')
+  })
+
+  it('streams the fallback before the suspended content', async () => {
+    const html = await (await fetch(`${base()}${PAGE}`)).text()
+    expect(html).toContain('fallback-content')
+    expect(html.indexOf('fallback-content')).toBeLessThan(html.indexOf('suspended-content'))
+  })
+})

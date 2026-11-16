@@ -221,7 +221,8 @@ export const isValidElementType = (type: unknown): type is React.ElementType => 
   if (typeof type === 'object' && type !== null) {
     const $$typeof = (type as any).$$typeof
     return (
-      $$typeof === REACT_LAZY_TYPE ||
+      // A MeoNode node carries the lazy shape so React renders it as a node; it is not a component type.
+      ($$typeof === REACT_LAZY_TYPE && (type as { isBaseNode?: unknown }).isBaseNode !== true) ||
       $$typeof === REACT_MEMO_TYPE ||
       $$typeof === REACT_CONTEXT_TYPE ||
       $$typeof === REACT_CONSUMER_TYPE ||
