@@ -9,6 +9,7 @@ import {
   useLayoutEffect,
   useMemo,
   useReducer,
+  useRef,
   useState,
   useSyncExternalStore,
 } from 'react'
@@ -299,6 +300,57 @@ export function useThemeSnapshot<T>(store: ThemeStore | null, select: ((snapshot
  */
 
 /**
+ * The media query a hidden provider's block is given: it matches no medium, so the
+ * block's rules stop applying while the element stays in place.
+ */
+const HIDDEN_MEDIA = 'not all'
+
+/**
+ * The provider's `<style data-meonode-theme-vars>` element.
+ *
+ * Its `:root` rules apply to the whole page from wherever the element sits, and
+ * `display: none` does not stop a `<style>` from applying. A hidden Activity keeps its
+ * subtree mounted, and Next.js keeps the previous route in one, so a provider there
+ * would go on declaring its tokens, later in the document than the visible route's,
+ * and win.
+ *
+ * So the block applies only while its layout effect is in place: React runs that
+ * effect when the element is shown, before the browser paints, and its cleanup when
+ * an Activity hides it. A block the client inserts starts switched off through
+ * `media`, since an Activity can insert it hidden, and never runs the effect then.
+ * The effect switches it on in the element itself as well as in state, so a later
+ * layout effect in the same commit, one that measures the page, sees the tokens.
+ * The server's block, and so the one hydration adopts, has no `media`: the server
+ * never renders a hidden Activity's content, and the page must not wait for
+ * JavaScript to have its tokens. The cleanup also writes `media` to the element
+ * itself, because React renders a hidden subtree's update late, after the browser
+ * may have painted.
+ * @param props The block's CSS text.
+ * @param props.css The `:root` rules.
+ * @returns The style element.
+ */
+function ThemeVariablesStyle({ css }: { css: string }): ReactNode {
+  const ref = useRef<HTMLStyleElement>(null)
+  const hydrating = useSyncExternalStore(subscribeToNothing, isClientRender, isServerRender)
+  const [shown, setShown] = useState(false)
+  useIsomorphicLayoutEffect(() => {
+    const style = ref.current
+    style?.removeAttribute('media')
+    setShown(true)
+    return () => {
+      setShown(false)
+      if (style) style.media = HIDDEN_MEDIA
+    }
+  }, [])
+  return createElement('style', { ref, 'data-meonode-theme-vars': '', media: hydrating || shown ? undefined : HIDDEN_MEDIA, children: css })
+}
+
+/** `false`: read on the client once hydration is over, and on a client-only render. */
+const isClientRender = (): boolean => false
+/** `true`: read on the server, and while hydrating what it sent. */
+const isServerRender = (): boolean => true
+
+/**
  * Emits the `:root{--meonode-theme-*}` block as part of the provider's own
  * output, rather than registering it into module-global state for
  * `StyleRegistry` to consume at a streaming flush point. That indirection made
@@ -335,7 +387,7 @@ function composeChildren(children: Children | undefined, system: Theme['system']
   // agree on.
   const themeVariablesCss = buildThemeVariablesCss({ mode, system })
   if (!themeVariablesCss) return children
-  const themeVariablesStyle = createElement('style', { 'data-meonode-theme-vars': '', children: themeVariablesCss })
+  const themeVariablesStyle = createElement(ThemeVariablesStyle, { css: themeVariablesCss })
   // Prepend the style rather than nesting an array inside `children`, so the
   // shape stays a flat `Children` list.
   return [themeVariablesStyle, ...(Array.isArray(children) ? children : children == null ? [] : [children])] as Children
