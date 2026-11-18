@@ -622,6 +622,18 @@ describe('G. Regression guards', () => {
 // ----- Category L -----
 
 describe('L. Diagnostics and anti-pattern documentation', () => {
+  it('rejects a component selector passed as css in a server component, naming where it sits', async () => {
+    const { status, html } = await getPage('/diagnostic/css-component-selector', { allowRuntimeErrors: true })
+    expect(status).toBe(500)
+    expect(html).toContain('is an Emotion styled component or component selector')
+  })
+
+  it('rejects a client module export passed as css in a server component, naming where it sits', async () => {
+    const { status, html } = await getPage('/diagnostic/css-client-reference', { allowRuntimeErrors: true })
+    expect(status).toBe(500)
+    expect(html).toContain('is a client component or a client module export, which is not a style')
+  })
+
   it('reports an undefined theme token in development, on the server and in the browser', async () => {
     const warning = 'theme.primary.missing (used for `color`) is not defined by the active theme'
     const { status, messages } = await getPage('/theme/undefined-token')

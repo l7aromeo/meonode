@@ -12,7 +12,8 @@ import {
   type TokenContext,
   valueContext,
 } from '@src/util/css-unit.util.js'
-import { isMergeableCss } from '@src/util/css.util.js'
+import { isComponentSelector, isMergeableCss } from '@src/util/css.util.js'
+import { isClientReference } from '@src/helper/react-is.helper.js'
 import { reportDroppedThemeFunction } from '@src/util/theme-diagnostics.util.js'
 import { replaceThemeTokensWithCssVars } from '@src/util/server-theme.util.js'
 
@@ -134,6 +135,24 @@ const SCAN_WORK_OR_UNKNOWN = 1
 const SCAN_MAX_DEPTH = 16
 
 /**
+ * Whether `value` is a theme function (`theme => …`). On the server Emotion's
+ * styled components are functions too; one is not called with the theme, and is
+ * passed through as any component selector is (see {@link isComponentSelector}).
+ */
+const isThemeFunction = (value: unknown): value is (theme: Theme) => unknown => typeof value === 'function' && !isComponentSelector(value)
+
+/**
+ * Calls a theme function with the theme. A client reference, which is what a
+ * server component receives for a client module's export, is a function too, and
+ * throws when the server calls it; it is no style, so it resolves to nothing and
+ * Emotion writes nothing for it. Development rejects one where it is written.
+ * @param fn The theme function.
+ * @param theme The theme to call it with.
+ * @returns What it returns, or `undefined` for a client reference.
+ */
+const callThemeFunction = (fn: (theme: Theme) => unknown, theme: Theme): unknown => (isClientReference(fn) ? undefined : fn(theme))
+
+/**
  * Read-only, allocation-free test for whether {@link ThemeUtil.resolveObjWithTheme}
  * would change anything.
  *
@@ -165,7 +184,7 @@ function scanForThemeWork(value: unknown, processFunctions: boolean, depth: numb
   if (typeof value === 'string') {
     return value.includes('theme.') ? SCAN_WORK_OR_UNKNOWN : SCAN_NO_WORK
   }
-  if (typeof value === 'function') {
+  if (isThemeFunction(value)) {
     return processFunctions ? SCAN_WORK_OR_UNKNOWN : SCAN_NO_WORK
   }
   if (typeof value !== 'object' || value === null) return SCAN_NO_WORK
@@ -195,7 +214,7 @@ function scanForThemeWork(value: unknown, processFunctions: boolean, depth: numb
  * here means that walk would return its input unchanged.
  */
 function containsFunction(value: unknown, depth: number): boolean {
-  if (typeof value === 'function') return true
+  if (isThemeFunction(value)) return true
   if (typeof value !== 'object' || value === null) return false
   if (depth >= SCAN_MAX_DEPTH) return true
   if (Array.isArray(value)) {
@@ -229,7 +248,7 @@ const dropThemeFunctions = <T>(value: T, property?: string, path: Set<unknown> =
   if (Array.isArray(value)) {
     const items: unknown[] = []
     for (const item of value) {
-      if (typeof item === 'function') {
+      if (isThemeFunction(item)) {
         reportDroppedThemeFunction(property)
         changed = true
         continue
@@ -250,7 +269,7 @@ const dropThemeFunctions = <T>(value: T, property?: string, path: Set<unknown> =
         continue
       }
       const itemProperty = isSelectorOrAtRule(key) ? property : key
-      if (typeof item === 'function') {
+      if (isThemeFunction(item)) {
         reportDroppedThemeFunction(itemProperty)
         changed = true
         continue
@@ -307,8 +326,8 @@ const resolveItems = (items: unknown[], context: TokenContext, resolvedValues: M
   for (let i = 0; i < items.length; i++) {
     const item = items[i]
     let resolvedItem = resolvedValues.get(item) ?? item
-    if (typeof item === 'function' && options.processFunctions) {
-      const funcResult = (item as (theme: Theme) => unknown)(theme)
+    if (isThemeFunction(item) && options.processFunctions) {
+      const funcResult = callThemeFunction(item, theme)
       resolvedItem =
         typeof funcResult === 'string'
           ? funcResult.includes('theme.')
@@ -459,12 +478,13 @@ export class ThemeUtil {
    */
   public static hasThemeFunction = (value: unknown): boolean => containsFunction(value, 0)
 
+  /** A plain object the walks enter; an Emotion component selector is not one (see {@link isComponentSelector}). */
   public static isPlainObject = (value: unknown): value is Record<string, unknown> => {
     if (typeof value !== 'object' || value === null) {
       return false
     }
     const proto = Object.getPrototypeOf(value)
-    return proto === null || proto === Object.prototype
+    return (proto === null || proto === Object.prototype) && !isComponentSelector(value)
   }
 
   /**
@@ -670,8 +690,8 @@ export class ThemeUtil {
               const valueProperty = valueContext(newKey, serialized)
               if (isLengthFallbackList(key, value)) {
                 newValue = resolveItems(value, valueProperty, resolvedValues, theme, options)
-              } else if (typeof newValue === 'function' && processFunctions) {
-                const funcResult = (newValue as (theme: Theme) => unknown)(theme)
+              } else if (isThemeFunction(newValue) && processFunctions) {
+                const funcResult = callThemeFunction(newValue, theme)
                 // A function may return a whole style (an object or an array under a
                 // selector or at-rule key), which is resolved like the rest of the style.
                 newValue =

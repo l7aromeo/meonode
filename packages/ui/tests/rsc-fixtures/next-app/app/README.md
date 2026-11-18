@@ -22,6 +22,8 @@ This fixture app uses taxonomy-first routes so each page has one clear test purp
   - `next/link` boundary behavior and known repro paths
 - `/diagnostic/*`:
   - anti-pattern/documentation-only runtime behavior
+  - `/diagnostic/css-component-selector`: a component selector passed as `css` in a server component, which development rejects by name
+  - `/diagnostic/css-client-reference`: a styled component from a client module, which a server component receives as a client reference, passed as `css`; development rejects it by name
 
 ## Migrated routes
 

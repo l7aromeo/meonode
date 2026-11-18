@@ -10,6 +10,7 @@ import {
   type TokenContext,
   valueContext,
 } from '@src/util/css-unit.util.js'
+import { isComponentSelector } from '@src/util/css.util.js'
 import { isInPrelude } from '@src/util/theme-key.util.js'
 
 function toThemeVarName(path: string): string {
@@ -123,10 +124,11 @@ const replaceString = (input: string, context: TokenContext): string => {
   return hasChanged ? next : input
 }
 
+/** A plain object the walk enters; an Emotion component selector is not one (see {@link isComponentSelector}). */
 const isPlainObject = (v: unknown): v is Record<string, unknown> => {
   if (typeof v !== 'object' || v === null) return false
   const proto = Object.getPrototypeOf(v)
-  return proto === null || proto === Object.prototype
+  return (proto === null || proto === Object.prototype) && !isComponentSelector(v)
 }
 
 /** A container still to be walked, and whether its children have been pushed. */

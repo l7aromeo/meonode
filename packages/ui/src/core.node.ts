@@ -30,7 +30,7 @@ import { getComponentType, getElementTypeName, hasNoStyleTag, getGlobalState } f
 import StyledRenderer, { ThemedRule, ThemeTokenCheck } from '@src/components/styled-renderer.client.js'
 import MeoMemo from '@src/components/meo-memo.client.js'
 import { LIST_MARKER, LOCATION_MARKER } from '@src/constant/common.const.js'
-import { isMergeableCss } from '@src/util/css.util.js'
+import { guardComponentSelectors, guardFactoryCss, isMergeableCss, markCombinedCssChecked } from '@src/util/css.util.js'
 import { NodeUtil } from '@src/util/node.util.js'
 import { IS_REACT_SERVER_LAYER } from '@src/util/react-layer.util.js'
 import { passesChildrenThrough } from '@src/util/children-pass-through.util.js'
@@ -909,11 +909,16 @@ function combineFactoryProps(initialProps: Record<string, unknown> | undefined, 
   const combined: Record<string, unknown> = { ...initialProps, ...props }
   const factoryCss = initialProps?.css
   const callSiteCss = props?.css
+  // Checked before they are combined, so an error names the `css` it was written in.
+  guardFactoryCss(factoryCss)
+  guardComponentSelectors(callSiteCss)
   if (isMergeableCss(factoryCss) && isMergeableCss(callSiteCss)) {
     combined.css = mergeCss(factoryCss, callSiteCss)
   } else if (stylesSomething(factoryCss) && stylesSomething(callSiteCss)) {
     combined.css = [factoryCss, callSiteCss]
   }
+  // Made only of what was just checked, so the node does not walk it again.
+  markCombinedCssChecked(combined.css)
   return combined
 }
 
