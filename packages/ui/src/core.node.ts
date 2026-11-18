@@ -30,7 +30,7 @@ import { getComponentType, getElementTypeName, hasNoStyleTag, getGlobalState } f
 import StyledRenderer, { ThemedRule, ThemeTokenCheck } from '@src/components/styled-renderer.client.js'
 import MeoMemo from '@src/components/meo-memo.client.js'
 import { LIST_MARKER, LOCATION_MARKER } from '@src/constant/common.const.js'
-import { guardComponentSelectors, guardFactoryCss, isMergeableCss, markCombinedCssChecked } from '@src/util/css.util.js'
+import { checkCss, checkFactoryCss, isMergeableCss, markCombinedCssChecked } from '@src/util/css.util.js'
 import { NodeUtil } from '@src/util/node.util.js'
 import { IS_REACT_SERVER_LAYER } from '@src/util/react-layer.util.js'
 import { passesChildrenThrough } from '@src/util/children-pass-through.util.js'
@@ -688,7 +688,7 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
               // class named after the whole css.
               const { plain, themed } = activeTheme
                 ? { plain: ThemeUtil.dropThemedKeys(cssWithDefaults, reportUnresolvedThemeKey), themed: undefined }
-                : ThemeUtil.splitThemedCss(cssWithDefaults)
+                : ThemeUtil.splitThemedCss(ThemeUtil.dropReservedStylesKeys(cssWithDefaults))
               const rule = compileServerEmotionRule(plain, elementProps.className, {
                 share: typeof renderTarget !== 'string',
                 identity: themed ? cssWithDefaults : undefined,
@@ -910,8 +910,8 @@ function combineFactoryProps(initialProps: Record<string, unknown> | undefined, 
   const factoryCss = initialProps?.css
   const callSiteCss = props?.css
   // Checked before they are combined, so an error names the `css` it was written in.
-  guardFactoryCss(factoryCss)
-  guardComponentSelectors(callSiteCss)
+  checkFactoryCss(factoryCss)
+  checkCss(callSiteCss)
   if (isMergeableCss(factoryCss) && isMergeableCss(callSiteCss)) {
     combined.css = mergeCss(factoryCss, callSiteCss)
   } else if (stylesSomething(factoryCss) && stylesSomething(callSiteCss)) {

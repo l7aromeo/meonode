@@ -4,6 +4,7 @@ import { isInPrelude, keyHasThemeToken, removeBlocksWithThemeTokens, replaceKeyT
 import { getValueByPath } from '@src/helper/common.helper.js'
 import {
   CSS_TEXT,
+  holdsReservedStylesKey,
   isLengthFallbackList,
   isSelectorOrAtRule,
   isSerializedRecordKey,
@@ -284,6 +285,50 @@ const dropThemeFunctions = <T>(value: T, property?: string, path: Set<unknown> =
   return (changed ? result : value) as T
 }
 
+/**
+ * Leaves out of a style what Emotion cannot write, at any depth: a `styles` key
+ * that holds no string (see {@link holdsReservedStylesKey}), and, given
+ * `report`, an entry whose key still holds a `theme.` token. Copy-on-write, so a
+ * style with nothing to leave out comes back as the same object.
+ * @param css The resolved `css` value.
+ * @param report Called with each themed key removed, or `null` to keep them.
+ * @returns `css` itself when nothing is removed, otherwise a copy without it.
+ */
+const dropUnwritable = <T>(css: T, report: ((key: string) => void) | null): T => {
+  if (typeof css === 'string') return (report === null ? css : removeBlocksWithThemeTokens(css, report)) as T
+  if (Array.isArray(css)) {
+    let changed = false
+    const items = css.map(item => {
+      const next = dropUnwritable(item, report)
+      if (next !== item) changed = true
+      return next
+    })
+    return (changed ? items : css) as T
+  }
+  if (!ThemeUtil.isPlainObject(css)) return css
+  const reserved = holdsReservedStylesKey(css)
+  let result: Record<string, unknown> | null = null
+  if (reserved) {
+    result = { ...css }
+    delete result.styles
+  }
+  for (const key in css) {
+    if (!Object.prototype.hasOwnProperty.call(css, key) || (reserved && key === 'styles')) continue
+    if (report !== null && keyHasThemeToken(key)) {
+      report(key)
+      result ??= { ...css }
+      delete result[key]
+      continue
+    }
+    const next = dropUnwritable(css[key], report)
+    if (next !== css[key]) {
+      result ??= { ...css }
+      result[key] = next
+    }
+  }
+  return (result ?? css) as T
+}
+
 /** The options `ThemeUtil.resolveObjWithTheme` takes. */
 interface ResolveOptions {
   processFunctions?: boolean
@@ -548,40 +593,23 @@ export class ThemeUtil {
    * Removes every entry whose key still holds a `theme.` token, at any depth, and
    * reports each key. A rule whose condition or selector carries the token is
    * invalid, and the browser drops it, so leaving the key in place only ships a
-   * rule that can never apply.
+   * rule that can never apply. A `styles` key that holds no string is left out
+   * too (see {@link holdsReservedStylesKey}): this is the last walk before
+   * Emotion on every path that has a theme.
    * @param css The resolved `css` value.
-   * @param report Called with each key removed.
-   * @returns `css` itself when no key holds a token, otherwise a copy without them.
+   * @param report Called with each themed key removed.
+   * @returns `css` itself when nothing is removed, otherwise a copy without it.
    */
-  public static dropThemedKeys = <T>(css: T, report: (key: string) => void): T => {
-    if (typeof css === 'string') return removeBlocksWithThemeTokens(css, report) as T
-    if (Array.isArray(css)) {
-      let changed = false
-      const items = css.map(item => {
-        const next = ThemeUtil.dropThemedKeys(item, report)
-        if (next !== item) changed = true
-        return next
-      })
-      return (changed ? items : css) as T
-    }
-    if (!ThemeUtil.isPlainObject(css)) return css
-    let result: Record<string, unknown> | null = null
-    for (const key in css) {
-      if (!Object.prototype.hasOwnProperty.call(css, key)) continue
-      if (keyHasThemeToken(key)) {
-        report(key)
-        result ??= { ...css }
-        delete result[key]
-        continue
-      }
-      const next = ThemeUtil.dropThemedKeys(css[key], report)
-      if (next !== css[key]) {
-        result ??= { ...css }
-        result[key] = next
-      }
-    }
-    return (result ?? css) as T
-  }
+  public static dropThemedKeys = <T>(css: T, report: (key: string) => void): T => dropUnwritable(css, report)
+
+  /**
+   * Leaves out every `styles` key that holds no string, at any depth (see
+   * {@link holdsReservedStylesKey}), for a path to Emotion that keeps its themed
+   * keys and so does not pass through {@link ThemeUtil.dropThemedKeys}.
+   * @param css The resolved `css` value.
+   * @returns `css` itself when no such key is found, otherwise a copy without them.
+   */
+  public static dropReservedStylesKeys = <T>(css: T): T => dropUnwritable(css, null)
 
   /**
    * Resolves theme variable references in an object's values iteratively.

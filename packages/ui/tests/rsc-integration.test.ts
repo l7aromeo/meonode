@@ -634,6 +634,30 @@ describe('L. Diagnostics and anti-pattern documentation', () => {
     expect(html).toContain('is a client component or a client module export, which is not a style')
   })
 
+  // Emotion reserves `styles` for serialized styles, and writes an object whose
+  // `styles` is set from that key alone; its development build crashes on one
+  // holding no string. The key is left out, so the rest of the object renders.
+  it.each(['server', 'client'])('leaves out a styles key holding no string in a %s component, rendering the rest', async side => {
+    const {
+      status,
+      html,
+      computedStyles: styles,
+    } = await getPage(`/diagnostic/css-reserved-styles/${side}`, {
+      computedStyles: [
+        { testId: 'reserved-top', properties: ['padding-top', 'padding-bottom'] },
+        { testId: 'reserved-nested-child', properties: ['padding-left', 'color'] },
+        { testId: 'reserved-array', properties: ['margin-left', 'margin-top'] },
+        { testId: 'reserved-themed', properties: ['padding-top', 'padding-right'] },
+      ],
+    })
+    expect(status).toBe(200)
+    assertNoRscErrors(html)
+    expect(styles['reserved-top']).toEqual({ 'padding-top': '0px', 'padding-bottom': '8px' })
+    expect(styles['reserved-nested-child']).toEqual({ 'padding-left': '6px', color: 'rgb(0, 0, 128)' })
+    expect(styles['reserved-array']).toEqual({ 'margin-left': '0px', 'margin-top': '5px' })
+    expect(styles['reserved-themed']).toEqual({ 'padding-top': '0px', 'padding-right': '16px' })
+  })
+
   it('reports an undefined theme token in development, on the server and in the browser', async () => {
     const warning = 'theme.primary.missing (used for `color`) is not defined by the active theme'
     const { status, messages } = await getPage('/theme/undefined-token')

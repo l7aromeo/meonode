@@ -116,13 +116,26 @@ export const isSelectorOrAtRule = (key: string): boolean => key.startsWith('&') 
 /**
  * Whether `obj` is Emotion's serialized styles, as `css()` and `keyframes()`
  * return them: `styles` is CSS text, and `name` the hash Emotion derived from it.
- * Emotion writes any object with a string `styles` from that string alone, so
- * such an object is serialized styles whoever made it; a block under a `styles`
- * key is not a string, and stays a style object.
+ * Emotion reserves the `styles` key: it writes any object whose `styles` is set
+ * from that key alone, whoever made it. Only a string there is CSS text, so only
+ * that makes the object serialized styles here. Anything else is left out of a
+ * style before Emotion sees it (see {@link holdsReservedStylesKey}).
  * @param obj The object.
  * @returns `true` when `styles` is a string.
  */
 export const isSerializedStyles = (obj: Record<string, unknown>): boolean => typeof obj.styles === 'string'
+
+/**
+ * Whether `obj` has a `styles` key that holds something other than a string.
+ * Emotion takes any object whose `styles` is set for serialized styles and
+ * writes it from that key alone: its development build crashes, and its
+ * production build names a class `css-undefined` and writes no rule. So the key
+ * is left out, the rest of the object renders, and development reports it (see
+ * `checkCss`).
+ * @param obj The object.
+ * @returns `true` when `styles` is set and is not a string.
+ */
+export const holdsReservedStylesKey = (obj: Record<string, unknown>): boolean => obj.styles !== undefined && typeof obj.styles !== 'string'
 
 /**
  * Whether `key` of serialized styles (see {@link isSerializedStyles}) holds

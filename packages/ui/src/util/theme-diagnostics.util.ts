@@ -44,6 +44,9 @@ export const diagnosticsEnabled = (): boolean => __DEBUG__ || isDevMode()
  */
 const reported = new Set<string>()
 
+/** Objects already reported by {@link reportReservedStylesKey}; held weakly, as a style object can be a render's literal. */
+let reportedReservedOwners = new WeakSet<object>()
+
 /**
  * Warns once per key.
  * @param seenKey What makes this report distinct.
@@ -437,6 +440,34 @@ export const reportUnresolvedThemeKey = (key: string): void => {
  * element has to move into a client component.
  * @param property The CSS property the function was written against, when known.
  */
+
+/**
+ * A `styles` key in a style that holds something other than a string, which is
+ * left out of the style (see `holdsReservedStylesKey`). Reported once per
+ * object, and once per place and shape: a factory's css is checked before and
+ * after it is combined with the call site's, and the first report names the css
+ * the object was written in; an inline literal is a new object on every render,
+ * with the same place and keys; and two components that make the mistake at the
+ * same place with different keys are both reported. `checkCss` calls this only
+ * while diagnostics are on.
+ * @param owner The object holding the `styles` key.
+ * @param at Where the object sits in `css`, such as `css["&:hover"]`.
+ */
+export const reportReservedStylesKey = (owner: Record<string, unknown>, at: string): void => {
+  if (reportedReservedOwners.has(owner)) return
+  reportedReservedOwners.add(owner)
+  const { styles } = owner
+  const shape = `${Object.keys(owner).join(',')}|${typeof styles === 'object' && styles !== null ? Object.keys(styles).join(',') : typeof styles}`
+  const seenKey = `reserved-styles:${at}:${shape}`
+  if (reported.has(seenKey)) return
+  reported.add(seenKey)
+  console.warn(
+    `[MeoNode] \`${at}\` has a \`styles\` key that holds no string. Emotion reserves \`styles\` for serialized styles, ` +
+      'such as what `css()` returns, and would write that object from it alone, so the key was left out and the rest of the object applies. ' +
+      'Rename the key.',
+  )
+}
+
 export const reportDroppedThemeFunction = (property?: string): void => {
   if (!diagnosticsEnabled()) return
   const subject = `A theme function ${property ? `for \`${property}\` ` : ''}was dropped`
@@ -518,6 +549,7 @@ export const trackProviderVars = (owner: object, own: ThemeVarIndex): (() => voi
 /** Test seam: clears the once-per-problem memo and the record of mounted providers. */
 export const __resetThemeDiagnostics = (): void => {
   reported.clear()
+  reportedReservedOwners = new WeakSet()
   mountedVars.clear()
   // `NODE_ENV` is captured once at module load, so a test that stubs it needs
   // the captured value re-read. Routed through this seam because the tests that

@@ -260,3 +260,54 @@ describe('a component selector passed as css, by environment', () => {
     expect(html).toContain('color:teal;')
   })
 })
+
+// A `styles` key holding no string is left out of a style, in development and in
+// production alike, so the rest of the object renders. Emotion would otherwise
+// write the object from `styles` alone: its development build crashes, and its
+// production build names a class `css-undefined` and writes no rule. Only a fresh
+// Node process loads Emotion's production build.
+describe('a styles key holding no string in css, by environment', () => {
+  /** Renders, with and without a provider, elements whose css holds one at several depths, and returns the output or the error. */
+  async function renderReserved(nodeEnv: string | undefined) {
+    const script = [
+      "import { renderToString } from 'react-dom/server'",
+      "import { createNode, Div, Node, ThemeProvider } from '@meonode/ui'",
+      "const Card = createNode('div', { css: { color: 'teal' } })",
+      'const elements = (n) => [',
+      "  Div({ key: 'a', css: { styles: { paddingTop: 1 }, paddingBottom: 20 + n }, children: 'a' }),",
+      "  Div({ key: 'b', css: { '& > span': { styles: { color: 'red' }, paddingLeft: 30 + n } }, children: 'b' }),",
+      "  Card({ key: 'c', css: [{ styles: { marginLeft: 1 }, marginTop: 40 + n }], children: 'c' }),",
+      "  Div({ key: 'd', css: { styles: { borderTopWidth: 1 }, paddingRight: 'theme.gap', borderBottomWidth: 50 + n }, children: 'd' }),",
+      ']',
+      "const App = () => [ThemeProvider({ key: 'p', modes: ['light'], defaultMode: 'light', tokens: { gap: { default: '4px' } }, children: elements(0) }).render(), ...elements(5).map(e => e.render())]",
+      'try { process.stdout.write(renderToString(Node(App).render())) } catch (error) { process.stdout.write(`THROWN ${error.message}`) }',
+    ].join('\n')
+    const childEnv: Record<string, string | undefined> = { ...process.env }
+    delete childEnv.NODE_ENV
+    if (nodeEnv !== undefined) childEnv.NODE_ENV = nodeEnv
+    const { stdout } = await promisify(execFile)(process.execPath, ['--input-type=module', '-e', script], {
+      cwd: ROOT,
+      env: childEnv as NodeJS.ProcessEnv,
+    })
+    return stdout
+  }
+
+  it.each([
+    ['development', undefined],
+    ['production', 'production'],
+  ])('renders the rest of each object in %s, with and without a provider', async (_, nodeEnv) => {
+    const html = await renderReserved(nodeEnv)
+    expect(html).not.toContain('THROWN')
+    expect(html).not.toContain('css-undefined')
+    for (const n of [0, 5]) {
+      expect(html).toContain(`padding-bottom:${20 + n}px;`)
+      expect(html).toContain(`padding-left:${30 + n}px;`)
+      expect(html).toContain(`margin-top:${40 + n}px;`)
+      expect(html).toContain(`border-bottom-width:${50 + n}px;`)
+    }
+    expect(html).toContain('color:teal;')
+    expect(html).not.toContain('padding-top:1px')
+    expect(html).not.toContain('margin-left:1px')
+    expect(html).not.toContain('border-top-width:1px')
+  })
+})

@@ -69,14 +69,15 @@ describe("theme tokens in Emotion's serialized styles", () => {
   })
 
   // Emotion writes any object with a string `styles` from that string alone, so
-  // it is CSS text whoever made it; a block under a `styles` key is a style object.
-  it.each([
-    ['a string styles is CSS text', { styles: 'padding: theme.spacing.md' }, { styles: `padding: ${len('spacing-md')}` }],
-    ['a block under a styles key is a style object', { styles: { padding: 'theme.spacing.md' } }, { styles: { padding: len('spacing-md') } }],
-  ])('%s', (_, value, converted) => {
-    expect(onServer(value)).toEqual(converted)
-    expect(onClient(value)).toEqual(converted)
-  })
+  // it is CSS text whoever made it. A `styles` key holding anything else is
+  // covered in css-reserved-styles-key.test.ts.
+  it.each([['a string styles is CSS text', { styles: 'padding: theme.spacing.md' }, { styles: `padding: ${len('spacing-md')}` }]])(
+    '%s',
+    (_, value, converted) => {
+      expect(onServer(value)).toEqual(converted)
+      expect(onClient(value)).toEqual(converted)
+    },
+  )
 })
 
 describe('a css() result rendered under a ThemeProvider', () => {

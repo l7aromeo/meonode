@@ -20,7 +20,7 @@ import { getCSSProps, getDOMProps, getElementTypeName, omitUndefined } from '@sr
 import { __DEBUG__, COMPILED_MARKER, COMPILER_SCHEMA_KEYS, LIST_MARKER, LOCATION_MARKER, SUPPORTED_COMPILER_SCHEMAS } from '@src/constant/common.const.js'
 import { BaseNode } from '@src/core.node.js'
 import { diagnosticsEnabled } from '@src/util/theme-diagnostics.util.js'
-import { guardComponentSelectors, isMergeableCss } from '@src/util/css.util.js'
+import { checkCss, isMergeableCss } from '@src/util/css.util.js'
 
 /**
  * NodeUtil provides a collection of static utility methods and properties
@@ -187,7 +187,7 @@ export class NodeUtil {
     const markerDomProps = source[schemaKeys.dom] as Record<string, unknown> | undefined
 
     const { ref, key, children, css, props: nativeProps, disableEmotion } = rawProps
-    guardComponentSelectors(css)
+    checkCss(css)
 
     // Built only if a key survives both filters. `as` and `theme` deliberately do
     // *not* count as skippable specials here: they are not destructured above, so
@@ -324,8 +324,8 @@ export class NodeUtil {
     const compiledLocation = typeof rawLocation === 'string' ? rawLocation : undefined
 
     const { ref, key, children, css, props: nativeProps = {}, disableEmotion, ...restRawProps } = rawProps
-    // A styled component or component selector is no style; development rejects one.
-    guardComponentSelectors(css)
+    // Development rejects a value that is not a style here, and reports a reserved `styles` key.
+    checkCss(css)
 
     // A marker whose schema this runtime does not know — output from a newer
     // compiler against an older `@meonode/ui`. Props are classified the legacy
