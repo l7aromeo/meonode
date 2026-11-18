@@ -651,10 +651,14 @@ export class ThemeUtil {
                 newValue = resolveItems(value, valueProperty, resolvedValues, theme, options)
               } else if (typeof newValue === 'function' && processFunctions) {
                 const funcResult = (newValue as (theme: Theme) => unknown)(theme)
+                // A function may return a whole style (an object or an array under a
+                // selector or at-rule key), which is resolved like the rest of the style.
                 newValue =
-                  typeof funcResult === 'string' && funcResult.includes('theme.')
-                    ? processThemeString(funcResult, valueAsVar, themeSystem, valueProperty)
-                    : funcResult
+                  typeof funcResult === 'string'
+                    ? funcResult.includes('theme.')
+                      ? processThemeString(funcResult, valueAsVar, themeSystem, valueProperty)
+                      : funcResult
+                    : ThemeUtil.resolveObjWithTheme(funcResult as Record<string, unknown>, theme, options)
               } else if (typeof newValue === 'string' && newValue.includes('theme.')) {
                 newValue = processThemeString(newValue, valueAsVar, themeSystem, valueProperty)
               }
