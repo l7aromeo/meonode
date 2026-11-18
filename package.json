@@ -42,14 +42,17 @@
     "release": "changeset publish",
     "check:format": "prettier --check packages/compiler",
     "check:changesets": "bun run scripts/check-changeset-coverage.ts",
+    "check:packages": "bun run scripts/check-package-entries.ts",
     "test:scripts": "bun test scripts",
     "release:dry": "bun run scripts/release-dryrun.ts"
   },
   "devDependencies": {
+    "@arethetypeswrong/cli": "^0.18.5",
     "@changesets/changelog-github": "^1.0.1",
     "@changesets/cli": "^3.0.3",
     "husky": "^9.1.7",
-    "prettier": "^3.10.1"
+    "prettier": "^3.10.1",
+    "publint": "^0.3.25"
   },
   "trustedDependencies": [
     "@swc/core"
