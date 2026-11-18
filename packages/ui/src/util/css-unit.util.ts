@@ -114,6 +114,28 @@ export const themeVarRef = (varName: string, context: TokenContext, text: string
 export const isSelectorOrAtRule = (key: string): boolean => key.startsWith('&') || key.startsWith('@')
 
 /**
+ * Whether `obj` is Emotion's serialized styles, as `css()` and `keyframes()`
+ * return them: `styles` is CSS text, and `name` the hash Emotion derived from it.
+ * Emotion writes any object with a string `styles` from that string alone, so
+ * such an object is serialized styles whoever made it; a block under a `styles`
+ * key is not a string, and stays a style object.
+ * @param obj The object.
+ * @returns `true` when `styles` is a string.
+ */
+export const isSerializedStyles = (obj: Record<string, unknown>): boolean => typeof obj.styles === 'string'
+
+/**
+ * Whether `key` of serialized styles (see {@link isSerializedStyles}) holds
+ * Emotion's own record of them rather than style: every key but `styles` and the
+ * `next` chain of keyframes they use. `name` is the hash of the styles as
+ * written, `anim` marks keyframes, `map` is a source map and `toString` a method,
+ * so each is kept as it is, and a function among them is not a theme function.
+ * @param key The object key.
+ * @returns `true` for a key the walks leave alone.
+ */
+export const isSerializedRecordKey = (key: string): boolean => key !== 'styles' && key !== 'next'
+
+/**
  * Whether `value` under `key` is a fallback list of a length property: an array
  * Emotion writes as one declaration of that property per item, so each item is a
  * value of the property and a token in it needs the length form.

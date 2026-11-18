@@ -3,6 +3,8 @@ import {
   CSS_TEXT,
   isLengthFallbackList,
   isSelectorOrAtRule,
+  isSerializedRecordKey,
+  isSerializedStyles,
   needsLengthVariant,
   themeVarRef,
   toLengthVarName,
@@ -202,6 +204,8 @@ const SCAN_MAX_DEPTH = 16
  * - Uses `for...in` + `hasOwnProperty` rather than `Object.values()`, because
  *   `Object.values()` allocates an array per object, which is one of the costs
  *   this path exists to avoid.
+ * - Emotion's record in serialized styles is skipped, as the walk skips it
+ *   (see {@link isSerializedRecordKey}).
  */
 function scanForThemeTokens(value: unknown, depth: number): number {
   if (typeof value === 'string') {
@@ -219,8 +223,9 @@ function scanForThemeTokens(value: unknown, depth: number): number {
 
   if (!isPlainObject(value)) return SCAN_NO_TOKENS
 
+  const serialized = isSerializedStyles(value)
   for (const key in value) {
-    if (!Object.prototype.hasOwnProperty.call(value, key)) continue
+    if (!Object.prototype.hasOwnProperty.call(value, key) || (serialized && isSerializedRecordKey(key))) continue
     if (scanForThemeTokens(value[key], depth + 1) !== SCAN_NO_TOKENS) return SCAN_FOUND_OR_UNKNOWN
   }
   return SCAN_NO_TOKENS
@@ -320,12 +325,15 @@ export function replaceThemeTokensWithCssVars<T>(value: T): T {
       } else {
         let newObj: Record<string, unknown> | null = null
         const obj = currentValue as Record<string, unknown>
+        const serialized = isSerializedStyles(obj)
         for (const key in obj) {
           if (Object.prototype.hasOwnProperty.call(obj, key)) {
             const v = obj[key]
             let newValue: unknown = v
 
-            if (typeof v === 'string') {
+            if (serialized && isSerializedRecordKey(key)) {
+              continue
+            } else if (typeof v === 'string') {
               // A selector or at-rule key names no property, so a token
               // directly under one keeps the plain variable.
               newValue = replaceString(v, isSelectorOrAtRule(key) ? undefined : key)

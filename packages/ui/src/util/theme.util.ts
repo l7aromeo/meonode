@@ -2,7 +2,15 @@ import type { CSSProperties } from '@emotion/serialize'
 import type { CssProp, Theme } from '@src/types/node.type.js'
 import { isInPrelude, keyHasThemeToken, removeBlocksWithThemeTokens, replaceKeyTokens, textHasThemeTokenInPrelude } from '@src/util/theme-key.util.js'
 import { getValueByPath } from '@src/helper/common.helper.js'
-import { CSS_TEXT, isLengthFallbackList, isSelectorOrAtRule, themeVarRef, type TokenContext } from '@src/util/css-unit.util.js'
+import {
+  CSS_TEXT,
+  isLengthFallbackList,
+  isSelectorOrAtRule,
+  isSerializedRecordKey,
+  isSerializedStyles,
+  themeVarRef,
+  type TokenContext,
+} from '@src/util/css-unit.util.js'
 import { isMergeableCss } from '@src/util/css.util.js'
 import { reportDroppedThemeFunction } from '@src/util/theme-diagnostics.util.js'
 import { replaceThemeTokensWithCssVars } from '@src/util/server-theme.util.js'
@@ -145,6 +153,8 @@ const SCAN_MAX_DEPTH = 16
  * - Function values count as work when `processFunctions` is set, because the
  *   walk calls them and substitutes the result. When it is not set, the walk
  *   leaves them alone, so they are not work.
+ * - Emotion's record in serialized styles is skipped, as the walk skips it
+ *   (see {@link isSerializedRecordKey}).
  * @param value The value to scan.
  * @param processFunctions Whether the caller will invoke callable values.
  * @param depth Current recursion depth, against {@link SCAN_MAX_DEPTH}.
@@ -169,8 +179,9 @@ function scanForThemeWork(value: unknown, processFunctions: boolean, depth: numb
 
   if (!ThemeUtil.isPlainObject(value)) return SCAN_NO_WORK
 
+  const serialized = isSerializedStyles(value)
   for (const key in value) {
-    if (!Object.prototype.hasOwnProperty.call(value, key)) continue
+    if (!Object.prototype.hasOwnProperty.call(value, key) || (serialized && isSerializedRecordKey(key))) continue
     if (key.includes('theme.')) return SCAN_WORK_OR_UNKNOWN
     if (scanForThemeWork(value[key], processFunctions, depth + 1) !== SCAN_NO_WORK) return SCAN_WORK_OR_UNKNOWN
   }
@@ -191,8 +202,10 @@ function containsFunction(value: unknown, depth: number): boolean {
     return false
   }
   if (!ThemeUtil.isPlainObject(value)) return false
+  const serialized = isSerializedStyles(value)
   for (const key in value) {
-    if (Object.prototype.hasOwnProperty.call(value, key) && containsFunction(value[key], depth + 1)) return true
+    if (!Object.prototype.hasOwnProperty.call(value, key) || (serialized && isSerializedRecordKey(key))) continue
+    if (containsFunction(value[key], depth + 1)) return true
   }
   return false
 }
@@ -227,9 +240,14 @@ const dropThemeFunctions = <T>(value: T, property?: string, path: Set<unknown> =
     result = items
   } else {
     const obj: Record<string, unknown> = {}
+    const serialized = isSerializedStyles(value as Record<string, unknown>)
     for (const key in value as Record<string, unknown>) {
       if (!Object.prototype.hasOwnProperty.call(value, key)) continue
       const item = (value as Record<string, unknown>)[key]
+      if (serialized && isSerializedRecordKey(key)) {
+        obj[key] = item
+        continue
+      }
       const itemProperty = isSelectorOrAtRule(key) ? property : key
       if (typeof item === 'function') {
         reportDroppedThemeFunction(itemProperty)
@@ -634,8 +652,10 @@ export class ThemeUtil {
         } else {
           let newObj: Record<string, unknown> | null = null
           let renames: Map<string, string> | null = null
+          const serialized = isSerializedStyles(currentValue)
           for (const key in currentValue) {
             if (Object.prototype.hasOwnProperty.call(currentValue, key)) {
+              if (serialized && isSerializedRecordKey(key)) continue
               const value = currentValue[key]
               let newValue = resolvedValues.get(value) ?? value
               let newKey = key
