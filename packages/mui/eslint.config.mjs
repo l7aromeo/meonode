@@ -44,7 +44,22 @@ const eslintConfig = [
       ],
       'jsDoc/require-description': 'warn'
     },
-  }
+  },
+  {
+    files: ['src/**/*.ts', 'src/**/*.tsx'],
+    rules: {
+      // React's declarations are `export =`. A default import of them is copied into
+      // the emitted .d.ts, where a consumer on `module: commonjs` without
+      // `esModuleInterop` reads it as `any`, and every prop type built on it with it.
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: "ImportDeclaration[source.value=/^react(-dom)?(\\/.*)?$/] > ImportDefaultSpecifier",
+          message: "Use `import * as React from 'react'` (or `import type * as React`): a default import makes the published declarations `any` for consumers without esModuleInterop.",
+        },
+      ],
+    },
+  },
 ];
 
 export default eslintConfig;
