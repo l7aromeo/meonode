@@ -168,15 +168,44 @@ export const getThemeVarIndex = (theme: Theme): ThemeVarIndex => {
   return index
 }
 
+/** The variable-name ending of a token's `default` leaf, which names the same token as its parent. */
+const DEFAULT_SUFFIX = '-default'
+
 /**
  * The variables defined under a nested provider: the outer ones, with the
  * nested provider's own on top.
+ *
+ * Reports each token the nested provider gives another value than a provider
+ * above. Providers declare their tokens on `:root` rather than on their subtree,
+ * so whichever declaration comes later in the document applies to the whole
+ * page, inside and outside the nested provider. Reported once per token. Only
+ * called while diagnostics are on.
  * @param outer What the providers above define, or `null` when there are none.
  * @param own What this provider defines.
  * @returns Both, merged.
  */
-export const mergeThemeVarIndexes = (outer: ThemeVarIndex | null, own: ThemeVarIndex): ThemeVarIndex =>
-  outer && outer.size > 0 ? new Map([...outer, ...own]) : own
+export const mergeThemeVarIndexes = (outer: ThemeVarIndex | null, own: ThemeVarIndex): ThemeVarIndex => {
+  if (!outer || outer.size === 0) return own
+  const merged = new Map(outer)
+  for (const [varName, value] of own) {
+    const above = merged.get(varName)
+    merged.set(varName, value)
+    // `primary: { default: … }` defines `theme.primary` and `theme.primary.default`
+    // with one value; the token is reported once, by its shorter name.
+    if (
+      !outer.has(varName) ||
+      Object.is(above, value) ||
+      (varName.endsWith(DEFAULT_SUFFIX) && Object.is(own.get(varName.slice(0, -DEFAULT_SUFFIX.length)), value))
+    )
+      continue
+    report(
+      `redefined:${varName}`,
+      `A nested ThemeProvider gives ${toReadablePath(varName)} the value ${JSON.stringify(value)}, but a ThemeProvider above it already gives it ${JSON.stringify(above)}. ` +
+        'Tokens are declared on :root, so whichever comes later applies to the whole page. Give the nested token a name of its own.',
+    )
+  }
+  return merged
+}
 
 /**
  * Suggests the defined variables that share a prefix with an undefined one —

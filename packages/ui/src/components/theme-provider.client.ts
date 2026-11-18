@@ -558,6 +558,11 @@ export default function ThemeProvider({
     }
   }, [store, defaultMode, tokens, modes, setMode, setPreference, outer])
 
+  // A nested provider's tokens are not scoped to its subtree: a value it gives a
+  // token an outer provider defines repaints the whole page. Merging the tokens
+  // reports it. Development only.
+  if (outer && diagnosticsEnabled()) contextValue.definedVars()
+
   const composed = composeChildren(children, tokens, defaultMode as Theme['mode'])
   return Node(ThemeContext.Provider, {
     value: contextValue,

@@ -219,3 +219,24 @@ describe('theme token diagnostics with no provider, or several', () => {
     expect(captured).toEqual([])
   })
 })
+
+describe('a nested ThemeProvider redefining a token', () => {
+  const nestedProvider = (inner: Record<string, unknown>) =>
+    renderToStaticMarkup(
+      ThemeProvider({
+        ...asThemeProps(theme),
+        children: ThemeProvider({ tokens: inner as never, modes: ['light'], defaultMode: 'light', children: Div({ children: 'x' }) }),
+      }).render(),
+    )
+
+  it('warns when it gives a token another value than a provider above', () => {
+    nestedProvider({ primary: { default: 'rgb(0, 0, 255)' } })
+    expect(captured).toEqual([expect.stringContaining('A nested ThemeProvider gives theme.primary the value "rgb(0, 0, 255)"')])
+    expect(captured[0]).toContain('already gives it "#3B82F6"')
+  })
+
+  it('stays quiet when it gives a token the value a provider above gives it', () => {
+    nestedProvider({ primary: { default: '#3B82F6' } })
+    expect(captured).toEqual([])
+  })
+})
