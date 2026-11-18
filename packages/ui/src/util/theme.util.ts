@@ -2,7 +2,7 @@ import type { CSSProperties } from '@emotion/serialize'
 import type { CssProp, Theme } from '@src/types/node.type.js'
 import { isInPrelude, keyHasThemeToken, removeBlocksWithThemeTokens, replaceKeyTokens, textHasThemeTokenInPrelude } from '@src/util/theme-key.util.js'
 import { getValueByPath } from '@src/helper/common.helper.js'
-import { isLengthProperty, isSelectorOrAtRule, lengthVarRef } from '@src/util/css-unit.util.js'
+import { CSS_TEXT, isSelectorOrAtRule, themeVarRef, type TokenContext } from '@src/util/css-unit.util.js'
 import { isMergeableCss } from '@src/util/css.util.js'
 import { reportDroppedThemeFunction } from '@src/util/theme-diagnostics.util.js'
 import { replaceThemeTokensWithCssVars } from '@src/util/server-theme.util.js'
@@ -37,17 +37,12 @@ const toThemeVarName = (p: string) => `--meonode-theme-${p.replace(/[^\w.-]/g, '
  * @param value The string to rewrite.
  * @param asVar Emit `var(--meonode-theme-*)` instead of the resolved value.
  * @param themeSystem The active theme's `system` object, for path lookups.
- * @param property The CSS property this value was written against, when known.
- * A length property references the paired `--len` variant, so a numeric token
- * arrives with its unit rather than as a bare number the browser would reject.
- * Chosen from the property alone, never the token's value, so the server path —
- * which may have no theme in scope — makes the identical choice and the Emotion
- * class hash stays the same across SSR and CSR.
+ * @param context What the string was written against, which decides whether a
+ * token takes the paired `--len` variant (see {@link themeVarRef}).
  * @returns The rewritten string, or `value` itself when nothing changed.
  */
-const processThemeString = (value: string, asVar: boolean, themeSystem: Record<string, unknown>, property?: string): string => {
+const processThemeString = (value: string, asVar: boolean, themeSystem: Record<string, unknown>, context: TokenContext): string => {
   THEME_REGEX.lastIndex = 0
-  const wantsLength = property !== undefined && isLengthProperty(property)
   // CSS text: a token in a prelude or a selector takes the theme's value, and a
   // `theme.` that is only part of a name there is left as written.
   const isCssText = value.includes('{')
@@ -57,8 +52,7 @@ const processThemeString = (value: string, asVar: boolean, themeSystem: Record<s
     if (isCssText && isInPrelude(text, offset)) return match
     if (asVar) {
       hasChanged = true
-      const varName = toThemeVarName(path)
-      return wantsLength ? lengthVarRef(varName) : `var(${varName})`
+      return themeVarRef(toThemeVarName(path), context, text, offset)
     }
     const themeValue = getValueByPath(themeSystem, path)
     if (themeValue !== undefined && themeValue !== null) {
@@ -578,18 +572,19 @@ export class ThemeUtil {
             // array is either a composed `css` (`[flatCssProps, css]`, where items are
             // whole style values) or a fallback list under one property; the server
             // converts string items in both, so the client must too or the class hash
-            // differs. No property is passed, matching the server's conversion.
+            // differs. An item is read as CSS text, as the server reads it: its
+            // declarations name their properties, and a fallback value has none.
             let resolvedItem = resolvedValues.get(item) ?? item
             if (typeof item === 'function' && processFunctions) {
               const funcResult = (item as (theme: Theme) => unknown)(theme)
               resolvedItem =
                 typeof funcResult === 'string'
                   ? funcResult.includes('theme.')
-                    ? processThemeString(funcResult, themeStringsMode === 'vars', themeSystem)
+                    ? processThemeString(funcResult, themeStringsMode === 'vars', themeSystem, CSS_TEXT)
                     : funcResult
                   : ThemeUtil.resolveObjWithTheme(funcResult as Record<string, unknown>, theme, options)
             } else if (typeof item === 'string' && item.includes('theme.')) {
-              resolvedItem = processThemeString(item, themeStringsMode === 'vars', themeSystem)
+              resolvedItem = processThemeString(item, themeStringsMode === 'vars', themeSystem, CSS_TEXT)
             }
             if (resolvedItem !== item) {
               if (newArray === null) newArray = [...currentValue] // Copy-on-write

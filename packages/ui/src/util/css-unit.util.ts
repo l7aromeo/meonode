@@ -1,5 +1,6 @@
 import unitless from '@emotion/unitless'
 import { LengthPropertySet } from '@src/constant/css-properties.const.js'
+import { declarationPropertyAt } from '@src/util/theme-key.util.js'
 
 /**
  * Shared rules for whether a CSS property needs a unit, and for the paired
@@ -69,6 +70,38 @@ export const toLengthVarName = (varName: string): string => `${varName}--len`
  * @returns The `var()` expression to emit.
  */
 export const lengthVarRef = (varName: string): string => `var(${toLengthVarName(varName)}, var(${varName}))`
+
+/**
+ * Marks a string as CSS text standing alone, such as a `css` string or a string
+ * in a `css` array. It has no key to name a property; each of its declarations
+ * names its own.
+ */
+export const CSS_TEXT: unique symbol = Symbol('meonode.cssText')
+
+/**
+ * What a string holding theme tokens was written against: the property key it is
+ * the value of, `undefined` when that key names no property (a selector or an
+ * at-rule), or {@link CSS_TEXT}.
+ */
+export type TokenContext = string | undefined | typeof CSS_TEXT
+
+/**
+ * The reference that replaces a theme token: the length form when the property
+ * the token is written against takes a length, the plain variable otherwise.
+ *
+ * Both rewriters — the server's, which may have no theme, and the client's —
+ * choose through this, from the property alone and never from the token's
+ * value, so the two compile the same class.
+ * @param varName The token's plain variable name.
+ * @param context What the string holding the token was written against.
+ * @param text The string holding the token.
+ * @param index Where the token starts in `text`.
+ * @returns The `var()` expression to emit.
+ */
+export const themeVarRef = (varName: string, context: TokenContext, text: string, index: number): string => {
+  const property = context === CSS_TEXT ? declarationPropertyAt(text, index) : context
+  return property !== undefined && isLengthProperty(property) ? lengthVarRef(varName) : `var(${varName})`
+}
 
 /**
  * Whether an object key is a nested selector or at-rule rather than a CSS
