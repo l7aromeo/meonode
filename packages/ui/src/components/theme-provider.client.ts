@@ -15,7 +15,7 @@ import {
 import type { Children, ResolvedThemeMode, ResolvedThemePreference, ResolvedThemeSystem, Theme, ThemeSystemModes } from '@src/types/node.type.js'
 import { Node } from '@src/core.node.js'
 import { buildThemeVariablesCss } from '@src/util/server-theme.util.js'
-import { diagnosticsEnabled, getThemeVarIndex, mergeThemeVarIndexes, type ThemeVarIndex } from '@src/util/theme-diagnostics.util.js'
+import { diagnosticsEnabled, getThemeVarIndex, mergeThemeVarIndexes, trackProviderVars, type ThemeVarIndex } from '@src/util/theme-diagnostics.util.js'
 
 export interface ThemeContextValue {
   /**
@@ -561,7 +561,16 @@ export default function ThemeProvider({
   // A nested provider's tokens are not scoped to its subtree: a value it gives a
   // token an outer provider defines repaints the whole page. Merging the tokens
   // reports it. Development only.
-  if (outer && diagnosticsEnabled()) contextValue.definedVars()
+  const diagnostics = diagnosticsEnabled()
+  if (outer && diagnostics) contextValue.definedVars()
+
+  // Two providers mounted side by side share `:root` just the same. While this one is
+  // mounted its tokens are on record, so a token another mounted provider gives a
+  // different value is reported. Keyed by the tokens' content rather than their
+  // identity, so a `tokens` object written inline is not scanned again on every
+  // render. Development only.
+  const tokensKey = useMemo(() => (diagnostics ? JSON.stringify(tokens) : null), [diagnostics, tokens])
+  useEffect(() => (tokensKey === null ? undefined : trackProviderVars(contextValue.theme, getThemeVarIndex(contextValue.theme))), [tokensKey])
 
   const composed = composeChildren(children, tokens, defaultMode as Theme['mode'])
   return Node(ThemeContext.Provider, {

@@ -181,8 +181,8 @@ ThemeProvider({
 Every token becomes a CSS variable, so `Div({ color: 'theme.primary' })` renders `color: var(--meonode-theme-primary)`
 in client and server components alike. A nested `ThemeProvider` can add tokens of its own for its subtree, but its
 variables are declared on `:root` like the outer provider's: a nested provider that gives a token the outer provider
-already defines another value changes it for the whole page, so in development it warns. Give nested tokens names of
-their own.
+already defines another value changes it for the whole page, so in development it warns. So do two providers mounted
+side by side that give one token different values. Give nested tokens names of their own.
 
 ### Theme Modes Without a Flash
 
