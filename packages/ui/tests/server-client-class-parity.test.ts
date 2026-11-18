@@ -108,3 +108,28 @@ describe('server and client agree on emotion class names without a registry', ()
     expect(errors).toEqual([])
   })
 })
+
+// With no ThemeProvider the server still writes a token as `var(--meonode-theme-*)`,
+// so the client has to as well, or every styled element holding one hydrates with
+// another class.
+describe('server and client agree on class names for theme tokens with no provider', () => {
+  it.each([
+    ['a colour token', { color: 'theme.primary' }],
+    ['a length token', { padding: 'theme.spacing.md' }],
+    ['a token in a shorthand', { border: '1px solid theme.primary' }],
+    ['a token under a selector', { css: { '&:hover': { color: 'theme.primary' } } }],
+    ['a token beside a theme function', { color: 'theme.primary', css: { backgroundColor: () => 'red' } }],
+  ])('hydrates %s cleanly', async (_, styles) => {
+    const { errors, serverClasses, clientClasses } = await roundTrip(() => Div({ 'data-testid': 'host', ...styles, children: 'x' }).render())
+    expect(clientClasses).toEqual(serverClasses)
+    expect(errors).toEqual([])
+  })
+
+  it('leaves a token in a selector key unresolved on both sides', async () => {
+    const { errors, serverClasses, clientClasses } = await roundTrip(() =>
+      Div({ 'data-testid': 'host', color: 'red', css: { '@media (min-width: theme.breakpoint.md)': { color: 'blue' } }, children: 'x' }).render(),
+    )
+    expect(clientClasses).toEqual(serverClasses)
+    expect(errors).toEqual([])
+  })
+})

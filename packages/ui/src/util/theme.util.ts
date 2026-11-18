@@ -5,6 +5,7 @@ import { getValueByPath } from '@src/helper/common.helper.js'
 import { isLengthProperty, isSelectorOrAtRule, lengthVarRef } from '@src/util/css-unit.util.js'
 import { isMergeableCss } from '@src/util/css.util.js'
 import { reportDroppedThemeFunction } from '@src/util/theme-diagnostics.util.js'
+import { replaceThemeTokensWithCssVars } from '@src/util/server-theme.util.js'
 
 interface FlexComponents {
   grow: number
@@ -507,8 +508,15 @@ export class ThemeUtil {
     // No theme to call a theme function with. It is dropped rather than left for
     // Emotion, which would print its source into the stylesheet. `containsFunction`
     // keeps the common case — a style with no functions — allocation-free.
+    //
+    // A `var()` reference needs no theme, so in `vars` mode a value token still
+    // becomes one. The server writes it that way whether or not a provider is
+    // above the node, and the class Emotion derives from the style has to match
+    // there for the tree to hydrate. Keys keep their tokens, as on the server,
+    // since a condition or selector needs the theme's concrete value.
     if (!theme || !theme.system || typeof theme.system !== 'object' || isEmptyObject(theme.system)) {
-      return processFunctions && containsFunction(obj, 0) ? dropThemeFunctions(obj) : obj
+      const kept = processFunctions && containsFunction(obj, 0) ? dropThemeFunctions(obj) : obj
+      return themeStringsMode === 'vars' ? replaceThemeTokensWithCssVars(kept) : kept
     }
 
     const themeSystem = theme.system
