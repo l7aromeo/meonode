@@ -1,4 +1,4 @@
-import type React from 'react'
+import type * as React from 'react'
 import { BaseNode, Node } from '@src/core.node.js'
 import type { Children, ComponentNode, DependencyList, HasCSSCompatibleStyleProp, ThemedCSSProperties } from '@src/types/node.type.js'
 import type { ReactElement, ReactNode } from 'react'

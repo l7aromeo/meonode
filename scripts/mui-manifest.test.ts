@@ -8,7 +8,8 @@ const PACKAGE_DIR = path.join(import.meta.dir, '../packages/mui')
 const manifest = JSON.parse(readFileSync(path.join(PACKAGE_DIR, 'package.json'), 'utf8')) as {
   peerDependencies: Record<string, string>
   peerDependenciesMeta?: Record<string, { optional?: boolean }>
-  exports: Record<string, Record<string, string>>
+  exports: Record<string, Record<string, Record<string, string>>>
+  typesVersions: Record<string, Record<string, string[]>>
 }
 
 /** The peers every import path needs: the package's core imports @mui/material. */
@@ -32,17 +33,22 @@ describe('@meonode/mui peer dependencies', () => {
 })
 
 // Each generated wrapper directory is built, so without an `exports` entry it ships in
-// the tarball and no import can reach it.
+// the tarball and no import can reach it. Each condition names its own declarations,
+// `types` first: ESM ones for `import`, CommonJS ones for `require`. `node10`
+// resolution ignores `exports`, so `typesVersions` maps the subpath for it.
 describe('@meonode/mui exports', () => {
   const libs = readdirSync(path.join(PACKAGE_DIR, 'src/lib'), { withFileTypes: true })
     .filter(entry => entry.isDirectory() && entry.name !== ROOT_LIB)
     .map(entry => entry.name)
 
   it.each(libs)('has a subpath for src/lib/%s', lib => {
-    expect(manifest.exports[`./${lib.replace(/^mui\./, '')}`]).toEqual({
-      import: `./dist/esm/lib/${lib}/index.js`,
-      require: `./dist/cjs/lib/${lib}/index.cjs`,
-      types: `./dist/types/lib/${lib}/index.d.ts`,
+    const subpath = lib.replace(/^mui\./, '')
+    expect(manifest.exports[`./${subpath}`]).toEqual({
+      import: { types: `./dist/types/lib/${lib}/index.d.ts`, default: `./dist/esm/lib/${lib}/index.js` },
+      require: { types: `./dist/types/lib/${lib}/index.d.cts`, default: `./dist/cjs/lib/${lib}/index.cjs` },
     })
+    expect(Object.keys(manifest.exports[`./${subpath}`].import)[0]).toBe('types')
+    expect(Object.keys(manifest.exports[`./${subpath}`].require)[0]).toBe('types')
+    expect(manifest.typesVersions['*'][subpath]).toEqual([`./dist/types/lib/${lib}/index.d.cts`])
   })
 })

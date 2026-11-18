@@ -57,10 +57,14 @@ jobs:
               - *root
               - 'packages/ui/**'
               - 'packages/compiler/**'
+              - 'scripts/emit-cjs-declarations.ts'
+              - 'scripts/check-package-entries.ts'
             mui:
               - *root
               - 'packages/mui/**'
               - 'packages/ui/**'
+              - 'scripts/emit-cjs-declarations.ts'
+              - 'scripts/check-package-entries.ts'
             compiler:
               - *root
               - 'packages/compiler/**'
@@ -151,6 +155,25 @@ jobs:
       # only typecheck once it has its own node_modules.
       - run: bun run --filter @meonode/ui prepare:rsc-fixture
       - run: bun run lint
+
+  # What a consumer resolves from the packed tarballs: every entry field and
+  # export condition names a shipped file, and each entry point resolves to
+  # declarations of its own module format under node10, node16 (CJS and ESM) and
+  # bundler resolution. Nothing else here installs the packages the way a
+  # consumer does, so a manifest that points at a file the build stopped
+  # writing would otherwise publish.
+  package-entries:
+    name: Package entries
+    needs: changes
+    if: needs.changes.outputs.ui == 'true' || needs.changes.outputs.mui == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun run build:ui
+      - run: bun run build:mui
+      - run: bun run check:packages
 
   ui-test:
     name: Test (ui, ${{ matrix.mode }})

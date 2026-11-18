@@ -3,6 +3,207 @@
   "version": "3.1.0",
   "description": "A lightweight wrapper around `@mui/material` components for use with `@meonode/ui` and the BaseNode runtime.",
   "type": "module",
+  "main": "./dist/cjs/main.cjs",
+  "module": "./dist/esm/main.js",
+  "types": "./dist/types/main.d.cts",
+  "typesVersions": {
+    "*": {
+      "nextjs13": [
+        "./dist/types/lib/mui.nextjs13/index.d.cts"
+      ],
+      "nextjs14": [
+        "./dist/types/lib/mui.nextjs14/index.d.cts"
+      ],
+      "nextjs15": [
+        "./dist/types/lib/mui.nextjs15/index.d.cts"
+      ],
+      "nextjs16": [
+        "./dist/types/lib/mui.nextjs16/index.d.cts"
+      ],
+      "lab": [
+        "./dist/types/lib/mui.lab/index.d.cts"
+      ],
+      "x-data-grid": [
+        "./dist/types/lib/mui.x-data-grid/index.d.cts"
+      ],
+      "x-data-grid-pro": [
+        "./dist/types/lib/mui.x-data-grid-pro/index.d.cts"
+      ],
+      "x-data-grid-premium": [
+        "./dist/types/lib/mui.x-data-grid-premium/index.d.cts"
+      ],
+      "x-date-pickers": [
+        "./dist/types/lib/mui.x-date-pickers/index.d.cts"
+      ],
+      "x-date-pickers-pro": [
+        "./dist/types/lib/mui.x-date-pickers-pro/index.d.cts"
+      ],
+      "x-tree-view": [
+        "./dist/types/lib/mui.x-tree-view/index.d.cts"
+      ],
+      "x-tree-view-pro": [
+        "./dist/types/lib/mui.x-tree-view-pro/index.d.cts"
+      ],
+      "x-charts": [
+        "./dist/types/lib/mui.x-charts/index.d.cts"
+      ],
+      "x-charts-pro": [
+        "./dist/types/lib/mui.x-charts-pro/index.d.cts"
+      ]
+    }
+  },
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/types/main.d.ts",
+        "default": "./dist/esm/main.js"
+      },
+      "require": {
+        "types": "./dist/types/main.d.cts",
+        "default": "./dist/cjs/main.cjs"
+      }
+    },
+    "./nextjs13": {
+      "import": {
+        "types": "./dist/types/lib/mui.nextjs13/index.d.ts",
+        "default": "./dist/esm/lib/mui.nextjs13/index.js"
+      },
+      "require": {
+        "types": "./dist/types/lib/mui.nextjs13/index.d.cts",
+        "default": "./dist/cjs/lib/mui.nextjs13/index.cjs"
+      }
+    },
+    "./nextjs14": {
+      "import": {
+        "types": "./dist/types/lib/mui.nextjs14/index.d.ts",
+        "default": "./dist/esm/lib/mui.nextjs14/index.js"
+      },
+      "require": {
+        "types": "./dist/types/lib/mui.nextjs14/index.d.cts",
+        "default": "./dist/cjs/lib/mui.nextjs14/index.cjs"
+      }
+    },
+    "./nextjs15": {
+      "import": {
+        "types": "./dist/types/lib/mui.nextjs15/index.d.ts",
+        "default": "./dist/esm/lib/mui.nextjs15/index.js"
+      },
+      "require": {
+        "types": "./dist/types/lib/mui.nextjs15/index.d.cts",
+        "default": "./dist/cjs/lib/mui.nextjs15/index.cjs"
+      }
+    },
+    "./nextjs16": {
+      "import": {
+        "types": "./dist/types/lib/mui.nextjs16/index.d.ts",
+        "default": "./dist/esm/lib/mui.nextjs16/index.js"
+      },
+      "require": {
+        "types": "./dist/types/lib/mui.nextjs16/index.d.cts",
+        "default": "./dist/cjs/lib/mui.nextjs16/index.cjs"
+      }
+    },
+    "./lab": {
+      "import": {
+        "types": "./dist/types/lib/mui.lab/index.d.ts",
+        "default": "./dist/esm/lib/mui.lab/index.js"
+      },
+      "require": {
+        "types": "./dist/types/lib/mui.lab/index.d.cts",
+        "default": "./dist/cjs/lib/mui.lab/index.cjs"
+      }
+    },
+    "./x-data-grid": {
+      "import": {
+        "types": "./dist/types/lib/mui.x-data-grid/index.d.ts",
+        "default": "./dist/esm/lib/mui.x-data-grid/index.js"
+      },
+      "require": {
+        "types": "./dist/types/lib/mui.x-data-grid/index.d.cts",
+        "default": "./dist/cjs/lib/mui.x-data-grid/index.cjs"
+      }
+    },
+    "./x-data-grid-pro": {
+      "import": {
+        "types": "./dist/types/lib/mui.x-data-grid-pro/index.d.ts",
+        "default": "./dist/esm/lib/mui.x-data-grid-pro/index.js"
+      },
+      "require": {
+        "types": "./dist/types/lib/mui.x-data-grid-pro/index.d.cts",
+        "default": "./dist/cjs/lib/mui.x-data-grid-pro/index.cjs"
+      }
+    },
+    "./x-data-grid-premium": {
+      "import": {
+        "types": "./dist/types/lib/mui.x-data-grid-premium/index.d.ts",
+        "default": "./dist/esm/lib/mui.x-data-grid-premium/index.js"
+      },
+      "require": {
+        "types": "./dist/types/lib/mui.x-data-grid-premium/index.d.cts",
+        "default": "./dist/cjs/lib/mui.x-data-grid-premium/index.cjs"
+      }
+    },
+    "./x-date-pickers": {
+      "import": {
+        "types": "./dist/types/lib/mui.x-date-pickers/index.d.ts",
+        "default": "./dist/esm/lib/mui.x-date-pickers/index.js"
+      },
+      "require": {
+        "types": "./dist/types/lib/mui.x-date-pickers/index.d.cts",
+        "default": "./dist/cjs/lib/mui.x-date-pickers/index.cjs"
+      }
+    },
+    "./x-date-pickers-pro": {
+      "import": {
+        "types": "./dist/types/lib/mui.x-date-pickers-pro/index.d.ts",
+        "default": "./dist/esm/lib/mui.x-date-pickers-pro/index.js"
+      },
+      "require": {
+        "types": "./dist/types/lib/mui.x-date-pickers-pro/index.d.cts",
+        "default": "./dist/cjs/lib/mui.x-date-pickers-pro/index.cjs"
+      }
+    },
+    "./x-tree-view": {
+      "import": {
+        "types": "./dist/types/lib/mui.x-tree-view/index.d.ts",
+        "default": "./dist/esm/lib/mui.x-tree-view/index.js"
+      },
+      "require": {
+        "types": "./dist/types/lib/mui.x-tree-view/index.d.cts",
+        "default": "./dist/cjs/lib/mui.x-tree-view/index.cjs"
+      }
+    },
+    "./x-tree-view-pro": {
+      "import": {
+        "types": "./dist/types/lib/mui.x-tree-view-pro/index.d.ts",
+        "default": "./dist/esm/lib/mui.x-tree-view-pro/index.js"
+      },
+      "require": {
+        "types": "./dist/types/lib/mui.x-tree-view-pro/index.d.cts",
+        "default": "./dist/cjs/lib/mui.x-tree-view-pro/index.cjs"
+      }
+    },
+    "./x-charts": {
+      "import": {
+        "types": "./dist/types/lib/mui.x-charts/index.d.ts",
+        "default": "./dist/esm/lib/mui.x-charts/index.js"
+      },
+      "require": {
+        "types": "./dist/types/lib/mui.x-charts/index.d.cts",
+        "default": "./dist/cjs/lib/mui.x-charts/index.cjs"
+      }
+    },
+    "./x-charts-pro": {
+      "import": {
+        "types": "./dist/types/lib/mui.x-charts-pro/index.d.ts",
+        "default": "./dist/esm/lib/mui.x-charts-pro/index.js"
+      },
+      "require": {
+        "types": "./dist/types/lib/mui.x-charts-pro/index.d.cts",
+        "default": "./dist/cjs/lib/mui.x-charts-pro/index.cjs"
+      }
+    }
+  },
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -25,7 +226,7 @@
     "README.md"
   ],
   "scripts": {
-    "build": "rm -rf ./dist && rollup -c rollup.config.ts --configPlugin typescript && tsc -p tsconfig.build.json && tsc-alias -p tsconfig.build.json",
+    "build": "rm -rf ./dist && rollup -c rollup.config.ts --configPlugin typescript && tsc -p tsconfig.build.json && tsc-alias -p tsconfig.build.json && bun ../../scripts/emit-cjs-declarations.ts dist/types",
     "generate:lib": "bun scripts/generate-wrapper-lib.js",
     "lint": "eslint --fix && tsc --noEmit && bun run typecheck:types",
     "typecheck:types": "tsc -p tests/types/tsconfig.json",
@@ -33,83 +234,6 @@
     "watch:build": "bunx concurrently \"bun run watch:core\" \"bun run watch:src\"",
     "watch:core": "bunx nodemon --watch $MEONODE/core/dist --ext ts,js,json --exec \"bun add -d @meonode/ui@file:$MEONODE/core\"",
     "watch:src": "bunx nodemon --watch src --ext ts,js,json --exec \"bun run build\""
-  },
-  "exports": {
-    ".": {
-      "import": "./dist/esm/main.js",
-      "require": "./dist/cjs/main.cjs",
-      "types": "./dist/types/main.d.ts"
-    },
-    "./nextjs13": {
-      "import": "./dist/esm/lib/mui.nextjs13/index.js",
-      "require": "./dist/cjs/lib/mui.nextjs13/index.cjs",
-      "types": "./dist/types/lib/mui.nextjs13/index.d.ts"
-    },
-    "./nextjs14": {
-      "import": "./dist/esm/lib/mui.nextjs14/index.js",
-      "require": "./dist/cjs/lib/mui.nextjs14/index.cjs",
-      "types": "./dist/types/lib/mui.nextjs14/index.d.ts"
-    },
-    "./nextjs15": {
-      "import": "./dist/esm/lib/mui.nextjs15/index.js",
-      "require": "./dist/cjs/lib/mui.nextjs15/index.cjs",
-      "types": "./dist/types/lib/mui.nextjs15/index.d.ts"
-    },
-    "./nextjs16": {
-      "import": "./dist/esm/lib/mui.nextjs16/index.js",
-      "require": "./dist/cjs/lib/mui.nextjs16/index.cjs",
-      "types": "./dist/types/lib/mui.nextjs16/index.d.ts"
-    },
-    "./lab": {
-      "import": "./dist/esm/lib/mui.lab/index.js",
-      "require": "./dist/cjs/lib/mui.lab/index.cjs",
-      "types": "./dist/types/lib/mui.lab/index.d.ts"
-    },
-    "./x-data-grid": {
-      "import": "./dist/esm/lib/mui.x-data-grid/index.js",
-      "require": "./dist/cjs/lib/mui.x-data-grid/index.cjs",
-      "types": "./dist/types/lib/mui.x-data-grid/index.d.ts"
-    },
-    "./x-data-grid-pro": {
-      "import": "./dist/esm/lib/mui.x-data-grid-pro/index.js",
-      "require": "./dist/cjs/lib/mui.x-data-grid-pro/index.cjs",
-      "types": "./dist/types/lib/mui.x-data-grid-pro/index.d.ts"
-    },
-    "./x-data-grid-premium": {
-      "import": "./dist/esm/lib/mui.x-data-grid-premium/index.js",
-      "require": "./dist/cjs/lib/mui.x-data-grid-premium/index.cjs",
-      "types": "./dist/types/lib/mui.x-data-grid-premium/index.d.ts"
-    },
-    "./x-date-pickers": {
-      "import": "./dist/esm/lib/mui.x-date-pickers/index.js",
-      "require": "./dist/cjs/lib/mui.x-date-pickers/index.cjs",
-      "types": "./dist/types/lib/mui.x-date-pickers/index.d.ts"
-    },
-    "./x-date-pickers-pro": {
-      "import": "./dist/esm/lib/mui.x-date-pickers-pro/index.js",
-      "require": "./dist/cjs/lib/mui.x-date-pickers-pro/index.cjs",
-      "types": "./dist/types/lib/mui.x-date-pickers-pro/index.d.ts"
-    },
-    "./x-tree-view": {
-      "import": "./dist/esm/lib/mui.x-tree-view/index.js",
-      "require": "./dist/cjs/lib/mui.x-tree-view/index.cjs",
-      "types": "./dist/types/lib/mui.x-tree-view/index.d.ts"
-    },
-    "./x-tree-view-pro": {
-      "import": "./dist/esm/lib/mui.x-tree-view-pro/index.js",
-      "require": "./dist/cjs/lib/mui.x-tree-view-pro/index.cjs",
-      "types": "./dist/types/lib/mui.x-tree-view-pro/index.d.ts"
-    },
-    "./x-charts": {
-      "import": "./dist/esm/lib/mui.x-charts/index.js",
-      "require": "./dist/cjs/lib/mui.x-charts/index.cjs",
-      "types": "./dist/types/lib/mui.x-charts/index.d.ts"
-    },
-    "./x-charts-pro": {
-      "import": "./dist/esm/lib/mui.x-charts-pro/index.js",
-      "require": "./dist/cjs/lib/mui.x-charts-pro/index.cjs",
-      "types": "./dist/types/lib/mui.x-charts-pro/index.d.ts"
-    }
   },
   "peerDependencies": {
     "@meonode/ui": "^3.0.0",

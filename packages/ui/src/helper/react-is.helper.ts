@@ -4,7 +4,7 @@
  * Inspired by react-is package but implemented in TypeScript with type safety.
  */
 
-import React from 'react'
+import type * as React from 'react'
 
 /**
  * Symbol identifiers for React internal component types
