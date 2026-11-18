@@ -185,6 +185,9 @@ jobs:
           path: packages/compiler/npm
       - run: bun run --filter @meonode/ui ${{ matrix.mode == 'compiled' && 'test:compiled' || 'test' }}
         if: needs.changes.outputs.ui == 'true'
+      # Activity rendered by a server component through Flight, from the built package.
+      - run: bun run build:ui && bun run --filter @meonode/ui test:flight
+        if: needs.changes.outputs.ui == 'true' && matrix.mode == 'plain'
 
   ui-rsc:
     name: Test (RSC, ${{ matrix.mode }})

@@ -97,6 +97,7 @@ bun run build
 
 # run tests
 bun run test:ui        # unit suite, plain and through the real plugin
+bun run --filter @meonode/ui test:flight  # Activity through Flight, from the built ui (after `bun run build`)
 bun run test:compiler  # cargo tests plus the wasm ABI smoke test
 
 # lint and format
