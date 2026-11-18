@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 //
-// `Activity` from a server component, end to end: the built @meonode/ui renders it in
-// a separate process loaded as the React Server Components layer (server.mjs), React's
-// Flight client reads that payload here, and react-dom renders it. Showing, hiding and
-// showing again must keep the client component's state, which is what Activity is for.
+// `Activity` from a server component, end to end: the server build of @meonode/ui
+// renders it in a separate process loaded as the React Server Components layer
+// (server.mjs), React's Flight client reads that payload here, and react-dom renders
+// it. Showing, hiding and showing again must keep the client component's state, which
+// is what Activity is for.
 //
 // The installed react, react-dom and react-server-dom-turbopack are used on both sides,
 // so the same test checks every React version CI installs, the 19.2.0 floor included.
@@ -29,10 +30,14 @@ declare global {
   var __turbopack_load_by_url__: (url: string) => Promise<void>
 }
 
-/** The package's entries a server components runtime may load, as built. */
+/**
+ * The package's entries a server components runtime may load, as built: the server
+ * build, which the `react-server` export condition selects. Its client modules are the
+ * default build's, which the load hook in server.mjs replaces with client references.
+ */
 const ENTRIES = {
-  'ES module': path.join(DIST, 'esm/main.js'),
-  CommonJS: path.join(DIST, 'cjs/main.cjs'),
+  'ES module': path.join(DIST, 'rsc/esm/main.js'),
+  CommonJS: path.join(DIST, 'rsc/cjs/main.cjs'),
 }
 
 /** The client modules the payload may reference, by file URL, loaded as the browser loads them. */

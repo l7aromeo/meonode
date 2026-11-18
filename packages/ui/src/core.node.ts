@@ -381,17 +381,21 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
           const children = node.props.children
           const activeTheme = getActiveTheme(node.props, inheritedTheme)
           // The topmost host above each child that can carry its rules, and
-          // whether the child sits in SVG or MathML, where none can.
+          // whether the child sits in SVG or MathML, where none can. Only the
+          // server layer compiles rules, so elsewhere no child gets an anchor.
           const beginAs = (node.props as { as?: NodeElementType }).as
           const beginTarget = beginAs != null && isValidElementType(beginAs) ? beginAs : node.element
-          const childAnchor = anchor ?? (canAnchorRules(beginTarget, node.props as Record<string, unknown>, inForeignNamespace) ? node : null)
+          const childAnchor = IS_REACT_SERVER_LAYER
+            ? (anchor ?? (canAnchorRules(beginTarget, node.props as Record<string, unknown>, inForeignNamespace) ? node : null))
+            : null
           const childInForeignNamespace = inForeignNamespace || beginTarget === 'svg' || beginTarget === 'math'
           // The same, for a `ThemedRule`, which resolves against the theme where it
           // renders: the topmost host since the last component above, which may
           // supply another theme.
-          const childThemeAnchor = mayChangeTheme(beginTarget)
-            ? null
-            : (themeAnchor ?? (canAnchorRules(beginTarget, node.props as Record<string, unknown>, inForeignNamespace) ? node : null))
+          const childThemeAnchor =
+            !IS_REACT_SERVER_LAYER || mayChangeTheme(beginTarget)
+              ? null
+              : (themeAnchor ?? (canAnchorRules(beginTarget, node.props as Record<string, unknown>, inForeignNamespace) ? node : null))
 
           if (children) {
             // Only consider BaseNode children for further traversal; primitives and React elements are terminal.
@@ -430,7 +434,7 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
                 // A direct child of one of MeoNode's own providers, which render
                 // their children as given, so a rule may go beside it. Not inside
                 // SVG or MathML, where a `<style>` would be that namespace's element.
-                besidePassThrough: !childInForeignNamespace && passesChildrenThrough(beginTarget),
+                besidePassThrough: IS_REACT_SERVER_LAYER && !childInForeignNamespace && passesChildrenThrough(beginTarget),
               }
             }
           }
@@ -640,12 +644,14 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
             // same tree through `StyledRenderer` when it hydrates, so the server
             // takes that path too: Emotion then composes a class the element is
             // handed with its own css in one cache, the way the client does.
-            const shouldBypassStyledRendererOnServer = NodeUtil.isServer && IS_REACT_SERVER_LAYER
+            // The layer constant comes first in these conditions, so the default build, where
+            // it is `false`, folds the server-layer path out.
+            const shouldBypassStyledRendererOnServer = IS_REACT_SERVER_LAYER && NodeUtil.isServer
             // Keep server/client on the same StyledRenderer path for client references.
             // This avoids Emotion hash drift not only for theme tokens, but also for raw
             // CSS values (e.g. "red", "#ff0000") that would otherwise use different
             // server vs client compilation routes.
-            const shouldUseRuntimeThemeOnServer = isStyledComponent && shouldBypassStyledRendererOnServer && NodeUtil.isClientReference(renderTarget)
+            const shouldUseRuntimeThemeOnServer = shouldBypassStyledRendererOnServer && isStyledComponent && NodeUtil.isClientReference(renderTarget)
 
             if ((isStyledComponent && !shouldBypassStyledRendererOnServer) || shouldUseRuntimeThemeOnServer) {
               // `elementProps` was already pre-processed above, so only `css`
@@ -654,7 +660,7 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
               // hash identical across SSR/CSR.
               const cssForRenderer = NodeUtil.isServer ? replaceThemeTokensWithCssVars(css) : css
               element = createElement(StyledRenderer, { element: renderTarget, ...elementProps, css: cssForRenderer }, ...childArguments)
-            } else if (isStyledComponent && shouldBypassStyledRendererOnServer && !NodeUtil.acceptsServerCss(renderTarget)) {
+            } else if (shouldBypassStyledRendererOnServer && isStyledComponent && !NodeUtil.acceptsServerCss(renderTarget)) {
               // Emit `var(--meonode-theme-*)` on the server so the generated Emotion class
               // matches the client runtime output — unifies the class hash across SSR/CSR.
               // `replaceThemeTokensWithCssVars` runs even when activeTheme is undefined

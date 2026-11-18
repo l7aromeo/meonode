@@ -18,6 +18,16 @@
   },
   "exports": {
     ".": {
+      "react-server": {
+        "import": {
+          "types": "./dist/types/main.d.ts",
+          "default": "./dist/rsc/esm/main.js"
+        },
+        "require": {
+          "types": "./dist/types/main.d.cts",
+          "default": "./dist/rsc/cjs/main.cjs"
+        }
+      },
       "import": {
         "types": "./dist/types/main.d.ts",
         "default": "./dist/esm/main.js"
@@ -28,6 +38,16 @@
       }
     },
     "./client": {
+      "react-server": {
+        "import": {
+          "types": "./dist/types/client.d.ts",
+          "default": "./dist/rsc/esm/client.js"
+        },
+        "require": {
+          "types": "./dist/types/client.d.cts",
+          "default": "./dist/rsc/cjs/client.cjs"
+        }
+      },
       "import": {
         "types": "./dist/types/client.d.ts",
         "default": "./dist/esm/client.js"
@@ -38,6 +58,16 @@
       }
     },
     "./nextjs-registry": {
+      "react-server": {
+        "import": {
+          "types": "./dist/types/nextjs-registry/index.d.ts",
+          "default": "./dist/rsc/esm/nextjs-registry/index.js"
+        },
+        "require": {
+          "types": "./dist/types/nextjs-registry/index.d.cts",
+          "default": "./dist/rsc/cjs/nextjs-registry/index.cjs"
+        }
+      },
       "import": {
         "types": "./dist/types/nextjs-registry/index.d.ts",
         "default": "./dist/esm/nextjs-registry/index.js"

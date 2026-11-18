@@ -261,6 +261,12 @@ Node(ExpensiveComponent, { data }, [data.id]).render()
 Full RSC support with proper client/server component boundaries. Use in Next.js App Router, Remix, or any RSC-enabled
 environment without configuration.
 
+The package ships a separate build for the server components layer, selected through the `react-server` export
+condition, so the code only server components run stays out of the browser bundle. Import it by its package name and let
+the bundler resolve it. An alias that points `@meonode/ui` at a file in its `dist/` folder loads the browser's build in
+that layer, and `@meonode/ui` throws an error saying so. Don't list it in Next.js `serverExternalPackages` either: its
+client components only work when the bundler handles the package.
+
 ### Emotion-Powered Styling
 
 Built on @emotion/react for:

@@ -17,7 +17,9 @@ import { reportUncomposedClass } from '@src/util/theme-diagnostics.util.js'
  * it, so a second render compiling the same rule in the same request reads its
  * text from there.
  */
-const requestEmotionCache = requestCache(() => {
+// Pure: creating a request cache runs nothing, so a build that never compiles a
+// server rule drops this module.
+const requestEmotionCache = /* @__PURE__ */ requestCache(() => {
   // Its own plugins array, so the rules Emotion memoizes on the server go with
   // this cache rather than into the process-wide memo for the default plugins.
   const emotionCache = createCache({ key: 'meonode-css', stylisPlugins: [prefixer] })
@@ -102,7 +104,7 @@ function sharedClass(name: string): SharedClass | undefined {
  * key. Composing such a class folds that css, not its registered styles, into
  * the rule the client writes.
  */
-const requestThemedClasses = requestCache(() => new Map<string, CssProp>())
+const requestThemedClasses = /* @__PURE__ */ requestCache(() => new Map<string, CssProp>())
 
 /**
  * Registers, in `registered`, every class of this cache's key in `className` that
