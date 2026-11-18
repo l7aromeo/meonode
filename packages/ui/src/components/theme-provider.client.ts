@@ -4,6 +4,7 @@ import {
   createElement,
   type ReactNode,
   useCallback,
+  useContext,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -14,7 +15,7 @@ import {
 import type { Children, ResolvedThemeMode, ResolvedThemePreference, ResolvedThemeSystem, Theme, ThemeSystemModes } from '@src/types/node.type.js'
 import { Node } from '@src/core.node.js'
 import { buildThemeVariablesCss } from '@src/util/server-theme.util.js'
-import { diagnosticsEnabled } from '@src/util/theme-diagnostics.util.js'
+import { diagnosticsEnabled, getThemeVarIndex, mergeThemeVarIndexes, type ThemeVarIndex } from '@src/util/theme-diagnostics.util.js'
 
 export interface ThemeContextValue {
   /**
@@ -250,6 +251,12 @@ export interface ThemeContextState {
   modes: readonly ResolvedThemeMode[]
   setMode: (mode: ResolvedThemeMode) => void
   setPreference: (preference: ResolvedThemePreference) => void
+
+  /**
+   * The theme variables defined below this provider: its own and those of every
+   * provider above it. For development diagnostics; built on first use.
+   */
+  definedVars: () => ThemeVarIndex
 }
 
 export const ThemeContext = createContext<ThemeContextState | null>(null)
@@ -537,10 +544,24 @@ export default function ThemeProvider({
 
   // Stable across renders that change nothing it holds, and so across every
   // change of mode: a new value here would reach every boundary below.
-  const contextValue = useMemo<ThemeContextState>(
-    () => ({ store, theme: { mode: defaultMode as Theme['mode'], system: tokens }, modes, setMode, setPreference }),
-    [store, defaultMode, tokens, modes, setMode, setPreference],
-  )
+  const outer = useContext(ThemeContext)
+  const contextValue = useMemo<ThemeContextState>(() => {
+    const theme: Theme = { mode: defaultMode as Theme['mode'], system: tokens }
+    let defined: ThemeVarIndex | undefined
+    return {
+      store,
+      theme,
+      modes,
+      setMode,
+      setPreference,
+      definedVars: () => (defined ??= mergeThemeVarIndexes(outer ? outer.definedVars() : null, getThemeVarIndex(theme))),
+    }
+  }, [store, defaultMode, tokens, modes, setMode, setPreference, outer])
+
+  // A nested provider's tokens are not scoped to its subtree: a value it gives a
+  // token an outer provider defines repaints the whole page. Merging the tokens
+  // reports it. Development only.
+  if (outer && diagnosticsEnabled()) contextValue.definedVars()
 
   const composed = composeChildren(children, tokens, defaultMode as Theme['mode'])
   return Node(ThemeContext.Provider, {

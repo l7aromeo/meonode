@@ -163,16 +163,14 @@ const MyComponent = () => {
 ### Context-Based Theming
 
 Theme values resolve automatically through React Context. Reference semantic tokens anywhere without prop drilling.
-Supports nested themes and dynamic switching.
 
 ```typescript
 ThemeProvider({
-  theme: {
-    mode: 'dark',
-    system: {
-      primary: { default: '#FF6B6B', content: '#4A0000' },
-      spacing: { sm: 8, md: 16, lg: 24 },
-    },
+  modes: ['light', 'dark'],
+  defaultMode: 'light',
+  tokens: {
+    primary: { default: '#FF6B6B', content: '#4A0000' },
+    spacing: { sm: 8, md: 16, lg: 24 },
   },
   children: [
     /* your app */
@@ -180,18 +178,23 @@ ThemeProvider({
 })
 ```
 
+Every token becomes a CSS variable, so `Div({ color: 'theme.primary' })` renders `color: var(--meonode-theme-primary)`
+in client and server components alike. A nested `ThemeProvider` can add tokens of its own for its subtree, but its
+variables are declared on `:root` like the outer provider's: a nested provider that gives a token the outer provider
+already defines another value changes it for the whole page, so in development it warns. Give nested tokens names of
+their own.
+
 ### Theme Modes Without a Flash
 
-`ThemeProvider` takes a whole theme object, so a server-rendered page has to know which one to send — from a cookie,
-or by guessing. A cookie makes the response depend on who asked for it, so no cache can share it; a guess is a flash
-of the wrong theme for everyone it got wrong.
+A server-rendered page cannot know which mode a reader is in. A cookie makes the response depend on who asked for it,
+so no cache can share it; a guess is a flash of the wrong theme for everyone it got wrong.
 
-`ThemeModesProvider` splits it. Colours are `var()` references, so one token object serves every mode and the server
-sends the same bytes to every reader. Which palette applies is decided by `data-theme` on `<html>`, written by
-`themeScript` **before the first paint** — there is no flash because there was never a wrong first paint to correct.
+`ThemeProvider` avoids both. Colours are `var()` references, so one token object serves every mode and the server sends
+the same bytes to every reader. Which palette applies is decided by `data-theme` on `<html>`, written by `themeScript`
+**before the first paint**: there is no flash because there was never a wrong first paint to correct.
 
 ```typescript
-import { Body, Head, Html, themeScript, ThemeModesProvider, type ThemeScriptConfig } from '@meonode/ui'
+import { Body, Head, Html, themeScript, ThemeProvider, type ThemeScriptConfig } from '@meonode/ui'
 
 // Mode names are yours -- `light` and `dark` are not required.
 const themeConfig = {
@@ -207,7 +210,7 @@ Html({
   suppressHydrationWarning: true,
   children: [
     Head({ key: 'theme', children: themeScript(themeConfig) }),
-    Body({ key: 'body', children: ThemeModesProvider({ ...themeConfig, tokens, children }) }),
+    Body({ key: 'body', children: ThemeProvider({ ...themeConfig, tokens, children }) }),
   ],
 })
 ```
@@ -433,8 +436,8 @@ const App = () =>
 sophisticated component architectures.
 
 **Theme Resolution Engine**
-Context-based theme propagation with automatic value resolution. Nested theme objects inherit and override parent values
-without explicit passing.
+Context-based theme propagation with automatic value resolution. Tokens become CSS variables, so server components use
+them as client components do, and development reports a token no `ThemeProvider` above defines.
 
 **CSS Engine**
 @emotion/react provides CSS-in-JS with automatic optimization, critical CSS extraction for SSR, and zero-runtime
