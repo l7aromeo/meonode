@@ -67,6 +67,11 @@ export default defineConfig({
       preserveModulesRoot: 'src',
       entryFileNames: '[name].cjs',
       exports: 'named',
+      // Read a dependency's default export as its `.default` when it marks itself `__esModule`,
+      // and as the whole `module.exports` otherwise. Rollup's default takes `module.exports`
+      // as the default every time, which hands `@emotion/cache` and `@emotion/unitless` (both
+      // compiled ES modules) their namespace object instead of their default export.
+      interop: 'auto',
       strict: true,
     },
   ],
