@@ -14,6 +14,7 @@ This fixture app uses taxonomy-first routes so each page has one clear test purp
   - `/theme/only-child-themed-key/component`: a server component with a themed `css` key, as the one child a client component clones
   - `/theme/server-undefined-token`: an undefined and a defined token in a server component, for the development check
   - `/theme/server-nested-token`: tokens only a nested provider, or only the one above it, defines, in a server component
+  - `/theme/function-style/{server,client}`: theme functions in `css` under a node `theme` prop, returning a value and a whole style
 - `/providers/*`:
   - cross-cutting provider plumbing (portal/style-registry)
 - `/link/*`:

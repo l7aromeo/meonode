@@ -379,6 +379,35 @@ describe('C. Theme and provider boundaries', () => {
     expect(html).toContain('portal-host-present')
   })
 
+  // A theme function in `css` runs where the theme is: in a server component that
+  // is a node `theme` prop. What it returns is converted as the client converts
+  // it, or a numeric token arrives without its unit and the length is 0.
+  describe('theme functions in css under a node theme prop', () => {
+    const computedStyles = [
+      { testId: 'fn-value', properties: ['padding-top'] },
+      { testId: 'fn-style-child', properties: ['padding-left'] },
+    ] as const
+
+    it.each(['server', 'client'])('give a numeric token its unit in a %s component', async side => {
+      const { status, html, computedStyles: styles } = await getPage(`/theme/function-style/${side}`, { computedStyles })
+      expect(status).toBe(200)
+      assertNoRscErrors(html)
+      expect(styles['fn-value']['padding-top']).toBe('16px')
+      expect(styles['fn-style-child']['padding-left']).toBe('16px')
+    })
+
+    it('compile the same class in a server and a client component', async () => {
+      const [server, client] = await Promise.all([getPage('/theme/function-style/server'), getPage('/theme/function-style/client')])
+      // The server names a class it compiles `meonode-css-…`, Emotion `css-…`; the
+      // hash is the css.
+      const hash = (html: string, testId: string) => getElementClassNameByTestId(html, testId)?.match(/(?:^|\s)(?:meonode-)?css-([a-z0-9]+)/)?.[1]
+      for (const testId of ['fn-value', 'fn-style']) {
+        expect(hash(server.html, testId)).toBeTruthy()
+        expect(hash(server.html, testId)).toBe(hash(client.html, testId))
+      }
+    })
+  })
+
   it('StyleRegistry collects critical CSS from multiple styled nodes', async () => {
     const { status, html } = await getPage('/providers/style-registry')
     expect(status).toBe(200)

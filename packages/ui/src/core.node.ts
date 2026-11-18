@@ -668,9 +668,11 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
               // carry into the client page's SSR pass), so string tokens still produce vars.
               // `processFunctions: true` executes any callable theme refs in `css`,
               // and with no theme in scope drops them, so none reaches `ThemedRule`:
-              // a function cannot be handed to a client component.
+              // a function cannot be handed to a client component. What one returns
+              // is converted to vars too, as the client converts it.
               const themedCss = ThemeUtil.resolveObjWithTheme(replaceThemeTokensWithCssVars(css), activeTheme, {
                 processFunctions: true,
+                themeStringsMode: 'vars',
               })
               // Development only; no-ops in production. With a theme in scope this
               // is the check `StyledRenderer` makes. With none, the token
