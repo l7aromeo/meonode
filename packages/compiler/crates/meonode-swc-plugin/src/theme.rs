@@ -79,6 +79,10 @@
 //! `resolveObjWithTheme`, which has the live theme. `partition.rs` upholds it by
 //! only ever passing prop *values* here.
 
+use std::borrow::Cow;
+
+use crate::css_props::is_length_prop;
+
 /// Mirrors `@meonode/ui`'s `toThemeVarName`:
 /// `--meonode-theme-${path.replace(/[^\w.-]/g, '-').replace(/\./g, '-')}`.
 ///
@@ -128,6 +132,53 @@ fn is_theme_path_char(ch: char) -> bool {
 /// than the `--len` form, since there is no property to decide the question.
 pub fn is_selector_or_at_rule(key: &str) -> bool {
     key.starts_with('&') || key.starts_with('@')
+}
+
+/// A CSS property name as a style object key in the form the CSS property sets
+/// use: `padding-top` is `paddingTop`, `-webkit-mask` is `WebkitMask`, and
+/// `-ms-wrap-margin` and `MsWrapMargin` are `msWrapMargin`. A name already in
+/// that form is returned as it is, and case is otherwise kept, as Emotion keeps
+/// it when it writes the key. A custom property (`--gap`) comes out starting
+/// with `-`, which no property set holds.
+///
+/// Mirrors `@meonode/ui`'s `toStyleKey`: a `-` followed by an ASCII lower-case
+/// letter becomes that letter upper-cased, then a leading `Ms` becomes `ms`.
+/// The two must agree exactly, or a compiled call site and the same call left
+/// to the runtime choose different variables for one key.
+pub fn style_key(name: &str) -> Cow<'_, str> {
+    let mut key = if name.contains('-') {
+        let mut out = String::with_capacity(name.len());
+        let mut chars = name.chars().peekable();
+        while let Some(ch) = chars.next() {
+            if ch == '-'
+                && let Some(&next) = chars.peek()
+                && next.is_ascii_lowercase()
+            {
+                out.push(next.to_ascii_uppercase());
+                chars.next();
+                continue;
+            }
+            out.push(ch);
+        }
+        Cow::Owned(out)
+    } else {
+        Cow::Borrowed(name)
+    };
+    // React names Microsoft's prefix in lower case, every other vendor's
+    // capitalised.
+    if key.starts_with("Ms") {
+        key.to_mut().replace_range(0..1, "m");
+    }
+    key
+}
+
+/// Whether a token written against the key `name` takes the length form: the
+/// key, in any form Emotion writes as a property (`paddingTop`, `padding-top`,
+/// `-webkit-margin-start`), names a length property.
+///
+/// Mirrors `@meonode/ui`'s `isLengthProperty`.
+pub fn is_length_key(name: &str) -> bool {
+    is_length_prop(&style_key(name))
 }
 
 /// Replaces every `theme.<path>` occurrence in `input` with
@@ -216,6 +267,54 @@ pub fn rewrite_theme_tokens_for(input: &str, wants_length: bool) -> Option<Strin
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn style_key_matches_the_css_property_sets() {
+        for (name, key) in [
+            ("paddingTop", "paddingTop"),
+            ("padding-top", "paddingTop"),
+            ("border-top-width", "borderTopWidth"),
+            ("-webkit-margin-start", "WebkitMarginStart"),
+            ("-moz-column-width", "MozColumnWidth"),
+            ("-ms-wrap-margin", "msWrapMargin"),
+            ("MsWrapMargin", "msWrapMargin"),
+            ("msWrapMargin", "msWrapMargin"),
+            ("--padding-top", "-PaddingTop"),
+            ("Padding-Top", "Padding-Top"),
+            ("a--b", "a-B"),
+            ("x-1", "x-1"),
+            ("padding-", "padding-"),
+        ] {
+            assert_eq!(style_key(name), key, "{name}");
+        }
+    }
+
+    #[test]
+    fn style_key_borrows_a_name_already_in_form() {
+        assert!(matches!(style_key("paddingTop"), Cow::Borrowed(_)));
+    }
+
+    #[test]
+    fn length_key_reads_every_form_of_a_length_property() {
+        for name in [
+            "padding",
+            "padding-top",
+            "-webkit-margin-start",
+            "-ms-wrap-margin",
+            "MsWrapMargin",
+        ] {
+            assert!(is_length_key(name), "{name}");
+        }
+        for name in [
+            "line-height",
+            "z-index",
+            "--padding-top",
+            "Padding-Top",
+            "color",
+        ] {
+            assert!(!is_length_key(name), "{name}");
+        }
+    }
 
     #[test]
     fn var_name_collapses_dots_to_hyphens() {

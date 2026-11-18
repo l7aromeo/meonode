@@ -322,17 +322,19 @@ String-literal values have their `theme.*` tokens rewritten to
 Whether a token takes the paired `--len` form is decided by the CSS property it
 is written against, and inside `css` that property is the nearest enclosing key
 — with selectors and at-rules (`&:hover`, `@media …`) contributing none, since
-they name no property. This mirrors `@meonode/ui`'s own
+they name no property. A key names the same property in any form Emotion writes
+as it: `paddingTop`, `'padding-top'`, `'-webkit-margin-start'`. This mirrors `@meonode/ui`'s own
 `isSelectorOrAtRule(key) ? undefined : key` rule, applied in both of its
 conversion paths.
 
 Two nested shapes are deliberately skipped:
 
-- **Arrays.** `@meonode/ui` converts string items inside arrays on the server
-  (`replaceThemeTokensWithCssVars`) but not on the client
-  (`resolveObjWithTheme` substitutes only nested containers), so a token inside
-  an array already behaves differently on the two sides. Compiling would have to
-  pick one and bake it in.
+- **Arrays.** The runtime converts every string item in an array, on the
+  server and the client alike: an item of a length property's fallback list
+  (`padding: ['1px', 'theme.spacing.md']`) against that property, any other item
+  as CSS text, where each declaration names its own property. Leaving arrays to
+  the runtime therefore renders the same output as compiling them would; only
+  the conversion happens at render time instead of build time.
 - **A `theme.*` token in a non-selector key.** The runtime resolves such a key
   and then uses the *resolved* text as the property name, which decides the
   length question. With no theme at build time that name is unknowable, so the

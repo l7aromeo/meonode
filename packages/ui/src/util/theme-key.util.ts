@@ -28,9 +28,25 @@ export const isInPrelude = (text: string, index: number): boolean => {
 const CSS_COMMENT = /\/\*[\s\S]*?\*\//g
 
 /**
- * The property of the declaration that position `index` in CSS text belongs to,
- * named as a style object key (`padding-top` is `paddingTop`, `-webkit-mask` is
- * `WebkitMask`, `-ms-wrap-margin` is `msWrapMargin`), or `undefined` when `index`
+ * A CSS property name as a style object key in the form React and the CSS
+ * property sets use: `padding-top` is `paddingTop`, `-webkit-mask` is
+ * `WebkitMask`, and `-ms-wrap-margin` and `MsWrapMargin` are `msWrapMargin`. A
+ * name already in that form is returned as it is, and case is otherwise kept,
+ * as Emotion keeps it when it writes the key. A custom property (`--gap`) comes
+ * out starting with `-`, which no property set holds.
+ *
+ * `@meonode/compiler` mirrors this in `style_key`, so both decide alike which
+ * keys name a length property.
+ */
+export const toStyleKey = (name: string): string => {
+  const key = name.includes('-') ? name.replace(/-([a-z])/g, (_, char: string) => char.toUpperCase()) : name
+  // React names Microsoft's prefix in lower case, every other vendor's capitalised.
+  return key.startsWith('Ms') ? `m${key.slice(1)}` : key
+}
+
+/**
+ * The property name of the declaration that position `index` in CSS text belongs
+ * to, in lower case as CSS reads it (`padding-top`), or `undefined` when `index`
  * is in no declaration's value.
  *
  * The declaration starts after the nearest `;`, `{` or `}` before `index` that is
@@ -51,10 +67,7 @@ export const declarationPropertyAt = (text: string, index: number): string | und
   const colon = text.indexOf(':', start)
   if (colon < 0 || colon > index) return undefined
   // CSS property names are case-insensitive.
-  const name = text.slice(start, colon).replace(CSS_COMMENT, '').trim().toLowerCase()
-  const key = name.replace(/-([a-z0-9])/g, (_, char: string) => char.toUpperCase())
-  // React names Microsoft's prefix in lower case, every other vendor's capitalised.
-  return key.startsWith('Ms') ? `m${key.slice(1)}` : key
+  return text.slice(start, colon).replace(CSS_COMMENT, '').trim().toLowerCase()
 }
 
 /** Whether a `css` key holds a theme token. */

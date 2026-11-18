@@ -41,12 +41,12 @@ use swc_core::ecma::atoms::Atom;
 use swc_core::ecma::visit::{VisitMut, VisitMutWith};
 
 use crate::config::CompileConfig;
-use crate::css_props::{is_css_prop, is_length_prop};
+use crate::css_props::is_css_prop;
 use crate::detect::{self, ChildrenOrigin, Decision};
 use crate::effect::is_inline_function;
 use crate::effect::is_static_literal;
 use crate::keys::{is_special_key, is_stable_key_visible_special, key_name_atom};
-use crate::theme::{is_selector_or_at_rule, rewrite_theme_tokens_for};
+use crate::theme::{is_length_key, is_selector_or_at_rule, rewrite_theme_tokens_for};
 
 const MARKER_KEY: &str = "__meo$";
 /// Schema version emitted by this compiler. Schema 1 named its buckets `c`/`d`/
@@ -506,11 +506,11 @@ fn rewrite_theme_tokens_in_buckets(buckets: [&mut Vec<PropOrSpread>; 2]) {
             // The property name decides whether the token needs its unit.
             // Read before the mutable borrow of `kv.value` below.
             let wants_length = match &kv.key {
-                PropName::Ident(id) => is_length_prop(id.sym.as_ref()),
+                PropName::Ident(id) => is_length_key(id.sym.as_ref()),
                 PropName::Str(st) => st
                     .value
                     .as_atom()
-                    .is_some_and(|atom| is_length_prop(atom.as_ref())),
+                    .is_some_and(|atom| is_length_key(atom.as_ref())),
                 _ => false,
             };
 
@@ -574,7 +574,7 @@ fn css_key_context(key: &PropName) -> Option<bool> {
     if !is_selector && name.contains("theme.") {
         return None;
     }
-    Some(!is_selector && is_length_prop(name))
+    Some(!is_selector && is_length_key(name))
 }
 
 /// Rewrites `theme.*` tokens to `var(--meonode-theme-*)` in the string-literal
@@ -598,15 +598,12 @@ fn css_key_context(key: &PropName) -> Option<bool> {
 ///   to a concrete value, since `var()` is invalid inside media features and
 ///   selector text. Only `kv.value` is ever read here.
 ///
-/// - **Arrays.** `@meonode/ui`'s two conversion paths disagree about strings
-///   inside arrays: `replaceThemeTokensWithCssVars` converts them (with no
-///   property context), while `resolveObjWithTheme` substitutes only nested
-///   *containers* and lets string items fall straight through. Since the server
-///   reaches `css` through the first and the client through the second, a token
-///   inside an array already renders differently on the two sides. Recursing
-///   here would have to pick one of those behaviors and bake it into the build,
-///   turning a runtime inconsistency into a compiled one. Skipping leaves the
-///   existing behavior exactly as it is.
+/// - **Arrays.** `@meonode/ui` converts every string item in an array, in both
+///   `replaceThemeTokensWithCssVars` and `resolveObjWithTheme`: an item of a
+///   length property's fallback list against that property, any other item as
+///   CSS text, where each declaration names its own property. Leaving arrays to
+///   the runtime therefore renders exactly what compiling them would; only the
+///   conversion moves from build time to render time.
 ///
 /// - **Anything that is not a string literal or an object literal**:
 ///   identifiers, calls, template literals, functions. The runtime still

@@ -1,6 +1,6 @@
 import unitless from '@emotion/unitless'
 import { LengthPropertySet } from '@src/constant/css-properties.const.js'
-import { declarationPropertyAt } from '@src/util/theme-key.util.js'
+import { declarationPropertyAt, toStyleKey } from '@src/util/theme-key.util.js'
 
 /**
  * Shared rules for whether a CSS property needs a unit, and for the paired
@@ -31,10 +31,11 @@ export const wouldEmotionAddPx = (property: string): boolean => (unitless as Rec
 
 /**
  * Whether a token used for this property should reference the length variant.
- * @param property The CSS property name.
+ * @param property The CSS property name, in any form Emotion writes as that
+ * property: `paddingTop`, `padding-top`, `-webkit-margin-start`.
  * @returns `true` for properties whose value is a length.
  */
-export const isLengthProperty = (property: string): boolean => LengthPropertySet.has(property)
+export const isLengthProperty = (property: string): boolean => LengthPropertySet.has(toStyleKey(property))
 
 /**
  * Whether a raw theme value needs a unit appended before it can serve as a
