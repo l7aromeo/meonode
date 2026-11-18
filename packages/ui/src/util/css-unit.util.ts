@@ -111,3 +111,19 @@ export const themeVarRef = (varName: string, context: TokenContext, text: string
  * @returns `true` for selectors (`&:hover`) and at-rules (`@media …`).
  */
 export const isSelectorOrAtRule = (key: string): boolean => key.startsWith('&') || key.startsWith('@')
+
+/**
+ * Whether `value` under `key` is a fallback list of a length property: an array
+ * Emotion writes as one declaration of that property per item, so each item is a
+ * value of the property and a token in it needs the length form.
+ *
+ * Every other array is walked as CSS text and style objects, as a `css` array
+ * is. That reads a fallback list of any other property the same way, since a
+ * bare token there takes the plain variable either way, and it keeps a wrapper
+ * key such as `css` in `{ css: [flatCssProps, css] }` from being taken for a
+ * property its CSS text would then be written against.
+ * @param key The object key.
+ * @param value The value under it.
+ * @returns `true` when the items are values of the length property `key` names.
+ */
+export const isLengthFallbackList = (key: string, value: unknown): value is unknown[] => Array.isArray(value) && isLengthProperty(key)

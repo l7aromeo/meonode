@@ -1,5 +1,13 @@
 import type { Theme } from '@src/types/node.type.js'
-import { CSS_TEXT, isSelectorOrAtRule, needsLengthVariant, themeVarRef, toLengthVarName, type TokenContext } from '@src/util/css-unit.util.js'
+import {
+  CSS_TEXT,
+  isLengthFallbackList,
+  isSelectorOrAtRule,
+  needsLengthVariant,
+  themeVarRef,
+  toLengthVarName,
+  type TokenContext,
+} from '@src/util/css-unit.util.js'
 import { isInPrelude } from '@src/util/theme-key.util.js'
 
 function toThemeVarName(path: string): string {
@@ -119,6 +127,46 @@ const isPlainObject = (v: unknown): v is Record<string, unknown> => {
   return proto === null || proto === Object.prototype
 }
 
+/** A container still to be walked, and whether its children have been pushed. */
+interface WorkItem {
+  value: unknown
+  isProcessed: boolean
+}
+
+/** Pushes each plain object and array in `items` that is not already on the walk's path. */
+const pushContainers = (items: readonly unknown[], workStack: WorkItem[], path: Set<unknown>): void => {
+  for (let i = items.length - 1; i >= 0; i--) {
+    const item = items[i]
+    if ((isPlainObject(item) || Array.isArray(item)) && !path.has(item)) workStack.push({ value: item, isProcessed: false })
+  }
+}
+
+/**
+ * Converts the items of an array: a string against `context`, a container to its
+ * already converted form. Copy-on-write.
+ * @param items The array.
+ * @param context What each string item is written against.
+ * @param resolvedValues The walk's converted containers.
+ * @returns The converted array, or `items` itself when nothing changed.
+ */
+const convertItems = (items: unknown[], context: TokenContext, resolvedValues: Map<unknown, unknown>): unknown[] => {
+  let next: unknown[] | null = null
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i]
+    let newItem: unknown = item
+    if (typeof item === 'string') {
+      newItem = replaceString(item, context)
+    } else if (isPlainObject(item) || Array.isArray(item)) {
+      newItem = resolvedValues.get(item) ?? item
+    }
+    if (newItem !== item) {
+      if (next === null) next = [...items]
+      next[i] = newItem
+    }
+  }
+  return next ?? items
+}
+
 const SCAN_NO_TOKENS = 0
 const SCAN_FOUND_OR_UNKNOWN = 1
 
@@ -226,7 +274,7 @@ export function replaceThemeTokensWithCssVars<T>(value: T): T {
   // the next GC.
   if (scanForThemeTokens(value, 0) === SCAN_NO_TOKENS) return value
 
-  const workStack: { value: unknown; isProcessed: boolean }[] = [{ value, isProcessed: false }]
+  const workStack: WorkItem[] = [{ value, isProcessed: false }]
   const resolvedValues = new Map<unknown, unknown>()
   const path = new Set<unknown>()
 
@@ -248,11 +296,17 @@ export function replaceThemeTokensWithCssVars<T>(value: T): T {
       currentWork.isProcessed = true
       path.add(currentValue)
 
-      const children = Array.isArray(currentValue) ? currentValue : Object.values(currentValue)
-      for (let i = children.length - 1; i >= 0; i--) {
-        const child = children[i]
-        if ((isPlainObject(child) || Array.isArray(child)) && !path.has(child)) {
-          workStack.push({ value: child, isProcessed: false })
+      if (Array.isArray(currentValue)) {
+        pushContainers(currentValue, workStack, path)
+      } else {
+        const obj = currentValue as Record<string, unknown>
+        const keys = Object.keys(obj)
+        for (let i = keys.length - 1; i >= 0; i--) {
+          const child = obj[keys[i]]
+          // A length property's fallback list is converted with its key below, not
+          // as a container of its own, so only what it holds is walked.
+          if (isLengthFallbackList(keys[i], child)) pushContainers(child, workStack, path)
+          else if ((isPlainObject(child) || Array.isArray(child)) && !path.has(child)) workStack.push({ value: child, isProcessed: false })
         }
       }
     } else {
@@ -262,21 +316,7 @@ export function replaceThemeTokensWithCssVars<T>(value: T): T {
       let finalValue: unknown = currentValue
 
       if (Array.isArray(currentValue)) {
-        let newArray: unknown[] | null = null
-        for (let i = 0; i < currentValue.length; i++) {
-          const item = currentValue[i]
-          let newItem: unknown = item
-          if (typeof item === 'string') {
-            newItem = replaceString(item, CSS_TEXT)
-          } else if (isPlainObject(item) || Array.isArray(item)) {
-            newItem = resolvedValues.get(item) ?? item
-          }
-          if (newItem !== item) {
-            if (newArray === null) newArray = [...currentValue]
-            newArray[i] = newItem
-          }
-        }
-        if (newArray !== null) finalValue = newArray
+        finalValue = convertItems(currentValue, CSS_TEXT, resolvedValues)
       } else {
         let newObj: Record<string, unknown> | null = null
         const obj = currentValue as Record<string, unknown>
@@ -289,6 +329,8 @@ export function replaceThemeTokensWithCssVars<T>(value: T): T {
               // A selector or at-rule key names no property, so a token
               // directly under one keeps the plain variable.
               newValue = replaceString(v, isSelectorOrAtRule(key) ? undefined : key)
+            } else if (isLengthFallbackList(key, v)) {
+              newValue = convertItems(v, key, resolvedValues)
             } else if (isPlainObject(v) || Array.isArray(v)) {
               newValue = resolvedValues.get(v) ?? v
             }

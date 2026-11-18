@@ -279,10 +279,18 @@ export type ThemedCSSProperties = {
   [P in keyof CSSProperties]: ThemedValue<WithThemeToken<CSSProperties[P]>>
 }
 
+/** One value of a known property in a `css` object, or a theme token. */
+type ThemedCSSSingleValue<P extends keyof CSSProperties> = WithThemeToken<CSSProperties[P] | (CSSProperties[P] extends string | undefined ? string : never)>
+
+/**
+ * What a known property takes in a `css` object: a value, a theme function
+ * returning one, or a fallback list of its string values, which Emotion writes as
+ * one declaration per item (`display: ['-webkit-box', 'flex']`). Mirrors
+ * Emotion's `CSSPropertiesWithMultiValues`, with theme tokens allowed as items.
+ */
+type ThemedCSSValue<P extends keyof CSSProperties> = ThemedValue<ThemedCSSSingleValue<P>> | ReadonlyArray<Extract<ThemedCSSSingleValue<P>, string>>
+
 /** Optional themed CSS properties (mapped); base layer for {@link ThemedCSSObject}. */
-type ThemedCSSValue<P extends keyof CSSProperties> = ThemedValue<
-  WithThemeToken<CSSProperties[P] | (CSSProperties[P] extends string | undefined ? string : never)>
->
 
 type ThemedCSSPropertiesPartial = {
   [P in keyof CSSProperties]?: ThemedCSSValue<P>
