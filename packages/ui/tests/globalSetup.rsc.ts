@@ -1,9 +1,9 @@
-import { execSync, spawn } from 'node:child_process'
+import { execSync } from 'node:child_process'
 import { appendFileSync, writeFileSync, readFileSync, existsSync, copyFileSync, readdirSync } from 'node:fs'
-import { createServer } from 'node:net'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import globalTeardown from './globalTeardown.rsc.js'
+import { startServer } from './next-server.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -13,22 +13,6 @@ const PID_FILE = path.resolve(ROOT, 'tests/rsc-fixtures/.rsc-server-pid')
 const PORT_FILE = path.resolve(ROOT, 'tests/rsc-fixtures/.rsc-server-port')
 /** Everything `next dev` prints, for tests that check what the server reported. */
 export const SERVER_LOG = path.resolve(ROOT, 'tests/rsc-fixtures/.rsc-server.log')
-
-async function getFreePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const srv = createServer()
-    srv.listen(0, () => {
-      const addr = srv.address()
-      if (typeof addr === 'object' && addr) {
-        const port = addr.port
-        srv.close(() => resolve(port))
-      } else {
-        srv.close(() => reject(new Error('Failed to get free port')))
-      }
-    })
-    srv.on('error', reject)
-  })
-}
 
 function killStaleServer() {
   if (!existsSync(PID_FILE)) return
@@ -41,24 +25,6 @@ function killStaleServer() {
   } catch {
     // already dead
   }
-}
-
-async function waitForReady(port: number, timeoutMs: number): Promise<void> {
-  const deadline = Date.now() + timeoutMs
-  let lastErr: unknown
-  while (Date.now() < deadline) {
-    try {
-      const res = await fetch(`http://localhost:${port}/`)
-      if (res.status >= 200 && res.status < 500) {
-        return
-      }
-      lastErr = new Error(`status ${res.status}`)
-    } catch (e) {
-      lastErr = e
-    }
-    await new Promise(r => setTimeout(r, 500))
-  }
-  throw new Error(`next dev did not become ready on :${port} within ${timeoutMs}ms. Last error: ${lastErr}`)
 }
 
 /**
@@ -149,41 +115,31 @@ export async function setup() {
     console.log('[rsc-setup] copied the freshly built wasm plugin over the fixture’s registry copy')
   }
 
-  const port = await getFreePort()
-
-  console.log(`[rsc-setup] spawning next dev on :${port}…`)
-
-  const proc = spawn('bunx', ['next', 'dev', '-p', String(port)], {
-    cwd: FIXTURE,
-    stdio: ['ignore', 'pipe', 'pipe'],
-    detached: true,
-  })
-  proc.unref()
+  console.log('[rsc-setup] spawning next dev…')
 
   // Forwarded as it arrives, and kept by line so the warm-up can read what the
   // server reported while compiling.
   const serverOutput: string[] = []
   writeFileSync(SERVER_LOG, '')
-  for (const [stream, sink] of [
-    [proc.stdout, process.stdout],
-    [proc.stderr, process.stderr],
-  ] as const) {
-    stream.on('data', (chunk: Buffer) => {
-      sink.write(chunk)
+  // `-p 0`: the server takes a free port itself and says which, so no other
+  // process can be listening where the tests send their requests.
+  const { port } = await startServer({
+    name: 'next dev',
+    command: 'bunx',
+    args: ['next', 'dev', '-p', '0'],
+    cwd: FIXTURE,
+    timeoutMs: 90_000,
+    onSpawn: pid => writeFileSync(PID_FILE, String(pid)),
+    onOutput: (chunk, stream) => {
+      ;(stream === 'stdout' ? process.stdout : process.stderr).write(chunk)
       serverOutput.push(...chunk.toString('utf8').split('\n'))
       appendFileSync(SERVER_LOG, chunk)
-    })
-    ;(stream as unknown as { unref?: () => void }).unref?.()
-  }
-
-  if (!proc.pid) throw new Error('failed to spawn next dev')
-  writeFileSync(PID_FILE, String(proc.pid))
+    },
+  })
   writeFileSync(PORT_FILE, String(port))
   process.env.__RSC_FIXTURE_PORT__ = String(port)
 
-  await waitForReady(port, 90_000)
-
-  console.log('[rsc-setup] next dev ready')
+  console.log(`[rsc-setup] next dev ready on :${port}`)
 
   await warmRoutes(port, serverOutput)
 }

@@ -1,9 +1,9 @@
-import { execSync, spawn } from 'node:child_process'
+import { execSync } from 'node:child_process'
 import { appendFileSync, copyFileSync, existsSync, rmSync, writeFileSync } from 'node:fs'
-import { createServer } from 'node:net'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import globalTeardown from './globalTeardown.build.js'
+import { startServer } from './next-server.js'
 
 /**
  * Production builds of the `next-build` fixture, served by `next start`.
@@ -28,34 +28,6 @@ export const VARIANTS = {
   cc: { cacheComponents: true, distDir: '.next-cc' },
   plain: { cacheComponents: false, distDir: '.next-plain' },
 } as const
-
-async function getFreePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const server = createServer()
-    server.listen(0, () => {
-      const address = server.address()
-      if (typeof address === 'object' && address) server.close(() => resolve(address.port))
-      else server.close(() => reject(new Error('no free port')))
-    })
-    server.on('error', reject)
-  })
-}
-
-async function waitForReady(port: number, timeoutMs: number): Promise<void> {
-  const deadline = Date.now() + timeoutMs
-  let lastError: unknown
-  while (Date.now() < deadline) {
-    try {
-      const response = await fetch(`http://localhost:${port}/`)
-      if (response.status < 500) return
-      lastError = new Error(`status ${response.status}`)
-    } catch (error) {
-      lastError = error
-    }
-    await new Promise(resolve => setTimeout(resolve, 250))
-  }
-  throw new Error(`next start did not become ready on :${port} within ${timeoutMs}ms. Last error: ${lastError}`)
-}
 
 export async function setup() {
   await globalTeardown()
@@ -90,26 +62,29 @@ export async function setup() {
     console.log(`[build-setup] next build (${name})…`)
     execSync('bunx next build', { cwd: FIXTURE, stdio: 'inherit', env })
 
-    const port = await getFreePort()
-    const child = spawn('bunx', ['next', 'start', '-p', String(port)], { cwd: FIXTURE, stdio: ['ignore', 'pipe', 'pipe'], detached: true, env })
-    child.unref()
     // Forwarded as before, and kept in a file so a test can read what the server reported.
     const log = serverLog(name)
     writeFileSync(log, '')
-    for (const [stream, sink] of [
-      [child.stdout, process.stdout],
-      [child.stderr, process.stderr],
-    ] as const) {
-      stream.on('data', (chunk: Buffer) => {
-        sink.write(chunk)
+    // `-p 0`: the server takes a free port itself and says which, so no other
+    // process can be listening where the tests send their requests.
+    const { pid, port } = await startServer({
+      name: `next start (${name})`,
+      command: 'bunx',
+      args: ['next', 'start', '-p', '0'],
+      cwd: FIXTURE,
+      env,
+      timeoutMs: 60_000,
+      onSpawn: pid => {
+        servers[name] = { pid, port: 0 }
+        writeFileSync(STATE_FILE, JSON.stringify(servers))
+      },
+      onOutput: (chunk, stream) => {
+        ;(stream === 'stdout' ? process.stdout : process.stderr).write(chunk)
         appendFileSync(log, chunk)
-      })
-      ;(stream as unknown as { unref?: () => void }).unref?.()
-    }
-    if (!child.pid) throw new Error(`failed to spawn next start (${name})`)
-    servers[name] = { pid: child.pid, port }
+      },
+    })
+    servers[name] = { pid, port }
     writeFileSync(STATE_FILE, JSON.stringify(servers))
-    await waitForReady(port, 60_000)
     process.env[`__BUILD_PORT_${name.toUpperCase()}__`] = String(port)
   }
   console.log(`[build-setup] serving ${Object.keys(servers).join(', ')}`)
