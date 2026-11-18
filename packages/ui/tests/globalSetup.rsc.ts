@@ -120,7 +120,8 @@ export async function setup() {
   killStaleServer()
 
   console.log('[rsc-setup] building @meonode/ui dist (bun run build)…')
-  // Avoid recursive test loop: `build` runs `prebuild`, and `prebuild` includes `test:rsc`.
+  // The fixture's next.config aliases `@meonode/ui` to dist, so the app runs the package
+  // as built from these sources.
   execSync('bun run build', { cwd: ROOT, stdio: 'inherit' })
 
   console.log('[rsc-setup] installing fixture deps…')

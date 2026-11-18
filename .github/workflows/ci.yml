@@ -185,6 +185,64 @@ jobs:
           path: packages/compiler/npm
       - run: bun run --filter @meonode/ui ${{ matrix.mode == 'compiled' && 'test:compiled' || 'test' }}
         if: needs.changes.outputs.ui == 'true'
+      # Activity rendered by a server component through Flight, from the built package.
+      - run: bun run build:ui && bun run --filter @meonode/ui test:flight
+        if: needs.changes.outputs.ui == 'true' && matrix.mode == 'plain'
+
+  # The same suites on the oldest React that @meonode/ui's peer range allows. The
+  # workspace installs the latest React, so without this job nothing would notice
+  # @meonode/ui starting to need something newer than its declared floor; the floor
+  # is read from the peer range, so moving the range moves the job with it. Like
+  # ui-test, it runs even when nothing changed, so its required contexts report.
+  ui-react-floor:
+    name: Test (React floor, ${{ matrix.mode }})
+    needs: [changes, wasm]
+    if: ${{ !cancelled() && needs.changes.result == 'success' }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [plain, compiled]
+    steps:
+      - uses: actions/checkout@v7
+        if: needs.changes.outputs.ui == 'true'
+      - uses: actions/setup-node@v7
+        if: needs.changes.outputs.ui == 'true'
+        with:
+          node-version: lts/*
+      - uses: oven-sh/setup-bun@v2
+        if: needs.changes.outputs.ui == 'true'
+      # react, react-dom and react-server-dom-turbopack ship in lockstep and must
+      # match exactly, so all three are pinned to the floor.
+      - name: Use the lowest React the peer range allows
+        if: needs.changes.outputs.ui == 'true'
+        run: |
+          floor=$(node -p "require('./packages/ui/package.json').peerDependencies.react.replace(/^>=\s*/, '')")
+          node -e "
+            const fs = require('node:fs')
+            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'))
+            const v = process.argv[1]
+            pkg.overrides = { ...pkg.overrides, react: v, 'react-dom': v, 'react-server-dom-turbopack': v }
+            fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n')
+          " "$floor"
+          bun install
+          node -e "
+            const [floor] = process.argv.slice(1)
+            for (const p of ['react', 'react-dom', 'react-server-dom-turbopack']) {
+              const { version } = require(require.resolve(p + '/package.json', { paths: ['packages/ui'] }))
+              console.log(p, version)
+              if (version !== floor) throw new Error(p + ' resolved to ' + version + ', not the floor ' + floor)
+            }
+          " "$floor"
+      - uses: actions/download-artifact@v8
+        if: needs.changes.outputs.ui == 'true'
+        with:
+          name: meonode-swc-plugin
+          path: packages/compiler/npm
+      - run: bun run --filter @meonode/ui ${{ matrix.mode == 'compiled' && 'test:compiled' || 'test' }}
+        if: needs.changes.outputs.ui == 'true'
+      - run: bun run build:ui && bun run --filter @meonode/ui test:flight
+        if: needs.changes.outputs.ui == 'true' && matrix.mode == 'plain'
 
   ui-rsc:
     name: Test (RSC, ${{ matrix.mode }})

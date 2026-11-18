@@ -97,6 +97,7 @@ bun run build
 
 # run tests
 bun run test:ui        # unit suite, plain and through the real plugin
+bun run --filter @meonode/ui test:flight  # Activity through Flight, from the built ui (after `bun run build`)
 bun run test:compiler  # cargo tests plus the wasm ABI smoke test
 
 # lint and format
@@ -111,6 +112,11 @@ Notes
 - Build order matters: ui's compiled test mode loads the plugin that `build:compiler` produces.
 - The RSC suite needs its fixture installed first:
   `bun run --filter @meonode/ui prepare:rsc-fixture`.
+- `@meonode/ui` supports every React its peer range allows, from the lowest one up. The workspace
+  installs the latest React; CI's `Test (React floor, …)` jobs pin `react`, `react-dom` and
+  `react-server-dom-turbopack` to the lowest version in that range and run the unit and Flight
+  suites again. To do the same locally, add those three to the root `overrides` at that version,
+  run `bun install`, and revert both files afterwards.
 - Husky hooks may run on commit (pre-commit / pre-push). If you need to bypass hooks: `git commit --no-verify` (use
   sparingly).
 
