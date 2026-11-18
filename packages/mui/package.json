@@ -27,7 +27,8 @@
   "scripts": {
     "build": "rm -rf ./dist && rollup -c rollup.config.ts --configPlugin typescript && tsc -p tsconfig.build.json && tsc-alias -p tsconfig.build.json",
     "generate:lib": "bun scripts/generate-wrapper-lib.js",
-    "lint": "eslint --fix && tsc --noEmit",
+    "lint": "eslint --fix && tsc --noEmit && bun run typecheck:types",
+    "typecheck:types": "tsc -p tests/types/tsconfig.json",
     "test:peer-floor": "bun install --cwd tests/peer-floor --frozen-lockfile && bun test tests/peer-floor.test.ts",
     "watch:build": "bunx concurrently \"bun run watch:core\" \"bun run watch:src\"",
     "watch:core": "bunx nodemon --watch $MEONODE/core/dist --ext ts,js,json --exec \"bun add -d @meonode/ui@file:$MEONODE/core\"",

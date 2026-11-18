@@ -4,7 +4,8 @@
  * Emotion's `CSSPropertiesWithMultiValues` does, with theme tokens as items.
  * Run: bunx tsc --noEmit (included in project typecheck).
  */
-import { Div } from '@src/components/html.node'
+import { Button, Div } from '@src/components/html.node'
+import { Node } from '@src/core.node'
 
 declare const fallbacks: readonly string[]
 const asConst = ['-webkit-box', 'flex'] as const
@@ -42,3 +43,29 @@ export const numberColor = Div({ css: { color: 4 } })
 export const numberColorItems = Div({ css: { color: [4] } })
 // @ts-expect-error a known property does not take a style object
 export const objectValue = Div({ css: { display: { color: 'red' } } })
+
+// --- Under `as`: the list is accepted, and the target's own props still checked.
+// That `as` stays unavailable on a tag that takes no styles is pinned in as-prop.test.ts.
+export const asAnchor = Div({ as: 'a', href: '/home', css: { padding: ['theme.spacing.md'] } })
+export const asAnchorNested = Div({ as: 'a', href: '#', css: { '&:hover': { margin: ['1px', '2px'] } } })
+export const asAnchorHandler = Div({
+  as: 'a',
+  css: { padding: ['1px'] },
+  onClick: e => {
+    const el: HTMLAnchorElement = e.currentTarget
+    void el
+  },
+})
+export const buttonAsAnchor = Button('go', { as: 'a', href: '#', css: { display: ['-webkit-box', 'flex'] } })
+export const nodeAsAnchor = Node('div', { as: 'a', href: '#', css: { padding: ['1px', 'theme.spacing.md'] } })
+// @ts-expect-error a fallback list holds strings under `as` too
+export const asNumberItems = Div({ as: 'a', href: '#', css: { padding: [1] } })
+export const asWrongHandler = Div({
+  as: 'a',
+  css: { padding: ['1px'] },
+  // @ts-expect-error a handler typed for another element than the `as` target
+  onClick: (e: React.MouseEvent<HTMLButtonElement>) => void e,
+})
+const Comp = (props: { name: string }) => Div({ children: props.name }).render()
+// @ts-expect-error a component stays unsupported as an `as` target
+export const componentAs = Div({ as: Comp, css: { padding: ['1px'] } })

@@ -1,0 +1,8 @@
+{
+  // Every type-level probe is named here rather than matched by a glob, so a
+  // renamed or deleted file fails with TS6053 instead of being skipped. These
+  // files stay out of the package's own tsconfig, which its build extends.
+  "extends": "../../tsconfig.json",
+  "files": ["component-css.test-d.ts"],
+  "include": ["../../src"]
+}
