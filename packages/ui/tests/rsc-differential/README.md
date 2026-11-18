@@ -54,6 +54,10 @@ node run.mjs all head $RSC_DIFF_WORK/meonode-ui-<v>-rscdiff.<sha>.tgz
 node compare.mjs $RSC_DIFF_WORK/base $RSC_DIFF_WORK/head --expect expected-differences.json
 ```
 
+Next builds with Turbopack. `RSC_DIFF_BUNDLER=webpack` builds with webpack
+instead; give those runs labels of their own, such as `base-webpack` and
+`head-webpack`, and compare them with each other.
+
 `pack` gives the tarball a version no registry has. A tarball whose version
 matches a published one is installed from the registry instead of the file.
 

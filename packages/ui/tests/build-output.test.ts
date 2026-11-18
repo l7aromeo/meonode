@@ -4,7 +4,7 @@ import { createRequire } from 'node:module'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { rollup, type OutputOptions, type RollupOptions } from 'rollup'
-import { beforeAll, describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it, vi } from 'vitest'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -178,4 +178,219 @@ describe('build output: the CommonJS build', () => {
       }
     },
   )
+})
+
+/**
+ * The package ships a default build, `dist/{esm,cjs}`, and a server build,
+ * `dist/rsc/{esm,cjs}`, which bundlers load in the React Server Components layer
+ * through the `react-server` export condition.
+ */
+describe('build output: the server build and the default build', () => {
+  const SRC = path.join(ROOT, 'src')
+  const FORMATS = [
+    { format: 'esm', ext: '.js' },
+    { format: 'cjs', ext: '.cjs' },
+  ] as const
+
+  /** Every built file under `dir`, relative to the package root. */
+  const filesUnder = (dir: string): string[] => globSync('**/*.{js,cjs}', { cwd: path.join(ROOT, dir) }).map(file => path.join(dir, file))
+
+  /** The source modules that open with the `'use client'` directive, relative to `src/`, without extension. */
+  const CLIENT_MODULES = globSync('**/*.ts', { cwd: SRC })
+    .filter(file => /^['"]use client['"]/.test(readFileSync(path.join(SRC, file), 'utf8').trimStart()))
+    .map(file => file.replace(/\.ts$/, ''))
+
+  /**
+   * A string only the server-layer path writes: the key of the `ThemedRule` a
+   * server component's element is carried with. Its absence from the default
+   * build means that path was folded out of it.
+   */
+  const SERVER_PATH_MARKER = ':themed`'
+
+  it('finds the client modules it checks', () => {
+    expect(CLIENT_MODULES).toContain('components/styled-renderer.client')
+    expect(CLIENT_MODULES).toContain('components/theme-provider.client')
+  })
+
+  it.each(FORMATS)('keeps the server-layer path out of the default $format build and in the server one', ({ format }) => {
+    const withMarker = (dir: string) => filesUnder(dir).filter(file => readFileSync(path.join(ROOT, file), 'utf8').includes(SERVER_PATH_MARKER))
+    expect(withMarker(`dist/${format}`)).toEqual([])
+    expect(withMarker(`dist/rsc/${format}`)).not.toEqual([])
+    // The module that compiles a server component's css, which only that path imports.
+    expect(filesUnder(`dist/${format}`).filter(file => file.includes('server-emotion.util'))).toEqual([])
+    expect(filesUnder(`dist/rsc/${format}`).filter(file => file.includes('server-emotion.util'))).toHaveLength(1)
+  })
+
+  it.each(FORMATS)('builds each client module once, in the default $format build', ({ format, ext }) => {
+    for (const module of CLIENT_MODULES) {
+      const copies = [...filesUnder(`dist/${format}`), ...filesUnder(`dist/rsc/${format}`)].filter(file => file.endsWith(`${path.sep}${module}${ext}`))
+      expect(copies, module).toEqual([path.join(`dist/${format}`, `${module}${ext}`)])
+    }
+  })
+
+  it.each(FORMATS)('imports the client modules from the default build in the server $format build, and every import resolves', ({ format, ext }) => {
+    const clientFiles = new Set(CLIENT_MODULES.map(module => path.join(ROOT, `dist/${format}`, `${module}${ext}`)))
+    const reached = new Set<string>()
+    for (const file of filesUnder(`dist/rsc/${format}`)) {
+      const abs = path.join(ROOT, file)
+      for (const [, spec] of readFileSync(abs, 'utf8').matchAll(/(?:from|import|require\()\s*["'](\.{1,2}\/[^"']+)["']/g)) {
+        const target = path.resolve(path.dirname(abs), spec)
+        expect(existsSync(target), `${file} → ${spec}`).toBe(true)
+        expect(target.startsWith(path.join(ROOT, 'dist/rsc')) || clientFiles.has(target), `${file} → ${spec}`).toBe(true)
+        if (clientFiles.has(target)) reached.add(target)
+      }
+    }
+    expect(reached.size).toBeGreaterThan(0)
+  })
+
+  // Both formats come from the same inputs; the ESM output names its imports statically.
+  it('exports from each client module every name the server build imports from it', () => {
+    const clientFiles = new Set(CLIENT_MODULES.map(module => path.join(ROOT, 'dist/esm', `${module}.js`)))
+    const exportsOf = (file: string): Set<string> => {
+      const text = readFileSync(file, 'utf8')
+      const names = [...text.matchAll(/export\s*\{([^}]*)\}/g)].flatMap(([, list]) =>
+        list.split(',').map(part =>
+          part
+            .trim()
+            .split(/\s+as\s+/)
+            .pop()!,
+        ),
+      )
+      if (/export default/.test(text)) names.push('default')
+      return new Set(names)
+    }
+    let checked = 0
+    for (const file of filesUnder('dist/rsc/esm')) {
+      const abs = path.join(ROOT, file)
+      for (const [, defaultName, list, spec] of readFileSync(abs, 'utf8').matchAll(
+        /import\s*(?:([\w$]+)\s*,?\s*)?(?:\{([^}]*)\})?\s*from\s*["'](\.{1,2}\/[^"']+)["']/g,
+      )) {
+        const target = path.resolve(path.dirname(abs), spec)
+        if (!clientFiles.has(target)) continue
+        const wanted = [
+          ...(defaultName ? ['default'] : []),
+          ...(list ?? '')
+            .split(',')
+            .map(part => part.trim().split(/\s+as\s+/)[0])
+            .filter(Boolean),
+        ]
+        const available = exportsOf(target)
+        for (const name of wanted) {
+          expect(available.has(name), `${file} imports ${name} from ${spec}`).toBe(true)
+          checked++
+        }
+      }
+    }
+    expect(checked).toBeGreaterThan(0)
+  })
+
+  /** Runs Node in the package, with `--conditions=react-server` when `reactServer` is set; resolves to its trimmed output. */
+  const node = (code: string, { reactServer = false, module = true } = {}): string =>
+    execFileSync(process.execPath, [...(reactServer ? ['--conditions=react-server'] : []), ...(module ? ['--input-type=module'] : []), '-e', code], {
+      cwd: ROOT,
+      encoding: 'utf8',
+      stdio: 'pipe',
+    }).trim()
+
+  const SUBPATHS = [
+    { specifier: '@meonode/ui', file: 'main' },
+    { specifier: '@meonode/ui/client', file: 'client' },
+    { specifier: '@meonode/ui/nextjs-registry', file: 'nextjs-registry/index' },
+  ]
+
+  it.each(SUBPATHS)('resolves $specifier to the server build under `react-server` and to the default build otherwise', ({ specifier, file }) => {
+    const resolveImport = `console.log(new URL(import.meta.resolve(${JSON.stringify(specifier)})).pathname)`
+    const resolveRequire = `console.log(require.resolve(${JSON.stringify(specifier)}))`
+    expect(node(resolveImport, { reactServer: true })).toBe(path.join(ROOT, `dist/rsc/esm/${file}.js`))
+    expect(node(resolveRequire, { reactServer: true, module: false })).toBe(path.join(ROOT, `dist/rsc/cjs/${file}.cjs`))
+    expect(node(resolveImport)).toBe(path.join(ROOT, `dist/esm/${file}.js`))
+    expect(node(resolveRequire, { module: false })).toBe(path.join(ROOT, `dist/cjs/${file}.cjs`))
+  })
+
+  const GUARD_MESSAGE = '[MeoNode] The default entry of @meonode/ui was loaded in the React Server Components layer'
+
+  it('refuses to load its default cjs entry in Node, where `react` resolves to its react-server build', () => {
+    let failure = ''
+    try {
+      node(`require(${JSON.stringify(path.join(ROOT, 'dist/cjs/main.cjs'))})`, { reactServer: true, module: false })
+    } catch (error) {
+      failure = String((error as { stderr?: string }).stderr)
+    }
+    expect(failure).toContain(GUARD_MESSAGE)
+  })
+
+  // Node links an ES module graph before running any of it, and the react-server
+  // build of `react` lacks hooks the client modules import, so there the link
+  // error comes first. A bundler runs the imports in order, as Vitest does here.
+  it('refuses to load its default esm entry where a bundler resolves `react` to its react-server build', async () => {
+    const require = createRequire(import.meta.url)
+    const reactServer = path.join(path.dirname(require.resolve('react/package.json')), 'react.react-server.js')
+    vi.resetModules()
+    vi.doMock('react', () => require(reactServer))
+    try {
+      await expect(import(path.join(ROOT, 'dist/esm/main.js'))).rejects.toThrow(GUARD_MESSAGE)
+    } finally {
+      vi.doUnmock('react')
+      vi.resetModules()
+    }
+  })
+})
+
+/**
+ * Webpack checks each member read of a namespace import, `React.Activity` as much as
+ * `import { Activity }`, against the exports the imported module declares, and in a
+ * package marked `"type": "module"` a missing one fails the build. Next.js 15 renders
+ * with a vendored React that has no `Activity`, so the package has to build against
+ * a React without it.
+ */
+type Webpack = (config: object, callback: (error: Error | null, stats?: { toJson(options: object): { errors?: { message: string }[] } }) => void) => void
+
+describe('build output: webpack against a React without Activity', () => {
+  const WORK = path.join(ROOT, 'node_modules/.cache/webpack-react-exports')
+  const requireFromRoot = createRequire(path.join(ROOT, 'package.json'))
+  /** The webpack Next.js builds with. Next 15 and 16 both ship 5.98, which keeps a member read that an `in` check guards. */
+  const { webpack } = (requireFromRoot('next/dist/compiled/webpack/bundle5') as () => { webpack: Webpack })()
+
+  /** A CommonJS React that names each export on its own line, as React's builds do, so webpack knows every one; all but `omit`. */
+  const stubReact = (omit: string): string => {
+    const real = requireFromRoot.resolve('react')
+    const names = Object.keys(requireFromRoot('react') as object).filter(name => name !== omit)
+    const file = path.join(WORK, `react-without-${omit}.cjs`)
+    mkdirSync(WORK, { recursive: true })
+    writeFileSync(file, [`const React = require(${JSON.stringify(real)})`, ...names.map(name => `exports.${name} = React.${name}`)].join('\n'))
+    return file
+  }
+
+  /** Bundles `source` for the browser with `react` standing in for React, and returns webpack's errors. */
+  const bundle = (name: string, source: string, react: string): Promise<string[]> => {
+    const entry = path.join(WORK, `${name}.js`)
+    writeFileSync(entry, source)
+    return new Promise((resolve, reject) => {
+      webpack(
+        {
+          mode: 'none',
+          target: 'web',
+          context: ROOT,
+          entry,
+          output: { path: path.join(WORK, `out-${name}`) },
+          resolve: { alias: { react$: react } },
+          module: { parser: { javascript: { exportsPresence: 'error' } } },
+        },
+        (error, stats) => {
+          if (error || !stats) return reject(error ?? new Error('webpack returned no stats'))
+          resolve((stats.toJson({ all: false, errors: true }).errors ?? []).map(entry => entry.message))
+        },
+      )
+    })
+  }
+
+  it('fails a namespace read of the missing export, so the check is live', async () => {
+    const errors = await bundle('namespace-read', `import * as React from 'react'\nconsole.log(React.Activity)\n`, stubReact('Activity'))
+    expect(errors.join('\n')).toMatch(/export 'Activity' \(imported as 'React'\) was not found in 'react'/)
+  })
+
+  it('builds the package entry', async () => {
+    const errors = await bundle('package-entry', `import { Activity, Div } from '@meonode/ui'\nconsole.log(Activity, Div)\n`, stubReact('Activity'))
+    expect(errors).toEqual([])
+  })
 })

@@ -31,10 +31,10 @@ const nextConfig = {
   },
   turbopack: {
     root: workspaceRoot,
-    resolveAlias: {
-      '@meonode/ui': '../../../dist/esm/main.js',
-      '@meonode/ui/nextjs-registry': '../../../dist/esm/nextjs-registry/index.js',
-    },
+    // No alias for `@meonode/ui`: it resolves through the workspace link to the
+    // package and its exports map, so the server layer loads the server build
+    // through the `react-server` condition and the client tree the default one,
+    // as in an app. The setup runs `bun run build` before the suite, so dist/ is current.
   },
 }
 

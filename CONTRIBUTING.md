@@ -110,6 +110,13 @@ Notes
   `packages/ui/tests/rsc-fixtures` and `packages/compiler/e2e` are deliberately outside it and
   install their own dependencies.
 - Build order matters: ui's compiled test mode loads the plugin that `build:compiler` produces.
+- `@meonode/ui` builds twice from the same source: `dist/{esm,cjs}` for the server-rendering pass
+  and the browser, and `dist/rsc/{esm,cjs}`, which the `react-server` export condition selects in
+  the server components layer. In the default build `IS_REACT_SERVER_LAYER` is the constant
+  `false`; keep it first in any condition that guards server-layer code, so that code folds out
+  of it. Each `'use client'` module is built once, in `dist/{esm,cjs}`, and the server build
+  imports it from there. `rollup.config.ts` explains why, and `tests/build-output.test.ts`
+  checks both.
 - The RSC suite needs its fixture installed first:
   `bun run --filter @meonode/ui prepare:rsc-fixture`.
 - `@meonode/ui` supports every React its peer range allows, from the lowest one up. The workspace

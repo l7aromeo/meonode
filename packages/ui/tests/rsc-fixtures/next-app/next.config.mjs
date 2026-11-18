@@ -9,10 +9,6 @@ import { URL } from 'node:url'
 // dependencies to the repo-level `node_modules` — so stopping at packages/ui
 // puts ui's own peers out of scope and the dev server fails to start with
 // `Module not found: Can't resolve '@emotion/cache'`.
-//
-// The `resolveAlias` entries below are resolved relative to this fixture
-// directory rather than to `root`, so they are unaffected by how far up this
-// points.
 const workspaceRoot = new URL('../../../../..', import.meta.url).pathname
 
 // Opt the fixture into compiled call sites, so the RSC suite can be run a
@@ -32,13 +28,10 @@ const nextConfig = {
   ...(compiled ? { experimental: { swcPlugins: [['@meonode/compiler', {}]] } } : {}),
   turbopack: {
     root: workspaceRoot,
-    // Point at the built dist so Turbopack never has to rewrite `.js` → `.ts`
-    // (it has no webpack-style `extensionAlias`). `globalSetup.rsc.ts` runs
-    // `bun run build` before the suite, so dist/esm is always current.
-    resolveAlias: {
-      '@meonode/ui': '../../../dist/esm/main.js',
-      '@meonode/ui/nextjs-registry': '../../../dist/esm/nextjs-registry/index.js',
-    },
+    // No alias for `@meonode/ui`: it resolves through the workspace link to the
+    // package and its exports map, so the server layer loads the server build
+    // through the `react-server` condition and the client tree the default one,
+    // as in an app. The setup runs `bun run build` before the suite, so dist/ is current.
   },
 }
 

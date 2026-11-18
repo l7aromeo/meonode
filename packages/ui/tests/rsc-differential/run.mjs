@@ -4,6 +4,7 @@
 //
 //   node run.mjs prepare <label> <ui-spec>     copy the fixture, generate pages, install
 //   node run.mjs build   <label> <config>      next build (config: plain | cc | plain-compiled | cc-compiled)
+//                                              RSC_DIFF_BUNDLER=webpack builds with webpack
 //   node run.mjs collect <label> <config>      next start + Chromium, writes results-<config>.json
 //   node run.mjs all     <label> <ui-spec> [configs…]
 //   node run.mjs pack    <git-ref | .>             build that commit's (or this checkout's) @meonode/ui, print the tarball
@@ -23,6 +24,8 @@ import { cases, clientModules } from './corpus.mjs'
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const WORK_ROOT = process.env.RSC_DIFF_WORK || path.join(HERE, '.work')
 const LAYOUTS = ['cp', 'sp', 'np', 'cpd']
+/** `RSC_DIFF_BUNDLER=webpack` builds with webpack; Turbopack, Next's default, otherwise. Give each bundler its own labels. */
+const BUNDLER_FLAGS = process.env.RSC_DIFF_BUNDLER === 'webpack' ? ['--webpack'] : []
 const CONFIGS = {
   plain: { MEONODE_COMPILED: '0', MEONODE_CACHE_COMPONENTS: '0' },
   cc: { MEONODE_COMPILED: '0', MEONODE_CACHE_COMPONENTS: '1' },
@@ -165,7 +168,7 @@ function build(label, config) {
     const distDir = `.next-${config}`
     rmSync(path.join(dir, distDir), { recursive: true, force: true })
     const env = { ...process.env, ...CONFIGS[config], MEONODE_DIST_DIR: distDir, NEXT_TELEMETRY_DISABLED: '1' }
-    const res = sh('bunx', ['--bun', 'next', 'build'], { cwd: dir, env })
+    const res = sh('bunx', ['--bun', 'next', 'build', ...BUNDLER_FLAGS], { cwd: dir, env })
     writeFileSync(path.join(dir, `build-${config}.log`), res.out)
     if (res.code === 0) {
       writeFileSync(excludedFile, JSON.stringify(excluded, null, 2))

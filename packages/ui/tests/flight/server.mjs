@@ -1,7 +1,7 @@
 // Renders a server component tree from the built @meonode/ui through React's Flight
-// protocol and writes the payload to stdout. FLIGHT_UI_ENTRY names the package entry to
-// load, the ES module or the CommonJS one. Run as the React Server Components layer
-// runs it:
+// protocol and writes the payload to stdout. FLIGHT_UI_ENTRY names the entry of its
+// server build to load, the ES module or the CommonJS one. Run as the React Server
+// Components layer runs it:
 //
 //   node --conditions=react-server server.mjs <visible|hidden>
 //

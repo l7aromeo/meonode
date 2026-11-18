@@ -7,14 +7,20 @@ type ActivityType = typeof React.Activity
 /**
  * React's `<Activity>` element type, the registered symbol `react.activity`.
  *
- * React 19.2's `react-server` builds do not export `Activity`, though its client builds
- * do, so it is read off the module namespace rather than imported by name: a named
- * import of a missing export fails to link. Where the export is missing, the registered
- * symbol stands in. It is the value every build that exports `Activity` exports, and
- * Flight sends an element type as that symbol's name, which the client reads back with
- * `Symbol.for`, so the element renders as the client's `<Activity>`.
+ * Some Reacts do not export `Activity`: React 19.2's `react-server` builds, and the
+ * 19.2 canary that Next.js 15 renders with. A named import of a missing export fails to
+ * link, and webpack also checks a member read of the namespace, `React.Activity` or
+ * `React['Activity']`, against the module's exports, failing the build of this
+ * `"type": "module"` package. `Reflect.get` reads the export without either check, and
+ * only once `in` has found it, since a module namespace stand-in, such as a test
+ * runner's module mock, may throw on reading a name it lacks.
+ * Where the export is missing, the registered symbol stands in. It is the value every
+ * build that exports `Activity` exports, and Flight sends an element type as that
+ * symbol's name, which the client reads back with `Symbol.for`, so the element renders
+ * as the client's `<Activity>`.
  */
-const BaseActivity: ActivityType = 'Activity' in React ? React.Activity : (Symbol.for('react.activity') as unknown as ActivityType)
+const BaseActivity: ActivityType =
+  'Activity' in React ? (Reflect.get(React, 'Activity') as ActivityType) : (Symbol.for('react.activity') as unknown as ActivityType)
 
 /**
  * A container that does not render any extra DOM element.

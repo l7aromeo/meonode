@@ -1,3 +1,5 @@
+// First, so the default build refuses the React Server Components layer before anything else loads.
+import '@src/util/server-layer-guard.js'
 import type { NodeElementType, NodeInstance } from '@src/types/node.type.js'
 import { createRoot } from 'react-dom/client'
 

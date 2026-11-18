@@ -1,3 +1,6 @@
+// First, so the default build refuses the React Server Components layer before anything else loads.
+import '@src/util/server-layer-guard.js'
+
 // Common
 export { setDebugMode } from '@src/constant/common.const.js'
 export { createDataChannel } from '@src/helper/data-channel.helper.js'
