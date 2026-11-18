@@ -10,6 +10,7 @@ import {
   type ComponentProps,
   type ExoticComponent,
 } from 'react'
+import type { Properties as CSSTypeProperties } from 'csstype'
 import type { NO_STYLE_TAGS, COMPILED_MARKER } from '@src/constant/common.const.js'
 import type { ComponentNodeProps } from '@src/hoc/component.hoc.js'
 import type { ComponentSelector, Keyframes, SerializedStyles } from '@emotion/serialize'
@@ -273,15 +274,39 @@ export interface Theme {
 export type ThemedValue<T> = T | ((theme: Theme) => T)
 
 /**
+ * csstype's CSS properties with lengths typed `(string & {}) | number`. React's
+ * `CSSProperties` types them with plain `string`, which absorbs every keyword a
+ * length property takes (`auto`, `inherit`, …) and leaves an editor nothing to
+ * offer. `string & {}` accepts the same strings and keeps the keywords as
+ * members of the union.
+ */
+type OpenCSSProperties = CSSTypeProperties<(string & {}) | number>
+
+/**
+ * The value type of a CSS property: from {@link OpenCSSProperties}, or from
+ * React's `CSSProperties` for a key only an augmentation of it adds.
+ */
+type CSSPropertyValue<P extends keyof CSSProperties> = P extends keyof OpenCSSProperties ? OpenCSSProperties[P] : CSSProperties[P]
+
+/**
  * A themed version of CSSProperties where each property can be a theme-dependent function
  * or a `'theme.<path>'` token string for any string-valued property.
  */
 export type ThemedCSSProperties = {
-  [P in keyof CSSProperties]: ThemedValue<WithThemeToken<CSSProperties[P]>>
+  [P in keyof CSSProperties]: ThemedValue<WithThemeToken<CSSPropertyValue<P>>>
 }
 
-/** One value of a known property in a `css` object, or a theme token. */
-type ThemedCSSSingleValue<P extends keyof CSSProperties> = WithThemeToken<CSSProperties[P] | (CSSProperties[P] extends string | undefined ? string : never)>
+/**
+ * One value of a known property in a `css` object, or a theme token.
+ *
+ * A property whose values are all strings also takes any string, since a literal
+ * inferred through a node's props arrives widened (`position: 'absolute'` as
+ * `string`). It is added as `string & {}`, which accepts every string and, unlike
+ * `string`, leaves the property's keywords in the union for an editor to offer.
+ */
+type ThemedCSSSingleValue<P extends keyof CSSProperties> = WithThemeToken<
+  CSSPropertyValue<P> | (CSSPropertyValue<P> extends string | undefined ? string & {} : never)
+>
 
 /**
  * What a known property takes in a `css` object: a value, a theme function
@@ -292,7 +317,6 @@ type ThemedCSSSingleValue<P extends keyof CSSProperties> = WithThemeToken<CSSPro
 type ThemedCSSValue<P extends keyof CSSProperties> = ThemedValue<ThemedCSSSingleValue<P>> | ReadonlyArray<Extract<ThemedCSSSingleValue<P>, string>>
 
 /** Optional themed CSS properties (mapped); base layer for {@link ThemedCSSObject}. */
-
 type ThemedCSSPropertiesPartial = {
   [P in keyof CSSProperties]?: ThemedCSSValue<P>
 }

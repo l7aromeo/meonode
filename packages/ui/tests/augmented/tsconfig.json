@@ -11,6 +11,6 @@
   // TS6053 for the missing entry, instead of quietly checking one file fewer.
   // An assertion inside a file cannot detect that its own file went unread.
   "extends": "../../tsconfig.json",
-  "files": ["theme-modes-narrowing.test-d.ts", "theme-context-narrowing.test-d.ts"],
+  "files": ["theme-modes-narrowing.test-d.ts", "theme-context-narrowing.test-d.ts", "react-css-properties-augmentation.test-d.ts"],
   "include": ["../../src"]
 }
