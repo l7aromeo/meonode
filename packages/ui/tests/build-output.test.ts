@@ -335,3 +335,62 @@ describe('build output: the server build and the default build', () => {
     }
   })
 })
+
+/**
+ * Webpack checks each member read of a namespace import, `React.Activity` as much as
+ * `import { Activity }`, against the exports the imported module declares, and in a
+ * package marked `"type": "module"` a missing one fails the build. Next.js 15 renders
+ * with a vendored React that has no `Activity`, so the package has to build against
+ * a React without it.
+ */
+type Webpack = (config: object, callback: (error: Error | null, stats?: { toJson(options: object): { errors?: { message: string }[] } }) => void) => void
+
+describe('build output: webpack against a React without Activity', () => {
+  const WORK = path.join(ROOT, 'node_modules/.cache/webpack-react-exports')
+  const requireFromRoot = createRequire(path.join(ROOT, 'package.json'))
+  /** The webpack Next.js builds with. Next 15 and 16 both ship 5.98, which keeps a member read that an `in` check guards. */
+  const { webpack } = (requireFromRoot('next/dist/compiled/webpack/bundle5') as () => { webpack: Webpack })()
+
+  /** A CommonJS React that names each export on its own line, as React's builds do, so webpack knows every one; all but `omit`. */
+  const stubReact = (omit: string): string => {
+    const real = requireFromRoot.resolve('react')
+    const names = Object.keys(requireFromRoot('react') as object).filter(name => name !== omit)
+    const file = path.join(WORK, `react-without-${omit}.cjs`)
+    mkdirSync(WORK, { recursive: true })
+    writeFileSync(file, [`const React = require(${JSON.stringify(real)})`, ...names.map(name => `exports.${name} = React.${name}`)].join('\n'))
+    return file
+  }
+
+  /** Bundles `source` for the browser with `react` standing in for React, and returns webpack's errors. */
+  const bundle = (name: string, source: string, react: string): Promise<string[]> => {
+    const entry = path.join(WORK, `${name}.js`)
+    writeFileSync(entry, source)
+    return new Promise((resolve, reject) => {
+      webpack(
+        {
+          mode: 'none',
+          target: 'web',
+          context: ROOT,
+          entry,
+          output: { path: path.join(WORK, `out-${name}`) },
+          resolve: { alias: { react$: react } },
+          module: { parser: { javascript: { exportsPresence: 'error' } } },
+        },
+        (error, stats) => {
+          if (error || !stats) return reject(error ?? new Error('webpack returned no stats'))
+          resolve((stats.toJson({ all: false, errors: true }).errors ?? []).map(entry => entry.message))
+        },
+      )
+    })
+  }
+
+  it('fails a namespace read of the missing export, so the check is live', async () => {
+    const errors = await bundle('namespace-read', `import * as React from 'react'\nconsole.log(React.Activity)\n`, stubReact('Activity'))
+    expect(errors.join('\n')).toMatch(/export 'Activity' \(imported as 'React'\) was not found in 'react'/)
+  })
+
+  it('builds the package entry', async () => {
+    const errors = await bundle('package-entry', `import { Activity, Div } from '@meonode/ui'\nconsole.log(Activity, Div)\n`, stubReact('Activity'))
+    expect(errors).toEqual([])
+  })
+})
