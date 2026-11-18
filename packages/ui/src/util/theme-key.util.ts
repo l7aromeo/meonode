@@ -24,6 +24,39 @@ export const isInPrelude = (text: string, index: number): boolean => {
   return false
 }
 
+/** A comment in CSS text. */
+const CSS_COMMENT = /\/\*[\s\S]*?\*\//g
+
+/**
+ * The property of the declaration that position `index` in CSS text belongs to,
+ * named as a style object key (`padding-top` is `paddingTop`, `-webkit-mask` is
+ * `WebkitMask`, `-ms-wrap-margin` is `msWrapMargin`), or `undefined` when `index`
+ * is in no declaration's value.
+ *
+ * The declaration starts after the nearest `;`, `{` or `}` before `index` that is
+ * not inside parentheses, since `url(data:…;base64,…)` holds a `;` of its own.
+ */
+export const declarationPropertyAt = (text: string, index: number): string | undefined => {
+  let start = 0
+  let depth = 0
+  for (let i = index - 1; i >= 0; i--) {
+    const char = text[i]
+    if (char === ')') depth++
+    else if (char === '(') depth = Math.max(0, depth - 1)
+    else if (depth === 0 && (char === ';' || char === '{' || char === '}')) {
+      start = i + 1
+      break
+    }
+  }
+  const colon = text.indexOf(':', start)
+  if (colon < 0 || colon > index) return undefined
+  // CSS property names are case-insensitive.
+  const name = text.slice(start, colon).replace(CSS_COMMENT, '').trim().toLowerCase()
+  const key = name.replace(/-([a-z0-9])/g, (_, char: string) => char.toUpperCase())
+  // React names Microsoft's prefix in lower case, every other vendor's capitalised.
+  return key.startsWith('Ms') ? `m${key.slice(1)}` : key
+}
+
 /** Whether a `css` key holds a theme token. */
 export const keyHasThemeToken = (key: string): boolean => {
   KEY_TOKEN.lastIndex = 0

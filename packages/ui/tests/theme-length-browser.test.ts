@@ -1,7 +1,7 @@
 import { it, expect } from 'vitest'
 import { chromium } from 'playwright'
 import { ThemeUtil } from '@src/util/theme.util.js'
-import { buildThemeVariablesCss } from '@src/util/server-theme.util.js'
+import { buildThemeVariablesCss, replaceThemeTokensWithCssVars } from '@src/util/server-theme.util.js'
 
 /**
  * The purpose of this release, checked in a real browser: a theme token holding
@@ -70,4 +70,38 @@ ${buildThemeVariablesCss(theme)}
   expect(c.color).toBe('rgb(59, 130, 246)')
   expect(c.borderWidth).toBe('2px')
   expect(c.borderColor).toBe('rgb(170, 170, 170)')
+}, 60000)
+
+it('numeric theme tokens in CSS text become real lengths in a browser', async () => {
+  // A `css` string: each declaration names its own property.
+  const text = [
+    'padding: theme.spacing.md;',
+    'margin-top: theme.spacing.asString !important;',
+    'width: calc(theme.spacing.md * 2);',
+    'z-index: theme.layer.modal;',
+    'line-height: theme.text.tight;',
+    'color: theme.primary;',
+  ].join(' ')
+  const server = replaceThemeTokensWithCssVars(text)
+  const client = (ThemeUtil.resolveObjWithTheme([text] as never, theme, { themeStringsMode: 'vars' }) as unknown as string[])[0]
+  expect(client).toBe(server)
+
+  const browser = await chromium.launch()
+  const page = await browser.newPage()
+  await page.setContent(`<!doctype html><html><head><style>
+${buildThemeVariablesCss(theme)}
+#t{ position:relative; font-size:16px; ${server} }
+</style></head><body><div id="t"></div></body></html>`)
+  const c = await page.evaluate(() => {
+    const s = getComputedStyle(document.getElementById('t')!)
+    return { padding: s.padding, marginTop: s.marginTop, width: s.width, zIndex: s.zIndex, lineHeight: s.lineHeight, color: s.color }
+  })
+  await browser.close()
+
+  expect(c.padding).toBe('16px')
+  expect(c.marginTop).toBe('16px')
+  expect(c.width).toBe('32px')
+  expect(c.zIndex).toBe('40')
+  expect(c.lineHeight).toBe('20px')
+  expect(c.color).toBe('rgb(59, 130, 246)')
 }, 60000)

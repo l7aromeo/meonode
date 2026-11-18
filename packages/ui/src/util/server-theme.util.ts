@@ -1,5 +1,5 @@
 import type { Theme } from '@src/types/node.type.js'
-import { isLengthProperty, isSelectorOrAtRule, lengthVarRef, needsLengthVariant, toLengthVarName } from '@src/util/css-unit.util.js'
+import { CSS_TEXT, isSelectorOrAtRule, needsLengthVariant, themeVarRef, toLengthVarName, type TokenContext } from '@src/util/css-unit.util.js'
 import { isInPrelude } from '@src/util/theme-key.util.js'
 
 function toThemeVarName(path: string): string {
@@ -94,17 +94,13 @@ const themeRegex = /theme\.([a-zA-Z0-9_.-]+)/g
 /**
  * Rewrites `theme.*` tokens in a string to CSS variable references.
  * @param input The string that may contain `theme.*` tokens.
- * @param property The CSS property this value was written against, when known.
- * A length property references the paired `--len` variant so a numeric token
- * arrives with its unit; everything else keeps the plain variable. Deciding
- * from the property alone — never from the token's value — is what lets this
- * run identically on the server, where the theme may not be in scope at all.
+ * @param context What the string was written against, which decides whether a
+ * token takes the paired `--len` variant (see {@link themeVarRef}).
  * @returns The rewritten string, or `input` when it holds no tokens.
  */
-const replaceString = (input: string, property?: string): string => {
+const replaceString = (input: string, context: TokenContext): string => {
   if (!input.includes('theme.')) return input
   themeRegex.lastIndex = 0
-  const wantsLength = property !== undefined && isLengthProperty(property)
   // In CSS text a token in a prelude or a selector needs the theme's concrete
   // value, so it is left for the resolver that has the theme.
   const isCssText = input.includes('{')
@@ -112,8 +108,7 @@ const replaceString = (input: string, property?: string): string => {
   const next = input.replace(themeRegex, (match, path: string, offset: number) => {
     if (isCssText && isInPrelude(input, offset)) return match
     hasChanged = true
-    const varName = toThemeVarName(path)
-    return wantsLength ? lengthVarRef(varName) : `var(${varName})`
+    return themeVarRef(toThemeVarName(path), context, input, offset)
   })
   return hasChanged ? next : input
 }
@@ -204,7 +199,7 @@ function scanForThemeTokens(value: unknown, depth: number): number {
  *   a `sx` object defined outside a render body) is converted at most once.
  */
 export function replaceThemeTokensWithCssVars<T>(value: T): T {
-  if (typeof value === 'string') return replaceString(value) as unknown as T
+  if (typeof value === 'string') return replaceString(value, CSS_TEXT) as unknown as T
   if (!isPlainObject(value) && !Array.isArray(value)) return value
 
   // WeakMap fast-path: previously-converted inputs (and their outputs) hit O(1).
@@ -272,7 +267,7 @@ export function replaceThemeTokensWithCssVars<T>(value: T): T {
           const item = currentValue[i]
           let newItem: unknown = item
           if (typeof item === 'string') {
-            newItem = replaceString(item)
+            newItem = replaceString(item, CSS_TEXT)
           } else if (isPlainObject(item) || Array.isArray(item)) {
             newItem = resolvedValues.get(item) ?? item
           }
