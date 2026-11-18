@@ -1,8 +1,8 @@
 import { execFileSync, execSync } from 'node:child_process'
-import { existsSync, globSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, globSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { rollup, type OutputOptions, type RollupOptions } from 'rollup'
 import { beforeAll, describe, expect, it } from 'vitest'
 
@@ -110,53 +110,72 @@ describe('build output: the CommonJS build', () => {
     expect(render('cjs')).toBe(esm)
   })
 
-  /** Every dependency the source default-imports. */
-  const DEFAULT_IMPORTS = [
-    ...new Set(
-      globSync('src/**/*.ts', { cwd: ROOT }).flatMap(file =>
-        [...readFileSync(path.join(ROOT, file), 'utf8').matchAll(/^import\s+([A-Za-z_$][\w$]*)\s*(?:,\s*\{[^}]*\})?\s+from\s+'([^'.][^']*)'/gm)]
-          .map(([, , specifier]) => specifier)
-          .filter(specifier => !specifier.startsWith('@src/')),
-      ),
-    ),
-  ].sort()
-
-  it('finds the default imports it checks', () => {
-    expect(DEFAULT_IMPORTS).toEqual(expect.arrayContaining(['@emotion/cache', 'react']))
+  /**
+   * Each package with a CommonJS build, the source files it is built from, and every
+   * dependency that source default-imports. `@meonode/mui` default-imports none today;
+   * it is read so that its first one is checked against its own build's settings.
+   */
+  const PACKAGES = [
+    { name: '@meonode/ui', dir: ROOT },
+    { name: '@meonode/mui', dir: path.resolve(ROOT, '../mui') },
+  ].map(pkg => {
+    const files = globSync('src/**/*.{ts,tsx}', { cwd: pkg.dir })
+    const imports = files.flatMap(file =>
+      [...readFileSync(path.join(pkg.dir, file), 'utf8').matchAll(/^import\s+([A-Za-z_$][\w$]*)\s*(?:,\s*\{[^}]*\})?\s+from\s+'([^'.][^']*)'/gm)]
+        .map(([, , specifier]) => specifier)
+        .filter(specifier => !specifier.startsWith('@src/')),
+    )
+    return { ...pkg, files, imports: [...new Set(imports)].sort() }
   })
 
-  // Compiled with the CommonJS output options the build uses, so a dependency added
-  // later with either shape is checked as soon as the source default-imports it.
-  it.each(DEFAULT_IMPORTS)('reads the default export of %s as the ES module build does', async specifier => {
-    const config = (await import('../rollup.config.js')).default as RollupOptions | RollupOptions[]
-    const outputs = [config]
-      .flat()
-      .flatMap(options => [options.output ?? []].flat())
-      .filter((output): output is OutputOptions => output.format === 'cjs')
-    expect(outputs.length).toBeGreaterThan(0)
-
-    const expected = (await import(specifier)).default as unknown
-    const probeDir = path.join(ROOT, 'node_modules/.cache/cjs-interop-probe')
-    mkdirSync(probeDir, { recursive: true })
-    for (const [index, output] of outputs.entries()) {
-      const bundle = await rollup({
-        input: 'probe',
-        external: id => id !== 'probe',
-        plugins: [
-          {
-            name: 'probe',
-            resolveId: id => (id === 'probe' ? id : null),
-            load: id => (id === 'probe' ? `import value from ${JSON.stringify(specifier)}\nexport { value }` : null),
-          },
-        ],
-      })
-      const { output: chunks } = await bundle.generate({ format: 'cjs', exports: 'named', interop: output.interop })
-      const file = path.join(probeDir, `${specifier.replace(/\W/g, '_')}-${index}.cjs`)
-      writeFileSync(file, chunks[0].code)
-      const actual = createRequire(file)(file).value as unknown
-      expect(typeof actual, specifier).toBe(typeof expected)
-      if (typeof expected === 'function') expect((actual as { name: string }).name).toBe((expected as { name: string }).name)
-      else expect(Object.keys(actual as object).sort()).toEqual(Object.keys(expected as object).sort())
+  it('reads every source file of each package it checks', () => {
+    for (const pkg of PACKAGES) {
+      // Counted a second way, so a pattern that misses files cannot pass as a package with no default imports.
+      const sources = readdirSync(path.join(pkg.dir, 'src'), { recursive: true, encoding: 'utf8' }).filter(file => /\.tsx?$/.test(file))
+      expect(sources.length, pkg.name).toBeGreaterThan(0)
+      expect(pkg.files.length, pkg.name).toBe(sources.length)
     }
+    expect(PACKAGES[0].imports).toEqual(expect.arrayContaining(['@emotion/cache', 'react']))
   })
+
+  // Compiled with the CommonJS output options the package's build uses, so a dependency
+  // added later with either shape is checked as soon as the source default-imports it.
+  it.each(PACKAGES.flatMap(pkg => pkg.imports.map(specifier => [pkg.name, specifier, pkg.dir])))(
+    '%s reads the default export of %s as its ES module build does',
+    async (_name, specifier, dir) => {
+      const config = (await import(pathToFileURL(path.join(dir, 'rollup.config.ts')).href)).default as RollupOptions | RollupOptions[]
+      const outputs = [config]
+        .flat()
+        .flatMap(options => [options.output ?? []].flat())
+        .filter((output): output is OutputOptions => output.format === 'cjs')
+      expect(outputs.length).toBeGreaterThan(0)
+
+      // Imported by Node from inside the package, as its ES module build would be.
+      const probeDir = path.join(dir, 'node_modules/.cache/cjs-interop-probe')
+      mkdirSync(probeDir, { recursive: true })
+      const esmProbe = path.join(probeDir, `${specifier.replace(/\W/g, '_')}.mjs`)
+      writeFileSync(esmProbe, `import value from ${JSON.stringify(specifier)}\nexport { value }\n`)
+      const expected = (await import(pathToFileURL(esmProbe).href)).value as unknown
+      for (const [index, output] of outputs.entries()) {
+        const bundle = await rollup({
+          input: 'probe',
+          external: id => id !== 'probe',
+          plugins: [
+            {
+              name: 'probe',
+              resolveId: id => (id === 'probe' ? id : null),
+              load: id => (id === 'probe' ? `import value from ${JSON.stringify(specifier)}\nexport { value }` : null),
+            },
+          ],
+        })
+        const { output: chunks } = await bundle.generate({ format: 'cjs', exports: 'named', interop: output.interop })
+        const file = path.join(probeDir, `${specifier.replace(/\W/g, '_')}-${index}.cjs`)
+        writeFileSync(file, chunks[0].code)
+        const actual = createRequire(file)(file).value as unknown
+        expect(typeof actual, specifier).toBe(typeof expected)
+        if (typeof expected === 'function') expect((actual as { name: string }).name).toBe((expected as { name: string }).name)
+        else expect(Object.keys(actual as object).sort()).toEqual(Object.keys(expected as object).sort())
+      }
+    },
+  )
 })
