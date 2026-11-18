@@ -308,6 +308,44 @@ describe('C. Theme and provider boundaries', () => {
     expect(computedStyles[testId].color).toBe('rgb(0, 128, 0)')
   })
 
+  describe("theme tokens in Emotion's css() and keyframes() results", () => {
+    const testId = 'serialized-styles'
+    const lengthRef = 'var(--meonode-theme-spacing-md--len, var(--meonode-theme-spacing-md))'
+
+    // `@emotion/react` cannot load in a server component, so the server page
+    // serializes with `@emotion/serialize`, which `css()` calls.
+    it('render with their length unit from a server component', async () => {
+      const { status, html, computedStyles } = await getPage('/theme/serialized-styles/server', {
+        computedStyles: [{ testId, properties: ['padding-top'] }],
+      })
+      expect(status).toBe(200)
+      assertNoRscErrors(html)
+      expect(computedStyles[testId]['padding-top']).toBe('16px')
+    })
+
+    it('render with their length unit from a client component, keyframes too', async () => {
+      const { status, html, computedStyles } = await getPage('/theme/serialized-styles/client', {
+        computedStyles: [
+          { testId, properties: ['padding-top'] },
+          { testId: `${testId}-keyframes`, properties: ['animation-name'] },
+        ],
+      })
+      expect(status).toBe(200)
+      assertNoRscErrors(html)
+      expect(computedStyles[testId]['padding-top']).toBe('16px')
+      expect(computedStyles[`${testId}-keyframes`]['animation-name']).toMatch(/^animation-/)
+      expect(html).toContain(`margin-left:${lengthRef}`)
+    })
+
+    it('give the element the same class from either side', async () => {
+      const server = await getPage('/theme/serialized-styles/server')
+      const client = await getPage('/theme/serialized-styles/client')
+      const serverClassName = getElementClassNameByTestId(server.html, testId)
+      expect(serverClassName).toBeTruthy()
+      expect(serverClassName).toBe(getElementClassNameByTestId(client.html, testId))
+    })
+  })
+
   describe('a css key using a token only a nested ThemeProvider defines, in a server component', () => {
     const unresolved = 'holds a theme token that could not be resolved'
 

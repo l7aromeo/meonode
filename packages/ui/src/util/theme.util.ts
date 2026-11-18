@@ -10,6 +10,7 @@ import {
   isSerializedStyles,
   themeVarRef,
   type TokenContext,
+  valueContext,
 } from '@src/util/css-unit.util.js'
 import { isMergeableCss } from '@src/util/css.util.js'
 import { reportDroppedThemeFunction } from '@src/util/theme-diagnostics.util.js'
@@ -666,9 +667,7 @@ export class ThemeUtil {
               }
 
               const valueAsVar = themeStringsMode === 'vars'
-              // A selector or at-rule key names no property, so a token
-              // directly under one keeps the plain variable.
-              const valueProperty = isSelectorOrAtRule(newKey) ? undefined : newKey
+              const valueProperty = valueContext(newKey, serialized)
               if (isLengthFallbackList(key, value)) {
                 newValue = resolveItems(value, valueProperty, resolvedValues, theme, options)
               } else if (typeof newValue === 'function' && processFunctions) {

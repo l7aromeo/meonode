@@ -2,13 +2,13 @@ import type { Theme } from '@src/types/node.type.js'
 import {
   CSS_TEXT,
   isLengthFallbackList,
-  isSelectorOrAtRule,
   isSerializedRecordKey,
   isSerializedStyles,
   needsLengthVariant,
   themeVarRef,
   toLengthVarName,
   type TokenContext,
+  valueContext,
 } from '@src/util/css-unit.util.js'
 import { isInPrelude } from '@src/util/theme-key.util.js'
 
@@ -334,9 +334,7 @@ export function replaceThemeTokensWithCssVars<T>(value: T): T {
             if (serialized && isSerializedRecordKey(key)) {
               continue
             } else if (typeof v === 'string') {
-              // A selector or at-rule key names no property, so a token
-              // directly under one keeps the plain variable.
-              newValue = replaceString(v, isSelectorOrAtRule(key) ? undefined : key)
+              newValue = replaceString(v, valueContext(key, serialized))
             } else if (isLengthFallbackList(key, v)) {
               newValue = convertItems(v, key, resolvedValues)
             } else if (isPlainObject(v) || Array.isArray(v)) {

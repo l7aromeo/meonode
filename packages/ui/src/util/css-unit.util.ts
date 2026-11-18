@@ -136,6 +136,17 @@ export const isSerializedStyles = (obj: Record<string, unknown>): boolean => typ
 export const isSerializedRecordKey = (key: string): boolean => key !== 'styles' && key !== 'next'
 
 /**
+ * What a string under `key` is written against: CSS text for the `styles` of
+ * serialized styles (see {@link isSerializedStyles}), no property under a
+ * selector or at-rule key, otherwise the property `key` names.
+ * @param key The object key.
+ * @param serialized Whether the object holding `key` is serialized styles.
+ * @returns The token context.
+ */
+export const valueContext = (key: string, serialized: boolean): TokenContext =>
+  serialized && key === 'styles' ? CSS_TEXT : isSelectorOrAtRule(key) ? undefined : key
+
+/**
  * Whether `value` under `key` is a fallback list of a length property: an array
  * Emotion writes as one declaration of that property per item, so each item is a
  * value of the property and a token in it needs the length form.
