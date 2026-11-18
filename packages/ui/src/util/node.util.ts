@@ -1,4 +1,10 @@
-import React, { type ComponentProps, type ElementType, type ReactNode, createElement, isValidElement } from 'react'
+import type * as React from 'react'
+// Runtime only, so it reaches no declaration file: `Component` is read off the
+// default export because the react-server build has no such named export, and a
+// namespace import would make reading it a missing-export access.
+// eslint-disable-next-line no-restricted-syntax
+import ReactRuntime from 'react'
+import { type ComponentProps, type ElementType, type ReactNode, createElement, isValidElement } from 'react'
 import type {
   FunctionRendererProps,
   NodeElement,
@@ -41,7 +47,8 @@ const isChildList = (children: Children): children is readonly Children[] => Arr
  * @param value The value to test.
  * @returns `true` when `value` is a class component instance.
  */
-const isReactComponentInstance = (value: unknown): value is React.Component => typeof React.Component === 'function' && value instanceof React.Component
+const isReactComponentInstance = (value: unknown): value is React.Component =>
+  typeof ReactRuntime.Component === 'function' && value instanceof ReactRuntime.Component
 
 export class NodeUtil {
   private constructor() {}

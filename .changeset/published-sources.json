@@ -1,6 +1,18 @@
 {
-  "@meonode/ui": ["packages/ui/src/", "packages/ui/rollup.config.ts", "packages/ui/tsconfig.json", "packages/ui/tsconfig.build.json"],
-  "@meonode/mui": ["packages/mui/src/", "packages/mui/rollup.config.ts", "packages/mui/tsconfig.json", "packages/mui/tsconfig.build.json"],
+  "@meonode/ui": [
+    "packages/ui/src/",
+    "packages/ui/rollup.config.ts",
+    "packages/ui/tsconfig.json",
+    "packages/ui/tsconfig.build.json",
+    "scripts/emit-cjs-declarations.ts"
+  ],
+  "@meonode/mui": [
+    "packages/mui/src/",
+    "packages/mui/rollup.config.ts",
+    "packages/mui/tsconfig.json",
+    "packages/mui/tsconfig.build.json",
+    "scripts/emit-cjs-declarations.ts"
+  ],
   "@meonode/compiler": [
     "packages/compiler/crates/",
     "packages/compiler/Cargo.toml",

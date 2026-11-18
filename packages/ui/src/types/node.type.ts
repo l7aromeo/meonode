@@ -1,4 +1,5 @@
-import React, {
+import type * as React from 'react'
+import {
   type CSSProperties,
   type ReactNode,
   type JSX,
