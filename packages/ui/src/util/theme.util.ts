@@ -2,7 +2,7 @@ import type { CSSProperties } from '@emotion/serialize'
 import type { CssProp, Theme } from '@src/types/node.type.js'
 import { isInPrelude, keyHasThemeToken, removeBlocksWithThemeTokens, replaceKeyTokens, textHasThemeTokenInPrelude } from '@src/util/theme-key.util.js'
 import { getValueByPath } from '@src/helper/common.helper.js'
-import { CSS_TEXT, isSelectorOrAtRule, themeVarRef, type TokenContext } from '@src/util/css-unit.util.js'
+import { CSS_TEXT, isLengthFallbackList, isSelectorOrAtRule, themeVarRef, type TokenContext } from '@src/util/css-unit.util.js'
 import { isMergeableCss } from '@src/util/css.util.js'
 import { reportDroppedThemeFunction } from '@src/util/theme-diagnostics.util.js'
 import { replaceThemeTokensWithCssVars } from '@src/util/server-theme.util.js'
@@ -244,6 +244,67 @@ const dropThemeFunctions = <T>(value: T, property?: string, path: Set<unknown> =
   }
   path.delete(value)
   return (changed ? result : value) as T
+}
+
+/** The options `ThemeUtil.resolveObjWithTheme` takes. */
+interface ResolveOptions {
+  processFunctions?: boolean
+  themeStringsMode?: 'resolve' | 'vars'
+}
+
+/** A container still to be walked, and whether its children have been pushed. */
+interface WorkItem {
+  value: unknown
+  isProcessed: boolean
+}
+
+/** Pushes each plain object and array in `items` that is not already on the walk's path. */
+const pushContainers = (items: readonly unknown[], workStack: WorkItem[], path: Set<unknown>): void => {
+  for (let i = items.length - 1; i >= 0; i--) {
+    const item = items[i]
+    if ((ThemeUtil.isPlainObject(item) || Array.isArray(item)) && !path.has(item)) workStack.push({ value: item, isProcessed: false })
+  }
+}
+
+/**
+ * Resolves the items of an array: a string against `context`, a theme function
+ * by calling it, a container to its already resolved form. Copy-on-write.
+ *
+ * An array is a composed `css` (`[flatCssProps, css]`, where items are whole
+ * style values), whose string items are CSS text, or a fallback list under one
+ * property, whose items are values of that property. The server converts string
+ * items in both the same way, so the client must too or the class hash differs.
+ * @param items The array.
+ * @param context What each string item is written against.
+ * @param resolvedValues The walk's resolved containers.
+ * @param theme The theme to resolve against.
+ * @param options The walk's options, passed on to what a theme function returns.
+ * @returns The resolved array, or `items` itself when nothing changed.
+ */
+const resolveItems = (items: unknown[], context: TokenContext, resolvedValues: Map<unknown, unknown>, theme: Theme, options: ResolveOptions): unknown[] => {
+  const asVar = options.themeStringsMode === 'vars'
+  const themeSystem = theme.system as Record<string, unknown>
+  let next: unknown[] | null = null
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i]
+    let resolvedItem = resolvedValues.get(item) ?? item
+    if (typeof item === 'function' && options.processFunctions) {
+      const funcResult = (item as (theme: Theme) => unknown)(theme)
+      resolvedItem =
+        typeof funcResult === 'string'
+          ? funcResult.includes('theme.')
+            ? processThemeString(funcResult, asVar, themeSystem, context)
+            : funcResult
+          : ThemeUtil.resolveObjWithTheme(funcResult as Record<string, unknown>, theme, options)
+    } else if (typeof item === 'string' && item.includes('theme.')) {
+      resolvedItem = processThemeString(item, asVar, themeSystem, context)
+    }
+    if (resolvedItem !== item) {
+      if (next === null) next = [...items]
+      next[i] = resolvedItem
+    }
+  }
+  return next ?? items
 }
 
 /** A non-negative `<number>`: the only form `flex-grow` and `flex-shrink` accept. */
@@ -490,11 +551,7 @@ export class ThemeUtil {
    * object references for unchanged parts of the tree, which is critical for
    * React's reconciliation and memoization.
    */
-  public static resolveObjWithTheme = <O extends Record<string, unknown>>(
-    obj: O,
-    theme?: Theme,
-    options: { processFunctions?: boolean; themeStringsMode?: 'resolve' | 'vars' } = {},
-  ): O => {
+  public static resolveObjWithTheme = <O extends Record<string, unknown>>(obj: O, theme?: Theme, options: ResolveOptions = {}): O => {
     const { processFunctions = false, themeStringsMode = 'resolve' } = options
 
     if (!obj || isEmptyObject(obj)) return obj
@@ -526,7 +583,7 @@ export class ThemeUtil {
     // copy-on-write, so an unchanged structure already comes back by reference.
     if (scanForThemeWork(obj, processFunctions, 0) === SCAN_NO_WORK) return obj
 
-    const workStack: { value: unknown; isProcessed: boolean }[] = [{ value: obj, isProcessed: false }]
+    const workStack: WorkItem[] = [{ value: obj, isProcessed: false }]
     const resolvedValues = new Map<unknown, unknown>()
     const path = new Set<unknown>() // Used for cycle detection within the current traversal path.
 
@@ -549,12 +606,18 @@ export class ThemeUtil {
         currentWork.isProcessed = true
         path.add(currentValue)
 
-        const children = Array.isArray(currentValue) ? currentValue : Object.values(currentValue)
-        for (let i = children.length - 1; i >= 0; i--) {
-          const child = children[i]
-          // Only push containers that are not already in the current path (cycle detection).
-          if ((ThemeUtil.isPlainObject(child) || Array.isArray(child)) && !path.has(child)) {
-            workStack.push({ value: child, isProcessed: false })
+        // Only containers that are not already in the current path are pushed (cycle detection).
+        if (Array.isArray(currentValue)) {
+          pushContainers(currentValue, workStack, path)
+        } else {
+          const keys = Object.keys(currentValue)
+          for (let i = keys.length - 1; i >= 0; i--) {
+            const child = currentValue[keys[i]]
+            // A length property's fallback list is resolved with its key below, not
+            // as a container of its own: only what it holds is walked, so a
+            // function in it runs once.
+            if (isLengthFallbackList(keys[i], child)) pushContainers(child, workStack, path)
+            else if ((ThemeUtil.isPlainObject(child) || Array.isArray(child)) && !path.has(child)) workStack.push({ value: child, isProcessed: false })
           }
         }
       } else {
@@ -565,33 +628,7 @@ export class ThemeUtil {
         let finalValue = currentValue
 
         if (Array.isArray(currentValue)) {
-          let newArray: unknown[] | null = null
-          for (let i = 0; i < currentValue.length; i++) {
-            const item = currentValue[i]
-            // Strings and functions are resolved here as well as under object keys. An
-            // array is either a composed `css` (`[flatCssProps, css]`, where items are
-            // whole style values) or a fallback list under one property; the server
-            // converts string items in both, so the client must too or the class hash
-            // differs. An item is read as CSS text, as the server reads it: its
-            // declarations name their properties, and a fallback value has none.
-            let resolvedItem = resolvedValues.get(item) ?? item
-            if (typeof item === 'function' && processFunctions) {
-              const funcResult = (item as (theme: Theme) => unknown)(theme)
-              resolvedItem =
-                typeof funcResult === 'string'
-                  ? funcResult.includes('theme.')
-                    ? processThemeString(funcResult, themeStringsMode === 'vars', themeSystem, CSS_TEXT)
-                    : funcResult
-                  : ThemeUtil.resolveObjWithTheme(funcResult as Record<string, unknown>, theme, options)
-            } else if (typeof item === 'string' && item.includes('theme.')) {
-              resolvedItem = processThemeString(item, themeStringsMode === 'vars', themeSystem, CSS_TEXT)
-            }
-            if (resolvedItem !== item) {
-              if (newArray === null) newArray = [...currentValue] // Copy-on-write
-              newArray[i] = resolvedItem
-            }
-          }
-          if (newArray !== null) finalValue = newArray
+          finalValue = resolveItems(currentValue, CSS_TEXT, resolvedValues, theme, options) as typeof currentValue
         } else {
           let newObj: Record<string, unknown> | null = null
           let renames: Map<string, string> | null = null
@@ -610,7 +647,9 @@ export class ThemeUtil {
               // A selector or at-rule key names no property, so a token
               // directly under one keeps the plain variable.
               const valueProperty = isSelectorOrAtRule(newKey) ? undefined : newKey
-              if (typeof newValue === 'function' && processFunctions) {
+              if (isLengthFallbackList(key, value)) {
+                newValue = resolveItems(value, valueProperty, resolvedValues, theme, options)
+              } else if (typeof newValue === 'function' && processFunctions) {
                 const funcResult = (newValue as (theme: Theme) => unknown)(theme)
                 newValue =
                   typeof funcResult === 'string' && funcResult.includes('theme.')

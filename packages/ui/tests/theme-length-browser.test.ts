@@ -1,5 +1,6 @@
 import { it, expect } from 'vitest'
 import { chromium } from 'playwright'
+import { serializeStyles } from '@emotion/serialize'
 import { ThemeUtil } from '@src/util/theme.util.js'
 import { buildThemeVariablesCss, replaceThemeTokensWithCssVars } from '@src/util/server-theme.util.js'
 
@@ -104,4 +105,33 @@ ${buildThemeVariablesCss(theme)}
   expect(c.zIndex).toBe('40')
   expect(c.lineHeight).toBe('20px')
   expect(c.color).toBe('rgb(59, 130, 246)')
+}, 60000)
+
+it('numeric theme tokens in a fallback array become real lengths in a browser', async () => {
+  // Emotion writes one declaration per item; the last one the browser accepts wins.
+  const css = {
+    padding: ['1px', 'theme.spacing.md'],
+    marginTop: ['theme.spacing.asString'],
+    lineHeight: ['theme.text.tight'],
+  }
+  const server = replaceThemeTokensWithCssVars(css)
+  const client = ThemeUtil.resolveObjWithTheme(css, theme, { themeStringsMode: 'vars' })
+  expect(client).toEqual(server)
+  const { styles } = serializeStyles([server])
+
+  const browser = await chromium.launch()
+  const page = await browser.newPage()
+  await page.setContent(`<!doctype html><html><head><style>
+${buildThemeVariablesCss(theme)}
+#t{ position:relative; font-size:16px; ${styles} }
+</style></head><body><div id="t"></div></body></html>`)
+  const c = await page.evaluate(() => {
+    const s = getComputedStyle(document.getElementById('t')!)
+    return { padding: s.padding, marginTop: s.marginTop, lineHeight: s.lineHeight }
+  })
+  await browser.close()
+
+  expect(c.padding).toBe('16px')
+  expect(c.marginTop).toBe('16px')
+  expect(c.lineHeight).toBe('20px')
 }, 60000)
