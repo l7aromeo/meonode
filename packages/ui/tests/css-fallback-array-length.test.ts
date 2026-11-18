@@ -79,9 +79,9 @@ describe('theme tokens in a fallback array', () => {
 
 describe('a fallback array rendered under a ThemeProvider', () => {
   it('writes the length variant into each declaration', () => {
-    // `CssProp` takes one value per known property; Emotion takes the array too.
-    const css = { padding: ['1px', 'theme.spacing.md'] } as never
-    const { container } = render(ThemeProvider({ ...asThemeProps(theme), children: Div({ css, children: 'x' }) }).render())
+    const { container } = render(
+      ThemeProvider({ ...asThemeProps(theme), children: Div({ css: { padding: ['1px', 'theme.spacing.md'] }, children: 'x' }) }).render(),
+    )
     const div = [...container.querySelectorAll('div')].find(d => d.textContent === 'x' && d.children.length === 0)!
     const className = [...div.classList].find(c => c.startsWith('css-'))!
     const text = [...document.head.querySelectorAll('style')].map(s => s.textContent).join('')
