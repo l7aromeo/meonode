@@ -9,7 +9,7 @@
 // `react` is replaced with the client build minus `useState`, the shape of the
 // `react-server` build, with a `cache` that memoizes for one test at a time.
 import { createElement, Fragment, type ReactElement } from 'react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const request = vi.hoisted(() => ({ values: new Map<unknown, unknown>() }))
 
@@ -27,8 +27,9 @@ beforeEach(() => {
   request.values = new Map()
 })
 
-const { createChildrenFirstNode, createNode, Div, Node, ThemeProvider } = await import('@src/main.js')
-const { ThemedRule } = await import('@src/components/styled-renderer.client.js')
+const { createChildrenFirstNode, createNode, Div, Node, setDebugMode, ThemeProvider } = await import('@src/main.js')
+const { ThemedRule, ThemeTokenCheck } = await import('@src/components/styled-renderer.client.js')
+const { __resetThemeDiagnostics } = await import('@src/util/theme-diagnostics.util.js')
 
 type Element = ReactElement<{ children?: unknown; css?: Record<string, unknown>; className?: string }>
 
@@ -336,5 +337,69 @@ describe('ThemedRule under a component, such as a nested ThemeProvider, that can
     const slot = (root.props.children as unknown[]).at(-1) as Element[]
 
     expect(slot.map(e => e.type)).toContain(ThemedRule)
+  })
+})
+
+describe('the token check a server component hands to where the providers are', () => {
+  const tokenChecks = (root: Element) => inTree(root).filter(e => e.type === ThemeTokenCheck) as ReactElement<{ refs: unknown[] }>[]
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
+    setDebugMode(false)
+    __resetThemeDiagnostics()
+  })
+
+  it('carries the variables the element references, with the properties they style', () => {
+    const root = Div({ color: 'theme.primary.nope', css: { '&:hover': { backgroundColor: 'theme.accent' } }, children: 'x' }).render() as Element
+
+    expect(tokenChecks(root).map(check => check.props.refs)).toEqual([
+      [
+        ['--meonode-theme-primary-nope', 'color'],
+        ['--meonode-theme-accent', 'backgroundColor'],
+      ],
+    ])
+  })
+
+  it('renders inside a component above the element, which may be a nested ThemeProvider', () => {
+    function Scope({ children }: { children?: unknown }) {
+      return createElement(Fragment, null, children as never)
+    }
+    const root = Div({ children: Node(Scope, { children: Div({ color: 'theme.accent', children: 'x' }) }) }).render() as Element
+    const insideScope = elements(inTree(root).find(e => e.type === Scope)?.props.children)
+
+    expect(insideScope.filter(e => e.type === ThemeTokenCheck)).toHaveLength(1)
+  })
+
+  it('renders beside an element that cannot carry it when that element is the direct child of a ThemeProvider', () => {
+    const root = Div({
+      children: ThemeProvider({ tokens: { narrow: '1px' }, modes: ['light'], defaultMode: 'light', children: Node('input', { color: 'theme.accent' }) }),
+    }).render() as Element
+    const provider = inTree(root).find(e => e.type === ThemeProvider.element) as Element
+
+    expect(elements(provider.props.children).filter(e => e.type === ThemeTokenCheck)).toHaveLength(1)
+  })
+
+  it('is left out in production', () => {
+    vi.stubEnv('NODE_ENV', 'production')
+    __resetThemeDiagnostics()
+    const root = Div({ color: 'theme.primary.nope', children: 'x' }).render() as Element
+
+    expect(tokenChecks(root)).toEqual([])
+  })
+
+  it('is kept in production when debug mode is on', () => {
+    vi.stubEnv('NODE_ENV', 'production')
+    __resetThemeDiagnostics()
+    setDebugMode(true)
+    const root = Div({ color: 'theme.primary.nope', children: 'x' }).render() as Element
+
+    expect(tokenChecks(root)).toHaveLength(1)
+  })
+
+  it('is left out when a theme is in scope on the server, which checks the tokens itself', () => {
+    const theme = { mode: 'light', system: { accent: 'rgb(1, 2, 3)' } }
+    const root = Div({ theme, children: Div({ color: 'theme.accent', children: 'x' }) } as never).render() as Element
+
+    expect(tokenChecks(root)).toEqual([])
   })
 })

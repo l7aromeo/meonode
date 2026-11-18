@@ -194,3 +194,28 @@ describe('theme token diagnostics', () => {
     expect(captured).toEqual([])
   })
 })
+
+describe('theme token diagnostics with no provider, or several', () => {
+  const nested = (inner: Record<string, unknown>, props: Record<string, unknown>) =>
+    renderToStaticMarkup(
+      ThemeProvider({
+        ...asThemeProps(theme),
+        children: ThemeProvider({ tokens: inner as never, modes: ['light'], defaultMode: 'light', children: Div(props) }),
+      }).render(),
+    )
+
+  it('warns when a token is used with no ThemeProvider above it', () => {
+    renderToStaticMarkup(Div({ color: 'theme.primary' }).render())
+    expect(captured).toEqual([expect.stringContaining('theme.primary (used for `color`) is used with no ThemeProvider above it')])
+  })
+
+  it('stays quiet for a token only an outer provider defines, under a nested one', () => {
+    nested({ accent: { default: 'rgb(0, 0, 255)' } }, { color: 'theme.primary' })
+    expect(captured).toEqual([])
+  })
+
+  it('stays quiet for a token only the nested provider defines', () => {
+    nested({ accent: { default: 'rgb(0, 0, 255)' } }, { color: 'theme.accent' })
+    expect(captured).toEqual([])
+  })
+})

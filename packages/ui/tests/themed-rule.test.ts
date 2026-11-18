@@ -14,7 +14,7 @@ import createCache from '@emotion/cache'
 import { Div, ThemeProvider } from '@src/main.js'
 import { ThemeUtil } from '@src/util/theme.util.js'
 import { compileServerEmotionRule } from '@src/util/server-emotion.util.js'
-import { ThemedRule } from '@src/components/styled-renderer.client.js'
+import { ThemedRule, ThemeTokenCheck } from '@src/components/styled-renderer.client.js'
 import { __resetThemeDiagnostics } from '@src/util/theme-diagnostics.util.js'
 
 const warnings: string[] = []
@@ -230,21 +230,51 @@ describe('StyledRenderer under a ThemeProvider', () => {
   })
 })
 
-describe('where ThemedRule is defined', () => {
+describe('where ThemedRule and ThemeTokenCheck are defined', () => {
   // In a Next build that has a `'use cache'` function beside client modules
   // importing the package, `ThemedRule` in a client module of its own read a
   // ThemeContext no provider filled, on the server and in the browser, and wrote
-  // nothing. In the StyledRenderer module it reads the provider's.
+  // nothing. In the StyledRenderer module it reads the provider's. The token
+  // check reads the providers the same way.
   const src = join(import.meta.dirname, '../src')
   const files = (dir: string): string[] =>
     readdirSync(dir, { withFileTypes: true }).flatMap(entry => (entry.isDirectory() ? files(join(dir, entry.name)) : [join(dir, entry.name)]))
 
-  it('is the StyledRenderer module, and the node core imports it from there', () => {
-    const defining = files(src).filter(file => /export function ThemedRule\b/.test(readFileSync(file, 'utf8')))
+  it.each(['ThemedRule', 'ThemeTokenCheck'])('%s is in the StyledRenderer module, and the node core imports it from there', name => {
+    const defining = files(src).filter(file => new RegExp(`export function ${name}\\b`).test(readFileSync(file, 'utf8')))
 
     expect(defining.map(file => file.slice(src.length + 1))).toEqual(['components/styled-renderer.client.ts'])
     expect(readFileSync(join(src, 'core.node.ts'), 'utf8')).toMatch(
-      /import StyledRenderer, \{ ThemedRule \} from '@src\/components\/styled-renderer\.client\.js'/,
+      new RegExp(`import StyledRenderer, \\{[^}]*\\b${name}\\b[^}]*\\} from '@src/components/styled-renderer\\.client\\.js'`),
     )
+  })
+})
+
+describe('the development check of the tokens a server component compiled', () => {
+  const notDefined = () => warnings.filter(text => text.includes('is not defined by the active theme'))
+
+  it('reports a declaration under a themed key whose token the theme lacks', () => {
+    themed(
+      createElement(ThemedRule, { className: 'meonode-css-x', css: { '@media (width >= theme.breakpoint.wide)': { color: 'var(--meonode-theme-nope)' } } }),
+    )
+    expect(notDefined()).toEqual([expect.stringContaining('theme.nope (used for `color`)')])
+  })
+
+  it('reports, where the providers are, each referenced variable none of them defines', () => {
+    const html = themed(
+      createElement(ThemeTokenCheck, {
+        refs: [
+          ['--meonode-theme-breakpoint-wide', 'width'],
+          ['--meonode-theme-nope', 'color'],
+        ],
+      }),
+    )
+    expect(notDefined()).toEqual([expect.stringContaining('theme.nope (used for `color`)')])
+    expect(html).not.toContain('nope')
+  })
+
+  it('reports every referenced variable as having no provider when none is above', () => {
+    renderToString(createElement(ThemeTokenCheck, { refs: [['--meonode-theme-breakpoint-wide', 'width']] }))
+    expect(warnings).toEqual([expect.stringContaining('theme.breakpoint.wide (used for `width`) is used with no ThemeProvider above it')])
   })
 })

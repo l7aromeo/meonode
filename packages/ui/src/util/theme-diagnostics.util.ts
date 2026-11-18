@@ -45,6 +45,17 @@ export const diagnosticsEnabled = (): boolean => __DEBUG__ || isDevMode()
 const reported = new Set<string>()
 
 /**
+ * Warns once per key.
+ * @param seenKey What makes this report distinct.
+ * @param message The text after the `[MeoNode]` tag.
+ */
+const report = (seenKey: string, message: string): void => {
+  if (reported.has(seenKey)) return
+  reported.add(seenKey)
+  console.warn(`[MeoNode] ${message}`)
+}
+
+/**
  * Whether Emotion would have appended `px` to this number had it been written
  * directly as a prop — which is exactly the condition that makes a bare numeric
  * token wrong.
@@ -87,6 +98,9 @@ const isUnitlessLength = (property: string, value: unknown): boolean => {
   return wouldEmotionAddPx(property, Number(value))
 }
 
+/** Human-readable token path for a variable name, for message text only. */
+const toReadablePath = (varName: string): string => `theme.${varName.replace('--meonode-theme-', '').replace(/-/g, '.')}`
+
 const toVarName = (path: string): string => `--meonode-theme-${path.replace(/[^\w.-]/g, '-').replace(/\./g, '-')}`
 
 /**
@@ -127,10 +141,26 @@ const buildThemeVarIndex = (theme: Theme): Map<string, unknown> => {
   return index
 }
 
+/**
+ * The variables defined where an element renders, mapped to their raw values:
+ * those of every ThemeProvider above it, the nearest one's value winning for a
+ * name several define.
+ *
+ * Every provider declares its variables on `:root`, so a variable an outer
+ * provider defines resolves under a nested one too. Checking against the nearest
+ * provider alone would report such a token although it renders.
+ */
+export type ThemeVarIndex = ReadonlyMap<string, unknown>
+
 /** One index per theme object, rebuilt only when the theme identity changes. */
 const varIndexCache = new WeakMap<object, Map<string, unknown>>()
 
-const getThemeVarIndex = (theme: Theme): Map<string, unknown> => {
+/**
+ * Every variable a theme defines.
+ * @param theme The theme.
+ * @returns Its variables, mapped to their raw values.
+ */
+export const getThemeVarIndex = (theme: Theme): ThemeVarIndex => {
   const cached = varIndexCache.get(theme as unknown as object)
   if (cached) return cached
   const index = buildThemeVarIndex(theme)
@@ -138,15 +168,22 @@ const getThemeVarIndex = (theme: Theme): Map<string, unknown> => {
   return index
 }
 
-/** Human-readable token path for a variable name, for message text only. */
-const toReadablePath = (varName: string): string => `theme.${varName.replace('--meonode-theme-', '').replace(/-/g, '.')}`
+/**
+ * The variables defined under a nested provider: the outer ones, with the
+ * nested provider's own on top.
+ * @param outer What the providers above define, or `null` when there are none.
+ * @param own What this provider defines.
+ * @returns Both, merged.
+ */
+export const mergeThemeVarIndexes = (outer: ThemeVarIndex | null, own: ThemeVarIndex): ThemeVarIndex =>
+  outer && outer.size > 0 ? new Map([...outer, ...own]) : own
 
 /**
  * Suggests the defined variables that share a prefix with an undefined one —
  * which is exactly what an author sees when they point at a grouping object
  * (`theme.brand`) instead of one of its leaves.
  */
-const siblingsOf = (varName: string, index: Map<string, unknown>): string[] => {
+const siblingsOf = (varName: string, index: ThemeVarIndex): string[] => {
   const prefix = `${varName}-`
   const out: string[] = []
   for (const name of index.keys()) {
@@ -162,29 +199,26 @@ const VAR_REF = /var\(\s*(--meonode-theme-[\w-]+)/g
  * Reports one variable reference that will not produce a style.
  * @param varName The referenced custom property.
  * @param property The CSS property it was written against, when known.
- * @param index The active theme's defined-variable index.
+ * @param index The variables defined where it renders, or `null` when no ThemeProvider is above it.
  */
-const checkVarReference = (varName: string, property: string | undefined, index: Map<string, unknown>): void => {
+const checkVarReference = (varName: string, property: string | undefined, index: ThemeVarIndex | null): void => {
   // `var(--x--len, var(--x))` deliberately references a variant that only exists
   // for numeric tokens; the fallback handles every other case. Reporting the
   // absent variant would flag correct code, so only the plain name is checked.
   if (varName.endsWith(toLengthVarName(''))) return
 
-  const seenKey = property ? `${varName}|${property}` : varName
-  if (reported.has(seenKey)) return
-
-  const where = property ? ` (used for \`${property}\`)` : ''
-
-  if (!index.has(varName)) {
-    reported.add(seenKey)
-    const siblings = siblingsOf(varName, index)
-    console.warn(
-      `[MeoNode] ${toReadablePath(varName)}${where} is not defined by the active theme. ` +
-        `It emits var(${varName}), which no :root rule declares, so the browser drops that declaration. ` +
-        (siblings.length ? `Did you mean one of: ${siblings.join(', ')}?` : 'Check the token path against your theme.'),
-    )
-    return
-  }
+  if (index && index.has(varName)) return
+  const siblings = index ? siblingsOf(varName, index) : []
+  report(
+    property ? `${varName}|${property}` : varName,
+    `${toReadablePath(varName)}${property ? ` (used for \`${property}\`)` : ''} ${index ? 'is not defined by the active theme' : 'is used with no ThemeProvider above it'}. ` +
+      `It emits var(${varName}), which no :root rule declares, so the browser drops that declaration. ` +
+      (!index
+        ? 'Render it inside a ThemeProvider whose tokens define it.'
+        : siblings.length
+          ? `Did you mean one of: ${siblings.join(', ')}?`
+          : 'Check the token path against your theme.'),
+  )
 }
 
 /**
@@ -200,11 +234,9 @@ const checkLiteralValue = (property: string, value: unknown): void => {
   // a problem when it arrives through a custom property, which the token path
   // covers.
   if (typeof value !== 'string' || !isUnitlessLength(property, value)) return
-  const seenKey = `literal:${property}:${String(value)}`
-  if (reported.has(seenKey)) return
-  reported.add(seenKey)
-  console.warn(
-    `[MeoNode] \`${property}: ${JSON.stringify(value)}\` is a number written as a string, so Emotion does not add \`px\` to it — ` +
+  report(
+    `literal:${property}:${String(value)}`,
+    `\`${property}: ${JSON.stringify(value)}\` is a number written as a string, so Emotion does not add \`px\` to it — ` +
       `it only does that for real numbers. This emits \`${property}: ${value}\`, which is not a valid length and is dropped. ` +
       `Write it as ${value} or '${value}px'.`,
   )
@@ -234,11 +266,9 @@ const checkMediaQueryKey = (key: string): void => {
   while ((match = LENGTH_MEDIA_FEATURES.exec(key)) !== null) {
     // `0` needs no unit and is perfectly valid.
     if (Number(match[1]) === 0) continue
-    const seenKey = `mq:${key}`
-    if (reported.has(seenKey)) return
-    reported.add(seenKey)
-    console.warn(
-      `[MeoNode] \`${key}\` has a length with no unit, so it is not a valid media feature and the browser drops the whole block. ` +
+    report(
+      `mq:${key}`,
+      `\`${key}\` has a length with no unit, so it is not a valid media feature and the browser drops the whole block. ` +
         `Media queries cannot use CSS variables, so a numeric theme token is substituted as bare text here. ` +
         `Give the token a unit, e.g. '${match[1]}px'.`,
     )
@@ -250,55 +280,102 @@ const checkMediaQueryKey = (key: string): void => {
 const MAX_DEPTH = 16
 
 /**
+ * Visits every value in a resolved style object, with the CSS property in scope,
+ * and every at-rule key. Plain objects only, matching the resolution walk: class
+ * instances (refs, React elements, MUI internals) hold no style declarations. A
+ * key that is a selector or at-rule is not a CSS property, so the enclosing
+ * property stays in scope rather than `&:hover`.
+ * @param value The style object or value to inspect.
+ * @param visit Called with each string or number and its property, and with each `@` key and `isKey` set.
+ * @param property The CSS property currently in scope, when known.
+ * @param depth Current recursion depth.
+ */
+const walkStyle = (
+  value: unknown,
+  visit: (leaf: string | number, property: string | undefined, isKey?: boolean) => void,
+  property?: string,
+  depth = 0,
+): void => {
+  if (depth > MAX_DEPTH) return
+  if (typeof value === 'string' || typeof value === 'number') visit(value, property)
+  else if (Array.isArray(value)) for (const item of value) walkStyle(item, visit, property, depth + 1)
+  else if (typeof value === 'object' && value !== null) {
+    const proto = Object.getPrototypeOf(value)
+    if (proto !== null && proto !== Object.prototype) return
+    for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+      if (key.startsWith('@')) visit(key, property, true)
+      walkStyle(child, visit, key.startsWith('&') || key.startsWith('@') ? property : key, depth + 1)
+    }
+  }
+}
+
+/**
+ * Calls `found` with each theme variable a string references.
+ * @param value The string.
+ * @param found Called with each variable name.
+ */
+const forEachVarRef = (value: string, found: (varName: string) => void): void => {
+  VAR_REF.lastIndex = 0
+  let match: RegExpExecArray | null
+  while ((match = VAR_REF.exec(value)) !== null) found(match[1])
+}
+
+/**
  * Walks a resolved style object and reports every theme token that will not
  * produce a style.
  *
  * Never throws and never mutates. Returns immediately in production, so the
  * cost on a production render is a single boolean check.
  * @param value The style object or value to inspect.
- * @param theme The active theme.
- * @param property The CSS property currently in scope, when known.
- * @param depth Current recursion depth.
+ * @param defined The variables defined where the element renders; `null` when
+ * no ThemeProvider is above it; `undefined` when that is not known here, as in a
+ * server component, whose token references are then checked by
+ * `reportThemeVarRefs` where the providers are.
  */
-export const reportThemeIssues = (value: unknown, theme: Theme | undefined, property?: string, depth = 0): void => {
-  if (depth > MAX_DEPTH || !diagnosticsEnabled()) return
-
-  if (typeof value === 'string' || typeof value === 'number') {
-    if (typeof value === 'string' && value.includes('--meonode-theme-')) {
-      // Token references need the theme to say whether the variable exists.
-      if (!theme) return
-      const index = getThemeVarIndex(theme)
-      VAR_REF.lastIndex = 0
-      let match: RegExpExecArray | null
-      while ((match = VAR_REF.exec(value)) !== null) {
-        checkVarReference(match[1], property, index)
-      }
-      return
+export const reportThemeIssues = (value: unknown, defined: ThemeVarIndex | null | undefined): void => {
+  if (!diagnosticsEnabled()) return
+  walkStyle(value, (leaf, property, isKey) => {
+    if (isKey) checkMediaQueryKey(leaf as string)
+    else if (typeof leaf === 'string' && leaf.includes('--meonode-theme-')) {
+      if (defined !== undefined) forEachVarRef(leaf, varName => checkVarReference(varName, property, defined))
     }
     // A literal written straight onto the prop. Needs no theme.
-    if (property) checkLiteralValue(property, value)
-    return
-  }
+    else if (property) checkLiteralValue(property, leaf)
+  })
+}
 
-  if (Array.isArray(value)) {
-    for (const item of value) reportThemeIssues(item, theme, property, depth + 1)
-    return
-  }
+/**
+ * A theme variable a server component's css references, and the property it was
+ * written against (`''` when none), as `ThemeTokenCheck` receives them.
+ */
+export type ThemeVarRef = readonly [varName: string, property: string]
 
-  if (typeof value === 'object' && value !== null) {
-    const proto = Object.getPrototypeOf(value)
-    // Plain objects only, matching the resolution walk: class instances (refs,
-    // React elements, MUI internals) hold no style declarations.
-    if (proto !== null && proto !== Object.prototype) return
-    for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
-      // A key that is a selector or at-rule is not a CSS property; keep the
-      // enclosing property in scope rather than reporting against `&:hover`.
-      const isAtRuleOrSelector = key.startsWith('&') || key.startsWith('@')
-      if (key.startsWith('@')) checkMediaQueryKey(key)
-      const nextProperty = isAtRuleOrSelector ? property : key
-      reportThemeIssues(child, theme, nextProperty, depth + 1)
-    }
-  }
+/**
+ * Every theme variable a resolved style object references, each once per
+ * property, in the order written. The same walk as `reportThemeIssues`.
+ * @param value The style object or value to inspect.
+ * @returns The references.
+ */
+export const collectThemeVarRefs = (value: unknown): ThemeVarRef[] => {
+  const refs: ThemeVarRef[] = []
+  walkStyle(value, (leaf, property = '', isKey) => {
+    if (!isKey && typeof leaf === 'string')
+      forEachVarRef(leaf, varName => {
+        if (!refs.some(([name, prop]) => name === varName && prop === property)) refs.push([varName, property])
+      })
+  })
+  return refs
+}
+
+/**
+ * Reports each referenced variable the providers above do not define, or every
+ * one when no provider is above.
+ * @param refs The references, from `collectThemeVarRefs`.
+ * @param defined The variables defined where the element renders, or `null` when no ThemeProvider is above it.
+ */
+export const reportThemeVarRefs = (refs: readonly ThemeVarRef[], defined: ThemeVarIndex | null): void => {
+  if (!diagnosticsEnabled()) return
+  for (const [varName, property] of refs) checkVarReference(varName, property || undefined, defined)
 }
 
 /**
@@ -311,11 +388,9 @@ export const reportThemeIssues = (value: unknown, theme: Theme | undefined, prop
  */
 export const reportUnresolvedThemeKey = (key: string): void => {
   if (!diagnosticsEnabled()) return
-  const seenKey = `unresolved-key:${key}`
-  if (reported.has(seenKey)) return
-  reported.add(seenKey)
-  console.warn(
-    `[MeoNode] The css key \`${key}\` holds a theme token that could not be resolved, so its rule was left out. ` +
+  report(
+    `unresolved-key:${key}`,
+    `The css key \`${key}\` holds a theme token that could not be resolved, so its rule was left out. ` +
       `A condition or selector needs the theme's concrete value: render the node under a ThemeProvider whose tokens define it, ` +
       `or write the value into the key directly.`,
   )
@@ -335,11 +410,9 @@ export const reportUnresolvedThemeKey = (key: string): void => {
  */
 export const reportDroppedThemeFunction = (property?: string): void => {
   if (!diagnosticsEnabled()) return
-  const seenKey = `dropped-function:${property ?? ''}`
-  if (reported.has(seenKey)) return
-  reported.add(seenKey)
-  const subject = `[MeoNode] A theme function ${property ? `for \`${property}\` ` : ''}was dropped`
-  console.warn(
+  const subject = `A theme function ${property ? `for \`${property}\` ` : ''}was dropped`
+  report(
+    `dropped-function:${property ?? ''}`,
     IS_REACT_SERVER_LAYER
       ? `${subject} because it is in a server component, which cannot run one: the theme is held by ThemeProvider on the client. ` +
           `Write the value as a \`theme.*\` token string, which resolves on the server, or move this element into a client component.`
@@ -359,11 +432,9 @@ export const reportDroppedThemeFunction = (property?: string): void => {
  */
 export const reportUncomposedClass = (className: string): void => {
   if (!diagnosticsEnabled()) return
-  const seenKey = `uncomposed-class:${className}`
-  if (reported.has(seenKey)) return
-  reported.add(seenKey)
-  console.warn(
-    `[MeoNode] The class \`${className}\` was handed to an element in another cache scope and could not be composed with its own css, ` +
+  report(
+    `uncomposed-class:${className}`,
+    `The class \`${className}\` was handed to an element in another cache scope and could not be composed with its own css, ` +
       `so the element carries both classes and which one wins a conflict depends on stylesheet order. ` +
       `The shared store keeps the most recent classes compiled for components; pass the styles as \`css\` instead of a className to compose them in the element's own scope.`,
   )

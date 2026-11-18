@@ -27,7 +27,7 @@ import type {
 } from '@src/types/node.type.js'
 import { isFragment, isValidElementType, REACT_LAZY_TYPE } from '@src/helper/react-is.helper.js'
 import { getComponentType, getElementTypeName, hasNoStyleTag, getGlobalState } from '@src/helper/common.helper.js'
-import StyledRenderer, { ThemedRule } from '@src/components/styled-renderer.client.js'
+import StyledRenderer, { ThemedRule, ThemeTokenCheck } from '@src/components/styled-renderer.client.js'
 import MeoMemo from '@src/components/meo-memo.client.js'
 import { LIST_MARKER, LOCATION_MARKER } from '@src/constant/common.const.js'
 import { isMergeableCss } from '@src/util/css.util.js'
@@ -36,7 +36,7 @@ import { IS_REACT_SERVER_LAYER } from '@src/util/react-layer.util.js'
 import { passesChildrenThrough } from '@src/util/children-pass-through.util.js'
 import { compileServerEmotionRule } from '@src/util/server-emotion.util.js'
 import { replaceThemeTokensWithCssVars } from '@src/util/server-theme.util.js'
-import { diagnosticsEnabled, reportThemeIssues, reportUnresolvedThemeKey } from '@src/util/theme-diagnostics.util.js'
+import { collectThemeVarRefs, diagnosticsEnabled, getThemeVarIndex, reportThemeIssues, reportUnresolvedThemeKey } from '@src/util/theme-diagnostics.util.js'
 import { ThemeUtil } from '@src/util/theme.util.js'
 
 /**
@@ -666,10 +666,11 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
               const themedCss = ThemeUtil.resolveObjWithTheme(replaceThemeTokensWithCssVars(css), activeTheme, {
                 processFunctions: true,
               })
-              // Development only; no-ops in production. Mirrors the client-side
-              // report in `StyledRenderer` so a bad token surfaces on whichever
-              // side happened to render it.
-              reportThemeIssues(themedCss, activeTheme)
+              // Development only; no-ops in production. With a theme in scope this
+              // is the check `StyledRenderer` makes. With none, the token
+              // references are left to `ThemeTokenCheck` below, which runs where
+              // the ThemeProvider is.
+              reportThemeIssues(themedCss, activeTheme ? getThemeVarIndex(activeTheme) : undefined)
               const cssWithDefaults = ThemeUtil.resolveDefaultStyle(themedCss)
               // A key holding a theme token needs the theme's concrete value. With
               // a theme in scope it has been resolved above, and one still holding
@@ -692,18 +693,17 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
                 const rules = carrier ? (anchoredRules.get(carrier) ?? new Map<string, ReactElement>()) : rootRules
                 if (carrier) anchoredRules.set(carrier, rules)
                 if (rule.cssText) rules.set(rule.id, ruleElement(rule))
-                const clientCss = rule.clientCss ?? themed
-                if (clientCss) {
-                  // A server rule is hoisted by React wherever it renders, but a
-                  // `ThemedRule` reads the theme where it renders, so it goes to a
-                  // host below the components above the element: one of them may
-                  // be a nested ThemeProvider. With no component above, that is the
-                  // carrier the server rule has. With no such host, it goes beside
-                  // an element that is the direct child of one of MeoNode's own
-                  // providers, and with the server rule otherwise: beside any other
-                  // component's child, it would hand that component a fragment in
-                  // place of the child it was given.
-                  const themeCarrier = themeAnchor ?? (canCarry ? node : null)
+                // A server rule is hoisted by React wherever it renders, but
+                // `ThemedRule` and `ThemeTokenCheck` read the theme where they
+                // render, so they go to a host below the components above the
+                // element: one of them may be a nested ThemeProvider. With no
+                // component above, that is the carrier the server rule has. With
+                // no such host, they go beside an element that is the direct child
+                // of one of MeoNode's own providers, and with the server rule
+                // otherwise: beside any other component's child, they would hand
+                // that component a fragment in place of the child it was given.
+                const themeCarrier = themeAnchor ?? (canCarry ? node : null)
+                const carryWithTheme = (ruleKey: string, carried: ReactElement) => {
                   const themedRules = themeCarrier
                     ? (anchoredRules.get(themeCarrier) ?? new Map<string, ReactElement>())
                     : besidePassThrough
@@ -711,7 +711,22 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
                       : rules
                   if (themeCarrier) anchoredRules.set(themeCarrier, themedRules)
                   else if (besidePassThrough) besideRules.set(node, themedRules)
-                  themedRules.set(`${rule.id}:themed`, createElement(ThemedRule, { key: `${rule.id}:themed`, className: rule.ownClassName, css: clientCss }))
+                  themedRules.set(ruleKey, carried)
+                }
+                const clientCss = rule.clientCss ?? themed
+                if (clientCss) {
+                  const ruleKey = `${rule.id}:themed`
+                  carryWithTheme(ruleKey, createElement(ThemedRule, { key: ruleKey, className: rule.ownClassName, css: clientCss }))
+                }
+                // The tokens compiled here are checked where the providers are.
+                // `ThemedRule` checks its own part. Only while diagnostics are on,
+                // so production output carries nothing for it.
+                if (!activeTheme && diagnosticsEnabled()) {
+                  const refs = collectThemeVarRefs(plain)
+                  if (refs.length > 0) {
+                    const ruleKey = `${rule.id}:check`
+                    carryWithTheme(ruleKey, createElement(ThemeTokenCheck, { key: ruleKey, refs }))
+                  }
                 }
               }
             } else {

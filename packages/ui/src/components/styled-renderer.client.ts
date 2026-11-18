@@ -5,12 +5,13 @@ import type { EmotionCache } from '@emotion/cache'
 import { serializeStyles } from '@emotion/serialize'
 import { compile, middleware, serialize, stringify } from 'stylis'
 import type { CssProp, NodeElement, Theme } from '@src/types/node.type.js'
-import { ThemeContext, type ThemeSnapshot, useThemeSnapshot } from '@src/components/theme-provider.client.js'
+import { ThemeContext, type ThemeContextState, type ThemeSnapshot, useThemeSnapshot } from '@src/components/theme-provider.client.js'
 import { ThemeUtil } from '@src/util/theme.util.js'
-import { reportThemeIssues, reportUnresolvedThemeKey } from '@src/util/theme-diagnostics.util.js'
+import { diagnosticsEnabled, reportThemeIssues, reportThemeVarRefs, reportUnresolvedThemeKey, type ThemeVarRef } from '@src/util/theme-diagnostics.util.js'
 import { isValidElementType } from '@src/helper/react-is.helper.js'
 import { prefixer } from '@src/util/emotion-prefixer.util.js'
 import { createServerCssCache } from '@src/util/server-css-cache.util.js'
+import { replaceThemeTokensWithCssVars } from '@src/util/server-theme.util.js'
 
 export interface StyledRendererProps<E extends NodeElement> {
   element: E
@@ -45,7 +46,23 @@ export default function StyledRenderer<E extends NodeElement, TProps extends Rec
   // loses a function keeps its identity and everything below it.
   const mode = useThemeSnapshot(context?.store ?? null, ThemeUtil.hasThemeFunction(props.css) ? selectMode : null)
   const theme = context && mode !== undefined ? { ...context.theme, mode: mode as typeof context.theme.mode } : context?.theme
-  return renderStyled(element, children, props, theme, emotionCache)
+  return renderStyled(element, children, props, theme, emotionCache, context)
+}
+
+/**
+ * Reports the theme tokens in resolved css that will not produce a style, against
+ * the providers above `context`. Development only.
+ *
+ * With no provider above, a token is left as `theme.…` text rather than turned
+ * into the variable the server emits for it, so it is turned into one here, for
+ * the check alone, and reported as having no provider.
+ * @param css The resolved css.
+ * @param context The nearest provider's context, or `null`.
+ */
+function reportStyleTokens(css: unknown, context: ThemeContextState | null): void {
+  if (!diagnosticsEnabled()) return
+  if (context) reportThemeIssues(css, context.definedVars())
+  else reportThemeIssues(replaceThemeTokensWithCssVars(css), null)
 }
 
 StyledRenderer.displayName = 'Styled'
@@ -57,6 +74,7 @@ function renderStyled(
   props: Record<string, any>,
   theme: Theme | undefined,
   emotionCache: EmotionCache | null,
+  context: ThemeContextState | null,
 ): JSX.Element {
   // `as` is consumed (never spread onto the DOM). It swaps the render target,
   // mirroring the swap done in `core.node.ts`. This is belt-and-braces: the core
@@ -82,7 +100,7 @@ function renderStyled(
   // resolved declarations are both in hand, so a token that names a variable
   // the theme never defines can still be reported before it silently
   // disappears into Emotion. No-ops in production.
-  reportThemeIssues(finalCss, theme)
+  reportStyleTokens(finalCss, context)
 
   // A key still holding a theme token — no provider above, or a path the theme
   // lacks — names a condition or selector the browser would drop, so it is left
@@ -123,12 +141,38 @@ export interface ThemedRuleProps {
  * @returns The rule, or `null` when nothing is left to style.
  */
 export function ThemedRule({ className, css }: ThemedRuleProps): ReactElement | null {
-  const theme = useContext(ThemeContext)?.theme
+  const context = useContext(ThemeContext)
+  const theme = context?.theme
   // Resolved as a prop value, so a css string is resolved too, not only a map.
   const resolved = ThemeUtil.resolveObjWithTheme({ css }, theme, { processFunctions: true, themeStringsMode: 'vars' }).css
   const kept = ThemeUtil.dropThemedKeys(resolved, reportUnresolvedThemeKey)
+  // The declarations under its keys, as `StyledRenderer` checks a whole element's.
+  reportStyleTokens(kept, context)
   const serialized = serializeStyles([kept as never])
   const cssText = serialize(compile(`.${className}{${serialized.styles}}`), middleware([prefixer, stringify]))
   if (!cssText) return null
   return createElement('style', { href: `${className}-${serialized.name}`, precedence: 'meonode' }, cssText)
+}
+
+export interface ThemeTokenCheckProps {
+  /** The theme variables the element's server-compiled css references. */
+  refs: readonly ThemeVarRef[]
+}
+
+/**
+ * The development check for the theme tokens of an element a server component
+ * styled.
+ *
+ * A server component compiles its css without the ThemeProvider above it, which
+ * holds the theme on the client, so it cannot tell whether a token's variable is
+ * defined. It hands the references here instead, rendered where the element is:
+ * on the server pass of the client tree and in the browser this reads the
+ * providers above and reports what `StyledRenderer` would for the same css. Only
+ * rendered while diagnostics are on.
+ * @returns Nothing.
+ */
+export function ThemeTokenCheck({ refs }: ThemeTokenCheckProps): null {
+  const context = useContext(ThemeContext)
+  if (diagnosticsEnabled()) reportThemeVarRefs(refs, context ? context.definedVars() : null)
+  return null
 }

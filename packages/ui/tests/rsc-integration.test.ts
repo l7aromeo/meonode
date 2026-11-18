@@ -568,6 +568,36 @@ describe('L. Diagnostics and anti-pattern documentation', () => {
     expect(serverLines.some(line => line.includes(warning))).toBe(true)
   })
 
+  it('reports an undefined theme token in a server component, on the server and in the browser', async () => {
+    const warning = 'theme.primary.servernope (used for `color`) is not defined by the active theme'
+    const { status, messages, computedStyles } = await getPage('/theme/server-undefined-token', {
+      computedStyles: [{ testId: 'server-defined-token', properties: ['background-color'] }],
+    })
+    expect(status).toBe(200)
+    expect(messages.filter(text => text.includes('is not defined by the active theme'))).toEqual([expect.stringContaining(warning)])
+    // The defined token renders, so the check is not reporting it by accident.
+    expect(computedStyles['server-defined-token']['background-color']).toBe('rgb(255, 107, 107)')
+    // Reported once per server process, so possibly while the route was first
+    // compiled, before this test asked for it.
+    const serverLines = readFileSync(SERVER_LOG, 'utf8')
+      .split('\n')
+      .filter(line => !line.includes('[browser]'))
+    expect(serverLines.some(line => line.includes(warning))).toBe(true)
+  })
+
+  it('reports nothing for tokens a nested ThemeProvider or the one above it defines, in a server component', async () => {
+    const { status, messages, computedStyles } = await getPage('/theme/server-nested-token', {
+      computedStyles: [
+        { testId: 'server-nested-inner', properties: ['color'] },
+        { testId: 'server-nested-outer', properties: ['color'] },
+      ],
+    })
+    expect(status).toBe(200)
+    expect(computedStyles['server-nested-inner'].color).toBe('rgb(0, 0, 255)')
+    expect(computedStyles['server-nested-outer'].color).toBe('rgb(255, 107, 107)')
+    expect(messages.filter(text => text.includes('[MeoNode]'))).toEqual([])
+  })
+
   it('direct client function call from server (documents behavior)', async () => {
     const { status, html } = await getPage('/diagnostic/server-direct-client', { allowRuntimeErrors: true })
     expect(status).toBeGreaterThanOrEqual(200)
