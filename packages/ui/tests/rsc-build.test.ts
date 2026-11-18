@@ -581,6 +581,51 @@ describe.each(['cc', 'plain'] as const)('a render prop as the only child of an H
   })
 })
 
+describe.each(['cc', 'plain'] as const)('a css key using a token only a nested ThemeProvider defines (%s)', variant => {
+  it('resolves against that provider for a host inside it and a void element directly inside it', async () => {
+    const browser = await chromium.launch({ headless: true })
+    try {
+      const page = await browser.newPage({ viewport: { width: 1280, height: 800 } })
+      await page.goto(`http://localhost:${port(variant)}/themed-at-rules/nested-provider`, { waitUntil: 'networkidle' })
+      const colors = await page.$$eval('[data-nested]', elements =>
+        Object.fromEntries(elements.map(element => [element.getAttribute('data-nested'), getComputedStyle(element).color])),
+      )
+      expect(colors).toEqual({ host: 'rgb(0, 128, 0)', void: 'rgb(0, 0, 128)' })
+    } finally {
+      await browser.close()
+    }
+  })
+})
+
+describe.each(['cc', 'plain'] as const)('a child with a themed css key, as the one child a client component clones (%s)', variant => {
+  // A component that clones its one child, as MUI Tooltip or a Slot does, must be
+  // handed that child itself, whatever rule its css needs.
+  it('stays the one child, takes the ref, and resolves its key, for a void host and a server component', async () => {
+    const browser = await chromium.launch({ headless: true })
+    try {
+      const page = await browser.newPage({ viewport: { width: 1280, height: 800 } })
+      const errors: string[] = []
+      page.on('pageerror', error => errors.push(error.message))
+      await page.goto(`http://localhost:${port(variant)}/themed-at-rules/only-child`, { waitUntil: 'networkidle' })
+      const children = await page.$$eval('[data-only-child]', elements =>
+        Object.fromEntries(
+          elements.map(element => [
+            element.getAttribute('data-only-child'),
+            { cloned: element.getAttribute('data-cloned'), ref: element.getAttribute('data-ref-attached'), color: getComputedStyle(element).color },
+          ]),
+        ),
+      )
+      expect(errors).toEqual([])
+      expect(children).toEqual({
+        host: { cloned: 'yes', ref: 'yes', color: 'rgb(0, 128, 0)' },
+        component: { cloned: 'yes', ref: 'yes', color: 'rgb(0, 128, 0)' },
+      })
+    } finally {
+      await browser.close()
+    }
+  })
+})
+
 describe.each(['cc', 'plain'] as const)('a theme token in an at-rule condition or a selector (%s)', variant => {
   let browser: Browser | null = null
   beforeAll(async () => {

@@ -1,4 +1,5 @@
 import { createNode } from '@src/core.node.js'
+import { registerChildrenPassThrough } from '@src/util/children-pass-through.util.js'
 import _PortalProvider from '@src/components/portal-provider.client.js'
 
 /**
@@ -6,3 +7,6 @@ import _PortalProvider from '@src/components/portal-provider.client.js'
  * Must wrap any components that use `usePortal()` or `PortalHost`.
  */
 export const PortalProvider = createNode(_PortalProvider)
+
+// It renders its children as given, inside its context.
+registerChildrenPassThrough(_PortalProvider)

@@ -1,4 +1,25 @@
 {
-  "baseline": "3.1.4",
-  "differences": []
+  "baseline": "3.1.5",
+  "differences": [
+    {
+      "case": "key-nested-provider",
+      "kind": "style",
+      "probe": "a",
+      "property": "color",
+      "from": "rgb(0, 0, 0)",
+      "to": "rgb(1, 2, 3)",
+      "change": "a css key using a token only a nested ThemeProvider defines resolves against that provider",
+      "source": "#67"
+    },
+    {
+      "case": "key-nested-provider-void",
+      "kind": "style",
+      "probe": "a",
+      "property": "color",
+      "from": "rgb(0, 0, 0)",
+      "to": "rgb(1, 2, 3)",
+      "change": "the same for a void element that is the nested ThemeProvider's direct child",
+      "source": "#67"
+    }
+  ]
 }

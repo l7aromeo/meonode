@@ -285,6 +285,16 @@ export default function Case() {
 }
 `,
   'key-in-selector-token': s(`Div({ 'data-probe': 'a', 'data-tone': 'rgb(200, 10, 10)', css: { '&[data-tone="theme.accent"]': { color: ${HIT} } }, children: 'x' })`),
+  // A key token only a nested provider defines, under a host outside that provider (#67).
+  'key-nested-provider': s(
+    `Div({ children: ThemeProvider({ modes: ['light'], defaultMode: 'light', tokens: { inner: { narrow: '1px' } }, children: Div({ 'data-probe': 'a', css: { '@media (min-width: theme.inner.narrow)': { color: ${HIT} } }, children: 'x' }) }) })`,
+    `import { ThemeProvider } from '@meonode/ui'`,
+  ),
+  // The same on a void element that is the nested provider's direct child (#67).
+  'key-nested-provider-void': s(
+    `Div({ children: ThemeProvider({ modes: ['light'], defaultMode: 'light', tokens: { inner: { narrow: '1px' } }, children: Input({ 'data-probe': 'a', readOnly: true, css: { '@media (min-width: theme.inner.narrow)': { color: ${HIT} } } }) }) })`,
+    `import { ThemeProvider } from '@meonode/ui'`,
+  ),
   // ── Key order and text that only looks like a token ─────────────────────
   // A resolved key keeps its place: the literal media query written after it wins where both apply.
   'key-order': s(`Div({ 'data-probe': 'a', css: { '@media (min-width: theme.breakpoint.compact)': { color: ${HIT} }, '@media (min-width: 900px)': { color: 'rgb(4, 5, 6)' } }, children: 'x' })`),
