@@ -33,6 +33,7 @@ import { LIST_MARKER, LOCATION_MARKER } from '@src/constant/common.const.js'
 import { isMergeableCss } from '@src/util/css.util.js'
 import { NodeUtil } from '@src/util/node.util.js'
 import { IS_REACT_SERVER_LAYER } from '@src/util/react-layer.util.js'
+import { passesChildrenThrough } from '@src/util/children-pass-through.util.js'
 import { compileServerEmotionRule } from '@src/util/server-emotion.util.js'
 import { replaceThemeTokensWithCssVars } from '@src/util/server-theme.util.js'
 import { diagnosticsEnabled, reportThemeIssues, reportUnresolvedThemeKey } from '@src/util/theme-diagnostics.util.js'
@@ -87,6 +88,18 @@ function canAnchorRules(renderTarget: unknown, props: Record<string, unknown>, i
     !RULE_ANCHOR_EXCLUDED.has(renderTarget) &&
     !('dangerouslySetInnerHTML' in props && props.dangerouslySetInnerHTML != null)
   )
+}
+
+/**
+ * Whether the theme can differ inside this element from outside it.
+ *
+ * A component can render a provider around its children, a nested
+ * `ThemeProvider` being the case that matters, so its children may read another
+ * theme than its parent does. A host element and the built-in symbols (fragments,
+ * Suspense, StrictMode) supply no context.
+ */
+function mayChangeTheme(renderTarget: unknown): boolean {
+  return typeof renderTarget === 'function' || (typeof renderTarget === 'object' && renderTarget !== null)
 }
 
 /**
@@ -313,6 +326,9 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
     // able to carry them anywhere above it in this render.
     const anchoredRules = new Map<BaseNode, Map<string, ReactElement>>()
     const rootRules = new Map<string, ReactElement>()
+    // `ThemedRule`s that render beside the element keyed here, inside one of
+    // MeoNode's own providers, because no host in that provider can carry them.
+    const besideRules = new Map<BaseNode, Map<string, ReactElement>>()
 
     try {
       // Fast capacity check with exponential growth
@@ -332,7 +348,15 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
       }
 
       // Push initial work item
-      workStack[stackPointer++] = { node: this, isProcessed: false, theme: undefined, anchor: null, inForeignNamespace: false }
+      workStack[stackPointer++] = {
+        node: this,
+        isProcessed: false,
+        theme: undefined,
+        anchor: null,
+        inForeignNamespace: false,
+        themeAnchor: null,
+        besidePassThrough: false,
+      }
 
       // Iterative depth-first traversal with explicit begin/complete phases to avoid recursion.
       while (stackPointer > 0) {
@@ -341,7 +365,7 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
           stackPointer--
           continue
         }
-        const { node, isProcessed, theme: inheritedTheme, anchor, inForeignNamespace } = currentWork
+        const { node, isProcessed, theme: inheritedTheme, anchor, inForeignNamespace, themeAnchor, besidePassThrough } = currentWork
 
         const getActiveTheme = (props: FinalNodeProps, current?: Theme): Theme | undefined => {
           const candidate = (props as { theme?: unknown }).theme
@@ -362,6 +386,12 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
           const beginTarget = beginAs != null && isValidElementType(beginAs) ? beginAs : node.element
           const childAnchor = anchor ?? (canAnchorRules(beginTarget, node.props as Record<string, unknown>, inForeignNamespace) ? node : null)
           const childInForeignNamespace = inForeignNamespace || beginTarget === 'svg' || beginTarget === 'math'
+          // The same, for a `ThemedRule`, which resolves against the theme where it
+          // renders: the topmost host since the last component above, which may
+          // supply another theme.
+          const childThemeAnchor = mayChangeTheme(beginTarget)
+            ? null
+            : (themeAnchor ?? (canAnchorRules(beginTarget, node.props as Record<string, unknown>, inForeignNamespace) ? node : null))
 
           if (children) {
             // Only consider BaseNode children for further traversal; primitives and React elements are terminal.
@@ -396,6 +426,11 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
                 theme: activeTheme,
                 anchor: childAnchor,
                 inForeignNamespace: childInForeignNamespace,
+                themeAnchor: childThemeAnchor,
+                // A direct child of one of MeoNode's own providers, which render
+                // their children as given, so a rule may go beside it. Not inside
+                // SVG or MathML, where a `<style>` would be that namespace's element.
+                besidePassThrough: !childInForeignNamespace && passesChildrenThrough(beginTarget),
               }
             }
           }
@@ -652,13 +687,32 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
               const elementPropsWithClassName = rule ? { ...elementProps, className: rule.className } : elementProps
               element = createElement(renderTarget, elementPropsWithClassName, ...childArguments)
               if (rule && (rule.cssText || themed || rule.clientCss)) {
-                const carrier = anchor ?? (canAnchorRules(renderTarget, elementProps as Record<string, unknown>, inForeignNamespace) ? node : null)
+                const canCarry = canAnchorRules(renderTarget, elementProps as Record<string, unknown>, inForeignNamespace)
+                const carrier = anchor ?? (canCarry ? node : null)
                 const rules = carrier ? (anchoredRules.get(carrier) ?? new Map<string, ReactElement>()) : rootRules
                 if (carrier) anchoredRules.set(carrier, rules)
                 if (rule.cssText) rules.set(rule.id, ruleElement(rule))
                 const clientCss = rule.clientCss ?? themed
-                if (clientCss)
-                  rules.set(`${rule.id}:themed`, createElement(ThemedRule, { key: `${rule.id}:themed`, className: rule.ownClassName, css: clientCss }))
+                if (clientCss) {
+                  // A server rule is hoisted by React wherever it renders, but a
+                  // `ThemedRule` reads the theme where it renders, so it goes to a
+                  // host below the components above the element: one of them may
+                  // be a nested ThemeProvider. With no component above, that is the
+                  // carrier the server rule has. With no such host, it goes beside
+                  // an element that is the direct child of one of MeoNode's own
+                  // providers, and with the server rule otherwise: beside any other
+                  // component's child, it would hand that component a fragment in
+                  // place of the child it was given.
+                  const themeCarrier = themeAnchor ?? (canCarry ? node : null)
+                  const themedRules = themeCarrier
+                    ? (anchoredRules.get(themeCarrier) ?? new Map<string, ReactElement>())
+                    : besidePassThrough
+                      ? (besideRules.get(node) ?? new Map<string, ReactElement>())
+                      : rules
+                  if (themeCarrier) anchoredRules.set(themeCarrier, themedRules)
+                  else if (besidePassThrough) besideRules.set(node, themedRules)
+                  themedRules.set(`${rule.id}:themed`, createElement(ThemedRule, { key: `${rule.id}:themed`, className: rule.ownClassName, css: clientCss }))
+                }
               }
             } else {
               // On server function components, keep css support for true server components.
@@ -675,6 +729,8 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
           // element it would be without them.
           const carriedRules = anchoredRules.get(node)
           if (carriedRules) element = cloneElement(element, undefined, ...childArguments, [...carriedRules.values()])
+          const rulesBeside = besideRules.get(node)
+          if (rulesBeside) element = createElement(Fragment, { key: element.key }, element, [...rulesBeside.values()])
 
           // Store the rendered element so parent nodes can reference it.
           renderedElements.set(node, element)

@@ -27,7 +27,7 @@ beforeEach(() => {
   request.values = new Map()
 })
 
-const { createChildrenFirstNode, createNode, Div, Node } = await import('@src/main.js')
+const { createChildrenFirstNode, createNode, Div, Node, ThemeProvider } = await import('@src/main.js')
 const { ThemedRule } = await import('@src/components/styled-renderer.client.js')
 
 type Element = ReactElement<{ children?: unknown; css?: Record<string, unknown>; className?: string }>
@@ -292,5 +292,49 @@ describe('a themed key on a node with async server children', () => {
 
     expect(themedRules(root)).toHaveLength(1)
     expect(serverRules(root).filter(rule => rule.includes('theme.'))).toEqual([])
+  })
+})
+
+describe('ThemedRule under a component, such as a nested ThemeProvider, that can change the theme', () => {
+  /** Stands in for a provider: a component whose children read whatever theme it supplies. */
+  function Scope({ children }: { children?: unknown }) {
+    return createElement(Fragment, null, children as never)
+  }
+  const themedKey = { '@media (width >= theme.breakpoint.wide)': { color: 'crimson' } }
+  /** The elements rendered inside the first `Scope` in the tree. */
+  const insideScope = (root: Element) => elements(inTree(root).find(e => e.type === Scope)?.props.children)
+
+  it('renders inside the component when a host inside it can carry the rule', () => {
+    const root = Div({ children: Node(Scope, { children: Div({ children: Div({ css: themedKey, children: 'x' }) }) }) }).render() as Element
+
+    expect(themedRules(root)).toHaveLength(1)
+    expect(insideScope(root).filter(e => e.type === ThemedRule)).toHaveLength(1)
+  })
+
+  it('stays with the host above the component when nothing inside it can carry the rule, handing the component its child unchanged', () => {
+    const root = Div({ children: Node(Scope, { children: Node('input', { css: themedKey }) }) }).render() as Element
+    const scope = inTree(root).find(e => e.type === Scope) as Element
+    const slot = (root.props.children as unknown[]).at(-1) as Element[]
+
+    expect((scope.props.children as Element).type).toBe('input')
+    expect(slot.map(e => e.type)).toContain(ThemedRule)
+  })
+
+  it('renders beside an element that cannot carry it when that element is the direct child of a ThemeProvider', () => {
+    const root = Div({
+      children: ThemeProvider({ tokens: { narrow: '1px' }, modes: ['light'], defaultMode: 'light', children: Node('input', { css: themedKey }) }),
+    }).render() as Element
+    const provider = inTree(root).find(e => e.type === ThemeProvider.element) as Element
+    const inside = elements(provider.props.children)
+
+    expect(inside.filter(e => e.type === ThemedRule)).toHaveLength(1)
+    expect(inside.some(e => e.type === 'input')).toBe(true)
+  })
+
+  it('stays with the topmost host when only fragments lie between, which supply no theme', () => {
+    const root = Div({ children: Node(Fragment, { children: Div({ css: themedKey, children: 'x' }) }) }).render() as Element
+    const slot = (root.props.children as unknown[]).at(-1) as Element[]
+
+    expect(slot.map(e => e.type)).toContain(ThemedRule)
   })
 })

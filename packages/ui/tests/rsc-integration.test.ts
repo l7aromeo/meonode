@@ -291,6 +291,39 @@ describe('B. Server -> Client boundary primitives', () => {
 // ----- Category C -----
 
 describe('C. Theme and provider boundaries', () => {
+  // A component that clones its one child, as MUI Tooltip or a Slot does, must be
+  // handed that child itself, whatever rule its css needs. Under `next dev` a host
+  // element sent from a server component fails `Children.only` with or without
+  // MeoNode, so the host case is covered by the production build suite.
+  it('hands a server component with a themed css key to a client component that clones its one child, as that child', async () => {
+    const testId = 'only-child-component'
+    const { status, html, computedStyles } = await getPage('/theme/only-child-themed-key/component', {
+      computedStyles: [{ testId, properties: ['color'] }],
+    })
+    expect(status).toBe(200)
+    assertNoRscErrors(html)
+    const element = html.match(new RegExp(`<input[^>]*data-testid="${testId}"[^>]*>`))?.[0] ?? ''
+    expect(element).toContain('data-cloned="yes"')
+    expect(element).toContain('data-ref-attached="yes"')
+    expect(computedStyles[testId].color).toBe('rgb(0, 128, 0)')
+  })
+
+  describe('a css key using a token only a nested ThemeProvider defines, in a server component', () => {
+    const unresolved = 'holds a theme token that could not be resolved'
+
+    it.each([
+      ['an element inside it', '/theme/nested-provider-key', 'nested-provider-key-host', 'rgb(0, 128, 0)'],
+      ['a void element directly inside it', '/theme/nested-provider-key-void', 'nested-provider-key-void', 'rgb(0, 0, 128)'],
+    ])('resolves against that provider for %s', async (_, route, testId, color) => {
+      const { status, messages, computedStyles } = await getPage(route, {
+        computedStyles: [{ testId, properties: ['color'] }],
+      })
+      expect(status).toBe(200)
+      expect(computedStyles[testId].color).toBe(color)
+      expect(messages.filter(text => text.includes(unresolved))).toEqual([])
+    })
+  })
+
   it('ThemeProvider wraps server-composed children', async () => {
     const { status, html } = await getPage('/theme/server-children')
     expect(status).toBe(200)

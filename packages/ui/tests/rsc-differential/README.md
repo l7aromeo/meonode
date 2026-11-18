@@ -16,7 +16,8 @@ a stubbed graph renders nothing for the older side of the comparison.
   measures with `data-probe`. Tokens in values, at-rule conditions and selectors;
   nested at-rules; every `css` shape; theme functions; host tags, `as`,
   `createNode`, `createChildrenFirstNode`, function components, `next/link`;
-  `className` handed in; async, Suspense and `'use cache'`.
+  `className` handed in; a nested `ThemeProvider`; async, Suspense and
+  `'use cache'`.
 - **`fixture/`**: the Next app. Every case is mounted under four layouts:
   - `cp`: `ThemeProvider` in a `'use client'` component
   - `sp`: `ThemeProvider` called from a server layout

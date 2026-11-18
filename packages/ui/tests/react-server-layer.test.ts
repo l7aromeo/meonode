@@ -99,6 +99,34 @@ describe('the runtime in the React Server Components layer', () => {
     expect(dropped[0]).not.toContain('no ThemeProvider')
   })
 
+  // ThemeProvider is a client reference here, as a bundler makes it. Its factory
+  // registers that very object, so the walk recognises it whatever the bundler
+  // made of it, and a rule its direct child needs can render inside its context.
+  it('renders the themed rule a direct child of ThemeProvider needs inside the provider', async () => {
+    const { ThemedRule } = await import('@src/components/styled-renderer.client.js')
+    const root = main
+      .Div({
+        children: main.ThemeProvider({
+          tokens: { narrow: '1px' },
+          modes: ['light'],
+          defaultMode: 'light',
+          children: main.Input({ css: { '@media (min-width: theme.narrow)': { color: 'green' } } }),
+        }),
+      })
+      .render() as ReactElement<{ children: unknown }>
+    const all = (node: unknown): ReactElement<{ children?: unknown }>[] =>
+      Array.isArray(node)
+        ? node.flatMap(all)
+        : isValidElement(node)
+          ? [node as ReactElement<{ children?: unknown }>, ...all((node as ReactElement<{ children?: unknown }>).props.children)]
+          : []
+    const provider = all(root).find(element => element.type === main.ThemeProvider.element)
+    const inside = all(provider?.props.children)
+
+    expect((main.ThemeProvider.element as { $$typeof?: symbol }).$$typeof).toBe(Symbol.for('react.client.reference'))
+    expect(inside.map(element => element.type)).toEqual(expect.arrayContaining(['input', ThemedRule]))
+  })
+
   it('returns what a render-prop child returns', () => {
     const result = Promise.resolve(1)
     expect(nodeUtil.functionRenderer({ render: () => result } as never)).toBe(result)

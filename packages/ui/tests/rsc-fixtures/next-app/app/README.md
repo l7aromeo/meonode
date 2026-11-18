@@ -9,6 +9,9 @@ This fixture app uses taxonomy-first routes so each page has one clear test purp
   - `/boundary/node-in-prop`: a node in a prop the receiver renders as a React node (server slot, client slot across Flight, Suspense fallback)
 - `/theme/*`:
   - ThemeProvider boundaries and token resolution
+  - `/theme/nested-provider-key`: a `css` key using a token only a nested ThemeProvider defines, in a server component
+  - `/theme/nested-provider-key-void`: the same on a void element that is the nested provider's direct child
+  - `/theme/only-child-themed-key/component`: a server component with a themed `css` key, as the one child a client component clones
 - `/providers/*`:
   - cross-cutting provider plumbing (portal/style-registry)
 - `/link/*`:
