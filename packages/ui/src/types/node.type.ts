@@ -373,9 +373,26 @@ export type ThemedCSSObject = ThemedCSSPropertiesPartial & {
 type CssPropNonObject = Exclude<ThemedCSSInterpolation, ThemedCSSObject | ComponentSelector | number>
 
 /**
- * The complete type for the `css` prop.
+ * A style object typed elsewhere, such as React's `CSSProperties` or csstype's
+ * `Properties`. These are interfaces, and an interface has no implicit index
+ * signature, so they cannot be assigned to {@link ThemedCSSObject}; this takes
+ * their known properties, with the same value types.
+ *
+ * Every property is optional, which makes it a weak type: TypeScript rejects a
+ * value sharing none of its properties, such as a number or a component
+ * selector. A factory call relates `css` to an intersection, where that check is
+ * skipped, so {@link CssGuard} rejects those there.
  */
-export type CssProp = ThemedCSSObject | CssPropNonObject
+type TypedCSSObject = ThemedCSSPropertiesPartial
+
+/**
+ * The complete type for the `css` prop.
+ *
+ * Emotion's own `CSSObject` is not one: its properties allow values no fallback
+ * list here takes, such as `padding: [1, 2]`, which Emotion's runtime also drops.
+ * Pass it through Emotion's `css()`, as `css: css(emotionObject)`.
+ */
+export type CssProp = ThemedCSSObject | TypedCSSObject | CssPropNonObject
 
 // ============================================================================
 // NODE PROPS TYPES
@@ -551,6 +568,17 @@ export type NodeProps<E extends NodeElementType = NodeElementType> = WithNodePro
   BaseNodeProps<E>
 
 /**
+ * Rejects a `css` that is not a style, as a number or a component selector, where
+ * a factory infers it.
+ *
+ * There `css` is checked against `CssProp & <its own type>`, and TypeScript does
+ * not check an intersection for weak types, so {@link TypedCSSObject} would take
+ * either. Annotated as `CssProp`, both are already rejected.
+ * @template AdditionalProps - The props a factory inferred
+ */
+type CssGuard<AdditionalProps> = AdditionalProps extends { css?: infer C } ? ([C] extends [number | ComponentSelector] ? { css?: never } : unknown) : unknown
+
+/**
  * Merges `NodeProps<E>` with additional custom props, giving precedence to `AdditionalProps`.
  * Useful for extending node props with extra properties, while overriding any overlapping keys.
  * @template E - The node element type
@@ -558,7 +586,8 @@ export type NodeProps<E extends NodeElementType = NodeElementType> = WithNodePro
  */
 export type MergedProps<E extends NodeElementType, AdditionalProps, ExactProps> = NodeProps<E> &
   ValidateComponentProps<E, ExactProps> &
-  (AdditionalProps extends undefined ? ValidateComponentProps<E, ExactProps> : AdditionalProps)
+  (AdditionalProps extends undefined ? ValidateComponentProps<E, ExactProps> : AdditionalProps) &
+  CssGuard<AdditionalProps>
 
 /**
  * The polymorphic `as` key (Emotion-style element polymorphism).

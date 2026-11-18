@@ -487,12 +487,14 @@ export class ThemeUtil {
   public static splitThemedCss = (css: CssProp): { plain: CssProp; themed: CssProp | undefined } => {
     if (!ThemeUtil.hasThemeTokenInKey(css)) return { plain: css, themed: undefined }
     if (!ThemeUtil.isPlainObject(css)) return { plain: {}, themed: css }
+    // `CssProp` takes style objects typed elsewhere, which have no index signature.
+    const source: Record<string, unknown> = css
     const plain: Record<string, unknown> = {}
     const themed: Record<string, unknown> = {}
     let reached = false
-    for (const key in css) {
-      if (!Object.prototype.hasOwnProperty.call(css, key)) continue
-      const value = css[key]
+    for (const key in source) {
+      if (!Object.prototype.hasOwnProperty.call(source, key)) continue
+      const value = source[key]
       if (!ThemeUtil.isPlainObject(value)) {
         plain[key] = value
         continue
