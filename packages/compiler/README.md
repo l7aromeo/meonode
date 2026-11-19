@@ -44,6 +44,18 @@ compiler records the answer and `@meonode/ui` passes generated children to
 `createElement` as one array instead of spreading them, which is what makes
 React ask for the keys a list needs.
 
+An identifier that hands on the `children` the enclosing component or helper
+was given is the exception: `({ children }) => Div({ children })`,
+`props.children`, `props?.children`, `rest.children`, a renamed
+`{ children: kids }`, an unchanged alias of one of these, and
+`this.props.children` in a class component. Those children were written at the
+caller, so the wrapper's call site carries no `__meo$list`. The binding must be
+the `children` of the function's first parameter, never reassigned, and the
+function must not be a callback written inline in a call (other than React's
+`memo` and `forwardRef`), whose first parameter is whatever the callee hands
+it. A value derived from the children (`children.filter(…)`,
+`[...children, extra]`) is still generated.
+
 `@meonode/ui`'s runtime fast path detects the `__meo$` marker and uses the
 namespaced buckets directly instead of re-deriving them, skipping the
 classification pass entirely.
@@ -515,7 +527,7 @@ requirements](#runtime-version-requirements) rather than emitted.
 | `__meo$d` | Bucket of props recognized as dynamic/DOM props (omitted if empty; schema 2 only). |
 | `__meo$k` | Deterministic call-site key (`m` + base36 FNV-1a64 hash of `filename:span`), used by the runtime to key the generated class name without re-hashing the prop signature. |
 | `__meo$dyn` | Names of bucketed props (from `__meo$c` or `__meo$d`) whose value isn't a plain literal — i.e. props the runtime still needs to treat as reactive/dynamic, in first-occurrence source order (omitted if empty). |
-| `__meo$list` | Present, as `1`, only when this call site's `children` expression was *generated* rather than written out. Absent otherwise — there is no `0`. |
+| `__meo$list` | Present, as `1`, only when this call site's `children` expression was *generated* rather than written out or passed through from the caller. Absent otherwise — there is no `0`. |
 | `__meo$loc` | `file:line:column` of a call site carrying `__meo$list`, emitted only when [`callSiteLocations`](#callsitelocations--where-a-generated-list-was-written) is enabled. |
 
 Forward-compat policy: the runtime checks `__meo$` against the schema

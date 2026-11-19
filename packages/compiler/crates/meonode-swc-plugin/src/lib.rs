@@ -31,6 +31,10 @@ mod factories;
 // `partition` (dyn-list classification).
 mod effect;
 
+// Bindings that hand on a caller's `children` unchanged, which `detect`
+// classifies as passed through rather than generated.
+mod pass_through;
+
 // Shared prop-key utilities (special-key set, key-name extraction) used by
 // both `detect` and `partition` — see module docs for why they must agree.
 mod keys;
