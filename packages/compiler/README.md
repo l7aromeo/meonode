@@ -117,7 +117,7 @@ CSS variables are invalid in media features and selector text.
 | Benchmark | Result |
 | --- | --- |
 | Node construction in isolation (`@meonode/ui`'s `bench/node-construction.mjs`) | **3.06–3.16x faster** |
-| Client render, mount plus 20 re-renders, token-free (`@meonode/ui`'s `bench/client-render.mjs`) | **1.11–1.16x faster** |
+| Client render, mount plus 40 re-renders, token-free (`@meonode/ui`'s `bench/client-render.mjs`) | **1.11–1.16x faster** |
 | Client render, the same with a token in every style value | **1.18–1.19x faster** |
 | End-to-end SSR, 156-node tree, partitioning + theme rewrite (`e2e/bench-theme-tokens.mjs`) | **1.32–1.39x faster** (24.2–28.1% less time) |
 | End-to-end SSR, partitioning only (`--no-tokens`) | **1.15–1.18x faster** (13.2–14.9% less time) |
