@@ -962,6 +962,23 @@ describe('Component HOC across the hydration boundary', () => {
   })
 })
 
+describe('useId in client components rendered below styled nodes', () => {
+  it('hydrates with the ids the server sent, below every kind of styled element', async () => {
+    // `getPage` fails on any hydration mismatch, which a moved id shows as text.
+    const { status, html } = await getPage('/id-under-styles')
+
+    expect(status).toBe(200)
+    assertNoRscErrors(html)
+    const ids = [...html.matchAll(/data-testid="id-probe-value-([a-z-]+)"[^>]*>([^<]*)</g)].map(m => m[2])
+    expect(ids.length).toBe(7)
+    expect(new Set(ids).size).toBe(7)
+    // MUI's own ids hydrated as the server sent them: the label points at its input.
+    const input = /<input[^>]*\bid="([^"]+)"/.exec(html)?.[1]
+    expect(input).toBeTruthy()
+    expect(html).toContain(`for="${input}"`)
+  })
+})
+
 describe('server styles under concurrency', () => {
   // The server Emotion cache is what a render mutates while collecting styles,
   // and `StyleRegistry` flushes it into the response. A cache shared by every
@@ -1188,5 +1205,37 @@ describe('a node in a prop the receiving component renders', () => {
     const html = await (await fetch(`${base()}${PAGE}`)).text()
     expect(html).toContain('fallback-content')
     expect(html.indexOf('fallback-content')).toBeLessThan(html.indexOf('suspended-content'))
+  })
+})
+
+describe('elements already built, placed as children in a server component', () => {
+  const PAGE = '/built-elements'
+  const IDS = ['built-in-host', 'created-in-host', 'built-in-disabled', 'built-in-client-child', 'built-in-client-component']
+  const expected = (id: string) => ({ id, width: '40', height: '30', style: 'opacity:0.5' })
+  const TOKEN_STYLE = /<span\b[^>]*\bid="built-style-token"[^>]*\bstyle="color:\s?var\(--meonode-theme-primary-default\);?"/
+
+  /** The attributes of the img with this id, in a document's markup. */
+  const attributesOf = (html: string, id: string) => {
+    const tag = html.match(new RegExp(`<img\\b[^>]*\\bid="${id}"[^>]*>`))?.[0] ?? ''
+    const attribute = (name: string) => tag.match(new RegExp(`\\b${name}="([^"]*)"`))?.[1]?.replace(/[\s;]/g, '') ?? null
+    return { id, width: attribute('width'), height: attribute('height'), style: attribute('style') }
+  }
+
+  it('keep their attributes and inline style in the server HTML, a theme token as its variable', async () => {
+    const html = await (await fetch(`${base()}${PAGE}`)).text()
+    assertNoRscErrors(html)
+    for (const id of IDS) expect(attributesOf(html, id)).toEqual(expected(id))
+    expect(html).toMatch(TOKEN_STYLE)
+  })
+
+  it('keep them after hydration, which reports no mismatch', async () => {
+    const { status, html, computedStyles } = await getPage(PAGE, {
+      computedStyles: [...IDS.map(testId => ({ testId, properties: ['opacity'] })), { testId: 'built-style-token', properties: ['color'] }],
+    })
+    expect(status).toBe(200)
+    for (const id of IDS) expect(attributesOf(html, id)).toEqual(expected(id))
+    for (const id of IDS) expect({ id, opacity: computedStyles[id]?.opacity }).toEqual({ id, opacity: '0.5' })
+    expect(html).toMatch(TOKEN_STYLE)
+    expect(computedStyles['built-style-token']?.color).toBe('rgb(255, 107, 107)')
   })
 })
