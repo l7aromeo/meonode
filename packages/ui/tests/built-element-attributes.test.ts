@@ -3,6 +3,7 @@
 // css was decided when it was built. Placed as a child of a node, it keeps the
 // attributes and the inline style it was built with, wherever it is placed, and
 // with Emotion disabled it renders as the same node unbuilt renders there.
+import { Button, Tooltip } from '@mui/material'
 import { createElement, type ReactElement, type ReactNode } from 'react'
 import { cleanup, render } from '@testing-library/react'
 import { Div, Img, Node, Span, ThemeProvider } from '@src/main.js'
@@ -89,6 +90,18 @@ describe.each(builtElements)('%s, placed as a child of a node with Emotion disab
     expect(allAttributes(Div({ disableEmotion: true, children: build() }).render())).toEqual(
       allAttributes(Div({ disableEmotion: true, children: unbuilt() as never }).render()),
     )
+  })
+})
+
+describe.each(builtElements)('%s, placed as the child of an MUI component', (_, build) => {
+  const own = () => rendered(build())
+
+  it('that renders it keeps its attributes', () => {
+    expect(rendered(Node(Button, { children: build() }).render())).toEqual(own())
+  })
+
+  it('that clones it keeps its attributes', () => {
+    expect(rendered(Node(Tooltip, { title: 'tip', children: build() }).render())).toEqual(own())
   })
 })
 
