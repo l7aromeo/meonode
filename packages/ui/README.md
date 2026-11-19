@@ -496,7 +496,7 @@ extracts critical CSS for SSR.
 
 📚 **[Complete Documentation & Examples](https://ui.meonode.com)**
 
-🎮 **[Interactive Playground](https://codesandbox.io/p/github/l7aromeo/nextjs-meonode/main?import=true)**
+🧪 **Example apps:** [Next.js](https://github.com/l7aromeo/meonode-nextjs) · [Vite](https://github.com/l7aromeo/meonode-vite)
 
 ## Contributing
 
