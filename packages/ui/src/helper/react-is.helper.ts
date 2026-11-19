@@ -250,3 +250,18 @@ export const isReactClassComponent = (component: unknown): component is React.Co
   const prototype = component.prototype
   return !!(prototype && prototype.isReactComponent)
 }
+
+/**
+ * Whether `value` is a client reference: what a React Server Component receives
+ * for a client module's export, which the server must not call.
+ * @param value Any value.
+ * @returns `true` for a client reference.
+ */
+export function isClientReference(value: unknown): boolean {
+  if (!value || (typeof value !== 'object' && typeof value !== 'function')) return false
+  try {
+    return (value as { $$typeof?: symbol }).$$typeof === REACT_CLIENT_REFERENCE
+  } catch {
+    return false
+  }
+}

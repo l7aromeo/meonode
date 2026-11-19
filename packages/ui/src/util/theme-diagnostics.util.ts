@@ -44,6 +44,9 @@ export const diagnosticsEnabled = (): boolean => __DEBUG__ || isDevMode()
  */
 const reported = new Set<string>()
 
+/** Objects already reported by {@link reportReservedStylesKey}; held weakly, as a style object can be a render's literal. */
+let reportedReservedOwners = new WeakSet<object>()
+
 /**
  * Warns once per key.
  * @param seenKey What makes this report distinct.
@@ -437,6 +440,36 @@ export const reportUnresolvedThemeKey = (key: string): void => {
  * element has to move into a client component.
  * @param property The CSS property the function was written against, when known.
  */
+
+/**
+ * A `styles` key in a style that holds something other than a string, which is
+ * left out of the style (see `holdsReservedStylesKey`). Reported once per
+ * object, and once per place and shape: a factory's css is checked before and
+ * after it is combined with the call site's, and the first report names the css
+ * the object was written in; an inline literal is a new object on every render,
+ * with the same place and keys; and two components that make the mistake at the
+ * same place with different keys are both reported. One a theme function returns
+ * has no place in the css as written, and is reported once per shape.
+ * `checkCss` and `checkThemeFunctionResult` call this only while diagnostics are on.
+ * @param owner The object holding the `styles` key.
+ * @param at Where the object sits in `css`, such as `css["&:hover"]`, or `undefined` when a theme function returned it.
+ */
+export const reportReservedStylesKey = (owner: Record<string, unknown>, at: string | undefined): void => {
+  if (reportedReservedOwners.has(owner)) return
+  reportedReservedOwners.add(owner)
+  const { styles } = owner
+  const shape = `${Object.keys(owner).join(',')}|${typeof styles === 'object' && styles !== null ? Object.keys(styles).join(',') : typeof styles}`
+  const seenKey = `reserved-styles:${at ?? ''}:${shape}`
+  if (reported.has(seenKey)) return
+  reported.add(seenKey)
+  const subject = at === undefined ? 'A theme function returned a `styles` key' : `\`${at}\` has a \`styles\` key`
+  console.warn(
+    `[MeoNode] ${subject} that holds no string. Emotion reserves \`styles\` for serialized styles, ` +
+      'such as what `css()` returns, and would write that object from it alone, so the key was left out and the rest of the object applies. ' +
+      'Rename the key.',
+  )
+}
+
 export const reportDroppedThemeFunction = (property?: string): void => {
   if (!diagnosticsEnabled()) return
   const subject = `A theme function ${property ? `for \`${property}\` ` : ''}was dropped`
@@ -469,9 +502,57 @@ export const reportUncomposedClass = (className: string): void => {
   )
 }
 
-/** Test seam: clears the once-per-problem memo. */
+/**
+ * What each mounted provider gives each variable it declares, by variable. Kept
+ * only while diagnostics are on, for the check between providers that are not
+ * nested in one another.
+ */
+const mountedVars = new Map<string, Map<object, unknown>>()
+
+/**
+ * Records a mounted provider's own tokens until the returned cleanup runs, and
+ * reports each one another mounted provider gives another value. Providers
+ * declare their tokens on `:root`, so two that are not nested share them as a
+ * nested pair does: whichever declaration comes later applies to the whole page.
+ * Shares the nested check's report key, so a token is reported once whichever
+ * check meets it first.
+ * @param owner Identifies the provider.
+ * @param own What the provider itself defines.
+ * @returns Removes the record.
+ */
+export const trackProviderVars = (owner: object, own: ThemeVarIndex): (() => void) => {
+  for (const [varName, value] of own) {
+    let owners = mountedVars.get(varName)
+    if (!owners) mountedVars.set(varName, (owners = new Map()))
+    // `primary: { default: … }` defines `theme.primary` and `theme.primary.default`
+    // with one value; the token is reported once, by its shorter name.
+    const isDefaultLeaf = varName.endsWith(DEFAULT_SUFFIX) && Object.is(own.get(varName.slice(0, -DEFAULT_SUFFIX.length)), value)
+    if (!isDefaultLeaf)
+      for (const other of owners.values())
+        if (!Object.is(other, value)) {
+          report(
+            `redefined:${varName}`,
+            `Two mounted ThemeProviders give ${toReadablePath(varName)} the values ${JSON.stringify(other)} and ${JSON.stringify(value)}. ` +
+              'Tokens are declared on :root, so whichever comes later applies to the whole page. Give one of them a name of its own.',
+          )
+          break
+        }
+    owners.set(owner, value)
+  }
+  return () => {
+    for (const varName of own.keys()) {
+      const owners = mountedVars.get(varName)
+      owners?.delete(owner)
+      if (owners?.size === 0) mountedVars.delete(varName)
+    }
+  }
+}
+
+/** Test seam: clears the once-per-problem memo and the record of mounted providers. */
 export const __resetThemeDiagnostics = (): void => {
   reported.clear()
+  reportedReservedOwners = new WeakSet()
+  mountedVars.clear()
   // `NODE_ENV` is captured once at module load, so a test that stubs it needs
   // the captured value re-read. Routed through this seam because the tests that
   // stub the environment already call it immediately afterwards — putting the

@@ -308,6 +308,44 @@ describe('C. Theme and provider boundaries', () => {
     expect(computedStyles[testId].color).toBe('rgb(0, 128, 0)')
   })
 
+  describe("theme tokens in Emotion's css() and keyframes() results", () => {
+    const testId = 'serialized-styles'
+    const lengthRef = 'var(--meonode-theme-spacing-md--len, var(--meonode-theme-spacing-md))'
+
+    // `@emotion/react` cannot load in a server component, so the server page
+    // serializes with `@emotion/serialize`, which `css()` calls.
+    it('render with their length unit from a server component', async () => {
+      const { status, html, computedStyles } = await getPage('/theme/serialized-styles/server', {
+        computedStyles: [{ testId, properties: ['padding-top'] }],
+      })
+      expect(status).toBe(200)
+      assertNoRscErrors(html)
+      expect(computedStyles[testId]['padding-top']).toBe('16px')
+    })
+
+    it('render with their length unit from a client component, keyframes too', async () => {
+      const { status, html, computedStyles } = await getPage('/theme/serialized-styles/client', {
+        computedStyles: [
+          { testId, properties: ['padding-top'] },
+          { testId: `${testId}-keyframes`, properties: ['animation-name'] },
+        ],
+      })
+      expect(status).toBe(200)
+      assertNoRscErrors(html)
+      expect(computedStyles[testId]['padding-top']).toBe('16px')
+      expect(computedStyles[`${testId}-keyframes`]['animation-name']).toMatch(/^animation-/)
+      expect(html).toContain(`margin-left:${lengthRef}`)
+    })
+
+    it('give the element the same class from either side', async () => {
+      const server = await getPage('/theme/serialized-styles/server')
+      const client = await getPage('/theme/serialized-styles/client')
+      const serverClassName = getElementClassNameByTestId(server.html, testId)
+      expect(serverClassName).toBeTruthy()
+      expect(serverClassName).toBe(getElementClassNameByTestId(client.html, testId))
+    })
+  })
+
   describe('a css key using a token only a nested ThemeProvider defines, in a server component', () => {
     const unresolved = 'holds a theme token that could not be resolved'
 
@@ -377,6 +415,35 @@ describe('C. Theme and provider boundaries', () => {
     expect(status).toBe(200)
     assertNoRscErrors(html)
     expect(html).toContain('portal-host-present')
+  })
+
+  // A theme function in `css` runs where the theme is: in a server component that
+  // is a node `theme` prop. What it returns is converted as the client converts
+  // it, or a numeric token arrives without its unit and the length is 0.
+  describe('theme functions in css under a node theme prop', () => {
+    const computedStyles = [
+      { testId: 'fn-value', properties: ['padding-top'] },
+      { testId: 'fn-style-child', properties: ['padding-left'] },
+    ] as const
+
+    it.each(['server', 'client'])('give a numeric token its unit in a %s component', async side => {
+      const { status, html, computedStyles: styles } = await getPage(`/theme/function-style/${side}`, { computedStyles })
+      expect(status).toBe(200)
+      assertNoRscErrors(html)
+      expect(styles['fn-value']['padding-top']).toBe('16px')
+      expect(styles['fn-style-child']['padding-left']).toBe('16px')
+    })
+
+    it('compile the same class in a server and a client component', async () => {
+      const [server, client] = await Promise.all([getPage('/theme/function-style/server'), getPage('/theme/function-style/client')])
+      // The server names a class it compiles `meonode-css-…`, Emotion `css-…`; the
+      // hash is the css.
+      const hash = (html: string, testId: string) => getElementClassNameByTestId(html, testId)?.match(/(?:^|\s)(?:meonode-)?css-([a-z0-9]+)/)?.[1]
+      for (const testId of ['fn-value', 'fn-style']) {
+        expect(hash(server.html, testId)).toBeTruthy()
+        expect(hash(server.html, testId)).toBe(hash(client.html, testId))
+      }
+    })
   })
 
   it('StyleRegistry collects critical CSS from multiple styled nodes', async () => {
@@ -555,6 +622,42 @@ describe('G. Regression guards', () => {
 // ----- Category L -----
 
 describe('L. Diagnostics and anti-pattern documentation', () => {
+  it('rejects a component selector passed as css in a server component, naming where it sits', async () => {
+    const { status, html } = await getPage('/diagnostic/css-component-selector', { allowRuntimeErrors: true })
+    expect(status).toBe(500)
+    expect(html).toContain('is an Emotion styled component or component selector')
+  })
+
+  it('rejects a client module export passed as css in a server component, naming where it sits', async () => {
+    const { status, html } = await getPage('/diagnostic/css-client-reference', { allowRuntimeErrors: true })
+    expect(status).toBe(500)
+    expect(html).toContain('is a client component or a client module export, which is not a style')
+  })
+
+  // Emotion reserves `styles` for serialized styles, and writes an object whose
+  // `styles` is set from that key alone; its development build crashes on one
+  // holding no string. The key is left out, so the rest of the object renders.
+  it.each(['server', 'client'])('leaves out a styles key holding no string in a %s component, rendering the rest', async side => {
+    const {
+      status,
+      html,
+      computedStyles: styles,
+    } = await getPage(`/diagnostic/css-reserved-styles/${side}`, {
+      computedStyles: [
+        { testId: 'reserved-top', properties: ['padding-top', 'padding-bottom'] },
+        { testId: 'reserved-nested-child', properties: ['padding-left', 'color'] },
+        { testId: 'reserved-array', properties: ['margin-left', 'margin-top'] },
+        { testId: 'reserved-themed', properties: ['padding-top', 'padding-right'] },
+      ],
+    })
+    expect(status).toBe(200)
+    assertNoRscErrors(html)
+    expect(styles['reserved-top']).toEqual({ 'padding-top': '0px', 'padding-bottom': '8px' })
+    expect(styles['reserved-nested-child']).toEqual({ 'padding-left': '6px', color: 'rgb(0, 0, 128)' })
+    expect(styles['reserved-array']).toEqual({ 'margin-left': '0px', 'margin-top': '5px' })
+    expect(styles['reserved-themed']).toEqual({ 'padding-top': '0px', 'padding-right': '16px' })
+  })
+
   it('reports an undefined theme token in development, on the server and in the browser', async () => {
     const warning = 'theme.primary.missing (used for `color`) is not defined by the active theme'
     const { status, messages } = await getPage('/theme/undefined-token')

@@ -2,8 +2,19 @@ import type { CSSProperties } from '@emotion/serialize'
 import type { CssProp, Theme } from '@src/types/node.type.js'
 import { isInPrelude, keyHasThemeToken, removeBlocksWithThemeTokens, replaceKeyTokens, textHasThemeTokenInPrelude } from '@src/util/theme-key.util.js'
 import { getValueByPath } from '@src/helper/common.helper.js'
-import { CSS_TEXT, isLengthFallbackList, isSelectorOrAtRule, themeVarRef, type TokenContext } from '@src/util/css-unit.util.js'
-import { isMergeableCss } from '@src/util/css.util.js'
+import {
+  CSS_TEXT,
+  holdsReservedStylesKey,
+  isLengthFallbackList,
+  isSelectorOrAtRule,
+  isSerializedRecordKey,
+  isSerializedStyles,
+  themeVarRef,
+  type TokenContext,
+  valueContext,
+} from '@src/util/css-unit.util.js'
+import { checkThemeFunctionResult, isComponentSelector, isMergeableCss } from '@src/util/css.util.js'
+import { isClientReference } from '@src/helper/react-is.helper.js'
 import { reportDroppedThemeFunction } from '@src/util/theme-diagnostics.util.js'
 import { replaceThemeTokensWithCssVars } from '@src/util/server-theme.util.js'
 
@@ -125,6 +136,30 @@ const SCAN_WORK_OR_UNKNOWN = 1
 const SCAN_MAX_DEPTH = 16
 
 /**
+ * Whether `value` is a theme function (`theme => …`). On the server Emotion's
+ * styled components are functions too; one is not called with the theme, and is
+ * passed through as any component selector is (see {@link isComponentSelector}).
+ */
+const isThemeFunction = (value: unknown): value is (theme: Theme) => unknown => typeof value === 'function' && !isComponentSelector(value)
+
+/**
+ * Calls a theme function with the theme. A client reference, which is what a
+ * server component receives for a client module's export, is a function too, and
+ * throws when the server calls it; it is no style, so it resolves to nothing and
+ * Emotion writes nothing for it. Development rejects one where it is written.
+ * What the function returns is checked as written css is (see `checkThemeFunctionResult`).
+ * @param fn The theme function.
+ * @param theme The theme to call it with.
+ * @returns What it returns, or `undefined` for a client reference.
+ */
+const callThemeFunction = (fn: (theme: Theme) => unknown, theme: Theme): unknown => {
+  if (isClientReference(fn)) return undefined
+  const result = fn(theme)
+  checkThemeFunctionResult(result)
+  return result
+}
+
+/**
  * Read-only, allocation-free test for whether {@link ThemeUtil.resolveObjWithTheme}
  * would change anything.
  *
@@ -145,6 +180,8 @@ const SCAN_MAX_DEPTH = 16
  * - Function values count as work when `processFunctions` is set, because the
  *   walk calls them and substitutes the result. When it is not set, the walk
  *   leaves them alone, so they are not work.
+ * - Emotion's record in serialized styles is skipped, as the walk skips it
+ *   (see {@link isSerializedRecordKey}).
  * @param value The value to scan.
  * @param processFunctions Whether the caller will invoke callable values.
  * @param depth Current recursion depth, against {@link SCAN_MAX_DEPTH}.
@@ -154,7 +191,7 @@ function scanForThemeWork(value: unknown, processFunctions: boolean, depth: numb
   if (typeof value === 'string') {
     return value.includes('theme.') ? SCAN_WORK_OR_UNKNOWN : SCAN_NO_WORK
   }
-  if (typeof value === 'function') {
+  if (isThemeFunction(value)) {
     return processFunctions ? SCAN_WORK_OR_UNKNOWN : SCAN_NO_WORK
   }
   if (typeof value !== 'object' || value === null) return SCAN_NO_WORK
@@ -169,8 +206,9 @@ function scanForThemeWork(value: unknown, processFunctions: boolean, depth: numb
 
   if (!ThemeUtil.isPlainObject(value)) return SCAN_NO_WORK
 
+  const serialized = isSerializedStyles(value)
   for (const key in value) {
-    if (!Object.prototype.hasOwnProperty.call(value, key)) continue
+    if (!Object.prototype.hasOwnProperty.call(value, key) || (serialized && isSerializedRecordKey(key))) continue
     if (key.includes('theme.')) return SCAN_WORK_OR_UNKNOWN
     if (scanForThemeWork(value[key], processFunctions, depth + 1) !== SCAN_NO_WORK) return SCAN_WORK_OR_UNKNOWN
   }
@@ -183,7 +221,7 @@ function scanForThemeWork(value: unknown, processFunctions: boolean, depth: numb
  * here means that walk would return its input unchanged.
  */
 function containsFunction(value: unknown, depth: number): boolean {
-  if (typeof value === 'function') return true
+  if (isThemeFunction(value)) return true
   if (typeof value !== 'object' || value === null) return false
   if (depth >= SCAN_MAX_DEPTH) return true
   if (Array.isArray(value)) {
@@ -191,8 +229,10 @@ function containsFunction(value: unknown, depth: number): boolean {
     return false
   }
   if (!ThemeUtil.isPlainObject(value)) return false
+  const serialized = isSerializedStyles(value)
   for (const key in value) {
-    if (Object.prototype.hasOwnProperty.call(value, key) && containsFunction(value[key], depth + 1)) return true
+    if (!Object.prototype.hasOwnProperty.call(value, key) || (serialized && isSerializedRecordKey(key))) continue
+    if (containsFunction(value[key], depth + 1)) return true
   }
   return false
 }
@@ -215,7 +255,7 @@ const dropThemeFunctions = <T>(value: T, property?: string, path: Set<unknown> =
   if (Array.isArray(value)) {
     const items: unknown[] = []
     for (const item of value) {
-      if (typeof item === 'function') {
+      if (isThemeFunction(item)) {
         reportDroppedThemeFunction(property)
         changed = true
         continue
@@ -227,11 +267,16 @@ const dropThemeFunctions = <T>(value: T, property?: string, path: Set<unknown> =
     result = items
   } else {
     const obj: Record<string, unknown> = {}
+    const serialized = isSerializedStyles(value as Record<string, unknown>)
     for (const key in value as Record<string, unknown>) {
       if (!Object.prototype.hasOwnProperty.call(value, key)) continue
       const item = (value as Record<string, unknown>)[key]
+      if (serialized && isSerializedRecordKey(key)) {
+        obj[key] = item
+        continue
+      }
       const itemProperty = isSelectorOrAtRule(key) ? property : key
-      if (typeof item === 'function') {
+      if (isThemeFunction(item)) {
         reportDroppedThemeFunction(itemProperty)
         changed = true
         continue
@@ -244,6 +289,50 @@ const dropThemeFunctions = <T>(value: T, property?: string, path: Set<unknown> =
   }
   path.delete(value)
   return (changed ? result : value) as T
+}
+
+/**
+ * Leaves out of a style what Emotion cannot write, at any depth: a `styles` key
+ * that holds no string (see {@link holdsReservedStylesKey}), and, given
+ * `report`, an entry whose key still holds a `theme.` token. Copy-on-write, so a
+ * style with nothing to leave out comes back as the same object.
+ * @param css The resolved `css` value.
+ * @param report Called with each themed key removed, or `null` to keep them.
+ * @returns `css` itself when nothing is removed, otherwise a copy without it.
+ */
+const dropUnwritable = <T>(css: T, report: ((key: string) => void) | null): T => {
+  if (typeof css === 'string') return (report === null ? css : removeBlocksWithThemeTokens(css, report)) as T
+  if (Array.isArray(css)) {
+    let changed = false
+    const items = css.map(item => {
+      const next = dropUnwritable(item, report)
+      if (next !== item) changed = true
+      return next
+    })
+    return (changed ? items : css) as T
+  }
+  if (!ThemeUtil.isPlainObject(css)) return css
+  const reserved = holdsReservedStylesKey(css)
+  let result: Record<string, unknown> | null = null
+  if (reserved) {
+    result = { ...css }
+    delete result.styles
+  }
+  for (const key in css) {
+    if (!Object.prototype.hasOwnProperty.call(css, key) || (reserved && key === 'styles')) continue
+    if (report !== null && keyHasThemeToken(key)) {
+      report(key)
+      result ??= { ...css }
+      delete result[key]
+      continue
+    }
+    const next = dropUnwritable(css[key], report)
+    if (next !== css[key]) {
+      result ??= { ...css }
+      result[key] = next
+    }
+  }
+  return (result ?? css) as T
 }
 
 /** The options `ThemeUtil.resolveObjWithTheme` takes. */
@@ -288,8 +377,8 @@ const resolveItems = (items: unknown[], context: TokenContext, resolvedValues: M
   for (let i = 0; i < items.length; i++) {
     const item = items[i]
     let resolvedItem = resolvedValues.get(item) ?? item
-    if (typeof item === 'function' && options.processFunctions) {
-      const funcResult = (item as (theme: Theme) => unknown)(theme)
+    if (isThemeFunction(item) && options.processFunctions) {
+      const funcResult = callThemeFunction(item, theme)
       resolvedItem =
         typeof funcResult === 'string'
           ? funcResult.includes('theme.')
@@ -440,12 +529,13 @@ export class ThemeUtil {
    */
   public static hasThemeFunction = (value: unknown): boolean => containsFunction(value, 0)
 
+  /** A plain object the walks enter; an Emotion component selector is not one (see {@link isComponentSelector}). */
   public static isPlainObject = (value: unknown): value is Record<string, unknown> => {
     if (typeof value !== 'object' || value === null) {
       return false
     }
     const proto = Object.getPrototypeOf(value)
-    return proto === null || proto === Object.prototype
+    return (proto === null || proto === Object.prototype) && !isComponentSelector(value)
   }
 
   /**
@@ -487,12 +577,14 @@ export class ThemeUtil {
   public static splitThemedCss = (css: CssProp): { plain: CssProp; themed: CssProp | undefined } => {
     if (!ThemeUtil.hasThemeTokenInKey(css)) return { plain: css, themed: undefined }
     if (!ThemeUtil.isPlainObject(css)) return { plain: {}, themed: css }
+    // `CssProp` takes style objects typed elsewhere, which have no index signature.
+    const source: Record<string, unknown> = css
     const plain: Record<string, unknown> = {}
     const themed: Record<string, unknown> = {}
     let reached = false
-    for (const key in css) {
-      if (!Object.prototype.hasOwnProperty.call(css, key)) continue
-      const value = css[key]
+    for (const key in source) {
+      if (!Object.prototype.hasOwnProperty.call(source, key)) continue
+      const value = source[key]
       if (!ThemeUtil.isPlainObject(value)) {
         plain[key] = value
         continue
@@ -507,40 +599,23 @@ export class ThemeUtil {
    * Removes every entry whose key still holds a `theme.` token, at any depth, and
    * reports each key. A rule whose condition or selector carries the token is
    * invalid, and the browser drops it, so leaving the key in place only ships a
-   * rule that can never apply.
+   * rule that can never apply. A `styles` key that holds no string is left out
+   * too (see {@link holdsReservedStylesKey}): this is the last walk before
+   * Emotion on every path that has a theme.
    * @param css The resolved `css` value.
-   * @param report Called with each key removed.
-   * @returns `css` itself when no key holds a token, otherwise a copy without them.
+   * @param report Called with each themed key removed.
+   * @returns `css` itself when nothing is removed, otherwise a copy without it.
    */
-  public static dropThemedKeys = <T>(css: T, report: (key: string) => void): T => {
-    if (typeof css === 'string') return removeBlocksWithThemeTokens(css, report) as T
-    if (Array.isArray(css)) {
-      let changed = false
-      const items = css.map(item => {
-        const next = ThemeUtil.dropThemedKeys(item, report)
-        if (next !== item) changed = true
-        return next
-      })
-      return (changed ? items : css) as T
-    }
-    if (!ThemeUtil.isPlainObject(css)) return css
-    let result: Record<string, unknown> | null = null
-    for (const key in css) {
-      if (!Object.prototype.hasOwnProperty.call(css, key)) continue
-      if (keyHasThemeToken(key)) {
-        report(key)
-        result ??= { ...css }
-        delete result[key]
-        continue
-      }
-      const next = ThemeUtil.dropThemedKeys(css[key], report)
-      if (next !== css[key]) {
-        result ??= { ...css }
-        result[key] = next
-      }
-    }
-    return (result ?? css) as T
-  }
+  public static dropThemedKeys = <T>(css: T, report: (key: string) => void): T => dropUnwritable(css, report)
+
+  /**
+   * Leaves out every `styles` key that holds no string, at any depth (see
+   * {@link holdsReservedStylesKey}), for a path to Emotion that keeps its themed
+   * keys and so does not pass through {@link ThemeUtil.dropThemedKeys}.
+   * @param css The resolved `css` value.
+   * @returns `css` itself when no such key is found, otherwise a copy without them.
+   */
+  public static dropReservedStylesKeys = <T>(css: T): T => dropUnwritable(css, null)
 
   /**
    * Resolves theme variable references in an object's values iteratively.
@@ -558,14 +633,16 @@ export class ThemeUtil {
 
     // No theme to call a theme function with. It is dropped rather than left for
     // Emotion, which would print its source into the stylesheet. `containsFunction`
-    // keeps the common case — a style with no functions — allocation-free.
+    // keeps the common case — a style with no functions — allocation-free. A
+    // provider with no tokens yet still gives a theme, with an empty `system`, and
+    // its theme functions run with it.
     //
     // A `var()` reference needs no theme, so in `vars` mode a value token still
     // becomes one. The server writes it that way whether or not a provider is
     // above the node, and the class Emotion derives from the style has to match
     // there for the tree to hydrate. Keys keep their tokens, as on the server,
     // since a condition or selector needs the theme's concrete value.
-    if (!theme || !theme.system || typeof theme.system !== 'object' || isEmptyObject(theme.system)) {
+    if (!theme || !theme.system || typeof theme.system !== 'object') {
       const kept = processFunctions && containsFunction(obj, 0) ? dropThemeFunctions(obj) : obj
       return themeStringsMode === 'vars' ? replaceThemeTokensWithCssVars(kept) : kept
     }
@@ -632,8 +709,10 @@ export class ThemeUtil {
         } else {
           let newObj: Record<string, unknown> | null = null
           let renames: Map<string, string> | null = null
+          const serialized = isSerializedStyles(currentValue)
           for (const key in currentValue) {
             if (Object.prototype.hasOwnProperty.call(currentValue, key)) {
+              if (serialized && isSerializedRecordKey(key)) continue
               const value = currentValue[key]
               let newValue = resolvedValues.get(value) ?? value
               let newKey = key
@@ -644,17 +723,19 @@ export class ThemeUtil {
               }
 
               const valueAsVar = themeStringsMode === 'vars'
-              // A selector or at-rule key names no property, so a token
-              // directly under one keeps the plain variable.
-              const valueProperty = isSelectorOrAtRule(newKey) ? undefined : newKey
+              const valueProperty = valueContext(newKey, serialized)
               if (isLengthFallbackList(key, value)) {
                 newValue = resolveItems(value, valueProperty, resolvedValues, theme, options)
-              } else if (typeof newValue === 'function' && processFunctions) {
-                const funcResult = (newValue as (theme: Theme) => unknown)(theme)
+              } else if (isThemeFunction(newValue) && processFunctions) {
+                const funcResult = callThemeFunction(newValue, theme)
+                // A function may return a whole style (an object or an array under a
+                // selector or at-rule key), which is resolved like the rest of the style.
                 newValue =
-                  typeof funcResult === 'string' && funcResult.includes('theme.')
-                    ? processThemeString(funcResult, valueAsVar, themeSystem, valueProperty)
-                    : funcResult
+                  typeof funcResult === 'string'
+                    ? funcResult.includes('theme.')
+                      ? processThemeString(funcResult, valueAsVar, themeSystem, valueProperty)
+                      : funcResult
+                    : ThemeUtil.resolveObjWithTheme(funcResult as Record<string, unknown>, theme, options)
               } else if (typeof newValue === 'string' && newValue.includes('theme.')) {
                 newValue = processThemeString(newValue, valueAsVar, themeSystem, valueProperty)
               }

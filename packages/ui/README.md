@@ -181,8 +181,8 @@ ThemeProvider({
 Every token becomes a CSS variable, so `Div({ color: 'theme.primary' })` renders `color: var(--meonode-theme-primary)`
 in client and server components alike. A nested `ThemeProvider` can add tokens of its own for its subtree, but its
 variables are declared on `:root` like the outer provider's: a nested provider that gives a token the outer provider
-already defines another value changes it for the whole page, so in development it warns. Give nested tokens names of
-their own.
+already defines another value changes it for the whole page, so in development it warns. So do two providers mounted
+side by side that give one token different values. Give nested tokens names of their own.
 
 ### Theme Modes Without a Flash
 
@@ -394,17 +394,16 @@ Heap growth measured after a forced collection, against the ceiling each check a
 ```typescript
 import { ThemeProvider, Center, Column, H1, Button, Text } from '@meonode/ui'
 
-const theme = {
-  mode: 'light',
-  system: {
-    primary: { default: '#FF6B6B', content: '#FFFFFF' },
-    base: { default: '#F8F8F8', content: '#333333' },
-  },
+const tokens = {
+  primary: { default: '#FF6B6B', content: '#FFFFFF' },
+  base: { default: '#F8F8F8', content: '#333333' },
 }
 
 const App = () =>
   ThemeProvider({
-    theme,
+    modes: ['light'],
+    defaultMode: 'light',
+    tokens,
     children: [
       Center({
         padding: 40,

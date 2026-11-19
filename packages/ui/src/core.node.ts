@@ -30,7 +30,7 @@ import { getComponentType, getElementTypeName, hasNoStyleTag, getGlobalState } f
 import StyledRenderer, { ThemedRule, ThemeTokenCheck } from '@src/components/styled-renderer.client.js'
 import MeoMemo from '@src/components/meo-memo.client.js'
 import { LIST_MARKER, LOCATION_MARKER } from '@src/constant/common.const.js'
-import { isMergeableCss } from '@src/util/css.util.js'
+import { checkCss, checkFactoryCss, isMergeableCss, markCombinedCssChecked } from '@src/util/css.util.js'
 import { NodeUtil } from '@src/util/node.util.js'
 import { IS_REACT_SERVER_LAYER } from '@src/util/react-layer.util.js'
 import { passesChildrenThrough } from '@src/util/children-pass-through.util.js'
@@ -668,9 +668,11 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
               // carry into the client page's SSR pass), so string tokens still produce vars.
               // `processFunctions: true` executes any callable theme refs in `css`,
               // and with no theme in scope drops them, so none reaches `ThemedRule`:
-              // a function cannot be handed to a client component.
+              // a function cannot be handed to a client component. What one returns
+              // is converted to vars too, as the client converts it.
               const themedCss = ThemeUtil.resolveObjWithTheme(replaceThemeTokensWithCssVars(css), activeTheme, {
                 processFunctions: true,
+                themeStringsMode: 'vars',
               })
               // Development only; no-ops in production. With a theme in scope this
               // is the check `StyledRenderer` makes. With none, the token
@@ -686,7 +688,7 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
               // class named after the whole css.
               const { plain, themed } = activeTheme
                 ? { plain: ThemeUtil.dropThemedKeys(cssWithDefaults, reportUnresolvedThemeKey), themed: undefined }
-                : ThemeUtil.splitThemedCss(cssWithDefaults)
+                : ThemeUtil.splitThemedCss(ThemeUtil.dropReservedStylesKeys(cssWithDefaults))
               const rule = compileServerEmotionRule(plain, elementProps.className, {
                 share: typeof renderTarget !== 'string',
                 identity: themed ? cssWithDefaults : undefined,
@@ -907,11 +909,16 @@ function combineFactoryProps(initialProps: Record<string, unknown> | undefined, 
   const combined: Record<string, unknown> = { ...initialProps, ...props }
   const factoryCss = initialProps?.css
   const callSiteCss = props?.css
+  // Checked before they are combined, so an error names the `css` it was written in.
+  checkFactoryCss(factoryCss)
+  checkCss(callSiteCss)
   if (isMergeableCss(factoryCss) && isMergeableCss(callSiteCss)) {
     combined.css = mergeCss(factoryCss, callSiteCss)
   } else if (stylesSomething(factoryCss) && stylesSomething(callSiteCss)) {
     combined.css = [factoryCss, callSiteCss]
   }
+  // Made only of what was just checked, so the node does not walk it again.
+  markCombinedCssChecked(combined.css)
   return combined
 }
 

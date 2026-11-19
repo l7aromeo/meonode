@@ -14,12 +14,17 @@ This fixture app uses taxonomy-first routes so each page has one clear test purp
   - `/theme/only-child-themed-key/component`: a server component with a themed `css` key, as the one child a client component clones
   - `/theme/server-undefined-token`: an undefined and a defined token in a server component, for the development check
   - `/theme/server-nested-token`: tokens only a nested provider, or only the one above it, defines, in a server component
+  - `/theme/function-style/{server,client}`: theme functions in `css` under a node `theme` prop, returning a value and a whole style
+  - `/theme/serialized-styles/{server,client}`: Emotion's serialized styles holding theme tokens, from a server component (`@emotion/serialize`) and a client component (`css()`, `keyframes()`)
 - `/providers/*`:
   - cross-cutting provider plumbing (portal/style-registry)
 - `/link/*`:
   - `next/link` boundary behavior and known repro paths
 - `/diagnostic/*`:
   - anti-pattern/documentation-only runtime behavior
+  - `/diagnostic/css-component-selector`: a component selector passed as `css` in a server component, which development rejects by name
+  - `/diagnostic/css-client-reference`: a styled component from a client module, which a server component receives as a client reference, passed as `css`; development rejects it by name
+  - `/diagnostic/css-reserved-styles/{server,client}`: a `styles` key holding no string in `css`, at several depths, which is left out while the declarations beside it render
 
 ## Migrated routes
 
