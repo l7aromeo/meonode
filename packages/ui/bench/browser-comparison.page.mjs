@@ -9,6 +9,7 @@ import { jsx } from '@emotion/react'
 import { createElement, useState } from 'react'
 import { flushSync } from 'react-dom'
 import { createRoot } from 'react-dom/client'
+import { appOf, flatThemedOf } from './browser-comparison.app.mjs'
 
 /** One style property, the same on every side that styles. */
 const PADDING = { padding: '1px' }
@@ -453,6 +454,47 @@ async function runUpdates({ kind, n, rounds }) {
   return Object.fromEntries(sides.map(side => [side, { ...summarise(js[side], frames[side]), updatesPerSample: perSample[side] }]))
 }
 
+/** The MeoNode builds on this page, by side name, for the app-shaped cases. Set by {@link start}. */
+let BUILDS = {}
+
+/** The app-shaped cases: each maps a build to a root element maker and, where it updates, a bump. */
+const APP_CASES = { app: appOf, flatThemed: flatThemedOf }
+
+/**
+ * Times one app-shaped case for one build on this page, which must be fresh.
+ * The first mount is the cold one: Emotion's sheet is empty and the code has
+ * not run yet, as on a page's first load. For the app, the update after it is
+ * the cold update. Then `rounds` warm rounds mount, update and unmount on the
+ * same page. Every mount and update is timed to the frame, which also gives
+ * its JavaScript-only time, with garbage collected before it.
+ * @returns The cold samples and the warm ones, each `{ jsMs, toFrameMs, valid, … }`.
+ */
+async function runApp({ kind, side, rounds }) {
+  const subject = APP_CASES[kind](BUILDS[side])
+  const once = async () => {
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+    const root = createRoot(host)
+    collectGarbage()
+    await afterFrame()
+    const mount = await timeToFrame(() => flushSync(() => root.render(subject.element())))
+    let update = null
+    if (subject.bump) {
+      collectGarbage()
+      await afterFrame()
+      update = await timeToFrame(() => flushSync(subject.bump))
+    }
+    flushSync(() => root.unmount())
+    host.remove()
+    await afterFrame()
+    return { mount, update }
+  }
+  const cold = await once()
+  const warm = []
+  for (let r = 0; r < rounds; r++) warm.push(await once())
+  return { cold, warm }
+}
+
 /**
  * Sets up the page: React's sides, MeoNode's sides from build `A`, and, when
  * given, a second set from build `B` with the suffix `B`, then exposes the
@@ -470,8 +512,10 @@ export function start({ A, B }) {
   const rules = document.createElement('style')
   rules.textContent = CLASS_RULES
   document.head.appendChild(rules)
+  BUILDS = { meonode: A, ...(B ? { meonodeB: B } : {}) }
   window.runSides = runSides
   window.runUpdates = runUpdates
+  window.runApp = runApp
   window.pageInfo = () => ({
     gcBeforeSamples: typeof window.gc === 'function',
     crossOriginIsolated: window.crossOriginIsolated,

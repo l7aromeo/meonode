@@ -100,6 +100,17 @@ NODE_ENV=production node --cpu-prof --cpu-prof-dir=prof bench/client-render.mjs
   grows with the square of the node count: React's frame took 48.7 ms at 5k
   nodes and 185 ms at 10k that way, against 10.6 and 19.9 ms as rows.
 
+  Two app-shaped cases, MeoNode only, time what a page's first load meets as
+  well as later renders. `app` is about 10k nodes, 31 levels deep with a
+  component every 3 levels, a ThemeProvider at the root and one inner
+  provider, theme tokens, and css unique to every node; its update changes the
+  css of 30% of the nodes. `flatThemed` is 10k styled spans under a provider.
+  Each fresh page gives one cold mount, its first, with Emotion's sheet empty
+  and the code not yet run (and for `app`, the update after it), then
+  `WARM_ROUNDS` warm mounts and updates. They report the median and range over
+  `COLD_PAGES` pages, in ms, JavaScript only and to the frame. The tree is in
+  `browser-comparison.app.mjs`.
+
   `BENCH_BROWSER=chrome` runs the installed Google Chrome in a visible window
   with a fresh temporary profile; the default, `headless`, runs Playwright's
   headless Chromium shell. Both turn off background throttling, and a sample

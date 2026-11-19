@@ -12,6 +12,12 @@
 // building and in `.render()`, so timing only React's render and commit would
 // leave that out, and would favour moving work out of React's render.
 //
+// Two app-shaped cases, MeoNode only, add what a page's first load meets: a
+// cold mount on a fresh page (Emotion's sheet empty, the code not yet run),
+// then warm mounts and updates on the same page. `app` is about 10k nodes with
+// theme tokens, two providers and css unique to every node, whose update
+// changes 30% of it; `flatThemed` is 10k styled spans under a provider.
+//
 // Every case is timed two ways. The JavaScript-only figure (`ms`, `addedUs*`)
 // is building plus React's render and commit. The to-the-frame figure
 // (`toFrame`) adds the browser's style, layout and paint of the first frame
@@ -32,7 +38,8 @@
 //   gives an A/A check: two copies of one build, which must agree.
 // - `BENCH_LOAD_MAX`: the highest 1-minute load average a page may start at
 //   before the run is marked invalid (default 10).
-// - `ROUNDS`, `PAGES`, `FLAT`, `NESTED`, `ROWS`: sample counts and sizes.
+// - `ROUNDS`, `PAGES`, `FLAT`, `NESTED`, `ROWS`, `COLD_PAGES`, `WARM_ROUNDS`:
+//   sample counts and sizes.
 import { execFileSync } from 'node:child_process'
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { loadavg } from 'node:os'
@@ -88,6 +95,12 @@ const UPDATE_CASES = [
   { kind: 'rows', n: Number(process.env.ROWS || 1000) },
   { kind: 'input', n: 1 },
 ]
+/** The app-shaped cases, MeoNode only: `app` (about 10k nodes, tokens, two providers) and `flatThemed` (10k spans under a provider). */
+const APP_KINDS = ['app', 'flatThemed']
+/** Fresh pages per build for each app-shaped case; each page gives one cold sample. */
+const COLD_PAGES = Number(process.env.COLD_PAGES || 15)
+/** Warm rounds on each page after its cold mount. */
+const WARM_ROUNDS = Number(process.env.WARM_ROUNDS || 8)
 
 const PACKAGE = fileURLToPath(new URL('..', import.meta.url))
 const DIST_B = process.env.BENCH_DIST_B ? resolve(process.env.BENCH_DIST_B) : null
@@ -238,6 +251,76 @@ const LOAD_MAX = Number(process.env.BENCH_LOAD_MAX || 10)
 /** The 1-minute load average as each page started, in order. */
 const pageLoads = []
 
+const round2 = value => +value.toFixed(2)
+const stats = values => (values.length ? { median: round2(median(values)), min: round2(Math.min(...values)), max: round2(Math.max(...values)) } : null)
+
+/**
+ * The figures of one app-shaped case: per build, the cold mount and update
+ * (one per page) and the warm ones (each page's median), JavaScript only and to
+ * the frame, as the median and range over pages, in ms; and build B's time
+ * over build A's.
+ * @param pagesBySide Per build, the `runApp` result of each page.
+ */
+function appFigures(pagesBySide) {
+  const metrics = [
+    ['coldMount', page => [page.cold.mount]],
+    ['coldUpdate', page => (page.cold.update ? [page.cold.update] : [])],
+    ['warmMount', page => page.warm.map(round => round.mount)],
+    ['warmUpdate', page => page.warm.flatMap(round => (round.update ? [round.update] : []))],
+  ]
+  const perPage = (pages, pick, key) =>
+    pages.flatMap(page => {
+      const values = pick(page)
+        .filter(sample => sample.valid)
+        .map(sample => sample[key])
+      return values.length ? [median(values)] : []
+    })
+  const bySide = Object.fromEntries(
+    Object.entries(pagesBySide).map(([side, pages]) => {
+      const samples = pages.flatMap(page => [...metrics.flatMap(([, pick]) => pick(page))])
+      return [
+        side,
+        {
+          ...Object.fromEntries(
+            metrics
+              .filter(([, pick]) => pick(pages[0]).length)
+              .map(([name, pick]) => [name, { jsMs: stats(perPage(pages, pick, 'jsMs')), toFrameMs: stats(perPage(pages, pick, 'toFrameMs')) }]),
+          ),
+          samples: { valid: samples.filter(sample => sample.valid).length, invalid: samples.filter(sample => !sample.valid).length },
+        },
+      ]
+    }),
+  )
+  const sides = Object.keys(bySide)
+  const variantB = sides.includes('meonodeB')
+    ? Object.fromEntries(
+        Object.keys(bySide.meonode)
+          .filter(name => name !== 'samples')
+          .map(name => [
+            name,
+            Object.fromEntries(
+              ['jsMs', 'toFrameMs'].map(key => {
+                const a = bySide.meonode[name][key]
+                const b = bySide.meonodeB[name][key]
+                return [key, { diff: round2(b.median - a.median), spread: round2(Math.max(a.max - a.min, b.max - b.min)) }]
+              }),
+            ),
+          ]),
+      )
+    : undefined
+  return { pages: pagesBySide[sides[0]].length, ...bySide, variantB }
+}
+
+/** Fails the run when an app-shaped case has fewer valid samples than {@link MIN_VALID_SHARE} of all. */
+function requireValidApp(figures, label) {
+  for (const [side, result] of Object.entries(figures)) {
+    if (!result?.samples) continue
+    const { valid, invalid } = result.samples
+    if (valid < (valid + invalid) * MIN_VALID_SHARE)
+      throw new Error(`${label}, ${side}: only ${valid} of ${valid + invalid} samples valid; the page was hidden`)
+  }
+}
+
 const loadAtStart = loadavg()[0]
 const browserChoice = BROWSERS[BROWSER]
 const browser = await browserChoice.launch()
@@ -300,6 +383,23 @@ try {
       updatesPerSample: f.perSide(side => pages[0][side].updatesPerSample),
     }
   }
+  // One page per build per sample, so every cold mount is a page's first; the
+  // two builds alternate which goes first.
+  const appSides = DIST_B ? ['meonode', 'meonodeB'] : ['meonode']
+  for (const kind of APP_KINDS) {
+    const pagesBySide = Object.fromEntries(appSides.map(side => [side, []]))
+    for (let p = 0; p < COLD_PAGES; p++) {
+      for (const side of p % 2 ? [...appSides].reverse() : appSides) {
+        pageLoads.push(+loadavg()[0].toFixed(2))
+        const page = await openPage(browser)
+        pagesBySide[side].push(await page.evaluate(options => window.runApp(options), { kind, side, rounds: WARM_ROUNDS }))
+        await page.close()
+      }
+    }
+    const figures = appFigures(pagesBySide)
+    requireValidApp(figures, `cold.${kind}`)
+    results[`cold.${kind}`] = figures
+  }
 } finally {
   await browser.close()
 }
@@ -319,6 +419,8 @@ await report('browser-comparison', {
   buildB: Boolean(DIST_B),
   rounds: ROUNDS,
   pages: PAGES,
+  coldPages: COLD_PAGES,
+  warmRounds: WARM_ROUNDS,
   ...results,
-  note: 'addedUsPerNode is the median time a side adds over React setting a static className, per node or nesting level, JavaScript only. A mount is the whole step: building the tree, then the render and commit. ms lists the per-page medians of the time per mount, lowest first; each sample timed mountsPerSample consecutive mounts. spreadUs* is the highest minus the lowest of those, per node, row or update. phases splits a mount into building and committing. update.* re-render a mounted component whose styled value changes every time (rows flip their colour; an input changes its value and border colour), and addedUsPer is the time per row or per update over the className side. toFrame times single mounts and updates from the start of a frame to the end of that frame’s style, layout and paint on the main thread. variantB is build B’s time over the package’s own build. Samples taken while the page was hidden are not counted. Every sample starts from a collected heap; garbage made inside a sample, and any collection during it, is counted. valid is false when a page started at a 1-minute load of load1.max or more.',
+  note: 'addedUsPerNode is the median time a side adds over React setting a static className, per node or nesting level, JavaScript only. A mount is the whole step: building the tree, then the render and commit. ms lists the per-page medians of the time per mount, lowest first; each sample timed mountsPerSample consecutive mounts. spreadUs* is the highest minus the lowest of those, per node, row or update. phases splits a mount into building and committing. update.* re-render a mounted component whose styled value changes every time (rows flip their colour; an input changes its value and border colour), and addedUsPer is the time per row or per update over the className side. toFrame times single mounts and updates from the start of a frame to the end of that frame’s style, layout and paint on the main thread. variantB is build B’s time over the package’s own build. Samples taken while the page was hidden are not counted. Every sample starts from a collected heap; garbage made inside a sample, and any collection during it, is counted. valid is false when a page started at a 1-minute load of load1.max or more. cold.* are MeoNode only: app is about 10k nodes with theme tokens, two providers and css unique to every node, whose update changes the css of 30% of them; flatThemed is 10k styled spans under a provider. Each page gives one cold mount (and, for app, the update after it), its first, with Emotion’s sheet empty and the code not yet run, then warmRounds warm mounts and updates; figures are the median and range over pages, in ms.',
 })
