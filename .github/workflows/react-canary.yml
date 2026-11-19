@@ -44,14 +44,21 @@ jobs:
         with:
           node-version: lts/*
       - uses: oven-sh/setup-bun@v2
-      - uses: dtolnay/rust-toolchain@stable
+      # The exact Rust that packages/compiler/rust-toolchain.toml pins, with its
+      # targets and components; the version is logged and keys the cache.
+      - name: Install the pinned Rust toolchain
         if: matrix.mode == 'compiled'
-        with:
-          targets: wasm32-wasip1
+        id: rust
+        working-directory: packages/compiler
+        run: |
+          rustup toolchain install
+          rustc --version
+          echo "version=$(rustc --version | cut -d' ' -f2)" >> "$GITHUB_OUTPUT"
       - uses: Swatinem/rust-cache@v2
         if: matrix.mode == 'compiled'
         with:
           workspaces: packages/compiler
+          key: rustc-${{ steps.rust.outputs.version }}
       # One exact version for both packages, so react and react-dom never come
       # from two different canaries published minutes apart.
       - name: Use React canary

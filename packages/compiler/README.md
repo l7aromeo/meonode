@@ -576,10 +576,20 @@ bun install
 
 bun run codegen        # regenerate css_props.rs + factories.rs from @meonode/ui
 bun run check:drift     # regenerate + fail on any diff (run before releasing)
-bun run build:wasm      # cargo build --release --target wasm32-wasip1, copies into npm/
+bun run build:wasm      # scripts/build-wasm.ts: cargo build --release --target wasm32-wasip1, copies into npm/
 bun run test            # cargo test --workspace + vitest (unit/fixture + wasm smoke + equivalence)
 bun run test:e2e        # Next Turbopack + Vite real-build parity fixtures (slow — real bundler builds)
 ```
+
+The wasm build is reproducible: one commit builds to the same bytes on any
+machine. `rust-toolchain.toml` pins the exact Rust version, and
+`scripts/build-wasm.ts` remaps the cargo home, target directory and workspace
+root out of the paths rustc writes into the binary. To check a release built
+this way, build its commit and compare the sha256 of
+`npm/meonode_swc_plugin.wasm` with the one in that version's tarball. CI and the
+release install the toolchain from that file too, so moving to a newer Rust
+means editing `rust-toolchain.toml`, and the wasm's bytes change with it even
+when the source does not.
 
 `@meonode/ui` is a released dependency now that schema 2 runtime support has
 shipped: the root `package.json` tracks `^2.0.0-beta.0`, while `e2e/next-app`
@@ -635,7 +645,7 @@ needs updating again only if the repository or workflow filename changes.
 
 ```
 Cargo.toml                          workspace
-rust-toolchain.toml
+rust-toolchain.toml                 exact Rust version, so the wasm is reproducible
 crates/meonode-swc-plugin/
   Cargo.toml                        crate-type = ["cdylib", "rlib"]
   src/lib.rs                        plugin entry point
@@ -652,7 +662,7 @@ npm/
   package.json                      "@meonode/compiler", main → .wasm
   meonode_swc_plugin.wasm           build artifact, not committed to git
 e2e/                                Next.js + Vite real-build parity fixtures
-scripts/                            codegen for css_props.rs / factories.rs
+scripts/                            codegen for css_props.rs / factories.rs, reproducible wasm build
 .releaserc.json                     semantic-release config (pkgRoot: npm)
 .github/workflows/ci.yml            cargo test, wasm build, wasm smoke tests, e2e (gated)
 .github/workflows/release.yml       semantic-release + npm OIDC trusted publishing (see Publishing)
