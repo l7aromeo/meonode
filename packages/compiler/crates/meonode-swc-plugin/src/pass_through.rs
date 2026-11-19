@@ -502,7 +502,7 @@ impl Collector<'_> {
 
 /// Strips what changes neither the value nor its identity: parentheses and
 /// TypeScript's type-only wrappers.
-fn unwrap_transparent(mut expr: &Expr) -> &Expr {
+pub(crate) fn unwrap_transparent(mut expr: &Expr) -> &Expr {
     loop {
         expr = match expr {
             Expr::Paren(p) => &p.expr,

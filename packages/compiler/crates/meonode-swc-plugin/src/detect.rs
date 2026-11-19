@@ -47,7 +47,7 @@ use crate::effect::{is_effect_free, is_order_inert, is_static_literal};
 use crate::factories::factory_children_first;
 use crate::keys::{is_special_key, key_name_atom};
 use crate::order::{EmitRank, order_preserved};
-use crate::pass_through::{self, PassThrough};
+use crate::pass_through::{self, PassThrough, unwrap_transparent};
 
 const UI_MODULE: &str = "@meonode/ui";
 const UI_MODULE_CLIENT: &str = "@meonode/ui/client";
@@ -837,7 +837,9 @@ pub(crate) fn written_children_origin(
     expr: &Expr,
     factories: &HashMap<BindKey, CandidateKind>,
 ) -> ChildrenOrigin {
-    match unwrap_parens(expr) {
+    // A type-only wrapper (`as`, `satisfies`, `!`, `<T>`) leaves the value as
+    // written, so it is read through like a parenthesis.
+    match unwrap_transparent(expr) {
         // An array written out in source: every slot is one the author chose,
         // so position is as stable as the source text is. A spread is the
         // exception — its length is a runtime fact, so every slot after it
@@ -2586,6 +2588,84 @@ mod tests {
         "#;
         assert_eq!(children_origins_for(src), vec![ChildrenOrigin::Authored]);
     }
+    // ---- `children` origin: behind a type-only wrapper ----------------------
+    //
+    // `as`, `satisfies`, `!` and `<T>` change the type, never the value, so an
+    // array written out behind one is still written out, and anything
+    // generated behind one is still generated.
+
+    #[test]
+    fn array_literal_under_as_is_authored() {
+        assert_origin_ts(
+            "import { Div } from '@meonode/ui'\nDiv({ children: [A(), B()] as any })",
+            ChildrenOrigin::Authored,
+        );
+    }
+
+    #[test]
+    fn array_literal_under_as_const_is_authored() {
+        assert_origin_ts(
+            "import { Div } from '@meonode/ui'\nDiv({ children: [A(), B()] as const })",
+            ChildrenOrigin::Authored,
+        );
+    }
+
+    #[test]
+    fn array_literal_under_satisfies_is_authored() {
+        assert_origin_ts(
+            "import { Div } from '@meonode/ui'\nDiv({ children: [A(), B()] satisfies unknown[] })",
+            ChildrenOrigin::Authored,
+        );
+    }
+
+    #[test]
+    fn array_literal_under_non_null_is_authored() {
+        assert_origin_ts(
+            "import { Div } from '@meonode/ui'\nDiv({ children: [A(), B()]! })",
+            ChildrenOrigin::Authored,
+        );
+    }
+
+    #[test]
+    fn array_literal_under_angle_bracket_assertion_is_authored() {
+        assert_origin_ts(
+            "import { Div } from '@meonode/ui'\nDiv({ children: <any>[A(), B()] })",
+            ChildrenOrigin::Authored,
+        );
+    }
+
+    #[test]
+    fn array_literal_under_parens_and_as_is_authored() {
+        assert_origin_ts(
+            "import { Div } from '@meonode/ui'\nDiv({ children: ([A(), B()] as any) })",
+            ChildrenOrigin::Authored,
+        );
+    }
+
+    #[test]
+    fn children_first_array_literal_under_as_is_authored() {
+        assert_origin_ts(
+            "import { Span } from '@meonode/ui'\nSpan(['a', 'b'] as any, { padding: 4 })",
+            ChildrenOrigin::Authored,
+        );
+    }
+
+    #[test]
+    fn map_call_under_as_is_generated() {
+        assert_origin_ts(
+            "import { Div } from '@meonode/ui'\nDiv({ children: data.map(f) as any })",
+            ChildrenOrigin::Generated,
+        );
+    }
+
+    #[test]
+    fn array_with_spread_under_satisfies_is_generated() {
+        assert_origin_ts(
+            "import { Div } from '@meonode/ui'\nDiv({ children: [Header(), ...rows] satisfies unknown[] })",
+            ChildrenOrigin::Generated,
+        );
+    }
+
     // ---- `children` origin: passed through ---------------------------------
     //
     // A wrapper that hands on the `children` its caller gave it renders a list
