@@ -272,19 +272,64 @@ describe('call sites when the factory frame is missing', () => {
   })
 })
 
+/**
+ * Evaluates `count` call sites that have never been seen, as a reloaded module's
+ * are: every body puts its call one column further along, so each is a call
+ * site of its own. The lengths alternate, so their group has seen two and every
+ * call is identified.
+ * @returns The most call sites remembered at any point during the flood.
+ */
+const flood = (count: number, from = 0): number => {
+  let most = 0
+  for (let i = from; i < from + count; i++) {
+    const rows = i % 2 ? "[Li({ children: 'a' }), Li({ children: 'b' })]" : "[Li({ children: 'a' })]"
+    const make = new Function('Ul', 'Li', ' '.repeat(i) + `return Ul({ children: ${rows} })`) as (ul: typeof Ul, li: typeof Li) => unknown
+    make(Ul, Li)
+    most = Math.max(most, __generatedListState().callSites)
+  }
+  return most
+}
+
 describe('bounds', () => {
-  it('remembers a bounded number of call sites', () => {
-    // Code evaluated at a new position each time, as a reloaded module is: every
-    // body puts its call one line lower, so each is a call site of its own. The
-    // lengths alternate, so the group has seen two and every call is identified.
-    for (let i = 0; i < 2500; i++) {
-      const rows = i % 2 ? "[Li({ children: 'a' }), Li({ children: 'b' })]" : "[Li({ children: 'a' })]"
-      const make = new Function('Ul', 'Li', '\n'.repeat(i) + `return Ul({ children: ${rows} })`) as (ul: typeof Ul, li: typeof Li) => unknown
-      make(Ul, Li)
+  it('never remembers more call sites than the cap', () => {
+    const most = flood(5000)
+    expect(most).toBe(2000)
+    expect(__generatedListState().callSites).toBeLessThanOrEqual(2000)
+  })
+
+  it.skipIf(COMPILED)('still reports a list after the table is dropped, and never a list written out', () => {
+    const generated = (count: number) => Ul({ children: Array.from({ length: count }, (_, i) => Li({ children: `row ${i}` })) })
+    const written = (wide: boolean) =>
+      wide
+        ? Ul({ children: [Li({ children: 'a' }), Li({ children: 'b' }), Li({ children: 'c' })] })
+        : Ul({ children: [Li({ children: 'a' }), Li({ children: 'b' })] })
+    const both = (count: number) => {
+      generated(count)
+      written(false)
+      written(true)
     }
-    const { callSites } = __generatedListState()
-    expect(callSites).toBeGreaterThan(0)
-    expect(callSites).toBeLessThanOrEqual(2000)
+    flood(1990)
+    // One line, as a component re-rendering runs it. After the first pass the
+    // table fills and is dropped, so the 2 seen there is forgotten.
+    for (const count of [2, 3, 4]) {
+      both(count)
+      if (count === 2) flood(20, 1990)
+    }
+    // Forgetting delays the report by one evaluation; nothing written out is reported.
+    expect(reports()).toHaveLength(1)
+    expect(reports()[0][0]).toContain('with 3, then 4 items')
+  })
+
+  it.skipIf(COMPILED)('does not report a list again after the table is dropped', () => {
+    // One line, as a component re-rendering runs it, with the table dropped in between.
+    for (const count of [2, 3, 4, 5]) {
+      rows(count)
+      if (count === 3) {
+        expect(reports()).toHaveLength(1)
+        flood(2100)
+      }
+    }
+    expect(reports()).toHaveLength(1)
   })
 
   it('remembers a bounded number of groups', () => {
