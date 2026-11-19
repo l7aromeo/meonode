@@ -1,5 +1,17 @@
 # @meonode/compiler
 
+## 0.10.2
+
+### Patch Changes
+
+- [#101](https://github.com/l7aromeo/meonode/pull/101) [`3b89b31`](https://github.com/l7aromeo/meonode/commit/3b89b310cd3d7b07410431ffbc05f487576abd4d) Thanks [@l7aromeo](https://github.com/l7aromeo)! - The README gives the end-to-end server-render figure again, re-measured against `@meonode/ui` 3.x: the compiled 156-node benchmark tree renders about 1.4x faster than the uncompiled one (27.8% less time per render), and 14.4% faster with its theme tokens taken out, where only prop partitioning applies. It says how the figure was measured.
+
+- [#98](https://github.com/l7aromeo/meonode/pull/98) [`149cb3c`](https://github.com/l7aromeo/meonode/commit/149cb3c4df5c5d20142f21e0d37c02d533804ec0) Thanks [@l7aromeo](https://github.com/l7aromeo)! - Rewrite a numeric theme token under a kebab-case or vendor-prefixed key to the length variant, as `@meonode/ui` now does. `css: { 'padding-top': 'theme.spacing.md' }` compiled to the plain variable while the camel-case `paddingTop` got the length variant; both forms, and `'-webkit-margin-start'` and `'-ms-wrap-margin'`, now compile alike and match what the runtime renders for the same call.
+  
+  The README's note on arrays now says what the runtime does: it converts string items in arrays on the server and the client alike, so leaving them to the runtime renders the same output.
+  
+  Fixes [#74](https://github.com/l7aromeo/meonode/issues/74), fixes [#76](https://github.com/l7aromeo/meonode/issues/76).
+
 ## 0.10.1
 
 ### Patch Changes

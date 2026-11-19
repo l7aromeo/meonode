@@ -14,7 +14,7 @@
   "devDependencies": {
     "@emotion/cache": "^11.14.0",
     "@emotion/react": "^11.14.0",
-    "@meonode/ui": "^3.1.5",
+    "@meonode/ui": "^3.2.0",
     "@swc/core": "^1.16.22",
     "@types/node": "^26.6.6",
     "@types/react": "^19.3.0",

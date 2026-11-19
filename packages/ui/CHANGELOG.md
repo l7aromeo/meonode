@@ -1,5 +1,128 @@
 # @meonode/ui
 
+## 3.2.0
+
+### Minor Changes
+
+- [#98](https://github.com/l7aromeo/meonode/pull/98) [`4b44e01`](https://github.com/l7aromeo/meonode/commit/4b44e01a7c58f913b9f6df3562db09ccab36e671) Thanks [@l7aromeo](https://github.com/l7aromeo)! - `css` now takes a style object typed elsewhere. A value typed as React's `CSSProperties` or csstype's `Properties`, passed as it is (`css: style`) or assigned to `CssProp`, failed to type-check, because an interface has no index signature; now it is accepted with the same value types, at polymorphic call sites too. A number or an Emotion component selector is still rejected. An object typed by an interface with no style property, such as a `Date`, now also type-checks as `css` in a node call, as one typed by a type literal already did.
+  
+  Emotion's own `CSSObject` is still not accepted as it is: its properties allow values the `css` prop does not, such as `padding: [1, 2]`. Pass it through Emotion's `css()`, as `css: css(emotionObject)`.
+  
+  Fixes [#84](https://github.com/l7aromeo/meonode/issues/84).
+
+- [#83](https://github.com/l7aromeo/meonode/pull/83) [`70554b8`](https://github.com/l7aromeo/meonode/commit/70554b890c84def108b53d44858d5e1a99762cb4) Thanks [@l7aromeo](https://github.com/l7aromeo)! - A known property in a `css` object now accepts a fallback list: a readonly array of its string values, which Emotion writes as one declaration per item, as in `css: { display: ['-webkit-box', 'flex'] }` or `css: { padding: ['1px', 'theme.spacing.md'] }`. This matches Emotion's own `CSSObject`. Numbers, nested arrays and theme functions are still rejected as items, as Emotion rejects them, and the single value of each property is typed as before.
+
+- [#98](https://github.com/l7aromeo/meonode/pull/98) [`7ebb683`](https://github.com/l7aromeo/meonode/commit/7ebb6832225791ab59f6855b13925216741ba2ed) Thanks [@l7aromeo](https://github.com/l7aromeo)! - Editors now offer completions for CSS values in `css` objects and for length style props. A value in `css: { display: '…' }`, `css: { position: '…' }` or `css: { padding: '…' }`, and a direct prop such as `padding` or `width`, offered no completions; now each offers its property's keywords (`flex`, `absolute`, `auto`, `inherit`, …) and, with `MeoTheme` declared, the theme's tokens, under `as` and through `@meonode/mui` wrappers too. Every value that type-checked before still does, including a plain `string` such as a literal inferred through a node's props.
+  
+  The value types now come from `csstype` with lengths typed `(string & {}) | number`, so `csstype` is a direct dependency, in the range `@types/react` already uses.
+  
+  Fixes [#79](https://github.com/l7aromeo/meonode/issues/79).
+
+- [#94](https://github.com/l7aromeo/meonode/pull/94) [`303a366`](https://github.com/l7aromeo/meonode/commit/303a3665a9fa258e9796628b4f100e5685b49ed3) Thanks [@l7aromeo](https://github.com/l7aromeo)! - Smaller client bundles. `@meonode/ui` now ships a separate build for the React Server Components layer, which bundlers select through the `react-server` export condition. The code only server components run, which compiles their `css` into class names and places the rules, now stays out of the browser. In a Next.js 16 app, with Turbopack or webpack, each App Router page loads 1.3 to 1.8 KB less gzipped JavaScript, and a Pages Router page about 3.4 KB less. Fixes [#82](https://github.com/l7aromeo/meonode/issues/82).
+  
+  Imports stay the same. Next.js, with Turbopack or webpack, and Vite with `@vitejs/plugin-rsc` pick the right build, as does Node run with `--conditions=react-server`.
+  
+  The default build now refuses to load in the React Server Components layer, with an error that says why and what to change. That happens when something bypasses the package's own resolution, such as an alias pointing `@meonode/ui` at a file in its `dist/` folder, or Node run with `--conditions=react-server` loading one of those files by its path. Node's ES module loader stops earlier in that last case, with a `SyntaxError` naming a hook that the server build of `react` does not export, such as `Named export 'useLayoutEffect' not found`.
+
+### Patch Changes
+
+- [#94](https://github.com/l7aromeo/meonode/pull/94) [`366bbe9`](https://github.com/l7aromeo/meonode/commit/366bbe950c16182da85d4597aa2d7a71f3bb8b48) Thanks [@l7aromeo](https://github.com/l7aromeo)! - Build with webpack against a React that has no `Activity` export. A Next.js 15 app that builds with webpack, Next 15's default, failed as soon as it imported `@meonode/ui`, whether or not it used `Activity`: `Attempted import error: 'Activity' is not exported from 'react'`. Next 15 renders with its own React, a 19.2 canary without that export, and webpack checks each member read of a namespace import against the module's exports. `Activity` is now read in a way webpack does not check, and where React lacks it, the element type falls back to the registered symbol, which renders as `<Activity>`.
+  
+  Fixes [#89](https://github.com/l7aromeo/meonode/issues/89).
+
+- [#91](https://github.com/l7aromeo/meonode/pull/91) [`e2c3c15`](https://github.com/l7aromeo/meonode/commit/e2c3c1518784f09efdc5344354476acffb741ab3) Thanks [@l7aromeo](https://github.com/l7aromeo)! - Render styled elements through the CommonJS build. `require('@meonode/ui')` loaded, but the first element with a `css` prop or a style prop threw `TypeError: e is not a function`, in Node and in a bundler that resolves the package's `require` condition (a CommonJS module in a Next.js app, for one). The CommonJS build read `@emotion/cache` and `@emotion/unitless` as their whole `module.exports` rather than their default export, so it called an object as the cache factory and looked up unitless properties one level too high. It now takes a dependency's `.default` when the dependency marks itself as a compiled ES module, and the whole `module.exports` otherwise, as the ES module build does.
+  
+  Fixes [#86](https://github.com/l7aromeo/meonode/issues/86).
+
+- [#98](https://github.com/l7aromeo/meonode/pull/98) [`e020792`](https://github.com/l7aromeo/meonode/commit/e02079293c439fad6a1b6900a88414b11e1c3a27) Thanks [@l7aromeo](https://github.com/l7aromeo)! - An Emotion styled component or component selector passed as `css`, through a cast or from plain JavaScript, no longer crashes the render with `Maximum call stack size exceeded` or `Cannot convert object to primitive value`. Development throws an error that names it and where it sits, such as `` `css["&:hover"]` is an Emotion styled component or component selector ``; production leaves it out and renders the rest of the style, as Emotion does with a component selector it cannot use.
+  
+  In a server component, a styled component imported from a `'use client'` module arrives as a client reference. Development now names that too, such as `` `css["&:hover"]` is a client component or a client module export ``, where it used to report a theme function dropped; production leaves it out, as before.
+  
+  Fixes [#87](https://github.com/l7aromeo/meonode/issues/87).
+
+- [#83](https://github.com/l7aromeo/meonode/pull/83) [`65c4c93`](https://github.com/l7aromeo/meonode/commit/65c4c93b98195a212684382239ad0e2577b862cc) Thanks [@l7aromeo](https://github.com/l7aromeo)! - Give a numeric theme token its unit inside a fallback array. `css: { padding: ['theme.spacing.md'] }` wrote `padding: var(--meonode-theme-spacing-md)`, which holds a bare number such as `16`, so the browser dropped the declaration and the padding was 0. The single value, `css: { padding: 'theme.spacing.md' }`, already referenced the length variant and got `16px`.
+  
+  Each item of a length property's fallback array now takes the length variant, as the property's single value does. Fallback arrays of properties where a bare number is valid, such as `lineHeight`, keep the plain variable, and a theme function in a fallback array is still called once. Server and client convert the same way, so their classes still match.
+  
+  Fixes [#75](https://github.com/l7aromeo/meonode/issues/75).
+
+- [#98](https://github.com/l7aromeo/meonode/pull/98) [`149cb3c`](https://github.com/l7aromeo/meonode/commit/149cb3c4df5c5d20142f21e0d37c02d533804ec0) Thanks [@l7aromeo](https://github.com/l7aromeo)! - Give a numeric theme token its unit under a kebab-case or vendor-prefixed `css` key. `css: { 'padding-top': 'theme.spacing.md' }` wrote `padding-top: var(--meonode-theme-spacing-md)`, which holds a bare number such as `16`, so the browser dropped the declaration and the padding was 0, where `paddingTop` got `16px`. A key now names its property in any form Emotion writes as that property, so `'padding-top'`, `'-webkit-margin-start'` and `'-ms-wrap-margin'` take the length variant as their camel-case forms do. Custom properties such as `'--gap'` and unitless properties such as `'line-height'` keep the plain variable.
+  
+  Fixes [#74](https://github.com/l7aromeo/meonode/issues/74).
+
+- [#98](https://github.com/l7aromeo/meonode/pull/98) [`5f57fb0`](https://github.com/l7aromeo/meonode/commit/5f57fb035cfb3002b541438ce18d14ee3456b975) Thanks [@l7aromeo](https://github.com/l7aromeo)! - A `styles` key in `css` that holds anything but a string is now left out, at any depth, and the rest of that object renders. Emotion reserves `styles` for serialized styles, such as what `css()` returns, and wrote such an object from the key alone: its development build crashed the render, and in production the element got a `css-undefined` class with no rule, so none of the object's other declarations applied. Production now renders them.
+  
+  Development reports the key once, naming where it sits, such as `` `css["&:hover"]` has a `styles` key that holds no string ``, or that a theme function returned it. Production stays silent.
+  
+  Refs [#88](https://github.com/l7aromeo/meonode/issues/88).
+
+- [#77](https://github.com/l7aromeo/meonode/pull/77) [`96cef9d`](https://github.com/l7aromeo/meonode/commit/96cef9da6de88fb67ffc6ff54433c31ad15f98bf) Thanks [@l7aromeo](https://github.com/l7aromeo)! - Give a numeric theme token its unit inside a `css` string. `css: 'padding: theme.spacing.md;'` wrote `padding: var(--meonode-theme-spacing-md)`, which holds a bare number such as `16`, so the browser dropped the declaration and the padding was 0. The object form, `css: { padding: 'theme.spacing.md' }`, already referenced the length variant and got `16px`.
+  
+  A token in CSS text (a `css` string, or a string in a `css` array) now takes the length variant whenever its declaration's property takes a length, as in the object form. This covers hyphenated and vendor-prefixed names, shorthands, `!important`, `calc()`, and declarations inside nested blocks. Properties where a bare number is valid, such as `line-height`, `z-index` and `opacity`, keep the plain variable. Server and client convert the same way, so their classes still match.
+  
+  Fixes [#72](https://github.com/l7aromeo/meonode/issues/72).
+
+- [#98](https://github.com/l7aromeo/meonode/pull/98) [`8343421`](https://github.com/l7aromeo/meonode/commit/8343421ffaec2abd8e6080bc970961fef7624561) Thanks [@l7aromeo](https://github.com/l7aromeo)! - A `keyframes()` result as a value in `css`, as in `css: { animationName: fade }`, no longer throws under a `ThemeProvider` (`Cannot read properties of undefined (reading 'name')`), nor makes the element re-render on every mode change. Without a provider, development no longer reports it as a dropped theme function. Its `toString` was taken for a theme function; it is now left to Emotion, as are the `name` and the other fields Emotion keeps on `css()` and `keyframes()` results.
+  
+  Fixes [#92](https://github.com/l7aromeo/meonode/issues/92).
+
+- [#98](https://github.com/l7aromeo/meonode/pull/98) [`d034796`](https://github.com/l7aromeo/meonode/commit/d03479655a5fa7372e1ff4eb0603b7618284acbc) Thanks [@l7aromeo](https://github.com/l7aromeo)! - Theme tokens in Emotion's `css()` and `keyframes()` results now keep their unit. Their `styles` are CSS text, but were converted as the value of a property named `styles`, so a numeric token under a length property, as in `css: css({ padding: 'theme.spacing.md' })`, became a bare number the browser drops. They are now read as CSS text on the server and in the browser, so each token takes its declaration's unit, as in any other CSS text.
+  
+  Fixes [#88](https://github.com/l7aromeo/meonode/issues/88).
+
+- [#98](https://github.com/l7aromeo/meonode/pull/98) [`40b024b`](https://github.com/l7aromeo/meonode/commit/40b024b00d9170fcd3d9f2c75f82b4c12569acd3) Thanks [@l7aromeo](https://github.com/l7aromeo)! - A `ThemeProvider` whose `tokens` is empty counts as a provider. The theme functions below it run with its theme, where they were dropped with a report that no ThemeProvider was above the node. With no provider at all, they are still dropped and reported.
+  
+  Fixes [#99](https://github.com/l7aromeo/meonode/issues/99).
+
+- [#98](https://github.com/l7aromeo/meonode/pull/98) [`f365d41`](https://github.com/l7aromeo/meonode/commit/f365d41410f23a95dd226db5e2f910a10a79bca5) Thanks [@l7aromeo](https://github.com/l7aromeo)! - Apply only the tokens of `ThemeProvider`s that are shown. A provider inside a hidden `<Activity>` went on declaring its tokens, and in a Next.js app with `cacheComponents`, which keeps the previous route mounted in one, two routes whose providers give a token different values showed the other route's value after each client-side navigation. A hidden provider now switches its block of CSS variables off until it is shown again. The server's markup is unchanged.
+  
+  Fixes [#95](https://github.com/l7aromeo/meonode/issues/95).
+
+- [#90](https://github.com/l7aromeo/meonode/pull/90) [`ce7b84d`](https://github.com/l7aromeo/meonode/commit/ce7b84d07a66db3aa8fd9897dc406f60de6c67d3) Thanks [@l7aromeo](https://github.com/l7aromeo)! - In development, a nested `ThemeProvider` that gives a token another value than a provider above it now warns. Refs [#68](https://github.com/l7aromeo/meonode/issues/68).
+  
+  Every `ThemeProvider` declares its tokens as CSS variables on `:root`, not on its own subtree. So a nested provider's value for a token the outer provider also defines applies to the whole page, outside the nested provider too, and two sibling providers share whichever value comes later in the document. Until providers scope their tokens, give a nested provider's tokens names of their own. A nested provider that adds new tokens, or repeats an outer value unchanged, does not warn.
+
+- [#73](https://github.com/l7aromeo/meonode/pull/73) [`434e116`](https://github.com/l7aromeo/meonode/commit/434e116d245226a0948e962b845ed1e32ab0b29f) Thanks [@l7aromeo](https://github.com/l7aromeo)! - A client component with no `ThemeProvider` above it now hydrates without a className mismatch (Fixes [#69](https://github.com/l7aromeo/meonode/issues/69)). The server wrote a `theme.*` token in a style value as `var(--meonode-theme-*)` whether or not a provider was mounted, while the browser left it as written, so every element holding one got a different Emotion class on each side and React logged "A tree hydrated but some attributes of the server rendered HTML didn't match the client properties". The browser now writes the same `var()` reference. A token in an at-rule or selector key still needs a provider, on both sides.
+  
+  One visible change in a client-only app with no provider: a value token the page never defines used to be dropped as an invalid declaration, so an earlier rule for that property still applied. It is now written as `var()`, which resets the property, the same as the server and a provider have always done.
+
+- [#85](https://github.com/l7aromeo/meonode/pull/85) [`f91d289`](https://github.com/l7aromeo/meonode/commit/f91d2890b928065c4ee58b16cebf2a69a8f64300) Thanks [@l7aromeo](https://github.com/l7aromeo)! - The packages now resolve their types under every TypeScript `moduleResolution`, from ESM and from CommonJS (Fixes [#81](https://github.com/l7aromeo/meonode/issues/81)). The top-level `main` and `types` of `@meonode/ui` named `dist/main.js` and `dist/main.d.ts`, which the package never shipped, and `@meonode/mui` had neither, so a consumer on `moduleResolution: "node"` got `TS2307: Cannot find module '@meonode/ui'`. They now name the shipped CommonJS entry and its declarations, with `module` naming the ESM entry and `typesVersions` mapping each subpath (`@meonode/ui/client`, `@meonode/mui/lab`, …) for that resolution mode.
+  
+  In `exports`, each condition now names its own declarations first: `import` the ESM `.d.ts`, `require` a CommonJS `.d.cts` written beside it. Before, `types` came after `import` and `require` and was never reached; a CommonJS file under `node16` or `nodenext` resolution was typed against ESM declarations and got `TS1479` on import. Under `node16` and `nodenext`, `import("../main")` references inside the declarations also failed to resolve, so the props and return types of `Div` and the other element factories were `any` there; they now carry the `.js` extension that resolution needs.
+  
+  The declarations no longer default-import React, which a consumer on `module: "commonjs"` without `esModuleInterop` read as `any`, losing every prop type built on it.
+
+- [#90](https://github.com/l7aromeo/meonode/pull/90) [`ef5d99f`](https://github.com/l7aromeo/meonode/commit/ef5d99fe2fccd51833edec39211d0fbc1b8c6b13) Thanks [@l7aromeo](https://github.com/l7aromeo)! - In development, a `theme.*` token no `ThemeProvider` defines now warns in a server component too. Fixes [#60](https://github.com/l7aromeo/meonode/issues/60).
+  
+  A server component compiles its css without the provider's theme, so `Div({ color: 'theme.primary.typo' })` there emitted a variable nothing declares, and the element was silently unstyled while the same token in a client component warned. The server now hands the token references to a check that runs where the providers are: the warning appears in the server log and in the browser, as it does for a client component. Production output is unchanged and carries nothing for it; `setDebugMode(true)` turns it on there, as it does the other diagnostics.
+  
+  The check, in server and client components alike, now counts the tokens of every provider above an element, not only the nearest one. A token an outer provider defines renders under a nested provider, so it is no longer reported there. A token used with no `ThemeProvider` above it at all now warns that no provider is above it, where before nothing was reported.
+
+- [#98](https://github.com/l7aromeo/meonode/pull/98) [`9d5b6b8`](https://github.com/l7aromeo/meonode/commit/9d5b6b84c827c711fedbb7240c1c42def7000c49) Thanks [@l7aromeo](https://github.com/l7aromeo)! - In development, two `ThemeProvider`s mounted at once that give a token different values now warn, whether or not one is inside the other. Refs [#68](https://github.com/l7aromeo/meonode/issues/68).
+  
+  Both declare the token on `:root`, so whichever declaration comes later in the document applies to the whole page, and the other provider's value is lost. Give one of the tokens a name of its own. Providers that give a token one value, or where one replaces the other, as on a route change, do not warn. A provider inside a hidden `<Activity>` is checked once it is shown.
+
+- [#98](https://github.com/l7aromeo/meonode/pull/98) [`69c10a3`](https://github.com/l7aromeo/meonode/commit/69c10a3d1ee5a48e00ba7e3f184983fe8d4f1f45) Thanks [@l7aromeo](https://github.com/l7aromeo)! - Resolve the theme tokens in what a `css` theme function returns, on the server as on the client.
+  
+  - A function returning a whole style under a selector or at-rule key, as in `css: { '&:hover': () => ({ padding: 'theme.spacing.md' }) }`, wrote `padding:theme.spacing.md` into the stylesheet, which the browser drops, because a function under a key was resolved only when it returned a string. What it returns is now resolved like the rest of the style, including a function inside it and an array it returns.
+  - In a server component, where a theme function is called with the theme of a node's `theme` prop, a token in what it returned became the theme's raw value: `padding: () => 'theme.spacing.md'` with a numeric `spacing.md` gave `padding: 16`, which the browser drops, where a client component gave `16px`. It now becomes the same variable reference as on the client, so both compile the same class.
+  
+  Fixes [#80](https://github.com/l7aromeo/meonode/issues/80).
+
+- [#98](https://github.com/l7aromeo/meonode/pull/98) [`90d0ffd`](https://github.com/l7aromeo/meonode/commit/90d0ffd2b05b03bf3f3790e01b839ae6fbaf0a21) Thanks [@l7aromeo](https://github.com/l7aromeo)! - Show `ThemeProvider` with `tokens` in the README's Quick Start and in its own documentation comment. Both still passed it a `theme` object, which it has not taken since 2.3.0, so the Quick Start copied as written threw "ThemeProvider: `tokens` is missing". It now passes `tokens`, `modes` and `defaultMode`, as the theming guide does.
+
+- [#78](https://github.com/l7aromeo/meonode/pull/78) [`4a98f11`](https://github.com/l7aromeo/meonode/commit/4a98f1162a2f90e2f97fb353ef8bbec91c2a02b0) Thanks [@l7aromeo](https://github.com/l7aromeo)! - A `css` key in a server component that uses a token only a nested `ThemeProvider` defines now resolves against that provider. Fixes [#67](https://github.com/l7aromeo/meonode/issues/67).
+  
+  An at-rule condition or a selector holding a `theme.*` token, such as `'@media (min-width: theme.breakpoint.md)'`, is resolved where the theme is. Before, when a host element above a nested provider was present, the key resolved against the outer provider instead: the rule was dropped and development reported the key as unresolved, although the token was defined where the element renders. It now resolves against the nearest provider, as it does in a client component, including for an element such as an `input` placed directly inside the `ThemeProvider`.
+  
+  One case still resolves against the provider above, as before: an element that cannot hold a rule in its children, such as an `input`, `img` or a component, placed directly inside a component of your own or a third-party one that renders a provider, with no other element between. Such a component may inspect or clone the child it is given, so it keeps receiving exactly that child. Wrap the element in an element such as a `Div` to have its key resolve against the provider inside.
+
+- [#70](https://github.com/l7aromeo/meonode/pull/70) [`37fa0eb`](https://github.com/l7aromeo/meonode/commit/37fa0ebb81e7db3ceae2b20eab6053b062b01492) Thanks [@l7aromeo](https://github.com/l7aromeo)! - Load in React Server Components on React 19.2, the lowest version `@meonode/ui` supports.
+  
+  No 19.2.x release exports `Activity` from its `react-server` build, and `@meonode/ui` imported it by name. So wherever server components ran on the project's own React 19.2.x, the whole package failed to load, whether or not the project used `Activity`: through the ES module entry with `SyntaxError: Named export 'Activity' not found`, and through the CommonJS entry with `Invalid element type: undefined provided!`. Next.js was not affected, because it renders server components with its own copy of React.
+  
+  `Activity` now works in server components on React 19.2 as well: a server component's `Activity` reaches the browser as React's own, so `mode: 'hidden'` hides its content and keeps its state.
+
 ## 3.1.5
 
 ### Patch Changes
