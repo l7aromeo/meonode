@@ -577,16 +577,25 @@ bun install
 bun run codegen        # regenerate css_props.rs + factories.rs from @meonode/ui
 bun run check:drift     # regenerate + fail on any diff (run before releasing)
 bun run build:wasm      # scripts/build-wasm.ts: cargo build --release --target wasm32-wasip1, copies into npm/
+bun run build:wasm:linux-x64  # the same build in a Linux x86_64 Docker container, as CI and the release build
 bun run test            # cargo test --workspace + vitest (unit/fixture + wasm smoke + equivalence)
 bun run test:e2e        # Next Turbopack + Vite real-build parity fixtures (slow — real bundler builds)
 ```
 
 The wasm build is reproducible: one commit builds to the same bytes on any
-machine. `rust-toolchain.toml` pins the exact Rust version, and
-`scripts/build-wasm.ts` remaps the cargo home, target directory and workspace
-root out of the paths rustc writes into the binary. To check a release built
-this way, build its commit and compare the sha256 of
-`npm/meonode_swc_plugin.wasm` with the one in that version's tarball. CI and the
+machine of the same OS and CPU type. `rust-toolchain.toml` pins the exact Rust
+version, and `scripts/build-wasm.ts` remaps the cargo home, target directory and
+workspace root out of the paths rustc writes into the binary. The build host's
+type still reaches the bytes through cargo and rustc
+([rust-lang/cargo#8140](https://github.com/rust-lang/cargo/issues/8140),
+[rust-lang/rust#165736](https://github.com/rust-lang/rust/issues/165736)), so
+a macOS, Windows or arm64 build differs from the published one. The release
+builds on Linux x86_64. To check a release, build its commit with
+`bun run build:wasm:linux-x64` (or `bun run build:wasm` on Linux x86_64) and
+compare the sha256 of `npm/meonode_swc_plugin.wasm` with the one in that
+version's tarball. That runs the build in Docker on linux/amd64, in the official
+`rust` image tagged with the pinned version; the image only supplies that Rust
+for Linux x86_64, the same toolchain rustup installs on CI. CI and the
 release install the toolchain from that file too, so moving to a newer Rust
 means editing `rust-toolchain.toml`, and the wasm's bytes change with it even
 when the source does not.
