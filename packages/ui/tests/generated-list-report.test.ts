@@ -5,6 +5,7 @@
 // arrays of different lengths is producing them at runtime; one that always
 // hands over the same length may have written them out, and is never reported.
 import { Div, For, Li, Node, Span, Ul, createNode, type NodeElement, type NodeInstance } from '@src/main.js'
+import ThemeProviderComponent from '@src/components/theme-provider.client.js'
 import { refreshDevMode } from '@src/constant/common.const.js'
 import { __generatedListState, __resetGeneratedListReport, observeChildren } from '@src/util/generated-list.util.js'
 import { act, cleanup, render } from '@testing-library/react'
@@ -12,7 +13,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { createElement, StrictMode, useState, type ReactNode } from 'react'
+import { createElement, StrictMode, useState, type ReactElement, type ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest'
 
 const REPORT = '[MeoNode] A `children` list without keys'
@@ -250,6 +251,61 @@ describe('lists that are not reported', () => {
     Box({ children: [Span('a'), Span('b')] })
     Box({ children: [Span('a'), Span('b'), Span('c')] })
     expect(reports()).toHaveLength(0)
+  })
+})
+
+/**
+ * A part of a server component's output as the client receives it when the
+ * payload sent it in a row of its own: a lazy reference standing for the element,
+ * not an element itself, carrying the validated flag the server recorded for it.
+ * Built the way React's Flight client builds one (`createLazyChunkWrapper`).
+ */
+const fromServer = (value: ReactNode, validated = 1) =>
+  ({
+    $$typeof: Symbol.for('react.lazy'),
+    _payload: { status: 'fulfilled', value },
+    _init: (payload: { value: ReactNode }) => payload.value,
+    _store: { validated },
+  }) as unknown as ReactElement
+
+describe('lists built around children a server component sent', () => {
+  it('the lists two nested ThemeProviders build, with 3 and 4 members', () => {
+    // A root layout's provider around a page that renders a provider of its own.
+    // The outer list is [catch-up, style, page] and the inner one [catch-up,
+    // style, inner, outer], with the page and the two rows as lazy references.
+    const theme = { modes: ['light'], defaultMode: 'light' }
+    const row = (key: string) => fromServer(createElement('div', { key }, key))
+    render(
+      createElement(ThemeProviderComponent, {
+        ...theme,
+        tokens: { primary: { default: 'red' } },
+        children: fromServer(
+          createElement(
+            'main',
+            null,
+            createElement(ThemeProviderComponent, { ...theme, tokens: { accent: { default: 'blue' } }, children: [row('inner'), row('outer')] } as never),
+          ),
+        ),
+      } as never),
+    )
+    expect(reports()).toHaveLength(0)
+  })
+
+  it('a client component that re-wraps them, with 2 and 3 of them', () => {
+    function CardWithFooter({ children }: { children?: ReactNode }) {
+      return Div({ children: [...(children as NodeElement[]), Span('footer')] }).render()
+    }
+    const rows = (count: number) => Array.from({ length: count }, () => fromServer(createElement('p', null, 'row')))
+    render(createElement('main', null, createElement(CardWithFooter, { children: rows(2) }), createElement(CardWithFooter, { children: rows(3) })))
+    expect(reports()).toHaveLength(0)
+  })
+
+  it('still reports rendered elements a component generates, from instances with 3 and 5', () => {
+    function Items({ count }: { count: number }) {
+      return Ul({ children: Array.from({ length: count }, (_, i) => Li({ children: `item ${i}` }).render()) }).render()
+    }
+    render(Div({ children: [Node(Items, { count: 3 }), Node(Items, { count: 5 })] }).render())
+    expect(reports()).toHaveLength(COMPILED ? 0 : 1)
   })
 })
 

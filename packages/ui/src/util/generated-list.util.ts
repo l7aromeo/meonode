@@ -273,10 +273,13 @@ export function observeChildren(element: unknown, props: Record<string, unknown>
     // list, re-wrapped by whoever received it (`[...children, Footer()]`). Its
     // length is the caller's, and the caller's call site was the one to watch.
     // An element React validated came to a component as a positional child,
-    // which is React's own record of a list written out by hand.
+    // which is React's own record of a list written out by hand. A server
+    // component's output keeps that record on the client: on the element, or,
+    // for a part the payload sent in a row of its own, on the lazy reference
+    // that stands for it, which is not an element.
     if (child !== null && typeof child === 'object') {
       if (claimed.has(child)) return
-      if (isValidElement(child) && (child as unknown as { _store?: { validated?: unknown } })._store?.validated) return
+      if ((child as { _store?: { validated?: unknown } })._store?.validated) return
     }
     rowType ??= unkeyedType(child)
   }

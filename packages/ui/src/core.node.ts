@@ -857,11 +857,14 @@ function Node<AdditionalProps, E extends NodeElementType, ExactProps extends obj
 }
 
 /**
- * Builds the node for a factory call the author wrote.
+ * Builds the node for a factory call.
  *
- * Every factory comes through here, and the nodes MeoNode builds for itself do
- * not, so the development list report sees each call the author wrote and
- * nothing else.
+ * Every factory comes through here, the calls MeoNode's own components make
+ * (ThemeProvider and the other providers) included, so the development list
+ * report sees each call the author wrote. The nodes MeoNode rebuilds from what
+ * it renders (`NodeUtil`) are constructed directly and are not observed. A list
+ * one of its components builds around children it was handed is recognised by
+ * those children, as for any component that re-wraps its `children`.
  *
  * Its callers keep the result in a variable rather than returning the call:
  * Safari implements proper tail calls, which drop a tail caller's frame, and

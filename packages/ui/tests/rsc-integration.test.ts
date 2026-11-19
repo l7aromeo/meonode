@@ -701,6 +701,19 @@ describe('L. Diagnostics and anti-pattern documentation', () => {
     expect(messages.filter(text => text.includes('[MeoNode]'))).toEqual([])
   })
 
+  it('reports an unkeyed list a server component generates, from instances with 3 and 5 rows, on the server', async () => {
+    const report = 'A `children` list without keys came from one call site with 3, then 5 items'
+    const { status, html } = await getPage('/diagnostic/server-generated-list')
+    expect(status).toBe(200)
+    expect(html.match(/<li>/g)).toHaveLength(8)
+    const serverLines = readFileSync(SERVER_LOG, 'utf8')
+      .split('\n')
+      .filter(line => !line.includes('[browser]'))
+    // Compiled, the compiler marks `Array.from(...)` as a generated list and its
+    // marker reports it, so the runtime stays silent.
+    expect(serverLines.some(line => line.includes(report))).toBe(process.env.MEONODE_COMPILED !== '1')
+  })
+
   it('direct client function call from server (documents behavior)', async () => {
     const { status, html } = await getPage('/diagnostic/server-direct-client', { allowRuntimeErrors: true })
     expect(status).toBeGreaterThanOrEqual(200)
