@@ -43,8 +43,9 @@ Div({
 Plain JavaScript functions replace JSX—no build transforms, no syntax extensions. Compose UIs as first-class function
 trees with full TypeScript inference.
 
-Nothing here requires a build step. An optional build-time plugin exists purely as an optimization—see
-[Optional Build-Time Compiler](#optional-build-time-compiler).
+Nothing here requires a build step. An optional build-time plugin,
+[`@meonode/compiler`](https://ui.meonode.com/docs/getting-started/compiler), moves part of the per-render prop work to
+build time.
 
 ### Nested Array Children
 
@@ -336,18 +337,14 @@ deliberate — the bugs worth this much logging are usually the ones that only r
 
 ## Performance Benchmarks
 
-MeoNode is built for high-performance applications, with an iterative rendering engine and memoization delegated to
-React's own fibers.
-
 > **How to read these numbers.** They come from `bun run bench`, which runs in **jsdom on Node**, not a browser.
 > They are microbenchmarks against **production** React, and absolute timings move with hardware, Node version and
 > background load — 10–20% run-to-run spread on one machine is normal. Treat them as orders of magnitude and as
-> regression guards, not precise figures. Reproduced on an **Apple M4 Pro / 24 GB / Node 26 / React 19.2**, taking
-> medians of alternating rounds.
+> regression guards, not precise figures. Measured on an **Apple M4 Pro / 24 GB / Node 26 / React 19.2 / jsdom 29**,
+> taking medians of alternating rounds.
 >
-> Production React matters: these previously ran under vitest, which forces `NODE_ENV=test` and so measured React's
-> *development* build. Its validation overhead is large enough to swamp the library — it reported the compiler's
-> client-side gain as 1.03x where the real figure is ~1.4x.
+> The scripts run outside vitest on purpose: vitest sets `NODE_ENV=test`, so React loads its *development* build, whose
+> validation work hides most of the difference the library and the compiler make.
 
 ### Layout Rendering
 
@@ -445,8 +442,8 @@ Context-based theme propagation with automatic value resolution. Tokens become C
 them as client components do, and development reports a token no `ThemeProvider` above defines.
 
 **CSS Engine**
-@emotion/react provides CSS-in-JS with automatic optimization, critical CSS extraction for SSR, and zero-runtime
-overhead in production builds.
+@emotion/react serializes each style object and inserts the resulting rule at runtime, once per distinct style, and
+extracts critical CSS for SSR.
 
 ## Why MeoNode UI?
 
@@ -459,14 +456,14 @@ overhead in production builds.
 
 **For Performance-Critical Applications:**
 
-- Emotion's CSS optimization and caching
+- Emotion inserts each distinct style once and reuses its class
 - Surgical memoization at node granularity
 - SSR-ready with critical CSS extraction
 - RSC compatibility for modern React architectures
 
 **For Developer Productivity:**
 
-- No JSX compilation overhead
+- No JSX transform in the build
 - Direct CSS-in-props reduces context switching
 - Intelligent prop routing (style vs DOM attributes)
 - Full autocomplete for all CSS properties

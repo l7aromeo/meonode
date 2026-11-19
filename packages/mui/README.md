@@ -2,7 +2,7 @@
 
 [![NPM version](https://img.shields.io/npm/v/@meonode/mui.svg?style=flat)](https://www.npmjs.com/package/@meonode/mui) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-> A lightweight wrapper around [@mui/material](https://mui.com/) components for use with [`@meonode/ui`](https://www.npmjs.com/package/@meonode/ui) runtime.
+> Wrappers around [@mui/material](https://mui.com/) components for use with [`@meonode/ui`](https://www.npmjs.com/package/@meonode/ui) runtime.
 
 **[Documentation](https://ui.meonode.com/docs/mui-integration)** · [MeoNode UI docs](https://ui.meonode.com)
 
@@ -12,7 +12,7 @@
   - ✅ Fully typed MUI component wrappers
   - 🌳 Tree-shakeable exports
   - 🔌 Seamless integration with @meonode/ui
-  - ⚡ Lightweight runtime with zero additional abstraction overhead
+  - 🧩 Each wrapper merges its props and hands the MUI component to `@meonode/ui`'s `Node`; the wrapper itself adds no React component
 
 ---
 

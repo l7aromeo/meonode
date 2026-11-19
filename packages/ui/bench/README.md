@@ -9,7 +9,7 @@ benchmarks under vitest:
 
 | Symptom | Cause |
 | --- | --- |
-| Client speedup measured as 1.03x; real figure is 1.81x | vitest forces `NODE_ENV=test`, so React resolves to its **development** build, whose validation overhead dominates |
+| The compiler's client-side gain mostly disappears | vitest forces `NODE_ENV=test`, so React resolves to its **development** build, whose validation overhead dominates |
 | Metrics table invisible in CI logs | vitest intercepts `console` (needs `--disable-console-intercept`) |
 | Memory assertions flip pass/fail between invocations | thresholds sit within noise, and results depend on which files share a worker |
 | `--cpu-prof` captures nothing useful | vitest runs tests in forked workers |
