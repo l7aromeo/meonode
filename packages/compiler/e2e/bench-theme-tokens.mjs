@@ -38,15 +38,12 @@ const TMP = path.join(ROOT, 'e2e/.bench-tmp')
 const SOURCE_TEMPLATE = `
 import { Div, ThemeProvider } from '@meonode/ui'
 
-const theme = {
-  mode: 'light',
-  system: {
-    base: { default: '#ffffff', deep: '#0b1724', content: '#111827' },
-    primary: { default: '#4f46e5', content: '#ffffff' },
-    spacing: { sm: '8px', md: '16px' },
-    text: { md: '15px' },
-    radius: { md: '8px' },
-  },
+const tokens = {
+  base: { default: '#ffffff', deep: '#0b1724', content: '#111827' },
+  primary: { default: '#4f46e5', content: '#ffffff' },
+  spacing: { sm: '8px', md: '16px' },
+  text: { md: '15px' },
+  radius: { md: '8px' },
 }
 
 function buildTree(depth, id) {
@@ -70,7 +67,7 @@ function buildTree(depth, id) {
 }
 
 export default function Page() {
-  return ThemeProvider({ theme, children: buildTree(3, 'r') })
+  return ThemeProvider({ modes: ['light'], defaultMode: 'light', tokens, children: buildTree(3, 'r') })
 }
 `
 

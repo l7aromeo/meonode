@@ -106,7 +106,7 @@ CSS variables are invalid in media features and selector text.
 | --- | --- |
 | Node construction in isolation (`@meonode/ui`'s `bench/`) | **~1.7x faster** |
 | Client render — mount plus re-renders (`@meonode/ui`'s `bench/`) | **~1.06x faster** |
-| End-to-end SSR, 156-node tree, production React/Emotion (`e2e/bench-theme-tokens.mjs`) | *not re-measured since 2.0.0-beta* |
+| End-to-end SSR, 156-node tree, production React/Emotion (`e2e/bench-theme-tokens.mjs`) | **~1.4x faster** |
 
 Both figures are much smaller than they were, and that is not a regression in
 the plugin. Against `@meonode/ui@1.x` they read ~4x and ~1.6x, but most of what
@@ -121,8 +121,8 @@ figure is measured separately because it is where the difference used to live �
 `_getStableKey` returned early on the server, so the old `__meo$k` did nothing
 during SSR — and it is now close to noise.
 
-The end-to-end SSR figure predates `2.0.0-beta` and has not been re-run; treat
-it as unverified rather than current.
+The end-to-end SSR figure renders the whole tree, React and Emotion included, so
+it is what a server render improves by.
 
 Ratios move with machine load, and not evenly: the compiled path is shorter, so
 fixed overhead and GC cost it proportionally more. Reproduce with
@@ -140,9 +140,23 @@ against @meonode/ui 1.7.0
 against @meonode/ui 1.7.4
   partitioning only:              1.0038 -> 0.8271 ms/render   17.6% faster
   partitioning + theme rewrite:   1.1894 -> 0.8446 ms/render   29.0% faster
+
+against @meonode/ui after 3.1.5 (unreleased changes included), compiler 0.10.1
+  partitioning only:              1.4917 -> 1.2446 ms/render   14.4% faster
+  partitioning + theme rewrite:   1.8169 -> 1.3527 ms/render   27.8% faster
 ```
 
-The compiled timings are ~0.83 ms in both modes — compiled props are token-free
+The 3.x lines were measured on 2026-11-19 on an Apple M4 Pro under heavy
+concurrent load (load average ~20), so the absolute times are higher than the
+older lines' and not comparable with them; compare the percentages. Each line is
+the median of 11 runs, alternating the two modes, of
+`NODE_ENV=production node e2e/bench-theme-tokens.mjs 400` with and without
+`--no-tokens`, run in this package after `bun run build` at the repository
+root. Single runs under that load spread widely: the middle half of the runs
+fell between 24% and 31% faster with the theme rewrite, and between 13% and 20%
+for partitioning only.
+
+Against 1.7.4 the compiled timings are ~0.83 ms in both modes — compiled props are token-free
 either way — while the *uncompiled* timings differ by ~0.19 ms. That gap is the
 props walk only uncompiled call sites still pay, and the theme rewrite is what
 moves a call site off it.
