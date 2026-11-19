@@ -81,7 +81,11 @@ NODE_ENV=production node --cpu-prof --cpu-prof-dir=prof bench/client-render.mjs
   levels: React with a static className (the baseline), React with Emotion's
   css prop, MeoNode styled, and MeoNode unstyled. It reports the time each side
   adds per node over the baseline, which separates Emotion's cost from
-  MeoNode's own, and the fibers each side renders per node. The page code is
+  MeoNode's own, and the fibers each side renders per node. Two update cases
+  re-render a mounted component whose styled value changes on every render, as
+  a conditional colour or a controlled input does: 1k rows that flip their
+  colour, and an input whose value and border colour change. They report the
+  time added per row, or per update, over the className side. The page code is
   `browser-comparison.page.mjs`, bundled with `bun build`. Without Playwright's
   Chromium (`bunx playwright install chromium`) it prints why and exits 0.
 - **`memory.mjs`** — heap growth across state churn, mount/unmount cycles and

@@ -6,7 +6,9 @@
 // Four sides mount the same shape: React with a static className (the
 // baseline), React with Emotion's css prop, MeoNode styled, and MeoNode
 // unstyled. The figure is the time a side adds per node over the baseline, in
-// µs, which separates Emotion's cost from MeoNode's own. A mount is timed
+// µs, which separates Emotion's cost from MeoNode's own. The update cases
+// re-render a mounted component whose styled value changes on every render:
+// rows whose colour flips, and a controlled input. A mount is timed
 // whole, building the tree included: MeoNode does much of its work while
 // building and in `.render()`, so timing only React's render and commit would
 // leave that out, and would favour moving work out of React's render.
@@ -33,6 +35,11 @@ const PAGES = Number(process.env.PAGES || 3)
 const SHAPES = [
   { shape: 'flat', n: Number(process.env.FLAT || 10000) },
   { shape: 'nested', n: Number(process.env.NESTED || 500) },
+]
+/** Updates that change a styled value on every render; `n` is what the added time is divided by. */
+const UPDATE_CASES = [
+  { kind: 'rows', n: Number(process.env.ROWS || 1000) },
+  { kind: 'input', n: 1 },
 ]
 
 const outDir = mkdtempSync(join(tmpdir(), 'meonode-bench-'))
@@ -95,6 +102,30 @@ try {
       mountsPerSample: Object.fromEntries(sides.map(side => [side, pages[0][side].mountsPerSample])),
     }
   }
+  for (const { kind, n } of UPDATE_CASES) {
+    const pages = []
+    for (let p = 0; p < PAGES; p++) {
+      const page = await browser.newPage()
+      await page.setContent('<!doctype html><html><head></head><body></body></html>')
+      await page.addScriptTag({ content: code })
+      pages.push(await page.evaluate(options => window.runUpdates(options), { kind, n, rounds: ROUNDS }))
+      await page.close()
+    }
+    const sides = Object.keys(pages[0])
+    const ms = side => median(pages.map(page => page[side].ms))
+    const addedUs = (side, base) => +(((ms(side) - ms(base)) / n) * 1000).toFixed(3)
+    results[`update.${kind}`] = {
+      per: kind === 'rows' ? `row (${n} rows)` : 'update',
+      addedUsPer: {
+        meonodeUnstyled: addedUs('meoUnstyled', 'reactClass'),
+        meonodeStyled: addedUs('meoStyled', 'reactClass'),
+        emotionCssProp: addedUs('reactEmotion', 'reactClass'),
+        meonodeOverEmotion: addedUs('meoStyled', 'reactEmotion'),
+      },
+      msPerUpdate: Object.fromEntries(sides.map(side => [side, pages.map(page => +page[side].ms.toFixed(4)).sort((a, b) => a - b)])),
+      updatesPerSample: Object.fromEntries(sides.map(side => [side, pages[0][side].updatesPerSample])),
+    }
+  }
 } finally {
   await browser.close()
 }
@@ -104,5 +135,5 @@ await report('browser-comparison', {
   rounds: ROUNDS,
   pages: PAGES,
   ...results,
-  note: 'addedUsPerNode is the median time a side adds over React setting a static className, per node or nesting level. A mount is the whole step: building the tree, then the render and commit. ms lists the per-page medians of the time per mount, lowest first; each sample timed mountsPerSample consecutive mounts. phases splits a mount into building and committing.',
+  note: 'addedUsPerNode is the median time a side adds over React setting a static className, per node or nesting level. A mount is the whole step: building the tree, then the render and commit. ms lists the per-page medians of the time per mount, lowest first; each sample timed mountsPerSample consecutive mounts. phases splits a mount into building and committing. update.* re-render a mounted component whose styled value changes every time (rows flip their colour; an input changes its value and border colour), and addedUsPer is the time per row or per update over the className side.',
 })

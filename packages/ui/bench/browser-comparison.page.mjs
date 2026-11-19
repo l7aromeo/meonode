@@ -1,10 +1,11 @@
 // Runs inside Chromium, bundled by `browser-comparison.mjs`. Mounts the same
-// shape four ways and reports median mount times and fiber counts.
+// shape four ways and reports median mount times and fiber counts, then times
+// updates that change a styled value on every render.
 import { jsx } from '@emotion/react'
-import { createElement } from 'react'
+import { createElement, useState } from 'react'
 import { flushSync } from 'react-dom'
 import { createRoot } from 'react-dom/client'
-import { Div, Span } from '../dist/esm/main.js'
+import { Div, Input, Span } from '../dist/esm/main.js'
 
 /** One style property, the same on every side that styles. */
 const PADDING = { padding: '1px' }
@@ -141,4 +142,93 @@ window.runSides = ({ shape, n, rounds }) => {
       },
     ]),
   )
+}
+
+/** A controlled input's change handler; the benchmark sets the value itself. */
+const ignoreChange = () => {}
+
+/**
+ * Update cases: a mounted component re-renders, and a styled value changes on
+ * every render. React switches a className, Emotion and MeoNode styled write
+ * the value as a style, and MeoNode unstyled switches a className. The tree is
+ * built inside the component, so every update pays for building it.
+ * Each entry maps `tick`, the update count, and `n` to the tree.
+ */
+const UPDATES = {
+  // `n` rows coloured by whether each is flagged; every update flips every row.
+  rows: {
+    reactClass: (tick, n) =>
+      createElement(
+        'div',
+        null,
+        Array.from({ length: n }, (_, i) => createElement('div', { key: i, className: (i + tick) % 2 ? 'error' : 'ok' }, `row ${i}`)),
+      ),
+    reactEmotion: (tick, n) =>
+      createElement(
+        'div',
+        null,
+        Array.from({ length: n }, (_, i) => jsx('div', { key: i, css: { color: (i + tick) % 2 ? 'red' : 'green' } }, `row ${i}`)),
+      ),
+    meoStyled: (tick, n) =>
+      Div({ children: Array.from({ length: n }, (_, i) => Div({ key: i, color: (i + tick) % 2 ? 'red' : 'green', children: `row ${i}` })) }).render(),
+    meoUnstyled: (tick, n) =>
+      Div({ children: Array.from({ length: n }, (_, i) => Div({ key: i, className: (i + tick) % 2 ? 'error' : 'ok', children: `row ${i}` })) }).render(),
+  },
+  // A controlled input whose value changes on every update; its border colour shows whether the value is long enough.
+  input: {
+    reactClass: tick => createElement('input', { value: 'x'.repeat(tick % 8), onChange: ignoreChange, className: tick % 8 < 3 ? 'invalid' : 'valid' }),
+    reactEmotion: tick => jsx('input', { value: 'x'.repeat(tick % 8), onChange: ignoreChange, css: { borderColor: tick % 8 < 3 ? 'red' : 'green' } }),
+    meoStyled: tick => Input({ value: 'x'.repeat(tick % 8), onChange: ignoreChange, borderColor: tick % 8 < 3 ? 'red' : 'green' }).render(),
+    meoUnstyled: tick => Input({ value: 'x'.repeat(tick % 8), onChange: ignoreChange, className: tick % 8 < 3 ? 'invalid' : 'valid' }).render(),
+  },
+}
+
+/**
+ * Mounts one update case, and returns a function that times `count` updates
+ * back to back and gives the time per update, and one that unmounts it.
+ */
+function mountUpdating(kind, side, n) {
+  let setTick = () => {}
+  const Case = () => {
+    const [tick, set] = useState(0)
+    setTick = set
+    return UPDATES[kind][side](tick, n)
+  }
+  const host = document.createElement('div')
+  document.body.appendChild(host)
+  const root = createRoot(host)
+  flushSync(() => root.render(createElement(Case)))
+  return {
+    time(count) {
+      const t0 = performance.now()
+      for (let i = 0; i < count; i++) flushSync(() => setTick(tick => tick + 1))
+      return (performance.now() - t0) / count
+    },
+    unmount() {
+      flushSync(() => root.unmount())
+      host.remove()
+    },
+  }
+}
+
+/**
+ * Times updates of one case on each side, `rounds` samples after two warm-up
+ * updates, rotating the side order every round. Each sample times as many
+ * updates as {@link MIN_SAMPLE_MS} needs for that side.
+ */
+window.runUpdates = ({ kind, n, rounds }) => {
+  const sides = Object.keys(SIDES)
+  const cases = Object.fromEntries(sides.map(side => [side, mountUpdating(kind, side, n)]))
+  const updatesFor = msPerUpdate => Math.max(1, Math.ceil((MIN_SAMPLE_MS * 1.25) / Math.max(msPerUpdate, 0.001)))
+  const perSample = Object.fromEntries(sides.map(side => [side, updatesFor(Math.min(cases[side].time(1), cases[side].time(1)))]))
+  for (const side of sides) perSample[side] = updatesFor(cases[side].time(perSample[side]))
+  const samples = Object.fromEntries(sides.map(side => [side, []]))
+  for (let r = 0; r < rounds; r++) {
+    for (let i = 0; i < sides.length; i++) {
+      const side = sides[(i + r) % sides.length]
+      samples[side].push(cases[side].time(perSample[side]))
+    }
+  }
+  for (const side of sides) cases[side].unmount()
+  return Object.fromEntries(sides.map(side => [side, { ms: median(samples[side]), updatesPerSample: perSample[side] }]))
 }
