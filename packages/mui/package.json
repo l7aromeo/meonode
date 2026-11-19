@@ -1,6 +1,6 @@
 {
   "name": "@meonode/mui",
-  "version": "3.1.0",
+  "version": "3.1.1",
   "description": "A lightweight wrapper around `@mui/material` components for use with `@meonode/ui` and the BaseNode runtime.",
   "type": "module",
   "main": "./dist/cjs/main.cjs",
@@ -290,7 +290,7 @@
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.1",
     "@eslint/js": "^10.0.1",
-    "@meonode/ui": "^3.1.5",
+    "@meonode/ui": "^3.2.0",
     "@mui/lab": "^9.0.0-beta.10",
     "@mui/material": "^9.5.0",
     "@mui/material-nextjs": "^9.5.0",
