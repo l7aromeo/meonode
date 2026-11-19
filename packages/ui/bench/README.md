@@ -76,18 +76,49 @@ NODE_ENV=production node --cpu-prof --cpu-prof-dir=prof bench/client-render.mjs
   against one MeoNode style property, so both sides put one class on every
   element. It reports the time MeoNode adds per node, not a ratio: a ratio
   moves with the DOM's share of the work, which changes between jsdom versions.
-- **`browser-comparison.mjs`** — the published comparison, in headless
-  Chromium through Playwright. Four sides mount 10k flat nodes and 500 nested
-  levels: React with a static className (the baseline), React with Emotion's
-  css prop, MeoNode styled, and MeoNode unstyled. It reports the time each side
-  adds per node over the baseline, which separates Emotion's cost from
-  MeoNode's own, and the fibers each side renders per node. Two update cases
-  re-render a mounted component whose styled value changes on every render, as
-  a conditional colour or a controlled input does: 1k rows that flip their
-  colour, and an input whose value and border colour change. They report the
-  time added per row, or per update, over the className side. The page code is
-  `browser-comparison.page.mjs`, bundled with `bun build`. Without Playwright's
-  Chromium (`bunx playwright install chromium`) it prints why and exits 0.
+- **`browser-comparison.mjs`** — the published comparison, in a real browser
+  through Playwright. Four sides mount 10k flat nodes and 500 nested levels:
+  React with a static className (the baseline, `reactClass`), React with
+  Emotion's css prop (`reactEmotion`), MeoNode styled (`meoStyled`, one style
+  prop on every node), and MeoNode setting the baseline's static className on
+  every node, with no CSS-in-JS (`meoClassName`). It reports the time
+  each side adds per node over the baseline, which separates Emotion's cost
+  from MeoNode's own, and the fibers each side renders per node. Two update
+  cases re-render a mounted component whose styled value changes on every
+  render, as a conditional colour or a controlled input does: 1k rows that flip
+  their colour, and an input whose value and border colour change. They report
+  the time added per row, or per update, over the className side.
+
+  Every case is timed two ways. The JavaScript-only figures (`ms`,
+  `addedUs*`) are building plus React's render and commit. The `toFrame`
+  figures time single mounts and updates from the start of a frame to the end
+  of that frame's style, layout and paint on the main thread; raster and GPU
+  presentation are not included. A stylesheet gives the className sides the
+  same styles the styled sides write, so every side pays for the same layout.
+  The flat shape is laid out as rows, one block per node, as a list renders.
+  Inline spans with no space between them form one unbroken word, whose layout
+  grows with the square of the node count: React's frame took 48.7 ms at 5k
+  nodes and 185 ms at 10k that way, against 10.6 and 19.9 ms as rows.
+
+  `BENCH_BROWSER=chrome` runs the installed Google Chrome in a visible window
+  with a fresh temporary profile; the default, `headless`, runs Playwright's
+  headless Chromium shell. Both turn off background throttling, and a sample
+  taken while the page was hidden is not counted. Every round runs the sides
+  in a different shuffled order, and garbage is collected before every
+  sample: with a fixed order each side always followed the same side and paid
+  for its garbage, which showed up as a steady offset between two copies of one
+  build. So every sample starts from a collected heap, and the garbage a side
+  makes inside a sample, with any collection during it, is still counted. The
+  1-minute load average is read as each page starts; if one starts at 10 or
+  more (`BENCH_LOAD_MAX`), the report marks the run `valid: false`. The page is cross-origin
+  isolated, so `performance.now()` steps by 5 µs. `BENCH_DIST_B=<dist>` adds a
+  second `@meonode/ui` build as `meoStyledB` and `meoClassNameB`, reported in
+  `variantB` against the package's own build; `BENCH_DIST_B=dist` is an A/A
+  check, two copies of one build that must agree within the spread. The report
+  records the browser and its version, and the 1-minute load average at the
+  start and end. The page code is `browser-comparison.page.mjs`, bundled with
+  `bun build`. Without Playwright's Chromium (`bunx playwright install
+  chromium`) the headless run prints why and exits 0.
 - **`memory.mjs`** — heap growth across state churn, mount/unmount cycles and
   navigation. Threshold checks rather than timings; exits non-zero on a
   regression, so it is still usable as a gate you run deliberately. Requires

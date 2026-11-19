@@ -1,32 +1,113 @@
-// Runs inside Chromium, bundled by `browser-comparison.mjs`. Mounts the same
-// shape four ways and reports median mount times and fiber counts, then times
-// updates that change a styled value on every render.
+// Runs inside the browser, bundled by `browser-comparison.mjs` from an entry
+// that calls `start` with the MeoNode builds to compare. Mounts the same shape
+// on every side and reports median mount times and fiber counts, then times
+// updates that change a styled value on every render. Each case is timed two
+// ways: JavaScript only (building the tree plus React's render and commit), and
+// to the frame (the same, plus the browser's style, layout and paint of the
+// first frame that shows the commit).
 import { jsx } from '@emotion/react'
 import { createElement, useState } from 'react'
 import { flushSync } from 'react-dom'
 import { createRoot } from 'react-dom/client'
-import { Div, Input, Span } from '../dist/esm/main.js'
 
 /** One style property, the same on every side that styles. */
 const PADDING = { padding: '1px' }
 
 /**
- * The four sides. `reactClass` is the baseline: React setting a static class,
- * with no CSS-in-JS. `reactEmotion` is what Emotion's own css prop costs;
- * `meoStyled` is MeoNode on top of Emotion; `meoUnstyled` is MeoNode with no style.
+ * The rules behind the classes the className sides set, the same styles the
+ * styled sides write. Without them a className side would skip style and
+ * layout work that the styled sides pay for in every frame. `.list` lays the
+ * flat shape out as rows, as a list renders: inline spans with no space
+ * between them would form one unbroken word, whose layout grows with the square
+ * of the node count and would swamp the frame time.
  */
-const SIDES = {
-  reactClass: { leaf: (key, text) => createElement('span', { key, className: 'c' }, text), wrap: child => createElement('div', { className: 'c' }, child) },
-  reactEmotion: { leaf: (key, text) => jsx('span', { key, css: PADDING }, text), wrap: child => jsx('div', { css: PADDING }, child) },
-  meoStyled: { leaf: (key, text) => Span(text, { key, ...PADDING }), wrap: child => Div({ ...PADDING, children: child }), meonode: true },
-  meoUnstyled: { leaf: (key, text) => Span(text, { key }), wrap: child => Div({ children: child }), meonode: true },
+const CLASS_RULES =
+  '.list > * { display: block } .c { padding: 1px } .ok { color: green } .error { color: red } .valid { border-color: green } .invalid { border-color: red }'
+
+/** A controlled input's change handler; the benchmark sets the value itself. */
+const ignoreChange = () => {}
+
+/**
+ * React's two sides. `reactClass` is the baseline: React setting a static
+ * class, with no CSS-in-JS. `reactEmotion` is what Emotion's own css prop costs.
+ *
+ * Each side has `leaf` and `wrap` for the mount shapes, and `updates`, which
+ * map `tick`, the update count, and `n` to the tree of each update case:
+ * - `rows`: `n` rows coloured by whether each is flagged; every update flips
+ *   every row. React switches a className, Emotion and MeoNode styled write the
+ *   colour as a style, and MeoNode with a className switches a className.
+ * - `input`: a controlled input whose value changes on every update; its border
+ *   colour shows whether the value is long enough.
+ */
+const REACT_SIDES = {
+  reactClass: {
+    leaf: (key, text) => createElement('span', { key, className: 'c' }, text),
+    wrap: child => createElement('div', { className: 'c' }, child),
+    updates: {
+      rows: (tick, n) =>
+        createElement(
+          'div',
+          null,
+          Array.from({ length: n }, (_, i) => createElement('div', { key: i, className: (i + tick) % 2 ? 'error' : 'ok' }, `row ${i}`)),
+        ),
+      input: tick => createElement('input', { value: 'x'.repeat(tick % 8), onChange: ignoreChange, className: tick % 8 < 3 ? 'invalid' : 'valid' }),
+    },
+  },
+  reactEmotion: {
+    leaf: (key, text) => jsx('span', { key, css: PADDING }, text),
+    wrap: child => jsx('div', { css: PADDING }, child),
+    updates: {
+      rows: (tick, n) =>
+        createElement(
+          'div',
+          null,
+          Array.from({ length: n }, (_, i) => jsx('div', { key: i, css: { color: (i + tick) % 2 ? 'red' : 'green' } }, `row ${i}`)),
+        ),
+      input: tick => jsx('input', { value: 'x'.repeat(tick % 8), onChange: ignoreChange, css: { borderColor: tick % 8 < 3 ? 'red' : 'green' } }),
+    },
+  },
 }
+
+/**
+ * MeoNode's two sides for one build of `@meonode/ui`: `meoStyled` is MeoNode
+ * on top of Emotion, `meoClassName` is MeoNode setting the baseline's static
+ * class, with no CSS-in-JS.
+ * @param lib The build's exports.
+ * @param suffix Appended to the side names, to tell builds apart.
+ */
+function meonodeSides({ Div, Input, Span }, suffix) {
+  return {
+    [`meoStyled${suffix}`]: {
+      leaf: (key, text) => Span(text, { key, ...PADDING }),
+      wrap: child => Div({ ...PADDING, children: child }),
+      meonode: true,
+      updates: {
+        rows: (tick, n) =>
+          Div({ children: Array.from({ length: n }, (_, i) => Div({ key: i, color: (i + tick) % 2 ? 'red' : 'green', children: `row ${i}` })) }).render(),
+        input: tick => Input({ value: 'x'.repeat(tick % 8), onChange: ignoreChange, borderColor: tick % 8 < 3 ? 'red' : 'green' }).render(),
+      },
+    },
+    [`meoClassName${suffix}`]: {
+      leaf: (key, text) => Span(text, { key, className: 'c' }),
+      wrap: child => Div({ className: 'c', children: child }),
+      meonode: true,
+      updates: {
+        rows: (tick, n) =>
+          Div({ children: Array.from({ length: n }, (_, i) => Div({ key: i, className: (i + tick) % 2 ? 'error' : 'ok', children: `row ${i}` })) }).render(),
+        input: tick => Input({ value: 'x'.repeat(tick % 8), onChange: ignoreChange, className: tick % 8 < 3 ? 'invalid' : 'valid' }).render(),
+      },
+    },
+  }
+}
+
+/** The sides of this page, set by {@link start}. */
+let SIDES = {}
 
 function build(side, shape, n) {
   const { leaf, wrap, meonode } = SIDES[side]
   if (shape === 'flat') {
     const children = Array.from({ length: n }, (_, i) => leaf(i, `n${i}`))
-    return meonode ? Div({ children }).render() : createElement('div', null, children)
+    return meonode ? SIDES[side].lib.Div({ className: 'list', children }).render() : createElement('div', { className: 'list' }, children)
   }
   let node = leaf(undefined, 'leaf')
   for (let i = 0; i < n; i++) node = wrap(node)
@@ -47,42 +128,124 @@ function countFibers(host) {
   return count
 }
 
-/** Mounts one tree and, on request, counts its fibers. */
-function mount(tree, withFibers = false) {
+/** Mounts one tree and counts its fibers. */
+function countMountedFibers(tree) {
   const host = document.createElement('div')
   document.body.appendChild(host)
   const root = createRoot(host)
-  const t0 = performance.now()
   flushSync(() => root.render(tree))
-  const ms = performance.now() - t0
-  const fibers = withFibers ? countFibers(host) : undefined
+  const fibers = countFibers(host)
   flushSync(() => root.unmount())
   host.remove()
-  return { ms, fibers }
+  return fibers
 }
 
 const median = xs => {
+  if (xs.length === 0) return null
   const s = [...xs].sort((a, b) => a - b)
   return s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2
 }
 
 /**
- * Shortest time one sample may take, in ms. `performance.now()` is coarsened
- * to 0.1 ms in a page without cross-origin isolation, so a sample that short
- * would round a 500-level mount to a few steps; each sample therefore times
- * enough consecutive mounts to last at least this long.
+ * Shortest time one JavaScript-only sample may take, in ms. `performance.now()`
+ * is coarsened (to 5 µs with cross-origin isolation, 100 µs without), so each
+ * sample times enough consecutive mounts or updates to last at least this long.
  */
 const MIN_SAMPLE_MS = 20
 
+/** A quarter more than {@link MIN_SAMPLE_MS}, since a mount's time varies between samples. */
+const SAMPLE_MARGIN = 1.25
+
+/** How long a frame may take to arrive before its sample is given up as hidden, in ms. */
+const FRAME_TIMEOUT_MS = 2000
+
+/** Visibility changes seen so far; a sample during which this moves is invalid. */
+let visibilityChanges = 0
+document.addEventListener('visibilitychange', () => visibilityChanges++)
+
 /**
- * Times `count` mounts back to back, each the whole step a page pays: building
- * the tree (MeoNode's construction and `.render()`, or React's
- * `createElement` calls), then React's render and commit. Builds run first
- * and commits second, each phase timed on its own, so the split is reported
- * too. Creating the roots happens before the clock starts and unmounting
- * after it stops.
+ * Starts watching one sample. The returned function, called when the sample
+ * ends, tells whether it is valid: the page was visible at both ends and its
+ * visibility never changed in between. A hidden page has its timers and frames
+ * throttled, so such a sample is not counted. Focus is recorded but does not
+ * invalidate a sample.
+ * @returns {() => { valid: boolean, visibility: string, focused: boolean }}
+ */
+function watchSample() {
+  const visibleAtStart = document.visibilityState === 'visible'
+  const focusedAtStart = document.hasFocus()
+  const changes = visibilityChanges
+  return () => ({
+    valid: visibleAtStart && document.visibilityState === 'visible' && visibilityChanges === changes,
+    visibility: document.visibilityState,
+    focused: focusedAtStart && document.hasFocus(),
+  })
+}
+
+/** Calls `fn` in a new task, after everything already queued. */
+function nextTask(fn) {
+  const { port1, port2 } = new window.MessageChannel()
+  port1.onmessage = () => {
+    port1.close()
+    fn()
+  }
+  port2.postMessage(null)
+}
+
+/** Resolves once the next frame has been rendered, so earlier DOM changes are no longer pending. */
+const afterFrame = () => new Promise(resolve => window.requestAnimationFrame(() => nextTask(resolve)))
+
+/**
+ * Times `work` to the frame. The work runs at the start of a frame, in a
+ * `requestAnimationFrame` callback, so the wait for the next vsync is not in
+ * the figure. The browser then does that frame's style, layout and paint, and a
+ * task queued from the callback runs once they are done; its time is the end.
+ * Raster and GPU presentation run off the main thread and are not included.
+ * @returns {Promise<{ jsMs: number, toFrameMs: number, layoutLeftMs: number, valid: boolean, visibility: string, focused: boolean }>}
+ * `jsMs` is the work alone; `layoutLeftMs` is the cost of forcing layout at the
+ * end, which is near zero when the frame really did lay the commit out.
+ */
+function timeToFrame(work) {
+  return new Promise(resolve => {
+    let done = false
+    const timeout = window.setTimeout(() => {
+      done = true
+      resolve({
+        jsMs: null,
+        toFrameMs: null,
+        layoutLeftMs: null,
+        valid: false,
+        visibility: document.visibilityState,
+        focused: document.hasFocus(),
+        timedOut: true,
+      })
+    }, FRAME_TIMEOUT_MS)
+    window.requestAnimationFrame(() => {
+      if (done) return
+      window.clearTimeout(timeout)
+      const end = watchSample()
+      const t0 = performance.now()
+      work()
+      const t1 = performance.now()
+      nextTask(() => {
+        const t2 = performance.now()
+        void document.body.offsetHeight
+        const t3 = performance.now()
+        resolve({ jsMs: t1 - t0, toFrameMs: t2 - t0, layoutLeftMs: t3 - t2, ...end() })
+      })
+    })
+  })
+}
+
+/**
+ * Times `count` mounts back to back, JavaScript only, each the whole step a
+ * page pays: building the tree (MeoNode's construction and `.render()`, or
+ * React's `createElement` calls), then React's render and commit. Builds run
+ * first and commits second, each phase timed on its own, so the split is
+ * reported too. Creating the roots happens before the clock starts and
+ * unmounting after it stops.
  * @returns Time per mount, in ms: `ms` for the whole step, `buildMs` and
- * `commitMs` for its phases.
+ * `commitMs` for its phases, and the sample's validity.
  */
 function mountMany(side, shape, n, count) {
   const roots = Array.from({ length: count }, () => {
@@ -91,108 +254,153 @@ function mountMany(side, shape, n, count) {
     return { host, root: createRoot(host) }
   })
   const trees = new Array(count)
+  const end = watchSample()
   const t0 = performance.now()
   for (let i = 0; i < count; i++) trees[i] = build(side, shape, n)
   const t1 = performance.now()
   for (let i = 0; i < count; i++) flushSync(() => roots[i].root.render(trees[i]))
   const t2 = performance.now()
+  const validity = end()
   for (const { host, root } of roots) {
     flushSync(() => root.unmount())
     host.remove()
   }
-  return { ms: (t2 - t0) / count, buildMs: (t1 - t0) / count, commitMs: (t2 - t1) / count }
+  return { ms: (t2 - t0) / count, buildMs: (t1 - t0) / count, commitMs: (t2 - t1) / count, ...validity }
+}
+
+/** Mounts one tree timed to the frame, then unmounts it and lets that render too. */
+async function mountToFrame(side, shape, n) {
+  const host = document.createElement('div')
+  document.body.appendChild(host)
+  const root = createRoot(host)
+  await afterFrame()
+  const sample = await timeToFrame(() => {
+    const tree = build(side, shape, n)
+    flushSync(() => root.render(tree))
+  })
+  flushSync(() => root.unmount())
+  host.remove()
+  await afterFrame()
+  return sample
+}
+
+/** Collects garbage, when the browser exposes `gc()`, so a sample does not pay for the side before it. */
+const collectGarbage = () => window.gc?.()
+
+/**
+ * The side order of round `round`: a shuffle seeded by the round, so every
+ * run uses the same orders, and each side follows a different side from round
+ * to round instead of always the same one.
+ */
+function orderOf(sides, round) {
+  let seed = round + 1
+  const random = () => {
+    seed = (seed * 1103515245 + 12345) % 2147483648
+    return seed / 2147483648
+  }
+  const order = [...sides]
+  for (let i = order.length - 1; i > 0; i--) {
+    const j = Math.floor(random() * (i + 1))
+    ;[order[i], order[j]] = [order[j], order[i]]
+  }
+  return order
+}
+
+/** How many runs one JavaScript-only sample needs to last {@link MIN_SAMPLE_MS}. */
+const runsFor = msPerRun => Math.max(1, Math.ceil((MIN_SAMPLE_MS * SAMPLE_MARGIN) / Math.max(msPerRun, 0.001)))
+
+/**
+ * Summarises one side's samples: medians over the valid ones, and counts.
+ * @param js JavaScript-only samples.
+ * @param frames To-the-frame samples.
+ */
+function summarise(js, frames) {
+  const validJs = js.filter(sample => sample.valid)
+  const validFrames = frames.filter(sample => sample.valid)
+  const phase = key => median(validJs.map(sample => sample[key]))
+  return {
+    ms: phase('ms'),
+    ...(validJs[0]?.buildMs === undefined ? {} : { buildMs: phase('buildMs'), commitMs: phase('commitMs') }),
+    samples: { valid: validJs.length, invalid: js.length - validJs.length, unfocused: js.filter(sample => !sample.focused).length },
+    toFrame: {
+      ms: median(validFrames.map(sample => sample.toFrameMs)),
+      jsMs: median(validFrames.map(sample => sample.jsMs)),
+      postCommitMs: median(validFrames.map(sample => sample.toFrameMs - sample.jsMs)),
+      minPostCommitMs: validFrames.length ? Math.min(...validFrames.map(sample => sample.toFrameMs - sample.jsMs)) : null,
+      maxLayoutLeftMs: validFrames.length ? Math.max(...validFrames.map(sample => sample.layoutLeftMs)) : null,
+      notAfterCommit: validFrames.filter(sample => !(sample.toFrameMs > sample.jsMs)).length,
+      samples: {
+        valid: validFrames.length,
+        invalid: frames.length - validFrames.length,
+        timedOut: frames.filter(sample => sample.timedOut).length,
+        unfocused: frames.filter(sample => !sample.focused).length,
+      },
+    },
+  }
+}
+
+/** The smallest step `performance.now()` takes on this page, in ms. */
+function timerResolutionMs() {
+  let smallest = Infinity
+  for (let i = 0; i < 50; i++) {
+    const t0 = performance.now()
+    let t1 = t0
+    while (t1 === t0) t1 = performance.now()
+    smallest = Math.min(smallest, t1 - t0)
+  }
+  return smallest
 }
 
 /**
- * Mounts each side `rounds` times after two warm-ups, rotating the order every
- * round. Each sample times as many mounts as {@link MIN_SAMPLE_MS} needs for
- * that side.
+ * Mounts each side `rounds` times after two warm-ups, in a shuffled order
+ * each round ({@link orderOf}), collecting garbage before every sample. Every
+ * round takes one JavaScript-only sample per side, sized by
+ * {@link MIN_SAMPLE_MS}, and one mount timed to the frame.
  */
-window.runSides = ({ shape, n, rounds }) => {
+async function runSides({ shape, n, rounds }) {
   const sides = Object.keys(SIDES)
-  const samples = Object.fromEntries(sides.map(side => [side, []]))
+  const js = Object.fromEntries(sides.map(side => [side, []]))
+  const frames = Object.fromEntries(sides.map(side => [side, []]))
   const warm = Object.fromEntries(sides.map(side => [side, []]))
-  for (let i = 0; i < 2; i++) for (const side of sides) warm[side].push(mountMany(side, shape, n, 1).ms)
+  for (let i = 0; i < 2; i++) {
+    for (const side of sides) {
+      warm[side].push(mountMany(side, shape, n, 1).ms)
+      await mountToFrame(side, shape, n)
+    }
+  }
   // Size samples from the warm-ups, then once more from a sample of that size: warm-ups run cold and overestimate a mount.
-  // A quarter more than the minimum, since a mount's time varies between samples.
-  const mountsFor = msPerMount => Math.max(1, Math.ceil((MIN_SAMPLE_MS * 1.25) / Math.max(msPerMount, 0.01)))
-  const perSample = Object.fromEntries(sides.map(side => [side, mountsFor(Math.min(...warm[side]))]))
-  for (const side of sides) perSample[side] = mountsFor(mountMany(side, shape, n, perSample[side]).ms)
+  const perSample = Object.fromEntries(sides.map(side => [side, runsFor(Math.min(...warm[side]))]))
+  for (const side of sides) perSample[side] = runsFor(mountMany(side, shape, n, perSample[side]).ms)
+  await afterFrame()
   for (let r = 0; r < rounds; r++) {
-    for (let i = 0; i < sides.length; i++) {
-      const side = sides[(i + r) % sides.length]
-      samples[side].push(mountMany(side, shape, n, perSample[side]))
+    for (const side of orderOf(sides, r)) {
+      collectGarbage()
+      js[side].push(mountMany(side, shape, n, perSample[side]))
+      collectGarbage()
+      frames[side].push(await mountToFrame(side, shape, n))
     }
   }
   // Fibers per node from a ten-node tree: flat has one extra root element, nested has ten wraps around one leaf.
   const fibersPerNode = side => {
-    const { fibers } = mount(build(side, shape, 10), true)
+    const fibers = countMountedFibers(build(side, shape, 10))
     return shape === 'flat' ? (fibers - 1) / 10 : fibers / 11
   }
-  const phase = (side, key) => median(samples[side].map(sample => sample[key]))
   return Object.fromEntries(
-    sides.map(side => [
-      side,
-      {
-        ms: phase(side, 'ms'),
-        buildMs: phase(side, 'buildMs'),
-        commitMs: phase(side, 'commitMs'),
-        mountsPerSample: perSample[side],
-        fibersPerNode: fibersPerNode(side),
-      },
-    ]),
+    sides.map(side => [side, { ...summarise(js[side], frames[side]), mountsPerSample: perSample[side], fibersPerNode: fibersPerNode(side) }]),
   )
 }
 
-/** A controlled input's change handler; the benchmark sets the value itself. */
-const ignoreChange = () => {}
-
 /**
- * Update cases: a mounted component re-renders, and a styled value changes on
- * every render. React switches a className, Emotion and MeoNode styled write
- * the value as a style, and MeoNode unstyled switches a className. The tree is
- * built inside the component, so every update pays for building it.
- * Each entry maps `tick`, the update count, and `n` to the tree.
- */
-const UPDATES = {
-  // `n` rows coloured by whether each is flagged; every update flips every row.
-  rows: {
-    reactClass: (tick, n) =>
-      createElement(
-        'div',
-        null,
-        Array.from({ length: n }, (_, i) => createElement('div', { key: i, className: (i + tick) % 2 ? 'error' : 'ok' }, `row ${i}`)),
-      ),
-    reactEmotion: (tick, n) =>
-      createElement(
-        'div',
-        null,
-        Array.from({ length: n }, (_, i) => jsx('div', { key: i, css: { color: (i + tick) % 2 ? 'red' : 'green' } }, `row ${i}`)),
-      ),
-    meoStyled: (tick, n) =>
-      Div({ children: Array.from({ length: n }, (_, i) => Div({ key: i, color: (i + tick) % 2 ? 'red' : 'green', children: `row ${i}` })) }).render(),
-    meoUnstyled: (tick, n) =>
-      Div({ children: Array.from({ length: n }, (_, i) => Div({ key: i, className: (i + tick) % 2 ? 'error' : 'ok', children: `row ${i}` })) }).render(),
-  },
-  // A controlled input whose value changes on every update; its border colour shows whether the value is long enough.
-  input: {
-    reactClass: tick => createElement('input', { value: 'x'.repeat(tick % 8), onChange: ignoreChange, className: tick % 8 < 3 ? 'invalid' : 'valid' }),
-    reactEmotion: tick => jsx('input', { value: 'x'.repeat(tick % 8), onChange: ignoreChange, css: { borderColor: tick % 8 < 3 ? 'red' : 'green' } }),
-    meoStyled: tick => Input({ value: 'x'.repeat(tick % 8), onChange: ignoreChange, borderColor: tick % 8 < 3 ? 'red' : 'green' }).render(),
-    meoUnstyled: tick => Input({ value: 'x'.repeat(tick % 8), onChange: ignoreChange, className: tick % 8 < 3 ? 'invalid' : 'valid' }).render(),
-  },
-}
-
-/**
- * Mounts one update case, and returns a function that times `count` updates
- * back to back and gives the time per update, and one that unmounts it.
+ * Mounts one update case, and returns functions that time `count` updates back
+ * to back (JavaScript only), time one update to the frame, and unmount it.
+ * The tree is built inside the component, so every update pays for building it.
  */
 function mountUpdating(kind, side, n) {
   let setTick = () => {}
   const Case = () => {
     const [tick, set] = useState(0)
     setTick = set
-    return UPDATES[kind][side](tick, n)
+    return SIDES[side].updates[kind](tick, n)
   }
   const host = document.createElement('div')
   document.body.appendChild(host)
@@ -200,9 +408,14 @@ function mountUpdating(kind, side, n) {
   flushSync(() => root.render(createElement(Case)))
   return {
     time(count) {
+      const end = watchSample()
       const t0 = performance.now()
       for (let i = 0; i < count; i++) flushSync(() => setTick(tick => tick + 1))
-      return (performance.now() - t0) / count
+      return { ms: (performance.now() - t0) / count, ...end() }
+    },
+    async toFrame() {
+      await afterFrame()
+      return timeToFrame(() => flushSync(() => setTick(tick => tick + 1)))
     },
     unmount() {
       flushSync(() => root.unmount())
@@ -212,23 +425,57 @@ function mountUpdating(kind, side, n) {
 }
 
 /**
- * Times updates of one case on each side, `rounds` samples after two warm-up
- * updates, rotating the side order every round. Each sample times as many
- * updates as {@link MIN_SAMPLE_MS} needs for that side.
+ * Times updates of one case on each side, `rounds` rounds after two warm-up
+ * updates, in a shuffled order each round ({@link orderOf}), collecting
+ * garbage before every sample. Every round takes one
+ * JavaScript-only sample per side, sized by {@link MIN_SAMPLE_MS}, and one
+ * update timed to the frame.
  */
-window.runUpdates = ({ kind, n, rounds }) => {
+async function runUpdates({ kind, n, rounds }) {
   const sides = Object.keys(SIDES)
   const cases = Object.fromEntries(sides.map(side => [side, mountUpdating(kind, side, n)]))
-  const updatesFor = msPerUpdate => Math.max(1, Math.ceil((MIN_SAMPLE_MS * 1.25) / Math.max(msPerUpdate, 0.001)))
-  const perSample = Object.fromEntries(sides.map(side => [side, updatesFor(Math.min(cases[side].time(1), cases[side].time(1)))]))
-  for (const side of sides) perSample[side] = updatesFor(cases[side].time(perSample[side]))
-  const samples = Object.fromEntries(sides.map(side => [side, []]))
+  const perSample = Object.fromEntries(sides.map(side => [side, runsFor(Math.min(cases[side].time(1).ms, cases[side].time(1).ms))]))
+  for (const side of sides) {
+    perSample[side] = runsFor(cases[side].time(perSample[side]).ms)
+    await cases[side].toFrame()
+  }
+  const js = Object.fromEntries(sides.map(side => [side, []]))
+  const frames = Object.fromEntries(sides.map(side => [side, []]))
   for (let r = 0; r < rounds; r++) {
-    for (let i = 0; i < sides.length; i++) {
-      const side = sides[(i + r) % sides.length]
-      samples[side].push(cases[side].time(perSample[side]))
+    for (const side of orderOf(sides, r)) {
+      collectGarbage()
+      js[side].push(cases[side].time(perSample[side]))
+      collectGarbage()
+      frames[side].push(await cases[side].toFrame())
     }
   }
   for (const side of sides) cases[side].unmount()
-  return Object.fromEntries(sides.map(side => [side, { ms: median(samples[side]), updatesPerSample: perSample[side] }]))
+  return Object.fromEntries(sides.map(side => [side, { ...summarise(js[side], frames[side]), updatesPerSample: perSample[side] }]))
+}
+
+/**
+ * Sets up the page: React's sides, MeoNode's sides from build `A`, and, when
+ * given, a second set from build `B` with the suffix `B`, then exposes the
+ * runners on `window`.
+ * @param builds `A` is the `@meonode/ui` build under test; `B` is another one
+ * to compare it with, or `null`.
+ */
+export function start({ A, B }) {
+  const withLib = (sides, lib) => Object.fromEntries(Object.entries(sides).map(([name, side]) => [name, { ...side, lib }]))
+  SIDES = {
+    ...REACT_SIDES,
+    ...withLib(meonodeSides(A, ''), A),
+    ...(B ? withLib(meonodeSides(B, 'B'), B) : {}),
+  }
+  const rules = document.createElement('style')
+  rules.textContent = CLASS_RULES
+  document.head.appendChild(rules)
+  window.runSides = runSides
+  window.runUpdates = runUpdates
+  window.pageInfo = () => ({
+    gcBeforeSamples: typeof window.gc === 'function',
+    crossOriginIsolated: window.crossOriginIsolated,
+    timerResolutionMs: timerResolutionMs(),
+    userAgent: window.navigator.userAgent,
+  })
 }
