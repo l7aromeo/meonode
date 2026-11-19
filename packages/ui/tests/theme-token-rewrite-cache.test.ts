@@ -242,16 +242,23 @@ describe('the theme token rewrite cache', () => {
     })
 
     it('stays at its cap across re-mounts that each write new strings', () => {
-      setThemeRewriteCacheCap(SHIPPED_CAP)
-      for (let refresh = 0; refresh < 300; refresh++) {
+      // A small cap, so three re-mounts of ten new strings each write more than
+      // all the caches together hold, with little work.
+      const cap = 4
+      setThemeRewriteCacheCap(cap)
+      let peak = 0
+      for (let refresh = 0; refresh < 3; refresh++) {
         const make = () =>
           Div({ children: Array.from({ length: 10 }, (_, i) => Div({ key: i, padding: `calc(${refresh * 10 + i}px + theme.spacing.md)`, children: `x${i}` })) })
         const { container, unmount } = render(page(tokens, 'light', make))
         expect(snapshot(container, 'x9').join('')).toContain(`padding:calc(${refresh * 10 + 9}px + ${len('spacing-md')})`)
         unmount()
-        expect(kept()).toBeLessThanOrEqual(CACHES * SHIPPED_CAP)
-        expect(seen()).toBeLessThanOrEqual(CACHES * SHIPPED_CAP)
+        expect(kept()).toBeLessThanOrEqual(CACHES * cap)
+        expect(seen()).toBeLessThanOrEqual(CACHES * cap)
+        peak = Math.max(peak, kept() + seen())
       }
+      // Template literals reach the runtime rewrite compiled or not, so the caches did fill to the cap.
+      expect(peak).toBeGreaterThanOrEqual(cap)
     })
 
     it('stops growing once every route has been visited, however often the routes change', () => {
