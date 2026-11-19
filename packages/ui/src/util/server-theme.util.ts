@@ -2,6 +2,7 @@ import type { Theme } from '@src/types/node.type.js'
 import {
   CSS_TEXT,
   isLengthFallbackList,
+  isLengthProperty,
   isSerializedRecordKey,
   isSerializedStyles,
   needsLengthVariant,
@@ -103,14 +104,102 @@ const conversionCache = new WeakMap<object, unknown>()
 const themeRegex = /theme\.([a-zA-Z0-9_.-]+)/g
 
 /**
- * Rewrites `theme.*` tokens in a string to CSS variable references.
+ * How many strings each cache below keeps, and how many first sightings it
+ * remembers. When either is full it is emptied and fills again, so memory never
+ * grows past the cap, whatever strings a page writes.
+ */
+const MAX_CACHED_REWRITES = 512
+
+/**
+ * The longest string the caches take. A token value is short; a longer string is
+ * usually CSS text, which is rare and could make one entry large.
+ */
+const MAX_CACHED_LENGTH = 256
+
+/**
+ * Rewritten strings by input, for one kind of context. A string is kept only on
+ * its second sighting: one seen once is remembered in `seen`, without its rewrite.
+ * Strings that are new on every render, such as tokens a template literal builds
+ * per row, then never reach `kept`, and cannot push out the strings a page writes
+ * on every render.
+ */
+interface RewriteCache {
+  kept: Map<string, string>
+  seen: Set<string>
+}
+
+const rewriteCache = (): RewriteCache => ({ kept: new Map(), seen: new Set() })
+
+/**
+ * One cache per kind of context. An inline call site passes a new props object on
+ * every render, so no identity cache holds it, but its strings are the same
+ * literals each time. Both rewriters use these: this module's walk, and the
+ * client's `ThemeUtil.resolveObjWithTheme` in `vars` mode.
+ *
+ * A rewrite reads nothing but the string and its context: no theme, no options.
+ * Of the context, {@link themeVarRef} reads only whether it names a length
+ * property, or, for CSS text, the declaration around each token, which is part of
+ * the string. So these three caches cover every context.
+ */
+const cssTextRewrites = rewriteCache()
+const lengthRewrites = rewriteCache()
+const valueRewrites = rewriteCache()
+const rewriteCaches = [cssTextRewrites, lengthRewrites, valueRewrites]
+
+/** How many strings each cache keeps, and remembers; {@link MAX_CACHED_REWRITES} unless a test sets it. */
+let rewriteCacheCap = MAX_CACHED_REWRITES
+
+/**
+ * How many rewritten strings the caches keep, and how many first sightings they
+ * remember, in all. Each is never more than three times the cap.
+ */
+export const cachedThemeRewrites = (): { kept: number; seen: number } => ({
+  kept: rewriteCaches.reduce((sum, cache) => sum + cache.kept.size, 0),
+  seen: rewriteCaches.reduce((sum, cache) => sum + cache.seen.size, 0),
+})
+
+/**
+ * Empties the caches and sets their cap, so a test can fill one past a small cap,
+ * or turn caching off with `0` and compare.
+ * @param cap Strings each cache keeps, and first sightings it remembers.
+ */
+export const setThemeRewriteCacheCap = (cap: number): void => {
+  rewriteCacheCap = cap
+  for (const cache of rewriteCaches) {
+    cache.kept.clear()
+    cache.seen.clear()
+  }
+}
+
+/**
+ * Rewrites `theme.*` tokens in a string to CSS variable references. In CSS text a
+ * token in a prelude or a selector is left as written, for a resolver that has the
+ * theme.
  * @param input The string that may contain `theme.*` tokens.
  * @param context What the string was written against, which decides whether a
  * token takes the paired `--len` variant (see {@link themeVarRef}).
  * @returns The rewritten string, or `input` when it holds no tokens.
  */
-const replaceString = (input: string, context: TokenContext): string => {
+export const replaceThemeTokensInString = (input: string, context: TokenContext): string => {
   if (!input.includes('theme.')) return input
+  if (input.length > MAX_CACHED_LENGTH) return rewriteString(input, context)
+  const cache = context === CSS_TEXT ? cssTextRewrites : context !== undefined && isLengthProperty(context) ? lengthRewrites : valueRewrites
+  const cached = cache.kept.get(input)
+  if (cached !== undefined) return cached
+  const next = rewriteString(input, context)
+  if (rewriteCacheCap === 0) return next
+  if (cache.seen.delete(input)) {
+    if (cache.kept.size >= rewriteCacheCap) cache.kept.clear()
+    cache.kept.set(input, next)
+  } else {
+    if (cache.seen.size >= rewriteCacheCap) cache.seen.clear()
+    cache.seen.add(input)
+  }
+  return next
+}
+
+/** {@link replaceThemeTokensInString} without its cache. */
+const rewriteString = (input: string, context: TokenContext): string => {
   themeRegex.lastIndex = 0
   // In CSS text a token in a prelude or a selector needs the theme's concrete
   // value, so it is left for the resolver that has the theme.
@@ -159,7 +248,7 @@ const convertItems = (items: unknown[], context: TokenContext, resolvedValues: M
     const item = items[i]
     let newItem: unknown = item
     if (typeof item === 'string') {
-      newItem = replaceString(item, context)
+      newItem = replaceThemeTokensInString(item, context)
     } else if (isPlainObject(item) || Array.isArray(item)) {
       newItem = resolvedValues.get(item) ?? item
     }
@@ -254,7 +343,7 @@ function scanForThemeTokens(value: unknown, depth: number): number {
  *   a `sx` object defined outside a render body) is converted at most once.
  */
 export function replaceThemeTokensWithCssVars<T>(value: T): T {
-  if (typeof value === 'string') return replaceString(value, CSS_TEXT) as unknown as T
+  if (typeof value === 'string') return replaceThemeTokensInString(value, CSS_TEXT) as unknown as T
   if (!isPlainObject(value) && !Array.isArray(value)) return value
 
   // WeakMap fast-path: previously-converted inputs (and their outputs) hit O(1).
@@ -336,7 +425,7 @@ export function replaceThemeTokensWithCssVars<T>(value: T): T {
             if (serialized && isSerializedRecordKey(key)) {
               continue
             } else if (typeof v === 'string') {
-              newValue = replaceString(v, valueContext(key, serialized))
+              newValue = replaceThemeTokensInString(v, valueContext(key, serialized))
             } else if (isLengthFallbackList(key, v)) {
               newValue = convertItems(v, key, resolvedValues)
             } else if (isPlainObject(v) || Array.isArray(v)) {

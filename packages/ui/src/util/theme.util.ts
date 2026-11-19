@@ -16,7 +16,7 @@ import {
 import { checkThemeFunctionResult, isComponentSelector, isMergeableCss } from '@src/util/css.util.js'
 import { isClientReference } from '@src/helper/react-is.helper.js'
 import { reportDroppedThemeFunction } from '@src/util/theme-diagnostics.util.js'
-import { replaceThemeTokensWithCssVars } from '@src/util/server-theme.util.js'
+import { replaceThemeTokensInString, replaceThemeTokensWithCssVars } from '@src/util/server-theme.util.js'
 
 interface FlexComponents {
   grow: number
@@ -53,10 +53,13 @@ const toThemeVarName = (p: string) => `--meonode-theme-${p.replace(/[^\w.-]/g, '
  * @returns The rewritten string, or `value` itself when nothing changed.
  */
 const processThemeString = (value: string, asVar: boolean, themeSystem: Record<string, unknown>, context: TokenContext): string => {
-  THEME_REGEX.lastIndex = 0
   // CSS text: a token in a prelude or a selector takes the theme's value, and a
   // `theme.` that is only part of a name there is left as written.
   const isCssText = value.includes('{')
+  // With no prelude to resolve, a `var()` rewrite reads nothing from the theme and
+  // is the server's rewrite exactly, which keeps the strings it rewrites.
+  if (asVar && !isCssText) return replaceThemeTokensInString(value, context)
+  THEME_REGEX.lastIndex = 0
   const text = isCssText ? replaceKeyTokens(value, path => concreteThemeValue(themeSystem, path), true) : value
   let hasChanged = text !== value
   const resolved = text.replace(THEME_REGEX, (match, path: string, offset: number) => {
@@ -301,7 +304,9 @@ const dropThemeFunctions = <T>(value: T, property?: string, path: Set<unknown> =
  * @returns `css` itself when nothing is removed, otherwise a copy without it.
  */
 const dropUnwritable = <T>(css: T, report: ((key: string) => void) | null): T => {
-  if (typeof css === 'string') return (report === null ? css : removeBlocksWithThemeTokens(css, report)) as T
+  // Only CSS text with a block has a prelude a token could be left in; every other
+  // string, a property's value above all, comes back as it is without a scan.
+  if (typeof css === 'string') return (report === null || !css.includes('{') ? css : removeBlocksWithThemeTokens(css, report)) as T
   if (Array.isArray(css)) {
     let changed = false
     const items = css.map(item => {
