@@ -79,6 +79,7 @@ try {
       },
       ms: Object.fromEntries(Object.keys(pages[0]).map(side => [side, spread(side)])),
       fibersPerNode: Object.fromEntries(Object.keys(pages[0]).map(side => [side, pages[0][side].fibersPerNode])),
+      mountsPerSample: Object.fromEntries(Object.keys(pages[0]).map(side => [side, pages[0][side].mountsPerSample])),
     }
   }
 } finally {
@@ -90,5 +91,5 @@ await report('browser-comparison', {
   rounds: ROUNDS,
   pages: PAGES,
   ...results,
-  note: 'addedUsPerNode is the median time a side adds over React setting a static className, per node or nesting level. ms lists the per-page medians, lowest first.',
+  note: 'addedUsPerNode is the median time a side adds over React setting a static className, per node or nesting level. ms lists the per-page medians of the time per mount, lowest first; each sample timed mountsPerSample consecutive mounts.',
 })

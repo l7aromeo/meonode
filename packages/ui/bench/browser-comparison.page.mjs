@@ -46,6 +46,7 @@ function countFibers(host) {
   return count
 }
 
+/** Mounts one tree and, on request, counts its fibers. */
 function mount(tree, withFibers = false) {
   const host = document.createElement('div')
   document.body.appendChild(host)
@@ -64,15 +65,55 @@ const median = xs => {
   return s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2
 }
 
-/** Mounts each side `rounds` times after two warm-ups, rotating the order every round. */
+/**
+ * Shortest time one sample may take, in ms. `performance.now()` is coarsened
+ * to 0.1 ms in a page without cross-origin isolation, so a sample that short
+ * would round a 500-level mount to a few steps; each sample therefore times
+ * enough consecutive mounts to last at least this long.
+ */
+const MIN_SAMPLE_MS = 20
+
+/**
+ * Times `count` mounts of freshly built trees back to back. Building happens
+ * before the clock starts and unmounting after it stops, as in `mount`.
+ * @returns Time per mount, in ms.
+ */
+function mountMany(side, shape, n, count) {
+  const trees = Array.from({ length: count }, () => build(side, shape, n))
+  const roots = trees.map(() => {
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+    return { host, root: createRoot(host) }
+  })
+  const t0 = performance.now()
+  for (let i = 0; i < count; i++) flushSync(() => roots[i].root.render(trees[i]))
+  const ms = (performance.now() - t0) / count
+  for (const { host, root } of roots) {
+    flushSync(() => root.unmount())
+    host.remove()
+  }
+  return ms
+}
+
+/**
+ * Mounts each side `rounds` times after two warm-ups, rotating the order every
+ * round. Each sample times as many mounts as {@link MIN_SAMPLE_MS} needs for
+ * that side.
+ */
 window.runSides = ({ shape, n, rounds }) => {
   const sides = Object.keys(SIDES)
   const times = Object.fromEntries(sides.map(side => [side, []]))
-  for (let i = 0; i < 2; i++) for (const side of sides) mount(build(side, shape, n))
+  const warm = Object.fromEntries(sides.map(side => [side, []]))
+  for (let i = 0; i < 2; i++) for (const side of sides) warm[side].push(mountMany(side, shape, n, 1))
+  // Size samples from the warm-ups, then once more from a sample of that size: warm-ups run cold and overestimate a mount.
+  // A quarter more than the minimum, since a mount's time varies between samples.
+  const mountsFor = msPerMount => Math.max(1, Math.ceil((MIN_SAMPLE_MS * 1.25) / Math.max(msPerMount, 0.01)))
+  const perSample = Object.fromEntries(sides.map(side => [side, mountsFor(Math.min(...warm[side]))]))
+  for (const side of sides) perSample[side] = mountsFor(mountMany(side, shape, n, perSample[side]))
   for (let r = 0; r < rounds; r++) {
     for (let i = 0; i < sides.length; i++) {
       const side = sides[(i + r) % sides.length]
-      times[side].push(mount(build(side, shape, n)).ms)
+      times[side].push(mountMany(side, shape, n, perSample[side]))
     }
   }
   // Fibers per node from a ten-node tree: flat has one extra root element, nested has ten wraps around one leaf.
@@ -80,5 +121,5 @@ window.runSides = ({ shape, n, rounds }) => {
     const { fibers } = mount(build(side, shape, 10), true)
     return shape === 'flat' ? (fibers - 1) / 10 : fibers / 11
   }
-  return Object.fromEntries(sides.map(side => [side, { ms: median(times[side]), fibersPerNode: fibersPerNode(side) }]))
+  return Object.fromEntries(sides.map(side => [side, { ms: median(times[side]), mountsPerSample: perSample[side], fibersPerNode: fibersPerNode(side) }]))
 }
