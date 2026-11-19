@@ -41,6 +41,14 @@ const rendered = (tree: ReactNode) => {
   return result
 }
 
+/** Every attribute of the element whose id is `built`, in name order. */
+const allAttributes = (tree: ReactNode) => {
+  const element = render(tree as ReactElement).container.querySelector('#built') as HTMLElement
+  const result = [...element.attributes].map(({ name, value }) => `${name}=${value}`).sort()
+  cleanup()
+  return result
+}
+
 const Pass = ({ children }: { children?: ReactNode }) => children as ReactElement
 
 describe.each(builtElements)('%s, placed as a child', (_, build) => {
@@ -73,6 +81,14 @@ describe.each(builtElements)('%s, placed as a child', (_, build) => {
   it('of a ThemeProvider keeps its attributes', () => {
     const provided = ThemeProvider({ tokens: { primary: 'rgb(1, 2, 3)' }, modes: ['light'], defaultMode: 'light', children: build() } as never)
     expect(rendered(provided.render())).toEqual(own())
+  })
+})
+
+describe.each(builtElements)('%s, placed as a child of a node with Emotion disabled', (_, build, unbuilt) => {
+  it('renders as the same node unbuilt renders there', () => {
+    expect(allAttributes(Div({ disableEmotion: true, children: build() }).render())).toEqual(
+      allAttributes(Div({ disableEmotion: true, children: unbuilt() as never }).render()),
+    )
   })
 })
 
