@@ -28,11 +28,17 @@ const NESTED_LEVELS = Number(process.env.NESTED_LEVELS || 500)
 const STACK_SAFETY_LEVELS = Number(process.env.STACK_SAFETY_LEVELS || 10000)
 const ROUNDS = Number(process.env.ROUNDS || 5)
 
-function mount(tree) {
+/**
+ * Mounts one tree and times the whole step: building it (MeoNode's
+ * construction and `.render()`, or React's `createElement` calls) and React's
+ * render and commit. Creating the root is outside the clock.
+ */
+function mount(build) {
   const host = document.createElement('div')
   document.body.appendChild(host)
   const root = createRoot(host)
   const t0 = performance.now()
+  const tree = build()
   flushSync(() => root.render(tree))
   const ms = performance.now() - t0
   flushSync(() => root.unmount())
@@ -49,13 +55,13 @@ function flatTree() {
 function nestedReact() {
   let node = createElement('span', { className: 'c' }, 'leaf')
   for (let i = 0; i < NESTED_LEVELS; i++) node = createElement('div', { className: 'c' }, node)
-  return mount(node)
+  return node
 }
 
 function nestedMeo() {
   let node = Span('leaf', { padding: '1px' })
   for (let i = 0; i < NESTED_LEVELS; i++) node = Div({ padding: '1px', children: node })
-  return mount(node.render())
+  return node.render()
 }
 
 // A realistic page shape: mixed depth and breadth rather than one degenerate axis.
@@ -93,17 +99,17 @@ function layoutTree() {
 }
 
 const measure = build => {
-  for (let i = 0; i < 2; i++) mount(build())
-  return median(Array.from({ length: ROUNDS }, () => mount(build())))
+  for (let i = 0; i < 2; i++) mount(build)
+  return median(Array.from({ length: ROUNDS }, () => mount(build)))
 }
 
 const layoutMs = measure(layoutTree)
 const flatMs = measure(flatTree)
 for (let i = 0; i < 2; i++) {
-  nestedReact()
-  nestedMeo()
+  mount(nestedReact)
+  mount(nestedMeo)
 }
-const nested = compare({ rounds: Math.max(ROUNDS, 8), a: nestedReact, b: nestedMeo, labelA: 'reactMs', labelB: 'meonodeMs' })
+const nested = compare({ rounds: Math.max(ROUNDS, 8), a: () => mount(nestedReact), b: () => mount(nestedMeo), labelA: 'reactMs', labelB: 'meonodeMs' })
 const stackSafety = await runWithDeepStack(new URL('./stack-safety.worker.mjs', import.meta.url), { levels: STACK_SAFETY_LEVELS }).then(
   ({ leafRendered, depth, error }) => (error ? { ok: false, error } : { ok: leafRendered && depth === STACK_SAFETY_LEVELS, depth }),
   error => ({ ok: false, error: `${error.name}: ${error.message}` }),

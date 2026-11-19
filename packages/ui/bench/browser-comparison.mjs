@@ -6,7 +6,10 @@
 // Four sides mount the same shape: React with a static className (the
 // baseline), React with Emotion's css prop, MeoNode styled, and MeoNode
 // unstyled. The figure is the time a side adds per node over the baseline, in
-// µs, which separates Emotion's cost from MeoNode's own.
+// µs, which separates Emotion's cost from MeoNode's own. A mount is timed
+// whole, building the tree included: MeoNode does much of its work while
+// building and in `.render()`, so timing only React's render and commit would
+// leave that out, and would favour moving work out of React's render.
 //
 // Needs Playwright's Chromium (`bunx playwright install chromium`). Without it
 // the script prints why and exits 0, so `bun run bench` still runs elsewhere.
@@ -66,9 +69,10 @@ try {
       pages.push(await page.evaluate(options => window.runSides(options), { shape, n, rounds: ROUNDS }))
       await page.close()
     }
-    const ms = side => median(pages.map(page => page[side].ms))
+    const ms = (side, key = 'ms') => median(pages.map(page => page[side][key]))
     const spread = side => pages.map(page => +page[side].ms.toFixed(2)).sort((a, b) => a - b)
-    const addedUs = (side, base) => +(((ms(side) - ms(base)) / n) * 1000).toFixed(2)
+    const addedUs = (side, base, key = 'ms') => +(((ms(side, key) - ms(base, key)) / n) * 1000).toFixed(2)
+    const sides = Object.keys(pages[0])
     results[shape] = {
       nodes: n,
       addedUsPerNode: {
@@ -77,9 +81,18 @@ try {
         emotionCssProp: addedUs('reactEmotion', 'reactClass'),
         meonodeOverEmotion: addedUs('meoStyled', 'reactEmotion'),
       },
-      ms: Object.fromEntries(Object.keys(pages[0]).map(side => [side, spread(side)])),
-      fibersPerNode: Object.fromEntries(Object.keys(pages[0]).map(side => [side, pages[0][side].fibersPerNode])),
-      mountsPerSample: Object.fromEntries(Object.keys(pages[0]).map(side => [side, pages[0][side].mountsPerSample])),
+      ms: Object.fromEntries(sides.map(side => [side, spread(side)])),
+      // The two phases of `ms`, for diagnosis: building the tree, then React's render and commit.
+      phases: {
+        buildMs: Object.fromEntries(sides.map(side => [side, +ms(side, 'buildMs').toFixed(3)])),
+        commitMs: Object.fromEntries(sides.map(side => [side, +ms(side, 'commitMs').toFixed(3)])),
+        commitOnlyAddedUsPerNode: {
+          meonodeStyled: addedUs('meoStyled', 'reactClass', 'commitMs'),
+          meonodeOverEmotion: addedUs('meoStyled', 'reactEmotion', 'commitMs'),
+        },
+      },
+      fibersPerNode: Object.fromEntries(sides.map(side => [side, pages[0][side].fibersPerNode])),
+      mountsPerSample: Object.fromEntries(sides.map(side => [side, pages[0][side].mountsPerSample])),
     }
   }
 } finally {
@@ -91,5 +104,5 @@ await report('browser-comparison', {
   rounds: ROUNDS,
   pages: PAGES,
   ...results,
-  note: 'addedUsPerNode is the median time a side adds over React setting a static className, per node or nesting level. ms lists the per-page medians of the time per mount, lowest first; each sample timed mountsPerSample consecutive mounts.',
+  note: 'addedUsPerNode is the median time a side adds over React setting a static className, per node or nesting level. A mount is the whole step: building the tree, then the render and commit. ms lists the per-page medians of the time per mount, lowest first; each sample timed mountsPerSample consecutive mounts. phases splits a mount into building and committing.',
 })

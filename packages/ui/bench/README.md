@@ -95,6 +95,12 @@ repo, which drives the real wasm plugin at the docs site's token density.
 
 ## Conventions
 
+A timed mount is the whole step a page pays: building the tree (MeoNode's
+construction and `.render()`, or React's `createElement` calls), then React's
+render and commit. MeoNode does much of its work while building, so timing only
+the commit would leave that out. `browser-comparison` also reports the two
+phases separately in `phases`, for diagnosis.
+
 The comparisons alternate their variants and report medians. Measuring one order
 only charges the second variant for the first's accumulated heap — that bias
 once swung a re-render ratio between 1.16 and 0.50 across runs.
