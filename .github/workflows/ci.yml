@@ -499,3 +499,6 @@ jobs:
       # The types just built are compiled against mui's devDependencies; a user can
       # have the oldest version each peer range allows. tests/peer-floor installs those.
       - run: bun run --filter @meonode/mui test:peer-floor
+      # The build must not depend on the order rollup resolves modules in; the test builds
+      # twice, holding back each of two racing resolutions in turn, and compares every file.
+      - run: bun run --filter @meonode/mui test:build-order
