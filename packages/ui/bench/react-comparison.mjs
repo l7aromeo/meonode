@@ -1,11 +1,17 @@
-// MeoNode against raw React.createElement.
+// MeoNode against raw React.createElement, in jsdom. For diagnosis only: the
+// published comparison comes from `browser-comparison.mjs`, which runs in
+// Chromium, because jsdom's DOM work is slow enough to hide what a library adds
+// and its cost changes between jsdom versions.
 //
-// Ported from tests/react-createelement-comparison.test.ts.
+// Two pairs, each measured in one process with alternating rounds:
+// - bare: no props on either side;
+// - styled: React setting a static className against MeoNode with one style
+//   property. Both put one class on every element. React's inline `style`
+//   would make jsdom's CSSOM cost part of the comparison, and that cost
+//   differs between jsdom versions by more than MeoNode's own.
 //
-// Reports four rows, not two. Bare `createElement` does no prop work at all,
-// while MeoNode always classifies props into CSS vs DOM and computes a stable
-// key — so comparing those two directly overstates the gap. The `+Props`
-// variants are the like-for-like pair.
+// The figure is the time MeoNode adds per node, in µs. A ratio would move with
+// the DOM's share of the work even when MeoNode's own cost stays the same.
 import { bootDom, compare, report } from './_lib.mjs'
 
 await bootDom()
@@ -16,16 +22,11 @@ const { createRoot } = await import('react-dom/client')
 const { flushSync } = await import('react-dom')
 
 const FLAT = Number(process.env.FLAT || 10000)
-const NESTED = Number(process.env.NESTED || 5000)
-const ROUNDS = Number(process.env.ROUNDS || 6)
+const NESTED = Number(process.env.NESTED || 500)
+const ROUNDS = Number(process.env.ROUNDS || 8)
 
-// One property, matching the original test. Using several inflates React's
-// cost disproportionately: React writes inline styles property-by-property
-// onto the DOM node, while MeoNode emits a single Emotion class. That is a
-// real architectural difference, but it is not a like-for-like unit of work,
-// so widening it here would flatter MeoNode by measurement choice rather than
-// by merit.
-const STYLE = { color: 'black' }
+/** The one style property MeoNode's styled side writes. */
+const PADDING = { padding: '1px' }
 
 function mount(element) {
   const host = document.createElement('div')
@@ -39,46 +40,49 @@ function mount(element) {
   return ms
 }
 
-const flatReact = () => mount(createElement('div', null, Array.from({ length: FLAT }, (_, i) => createElement('span', { key: i }, `n${i}`))))
+const reactProps = { bare: null, styled: { className: 'c' } }
+const meoProps = { bare: {}, styled: PADDING }
 
-const flatReactProps = () =>
-  mount(createElement('div', null, Array.from({ length: FLAT }, (_, i) => createElement('span', { key: i, style: STYLE, id: `n${i}` }, `n${i}`))))
+const flatReact = pair => () =>
+  mount(
+    createElement(
+      'div',
+      null,
+      Array.from({ length: FLAT }, (_, i) => createElement('span', { key: i, ...reactProps[pair] }, `n${i}`)),
+    ),
+  )
 
-const flatMeo = () => mount(Div({ children: Array.from({ length: FLAT }, (_, i) => Span(`n${i}`, { key: i })) }).render())
+const flatMeo = pair => () => mount(Div({ children: Array.from({ length: FLAT }, (_, i) => Span(`n${i}`, { key: i, ...meoProps[pair] })) }).render())
 
-const flatMeoProps = () => mount(Div({ children: Array.from({ length: FLAT }, (_, i) => Span(`n${i}`, { key: i, ...STYLE, id: `n${i}` })) }).render())
-
-function nestedReact(withProps) {
-  return () => {
-    let node = createElement('span', null, 'leaf')
-    for (let i = 0; i < NESTED; i++) node = createElement('div', withProps ? { style: STYLE } : null, node)
-    return mount(node)
-  }
+const nestedReact = pair => () => {
+  let node = createElement('span', reactProps[pair], 'leaf')
+  for (let i = 0; i < NESTED; i++) node = createElement('div', reactProps[pair], node)
+  return mount(node)
 }
 
-function nestedMeo(withProps) {
-  return () => {
-    let node = Span('leaf')
-    for (let i = 0; i < NESTED; i++) node = Div(withProps ? { ...STYLE, children: node } : { children: node })
-    return mount(node.render())
-  }
+const nestedMeo = pair => () => {
+  let node = Span('leaf', meoProps[pair])
+  for (let i = 0; i < NESTED; i++) node = Div({ ...meoProps[pair], children: node })
+  return mount(node.render())
 }
 
-const flatBare = compare({ rounds: ROUNDS, a: flatReact, b: flatMeo, labelA: 'reactMs', labelB: 'meonodeMs' })
-const flatProps = compare({ rounds: ROUNDS, a: flatReactProps, b: flatMeoProps, labelA: 'reactMs', labelB: 'meonodeMs' })
-const nestBare = compare({ rounds: ROUNDS, a: nestedReact(false), b: nestedMeo(false), labelA: 'reactMs', labelB: 'meonodeMs' })
-const nestProps = compare({ rounds: ROUNDS, a: nestedReact(true), b: nestedMeo(true), labelA: 'reactMs', labelB: 'meonodeMs' })
+/** Runs one pair and reports MeoNode's added time per node alongside both medians. */
+function pairResult(a, b, nodes) {
+  const { reactMs, meonodeMs } = compare({ rounds: ROUNDS, a, b, labelA: 'reactMs', labelB: 'meonodeMs' })
+  return { reactMs, meonodeMs, addedUsPerNode: +(((meonodeMs - reactMs) / nodes) * 1000).toFixed(2) }
+}
 
 await report('react-comparison', {
+  dom: 'jsdom (diagnosis only; see browser-comparison for published figures)',
   flatNodes: FLAT,
-  nestedNodes: NESTED,
+  nestedLevels: NESTED,
   flat: {
-    bare: { react: flatBare.reactMs, meonode: flatBare.meonodeMs, meonodeSlowerBy: +(1 / flatBare.ratio).toFixed(2) },
-    withProps: { react: flatProps.reactMs, meonode: flatProps.meonodeMs, meonodeSlowerBy: +(1 / flatProps.ratio).toFixed(2) },
+    bare: pairResult(flatReact('bare'), flatMeo('bare'), FLAT),
+    styled: pairResult(flatReact('styled'), flatMeo('styled'), FLAT),
   },
   nested: {
-    bare: { react: nestBare.reactMs, meonode: nestBare.meonodeMs, meonodeSlowerBy: +(1 / nestBare.ratio).toFixed(2) },
-    withProps: { react: nestProps.reactMs, meonode: nestProps.meonodeMs, meonodeSlowerBy: +(1 / nestProps.ratio).toFixed(2) },
+    bare: pairResult(nestedReact('bare'), nestedMeo('bare'), NESTED),
+    styled: pairResult(nestedReact('styled'), nestedMeo('styled'), NESTED),
   },
-  note: 'compare the withProps rows; bare createElement does no prop work at all. Note the two apply styles differently — React writes inline style properties, MeoNode emits an Emotion class — so this is not a like-for-like unit of DOM work.',
+  note: 'addedUsPerNode is the time MeoNode adds per node or nesting level over React. The styled pair compares a static className with one MeoNode style property.',
 })
