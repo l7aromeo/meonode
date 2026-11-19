@@ -60,19 +60,30 @@ NODE_ENV=production node --cpu-prof --cpu-prof-dir=prof bench/client-render.mjs
   with a theme token in every style value inside a component under a
   `ThemeProvider`, which adds the token rewrite an uncompiled call site runs on
   every render.
-- **`large-trees.mjs`** — a realistic page layout, 10k flat nodes, and a
-  stack-safety check: 10k levels of styled nesting must render, and only
-  pass/fail is reported. `render()` walks iteratively, but React's commit phase
-  recurses once per fiber and a styled node is three fibers deep, so the check
-  mounts in a worker thread given a 64 MB stack (`runWithDeepStack` in
-  `_lib.mjs`). An overflow there throws `RangeError` and the script exits
-  non-zero; raising `--stack-size` on the main thread instead can crash the
-  process with SIGSEGV.
-- **`react-comparison.mjs`** — against raw `React.createElement`. Read the
-  `withProps` rows: bare `createElement` does no prop work at all, so comparing
-  it to MeoNode overstates the gap. Note also that React writes inline style
-  properties while MeoNode emits an Emotion class — not a like-for-like unit of
-  DOM work, which is why the style object here is kept to a single property.
+- **`large-trees.mjs`** — a realistic page layout, 10k flat nodes, nesting
+  timed at 500 levels, and a stack-safety check. The nested figure is the time
+  MeoNode adds per level over React putting a static className on each level:
+  deeper chains mostly time jsdom, whose insertion into a detached parent walks
+  the whole inserted subtree, and both sides pay that. The stack-safety check
+  mounts 10k levels of styled nesting and reports only pass/fail. `render()`
+  walks iteratively, but React's commit phase recurses once per fiber and a
+  styled node is three fibers deep, so the check mounts in a worker thread
+  given a 64 MB stack (`runWithDeepStack` in `_lib.mjs`). An overflow there
+  throws `RangeError` and the script exits non-zero; raising `--stack-size` on
+  the main thread instead can crash the process with SIGSEGV.
+- **`react-comparison.mjs`** — against raw `React.createElement`, in jsdom, for
+  diagnosis. Two pairs: no props on either side, and React's static className
+  against one MeoNode style property, so both sides put one class on every
+  element. It reports the time MeoNode adds per node, not a ratio: a ratio
+  moves with the DOM's share of the work, which changes between jsdom versions.
+- **`browser-comparison.mjs`** — the published comparison, in headless
+  Chromium through Playwright. Four sides mount 10k flat nodes and 500 nested
+  levels: React with a static className (the baseline), React with Emotion's
+  css prop, MeoNode styled, and MeoNode unstyled. It reports the time each side
+  adds per node over the baseline, which separates Emotion's cost from
+  MeoNode's own, and the fibers each side renders per node. The page code is
+  `browser-comparison.page.mjs`, bundled with `bun build`. Without Playwright's
+  Chromium (`bunx playwright install chromium`) it prints why and exits 0.
 - **`memory.mjs`** — heap growth across state churn, mount/unmount cycles and
   navigation. Threshold checks rather than timings; exits non-zero on a
   regression, so it is still usable as a gate you run deliberately. Requires
@@ -84,10 +95,10 @@ repo, which drives the real wasm plugin at the docs site's token density.
 
 ## Conventions
 
-Both scripts alternate the two variants and report medians. Measuring one order
+The comparisons alternate their variants and report medians. Measuring one order
 only charges the second variant for the first's accumulated heap — that bias
 once swung a re-render ratio between 1.16 and 0.50 across runs.
 
-Both abort loudly rather than reporting a number if something is wrong: a
+The jsdom scripts abort loudly rather than reporting a number if something is wrong: a
 missing `history` global once made every node construction throw, and the
 benchmark quietly measured exception handling instead of rendering.

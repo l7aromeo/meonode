@@ -99,7 +99,7 @@
     "test:rsc:compiled": "MEONODE_COMPILED=1 NODE_OPTIONS='--experimental-vm-modules' vitest run --config vitest.integration.config.ts",
     "test:rsc:build": "NODE_OPTIONS='--experimental-vm-modules' vitest run --config vitest.build.config.ts",
     "test:rsc:build:compiled": "MEONODE_COMPILED=1 NODE_OPTIONS='--experimental-vm-modules' vitest run --config vitest.build.config.ts",
-    "bench": "NODE_ENV=production node --expose-gc --stack-size=10000 bench/node-construction.mjs && NODE_ENV=production node --expose-gc --stack-size=10000 bench/client-render.mjs && NODE_ENV=production node --expose-gc bench/large-trees.mjs && NODE_ENV=production node --expose-gc --stack-size=10000 bench/react-comparison.mjs && NODE_ENV=production node --expose-gc --stack-size=10000 bench/memory.mjs",
+    "bench": "NODE_ENV=production node --expose-gc bench/node-construction.mjs && NODE_ENV=production node --expose-gc bench/client-render.mjs && NODE_ENV=production node --expose-gc bench/large-trees.mjs && NODE_ENV=production node --expose-gc bench/react-comparison.mjs && NODE_ENV=production node --expose-gc bench/memory.mjs && NODE_ENV=production node bench/browser-comparison.mjs",
     "export:css-props:length": "bun scripts/export-css-properties.ts --length"
   },
   "dependencies": {
