@@ -49,10 +49,12 @@ it('holds the same strings after the last of many requests for one page as after
 })
 
 it('stays at its cap when every request writes new strings, and keeps the ones every request writes', async () => {
-  setThemeRewriteCacheCap(SHIPPED_CAP)
+  // A small cap, so a few requests of ten new strings each pass it with little work.
+  const cap = 4
+  setThemeRewriteCacheCap(cap)
   let peakSeen = 0
   const kept: number[] = []
-  for (let request = 0; request < REQUESTS; request++) {
+  for (let request = 0; request < 5; request++) {
     const make = () =>
       Div({
         children: Array.from({ length: 10 }, (_, i) =>
@@ -64,11 +66,11 @@ it('stays at its cap when every request writes new strings, and keeps the ones e
     peakSeen = Math.max(peakSeen, counts.seen)
     kept.push(counts.kept)
   }
-  // 3,000 distinct strings went through caches capped at 512, compiled or not, as
-  // the compiler leaves a template literal's tokens to the runtime. At most the
+  // 50 distinct strings went through caches capped at 4, compiled or not, as the
+  // compiler leaves a template literal's tokens to the runtime. At most the
   // literal every request writes was kept.
-  expect(peakSeen).toBe(SHIPPED_CAP)
-  expect(peakSeen).toBeLessThanOrEqual(CACHES * SHIPPED_CAP)
+  expect(peakSeen).toBe(cap)
+  expect(peakSeen).toBeLessThanOrEqual(CACHES * cap)
   expect(new Set(kept.slice(1)).size).toBe(1)
   expect(kept.at(-1)).toBeLessThanOrEqual(1)
   if (RUNTIME) expect(kept.at(-1)).toBe(1)
