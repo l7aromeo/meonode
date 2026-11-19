@@ -21,14 +21,23 @@ import {
   useRef,
   useState,
 } from 'react'
-import { createRoot } from 'react-dom/client'
+import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Tooltip } from '@mui/material'
 import { Button, Div, Node, Span, ThemeProvider, useTheme } from '@src/main.js'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
+/**
+ * Every root a case mounts. Each is unmounted after the case, so nothing it
+ * scheduled outlives the file: a Tooltip's open delay is a Node timer, and one
+ * still pending when jsdom is torn down fires with no `window` to read.
+ */
+const mounted = new Set<Root>()
+
 afterEach(() => {
+  act(() => mounted.forEach(root => root.unmount()))
+  mounted.clear()
   vi.unstubAllGlobals()
   document.documentElement.removeAttribute('data-theme')
   document.body.innerHTML = ''
@@ -37,6 +46,7 @@ afterEach(() => {
 function mount(tree: ReactNode) {
   const container = document.body.appendChild(document.createElement('div'))
   const root = createRoot(container)
+  mounted.add(root)
   act(() => root.render(tree))
   return { container, root }
 }
