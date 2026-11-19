@@ -268,13 +268,15 @@ function appFigures(pagesBySide) {
     ['warmMount', page => page.warm.map(round => round.mount)],
     ['warmUpdate', page => page.warm.flatMap(round => (round.update ? [round.update] : []))],
   ]
+  /** Each page's value, in page order, or null where the page has no valid sample. */
   const perPage = (pages, pick, key) =>
-    pages.flatMap(page => {
+    pages.map(page => {
       const values = pick(page)
         .filter(sample => sample.valid)
         .map(sample => sample[key])
-      return values.length ? [median(values)] : []
+      return values.length ? round2(median(values)) : null
     })
+  const present = values => values.filter(value => value !== null)
   const bySide = Object.fromEntries(
     Object.entries(pagesBySide).map(([side, pages]) => {
       const samples = pages.flatMap(page => [...metrics.flatMap(([, pick]) => pick(page))])
@@ -284,7 +286,15 @@ function appFigures(pagesBySide) {
           ...Object.fromEntries(
             metrics
               .filter(([, pick]) => pick(pages[0]).length)
-              .map(([name, pick]) => [name, { jsMs: stats(perPage(pages, pick, 'jsMs')), toFrameMs: stats(perPage(pages, pick, 'toFrameMs')) }]),
+              .map(([name, pick]) => [
+                name,
+                Object.fromEntries(
+                  ['jsMs', 'toFrameMs'].map(key => {
+                    const byPage = perPage(pages, pick, key)
+                    return [key, { ...stats(present(byPage)), byPage }]
+                  }),
+                ),
+              ]),
           ),
           samples: { valid: samples.filter(sample => sample.valid).length, invalid: samples.filter(sample => !sample.valid).length },
         },
@@ -302,7 +312,9 @@ function appFigures(pagesBySide) {
               ['jsMs', 'toFrameMs'].map(key => {
                 const a = bySide.meonode[name][key]
                 const b = bySide.meonodeB[name][key]
-                return [key, { diff: round2(b.median - a.median), spread: round2(Math.max(a.max - a.min, b.max - b.min)) }]
+                // Page p of each build ran back to back, so their difference is a pair.
+                const byPage = a.byPage.map((value, p) => (value === null || b.byPage[p] === null ? null : round2(b.byPage[p] - value)))
+                return [key, { diff: round2(b.median - a.median), spread: round2(Math.max(a.max - a.min, b.max - b.min)), byPage }]
               }),
             ),
           ]),
@@ -422,5 +434,5 @@ await report('browser-comparison', {
   coldPages: COLD_PAGES,
   warmRounds: WARM_ROUNDS,
   ...results,
-  note: 'addedUsPerNode is the median time a side adds over React setting a static className, per node or nesting level, JavaScript only. A mount is the whole step: building the tree, then the render and commit. ms lists the per-page medians of the time per mount, lowest first; each sample timed mountsPerSample consecutive mounts. spreadUs* is the highest minus the lowest of those, per node, row or update. phases splits a mount into building and committing. update.* re-render a mounted component whose styled value changes every time (rows flip their colour; an input changes its value and border colour), and addedUsPer is the time per row or per update over the className side. toFrame times single mounts and updates from the start of a frame to the end of that frame’s style, layout and paint on the main thread. variantB is build B’s time over the package’s own build. Samples taken while the page was hidden are not counted. Every sample starts from a collected heap; garbage made inside a sample, and any collection during it, is counted. valid is false when a page started at a 1-minute load of load1.max or more. cold.* are MeoNode only: app is about 10k nodes with theme tokens, two providers and css unique to every node, whose update changes the css of 30% of them; flatThemed is 10k styled spans under a provider. Each page gives one cold mount (and, for app, the update after it), its first, with Emotion’s sheet empty and the code not yet run, then warmRounds warm mounts and updates; figures are the median and range over pages, in ms.',
+  note: 'addedUsPerNode is the median time a side adds over React setting a static className, per node or nesting level, JavaScript only. A mount is the whole step: building the tree, then the render and commit. ms lists the per-page medians of the time per mount, lowest first; each sample timed mountsPerSample consecutive mounts. spreadUs* is the highest minus the lowest of those, per node, row or update. phases splits a mount into building and committing. update.* re-render a mounted component whose styled value changes every time (rows flip their colour; an input changes its value and border colour), and addedUsPer is the time per row or per update over the className side. toFrame times single mounts and updates from the start of a frame to the end of that frame’s style, layout and paint on the main thread. variantB is build B’s time over the package’s own build. Samples taken while the page was hidden are not counted. Every sample starts from a collected heap; garbage made inside a sample, and any collection during it, is counted. valid is false when a page started at a 1-minute load of load1.max or more. cold.* are MeoNode only (byPage lists each page’s value in page order; with BENCH_DIST_B, page p of each build ran back to back): app is about 10k nodes with theme tokens, two providers and css unique to every node, whose update changes the css of 30% of them; flatThemed is 10k styled spans under a provider. Each page gives one cold mount (and, for app, the update after it), its first, with Emotion’s sheet empty and the code not yet run, then warmRounds warm mounts and updates; figures are the median and range over pages, in ms.',
 })

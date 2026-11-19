@@ -114,7 +114,11 @@ NODE_ENV=production node --cpu-prof --cpu-prof-dir=prof bench/client-render.mjs
   `BENCH_BROWSER=chrome` runs the installed Google Chrome in a visible window
   with a fresh temporary profile; the default, `headless`, runs Playwright's
   headless Chromium shell. Both turn off background throttling, and a sample
-  taken while the page was hidden is not counted. Every round runs the sides
+  taken while the page was hidden is not counted. Headless and headed agree,
+  within one Chrome version, on every case but the controlled input: headless
+  times its update about 0.6 µs slower for MeoNode styled (less for the other
+  sides), in both Chrome 158 and Chromium 159. So input figures come from
+  headed Chrome only. Every round runs the sides
   in a different shuffled order, and garbage is collected before every
   sample: with a fixed order each side always followed the same side and paid
   for its garbage, which showed up as a steady offset between two copies of one
