@@ -2139,6 +2139,25 @@ mod tests {
         assert_eq!(list_marker(&obj), None);
     }
 
+    /// A wrapper handing on the `children` its caller passed is not a list
+    /// written here, so the rewrite emits no marker for it, while a list the
+    /// same wrapper builds still gets one.
+    #[test]
+    fn passed_through_children_emit_no_list_marker() {
+        let objs = transformed_objects(
+            r#"
+            import { Div } from '@meonode/ui';
+            const Card = ({ children }) => Div({ padding: 4, children });
+            const List = ({ children }) => Div({ padding: 4, children: children.map(fn) });
+            "#,
+            "test.tsx",
+        );
+        assert_eq!(objs.len(), 2);
+        assert!(has_prop(&objs[0], "__meo$"));
+        assert_eq!(list_marker(&objs[0]), None);
+        assert_eq!(list_marker(&objs[1]), Some(1.0));
+    }
+
     #[test]
     fn call_site_without_children_emits_no_list_marker() {
         let obj = transformed_object(

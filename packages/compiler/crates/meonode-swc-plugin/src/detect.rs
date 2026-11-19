@@ -47,6 +47,7 @@ use crate::effect::{is_effect_free, is_order_inert, is_static_literal};
 use crate::factories::factory_children_first;
 use crate::keys::{is_special_key, key_name_atom};
 use crate::order::{EmitRank, order_preserved};
+use crate::pass_through::{self, PassThrough, unwrap_transparent};
 
 const UI_MODULE: &str = "@meonode/ui";
 const UI_MODULE_CLIENT: &str = "@meonode/ui/client";
@@ -63,7 +64,7 @@ const CHILDREN_KEY: &str = "children";
 /// resolver assigned to the specific binding it refers to. Two idents with
 /// the same `sym` but different `ctxt` refer to different bindings (e.g. an
 /// import and a shadowing local).
-type BindKey = (Atom, SyntaxContext);
+pub(crate) type BindKey = (Atom, SyntaxContext);
 
 /// What kind of @meonode/ui factory a resolved binding refers to, and where
 /// its `props` argument lives.
@@ -246,6 +247,13 @@ pub enum ChildrenOrigin {
     /// The children come out of an expression, so how many there are and in
     /// what order they arrive is only settled once it runs.
     Generated,
+    /// The children are the ones this function's caller passed in as its
+    /// `children` prop, handed on unchanged — `({ children }) => Div({
+    /// children })`. Whatever that list is, it was written at the caller, not
+    /// here, so this call site carries no marker. A generated list a wrapper
+    /// receives this way goes unreported: the caller's call site is the one
+    /// that wrote it, and it is not a factory this compiler marks.
+    PassedThrough,
 }
 
 /// A recorded detection outcome for one call expression, keyed by its span
@@ -474,6 +482,10 @@ struct Detector {
     /// @meonode/ui at all" (no decision recorded) from "shadowed" (bail).
     tracked_syms: HashSet<Atom>,
     namespace_imports: HashSet<BindKey>,
+    pass_through: PassThrough,
+    /// Whether `this` is a class instance at each enclosing function, innermost
+    /// last. An arrow function adds no entry: it reads the `this` around it.
+    this_is_instance: Vec<bool>,
     decisions: Vec<CallSiteDecision>,
 }
 
@@ -488,9 +500,51 @@ impl Visit for Detector {
         }
         call.visit_children_with(self);
     }
+
+    fn visit_function(&mut self, f: &Function) {
+        self.with_this(false, |d| f.visit_children_with(d));
+    }
+
+    fn visit_class_method(&mut self, m: &ClassMethod) {
+        m.key.visit_with(self);
+        self.with_this(!m.is_static, |d| m.function.visit_children_with(d));
+    }
+
+    fn visit_private_method(&mut self, m: &PrivateMethod) {
+        m.key.visit_with(self);
+        self.with_this(!m.is_static, |d| m.function.visit_children_with(d));
+    }
+
+    fn visit_constructor(&mut self, c: &Constructor) {
+        self.with_this(true, |d| c.visit_children_with(d));
+    }
+
+    fn visit_class_prop(&mut self, p: &ClassProp) {
+        p.key.visit_with(self);
+        self.with_this(!p.is_static, |d| p.value.visit_with(d));
+    }
+
+    fn visit_private_prop(&mut self, p: &PrivateProp) {
+        p.key.visit_with(self);
+        self.with_this(!p.is_static, |d| p.value.visit_with(d));
+    }
 }
 
 impl Detector {
+    fn with_this(&mut self, is_instance: bool, visit: impl FnOnce(&mut Self)) {
+        self.this_is_instance.push(is_instance);
+        visit(self);
+        self.this_is_instance.pop();
+    }
+
+    fn origin_context(&self) -> OriginContext<'_> {
+        OriginContext {
+            factories: &self.bindings,
+            pass_through: &self.pass_through,
+            this_is_instance: self.this_is_instance.last().copied().unwrap_or(false),
+        }
+    }
+
     fn classify_call(&self, call: &CallExpr) -> Option<(Decision, ChildrenOrigin)> {
         let Callee::Expr(callee_expr) = &call.callee else {
             return None;
@@ -500,7 +554,7 @@ impl Detector {
             Expr::Ident(id) => {
                 let key = (id.sym.clone(), id.ctxt);
                 if let Some(kind) = self.bindings.get(&key).copied() {
-                    Some(classify_props(call, kind, &self.bindings))
+                    Some(classify_props(call, kind, &self.origin_context()))
                 } else if self.tracked_syms.contains(&id.sym) {
                     Some((
                         Decision::Bail(BailReason::ShadowedOrUnbound),
@@ -527,10 +581,18 @@ impl Detector {
     }
 }
 
+/// What classifying a call site's children needs to know beyond the call site.
+struct OriginContext<'a> {
+    factories: &'a HashMap<BindKey, CandidateKind>,
+    pass_through: &'a PassThrough,
+    /// Whether `this` at the call site is a class instance.
+    this_is_instance: bool,
+}
+
 fn classify_props(
     call: &CallExpr,
     kind: CandidateKind,
-    factories: &HashMap<BindKey, CandidateKind>,
+    ctx: &OriginContext<'_>,
 ) -> (Decision, ChildrenOrigin) {
     let props_arg_idx = kind.props_arg_idx();
     // A spread in any argument *before* the props position means the real
@@ -556,7 +618,7 @@ fn classify_props(
         // reaches this branch with children to report: every other factory
         // keeps its children *in* the props object, so a missing props
         // argument means missing children too.
-        let children = call_site_children_origin_without_props(call, kind, factories);
+        let children = call_site_children_origin_without_props(call, kind, ctx);
         if children == ChildrenOrigin::Generated && call.args.len() == props_arg_idx {
             return (Decision::SynthesizeProps { props_arg_idx }, children);
         }
@@ -577,7 +639,7 @@ fn classify_props(
             // Read independently of `validate_object`: the two answer
             // different questions, and a call site that only earns
             // `KeyOnly` still emits a marker the list flag belongs in.
-            let children = call_site_children_origin(call, kind, obj, factories);
+            let children = call_site_children_origin(call, kind, obj, ctx);
             let decision = match validate_object(obj) {
                 Some(reason) if is_key_stampable(&reason) => Decision::KeyOnly { props_arg_idx },
                 Some(reason) => Decision::Bail(reason),
@@ -619,12 +681,12 @@ fn call_site_children_origin(
     call: &CallExpr,
     kind: CandidateKind,
     obj: &ObjectLit,
-    factories: &HashMap<BindKey, CandidateKind>,
+    ctx: &OriginContext<'_>,
 ) -> ChildrenOrigin {
     if is_children_first(kind) {
-        return children_first_arg_origin(call, factories);
+        return children_first_arg_origin(call, ctx);
     }
-    children_origin(obj, factories)
+    children_origin(obj, ctx)
 }
 
 /// The same question asked of a call site that has no props object to read —
@@ -633,10 +695,10 @@ fn call_site_children_origin(
 fn call_site_children_origin_without_props(
     call: &CallExpr,
     kind: CandidateKind,
-    factories: &HashMap<BindKey, CandidateKind>,
+    ctx: &OriginContext<'_>,
 ) -> ChildrenOrigin {
     if is_children_first(kind) {
-        return children_first_arg_origin(call, factories);
+        return children_first_arg_origin(call, ctx);
     }
     ChildrenOrigin::Authored
 }
@@ -651,10 +713,7 @@ fn is_children_first(kind: CandidateKind) -> bool {
 }
 
 /// Classifies argument 0 of a children-first call.
-fn children_first_arg_origin(
-    call: &CallExpr,
-    factories: &HashMap<BindKey, CandidateKind>,
-) -> ChildrenOrigin {
+fn children_first_arg_origin(call: &CallExpr, ctx: &OriginContext<'_>) -> ChildrenOrigin {
     // `Span()` passes `children: undefined`, which is no list at all.
     let Some(arg) = call.args.first() else {
         return ChildrenOrigin::Authored;
@@ -668,7 +727,7 @@ fn children_first_arg_origin(
     if arg.spread.is_some() {
         return ChildrenOrigin::Generated;
     }
-    expr_children_origin(&arg.expr, factories)
+    expr_children_origin(&arg.expr, ctx)
 }
 
 /// Classifies the `children` property of a props object literal. A call site
@@ -688,7 +747,7 @@ fn children_first_arg_origin(
 /// surface, and one that would bury the real reports in the console channel
 /// they share. A spread that follows a *written* `children` is the opposite
 /// trade: rare, deliberate, and cheap to be conservative about, so it is.
-fn children_origin(obj: &ObjectLit, factories: &HashMap<BindKey, CandidateKind>) -> ChildrenOrigin {
+fn children_origin(obj: &ObjectLit, ctx: &OriginContext<'_>) -> ChildrenOrigin {
     let mut origin = ChildrenOrigin::Authored;
     let mut children_written = false;
 
@@ -708,11 +767,15 @@ fn children_origin(obj: &ObjectLit, factories: &HashMap<BindKey, CandidateKind>)
                 // else, which is the `children: rows` case written shorter.
                 Prop::Shorthand(ident) if ident.sym.as_ref() == CHILDREN_KEY => {
                     children_written = true;
-                    origin = ChildrenOrigin::Generated;
+                    origin = if ctx.pass_through.is_passed_through_ident(ident) {
+                        ChildrenOrigin::PassedThrough
+                    } else {
+                        ChildrenOrigin::Generated
+                    };
                 }
                 Prop::KeyValue(kv) if is_children_key(&kv.key) => {
                     children_written = true;
-                    origin = expr_children_origin(&kv.value, factories);
+                    origin = expr_children_origin(&kv.value, ctx);
                 }
                 // A getter, setter or method named `children` holds a
                 // function rather than a child list, and such an object never
@@ -737,6 +800,20 @@ fn is_children_key(key: &PropName) -> bool {
     }
 }
 
+/// Classifies a `children` expression: one that hands on the caller's own
+/// `children` unchanged is [`ChildrenOrigin::PassedThrough`] (see
+/// [`crate::pass_through`]); anything else is judged by what was written, in
+/// [`written_children_origin`].
+fn expr_children_origin(expr: &Expr, ctx: &OriginContext<'_>) -> ChildrenOrigin {
+    if ctx
+        .pass_through
+        .is_passed_through(expr, ctx.this_is_instance)
+    {
+        return ChildrenOrigin::PassedThrough;
+    }
+    written_children_origin(expr, ctx.factories)
+}
+
 /// The rule, inverted on purpose: enumerate the shapes that mean "a human
 /// wrote these children out" and call everything else generated.
 ///
@@ -756,11 +833,13 @@ fn is_children_key(key: &PropName) -> bool {
 /// for the identical reason, and it is the safe direction to be wrong in: a
 /// needless report costs a moment, a missing one costs state landing on the
 /// wrong row.
-fn expr_children_origin(
+pub(crate) fn written_children_origin(
     expr: &Expr,
     factories: &HashMap<BindKey, CandidateKind>,
 ) -> ChildrenOrigin {
-    match unwrap_parens(expr) {
+    // A type-only wrapper (`as`, `satisfies`, `!`, `<T>`) leaves the value as
+    // written, so it is read through like a parenthesis.
+    match unwrap_transparent(expr) {
         // An array written out in source: every slot is one the author chose,
         // so position is as stable as the source text is. A spread is the
         // exception — its length is a runtime fact, so every slot after it
@@ -1091,10 +1170,14 @@ pub fn detect(program: &Program, config: &CompileConfig) -> Vec<CallSiteDecision
 
     let tracked_syms: HashSet<Atom> = bindings.keys().map(|(sym, _)| sym.clone()).collect();
 
+    let pass_through = pass_through::collect(program, &bindings);
+
     let mut detector = Detector {
         bindings,
         tracked_syms,
         namespace_imports: imports.namespace_imports,
+        pass_through,
+        this_is_instance: Vec::new(),
         decisions: Vec::new(),
     };
     program.visit_with(&mut detector);
@@ -1120,7 +1203,7 @@ mod tests {
     use swc_core::common::{FileName, GLOBALS, Globals, Mark, SourceMap};
     use swc_core::ecma::ast::EsVersion;
     use swc_core::ecma::parser::lexer::Lexer;
-    use swc_core::ecma::parser::{EsSyntax, Parser, StringInput, Syntax};
+    use swc_core::ecma::parser::{EsSyntax, Parser, StringInput, Syntax, TsSyntax};
     use swc_core::ecma::transforms::base::resolver;
     use swc_core::ecma::visit::VisitMutWith;
 
@@ -1266,16 +1349,19 @@ mod tests {
     /// The raw [`CallSiteDecision`]s, for tests that need more than the
     /// [`Decision`] itself.
     fn sites_for_with_config(src: &str, config: &CompileConfig) -> Vec<CallSiteDecision> {
+        sites_for_with_syntax(src, config, Syntax::Es(EsSyntax::default()))
+    }
+
+    fn sites_for_with_syntax(
+        src: &str,
+        config: &CompileConfig,
+        syntax: Syntax,
+    ) -> Vec<CallSiteDecision> {
         GLOBALS.set(&Globals::new(), || {
             let cm: Lrc<SourceMap> = Default::default();
             let fm = cm.new_source_file(Lrc::new(FileName::Anon), src.to_string());
 
-            let lexer = Lexer::new(
-                Syntax::Es(EsSyntax::default()),
-                EsVersion::EsNext,
-                StringInput::from(&*fm),
-                None,
-            );
+            let lexer = Lexer::new(syntax, EsVersion::EsNext, StringInput::from(&*fm), None);
             let mut parser = Parser::new_from(lexer);
             let mut program = parser
                 .parse_program()
@@ -1299,6 +1385,19 @@ mod tests {
             .into_iter()
             .map(|d| d.children)
             .collect()
+    }
+
+    /// [`children_origins_for`] for a TypeScript snippet, whose type-only
+    /// wrappers (`as`, `satisfies`, `!`) a host may hand the plugin unstripped.
+    fn children_origins_for_ts(src: &str) -> Vec<ChildrenOrigin> {
+        sites_for_with_syntax(
+            src,
+            &CompileConfig::default(),
+            Syntax::Typescript(TsSyntax::default()),
+        )
+        .into_iter()
+        .map(|d| d.children)
+        .collect()
     }
 
     /// Asserts that `children_expr`, written as the `children` value of a
@@ -2488,5 +2587,490 @@ mod tests {
             Node(rows, { children: ['a'] })
         "#;
         assert_eq!(children_origins_for(src), vec![ChildrenOrigin::Authored]);
+    }
+    // ---- `children` origin: behind a type-only wrapper ----------------------
+    //
+    // `as`, `satisfies`, `!` and `<T>` change the type, never the value, so an
+    // array written out behind one is still written out, and anything
+    // generated behind one is still generated.
+
+    #[test]
+    fn array_literal_under_as_is_authored() {
+        assert_origin_ts(
+            "import { Div } from '@meonode/ui'\nDiv({ children: [A(), B()] as any })",
+            ChildrenOrigin::Authored,
+        );
+    }
+
+    #[test]
+    fn array_literal_under_as_const_is_authored() {
+        assert_origin_ts(
+            "import { Div } from '@meonode/ui'\nDiv({ children: [A(), B()] as const })",
+            ChildrenOrigin::Authored,
+        );
+    }
+
+    #[test]
+    fn array_literal_under_satisfies_is_authored() {
+        assert_origin_ts(
+            "import { Div } from '@meonode/ui'\nDiv({ children: [A(), B()] satisfies unknown[] })",
+            ChildrenOrigin::Authored,
+        );
+    }
+
+    #[test]
+    fn array_literal_under_non_null_is_authored() {
+        assert_origin_ts(
+            "import { Div } from '@meonode/ui'\nDiv({ children: [A(), B()]! })",
+            ChildrenOrigin::Authored,
+        );
+    }
+
+    #[test]
+    fn array_literal_under_angle_bracket_assertion_is_authored() {
+        assert_origin_ts(
+            "import { Div } from '@meonode/ui'\nDiv({ children: <any>[A(), B()] })",
+            ChildrenOrigin::Authored,
+        );
+    }
+
+    #[test]
+    fn array_literal_under_parens_and_as_is_authored() {
+        assert_origin_ts(
+            "import { Div } from '@meonode/ui'\nDiv({ children: ([A(), B()] as any) })",
+            ChildrenOrigin::Authored,
+        );
+    }
+
+    #[test]
+    fn children_first_array_literal_under_as_is_authored() {
+        assert_origin_ts(
+            "import { Span } from '@meonode/ui'\nSpan(['a', 'b'] as any, { padding: 4 })",
+            ChildrenOrigin::Authored,
+        );
+    }
+
+    #[test]
+    fn map_call_under_as_is_generated() {
+        assert_origin_ts(
+            "import { Div } from '@meonode/ui'\nDiv({ children: data.map(f) as any })",
+            ChildrenOrigin::Generated,
+        );
+    }
+
+    #[test]
+    fn array_with_spread_under_satisfies_is_generated() {
+        assert_origin_ts(
+            "import { Div } from '@meonode/ui'\nDiv({ children: [Header(), ...rows] satisfies unknown[] })",
+            ChildrenOrigin::Generated,
+        );
+    }
+
+    // ---- `children` origin: passed through ---------------------------------
+    //
+    // A wrapper that hands on the `children` its caller gave it renders a list
+    // the caller wrote. Marking the wrapper's inner call site asks for keys at
+    // a place that wrote no list, so these read as `PassedThrough` and carry
+    // no marker. Each case names one binding shape.
+
+    fn assert_origin(src: &str, expected: ChildrenOrigin) {
+        assert_eq!(children_origins_for(src), vec![expected], "{src}");
+    }
+
+    fn assert_origin_ts(src: &str, expected: ChildrenOrigin) {
+        assert_eq!(children_origins_for_ts(src), vec![expected], "{src}");
+    }
+
+    #[test]
+    fn destructured_children_shorthand_is_passed_through() {
+        assert_origin(
+            "import { Div } from '@meonode/ui'\nconst Card = ({ children }) => Div({ padding: 4, children })",
+            ChildrenOrigin::PassedThrough,
+        );
+    }
+
+    #[test]
+    fn destructured_children_key_value_is_passed_through() {
+        assert_origin(
+            "import { Div } from '@meonode/ui'\nfunction Card({ children }) { return Div({ children: children }).render() }",
+            ChildrenOrigin::PassedThrough,
+        );
+    }
+
+    /// The issue's component case, with its type assertion.
+    #[test]
+    fn destructured_children_under_a_type_assertion_is_passed_through() {
+        assert_origin_ts(
+            "import { Div } from '@meonode/ui'\nfunction Card({ children }: { children?: unknown }) { return Div({ children: children as any }).render() }",
+            ChildrenOrigin::PassedThrough,
+        );
+    }
+
+    #[test]
+    fn destructured_children_under_satisfies_and_non_null_is_passed_through() {
+        assert_origin_ts(
+            "import { Div } from '@meonode/ui'\nconst Card = ({ children }: { children?: any }) => Div({ children: (children! satisfies any) })",
+            ChildrenOrigin::PassedThrough,
+        );
+    }
+
+    #[test]
+    fn renamed_destructured_children_is_passed_through() {
+        assert_origin(
+            "import { Div } from '@meonode/ui'\nconst Card = ({ children: kids }) => Div({ children: kids })",
+            ChildrenOrigin::PassedThrough,
+        );
+    }
+
+    #[test]
+    fn props_member_children_is_passed_through() {
+        assert_origin(
+            "import { Div } from '@meonode/ui'\nconst Card = (props) => Div({ children: props.children })",
+            ChildrenOrigin::PassedThrough,
+        );
+    }
+
+    #[test]
+    fn props_optional_member_children_is_passed_through() {
+        assert_origin(
+            "import { Div } from '@meonode/ui'\nconst Card = (props) => Div({ children: props?.children })",
+            ChildrenOrigin::PassedThrough,
+        );
+    }
+
+    #[test]
+    fn props_computed_member_children_is_passed_through() {
+        assert_origin(
+            "import { Div } from '@meonode/ui'\nconst Card = (props) => Div({ children: props['children'] })",
+            ChildrenOrigin::PassedThrough,
+        );
+    }
+
+    #[test]
+    fn rest_member_children_is_passed_through() {
+        assert_origin(
+            "import { Div } from '@meonode/ui'\nconst Card = ({ title, ...rest }) => Div({ title, children: rest.children })",
+            ChildrenOrigin::PassedThrough,
+        );
+    }
+
+    #[test]
+    fn children_destructured_from_props_in_the_body_is_passed_through() {
+        assert_origin(
+            "import { Div } from '@meonode/ui'\nfunction Card(props) { const { children } = props; return Div({ children }) }",
+            ChildrenOrigin::PassedThrough,
+        );
+    }
+
+    #[test]
+    fn renamed_children_destructured_from_props_in_the_body_is_passed_through() {
+        assert_origin(
+            "import { Div } from '@meonode/ui'\nfunction Card(props) { const { children: kids } = props; return Div({ children: kids }) }",
+            ChildrenOrigin::PassedThrough,
+        );
+    }
+
+    #[test]
+    fn alias_of_props_children_is_passed_through() {
+        assert_origin(
+            "import { Div } from '@meonode/ui'\nfunction Card(props) { const kids = props.children; return Div({ children: kids }) }",
+            ChildrenOrigin::PassedThrough,
+        );
+    }
+
+    /// An alias declared after the function that reads it still resolves:
+    /// the chain is followed to a fixpoint, not in source order.
+    #[test]
+    fn alias_chain_through_a_let_never_reassigned_is_passed_through() {
+        assert_origin(
+            "import { Div } from '@meonode/ui'\nfunction Card({ children }) { const render = () => Div({ children: b }); let a = children; const b = a; return render() }",
+            ChildrenOrigin::PassedThrough,
+        );
+    }
+
+    #[test]
+    fn alias_of_the_props_object_is_passed_through() {
+        assert_origin(
+            "import { Div } from '@meonode/ui'\nfunction Card(props) { const p = props; return Div({ children: p.children }) }",
+            ChildrenOrigin::PassedThrough,
+        );
+    }
+
+    #[test]
+    fn children_with_an_authored_default_is_passed_through() {
+        assert_origin(
+            "import { Div } from '@meonode/ui'\nconst Card = ({ children = [] }) => Div({ children })",
+            ChildrenOrigin::PassedThrough,
+        );
+    }
+
+    #[test]
+    fn props_parameter_with_a_default_object_is_passed_through() {
+        assert_origin(
+            "import { Div } from '@meonode/ui'\nconst Card = ({ children } = {}) => Div({ children })",
+            ChildrenOrigin::PassedThrough,
+        );
+    }
+
+    #[test]
+    fn children_read_in_a_nested_closure_is_passed_through() {
+        assert_origin(
+            "import { Div } from '@meonode/ui'\nfunction Card({ children }) { const inner = () => Div({ children }); return inner() }",
+            ChildrenOrigin::PassedThrough,
+        );
+    }
+
+    #[test]
+    fn component_inside_react_memo_is_passed_through() {
+        assert_origin(
+            "import { memo } from 'react'\nimport { Div } from '@meonode/ui'\nconst Card = memo(({ children }) => Div({ children }).render())",
+            ChildrenOrigin::PassedThrough,
+        );
+    }
+
+    #[test]
+    fn component_inside_namespaced_react_forward_ref_is_passed_through() {
+        assert_origin(
+            "import * as React from 'react'\nimport { Div } from '@meonode/ui'\nconst Card = React.forwardRef((props, ref) => Div({ ref, children: props.children }).render())",
+            ChildrenOrigin::PassedThrough,
+        );
+    }
+
+    #[test]
+    fn component_inside_default_react_memo_is_passed_through() {
+        assert_origin(
+            "import React from 'react'\nimport { Div } from '@meonode/ui'\nconst Card = React.memo(function Card(props) { return Div({ children: props.children }).render() })",
+            ChildrenOrigin::PassedThrough,
+        );
+    }
+
+    #[test]
+    fn class_component_props_children_is_passed_through() {
+        assert_origin(
+            "import { Component } from 'react'\nimport { Div } from '@meonode/ui'\nclass Card extends Component { render() { return Div({ children: this.props.children }).render() } }",
+            ChildrenOrigin::PassedThrough,
+        );
+    }
+
+    #[test]
+    fn children_first_factory_given_passed_through_children_is_passed_through() {
+        assert_origin(
+            "import { Span } from '@meonode/ui'\nconst Label = ({ children }) => Span(children, { padding: 4 })",
+            ChildrenOrigin::PassedThrough,
+        );
+    }
+
+    #[test]
+    fn method_parameter_props_children_is_passed_through() {
+        assert_origin(
+            "import { Div } from '@meonode/ui'\nconst ui = { card(props) { return Div({ children: props.children }) } }",
+            ChildrenOrigin::PassedThrough,
+        );
+    }
+
+    // ---- `children` origin: looks like a pass-through, is not --------------
+
+    #[test]
+    fn local_built_with_map_is_generated() {
+        assert_origin(
+            "import { Div } from '@meonode/ui'\nfunction List({ data }) { const items = data.map(f); return Div({ children: items }) }",
+            ChildrenOrigin::Generated,
+        );
+    }
+
+    #[test]
+    fn reassigned_destructured_children_is_generated() {
+        assert_origin(
+            "import { Div } from '@meonode/ui'\nfunction Card({ children }) { children = children.filter(Boolean); return Div({ children }) }",
+            ChildrenOrigin::Generated,
+        );
+    }
+
+    #[test]
+    fn children_reassigned_by_destructuring_assignment_is_generated() {
+        assert_origin(
+            "import { Div } from '@meonode/ui'\nfunction Card({ children }) { [children] = [rows]; return Div({ children }) }",
+            ChildrenOrigin::Generated,
+        );
+    }
+
+    #[test]
+    fn children_reassigned_by_a_for_of_head_is_generated() {
+        assert_origin(
+            "import { Div } from '@meonode/ui'\nfunction Card({ children }) { for (children of lists) {} return Div({ children }) }",
+            ChildrenOrigin::Generated,
+        );
+    }
+
+    #[test]
+    fn alias_reassigned_later_is_generated() {
+        assert_origin(
+            "import { Div } from '@meonode/ui'\nfunction Card({ children }) { let kids = children; kids = rows; return Div({ children: kids }) }",
+            ChildrenOrigin::Generated,
+        );
+    }
+
+    #[test]
+    fn reassigned_props_object_is_generated() {
+        assert_origin(
+            "import { Div } from '@meonode/ui'\nfunction Card(props) { props = { children: rows }; return Div({ children: props.children }) }",
+            ChildrenOrigin::Generated,
+        );
+    }
+
+    #[test]
+    fn props_children_assigned_through_the_object_is_generated() {
+        assert_origin(
+            "import { Div } from '@meonode/ui'\nfunction Card(props) { props.children = rows; return Div({ children: props.children }) }",
+            ChildrenOrigin::Generated,
+        );
+    }
+
+    #[test]
+    fn props_children_assigned_through_a_computed_key_is_generated() {
+        assert_origin(
+            "import { Div } from '@meonode/ui'\nfunction Card(props) { props['children'] = rows; return Div({ children: props.children }) }",
+            ChildrenOrigin::Generated,
+        );
+    }
+
+    #[test]
+    fn derived_from_passed_through_children_is_generated() {
+        assert_origin(
+            "import { Div } from '@meonode/ui'\nconst Card = ({ children }) => Div({ children: children.filter(Boolean) })",
+            ChildrenOrigin::Generated,
+        );
+    }
+
+    #[test]
+    fn alias_derived_from_passed_through_children_is_generated() {
+        assert_origin(
+            "import { Div } from '@meonode/ui'\nfunction Card({ children }) { const kids = [...children, extra]; return Div({ children: kids }) }",
+            ChildrenOrigin::Generated,
+        );
+    }
+
+    #[test]
+    fn destructured_children_redeclared_with_var_is_generated() {
+        assert_origin(
+            "import { Div } from '@meonode/ui'\nfunction Card({ children }) { var children = rows; return Div({ children }) }",
+            ChildrenOrigin::Generated,
+        );
+    }
+
+    #[test]
+    fn props_member_other_than_children_is_generated() {
+        assert_origin(
+            "import { Div } from '@meonode/ui'\nconst List = (props) => Div({ children: props.items })",
+            ChildrenOrigin::Generated,
+        );
+    }
+
+    /// Another prop renamed to `children` is that prop, not the caller's
+    /// children.
+    #[test]
+    fn another_prop_renamed_to_children_is_generated() {
+        assert_origin(
+            "import { Div } from '@meonode/ui'\nconst List = ({ items: children }) => Div({ children })",
+            ChildrenOrigin::Generated,
+        );
+    }
+
+    /// In a static method `this` is the class itself, which has no props.
+    #[test]
+    fn this_props_children_in_a_static_method_is_generated() {
+        assert_origin(
+            "import { Div } from '@meonode/ui'\nclass Card { static make() { return Div({ children: this.props.children }) } }",
+            ChildrenOrigin::Generated,
+        );
+    }
+
+    #[test]
+    fn positional_parameter_named_children_is_generated() {
+        assert_origin(
+            "import { Div } from '@meonode/ui'\nconst Wrap = (children) => Div({ children })",
+            ChildrenOrigin::Generated,
+        );
+    }
+
+    #[test]
+    fn children_of_a_second_parameter_is_generated() {
+        assert_origin(
+            "import { Div } from '@meonode/ui'\nconst Wrap = (a, { children }) => Div({ children })",
+            ChildrenOrigin::Generated,
+        );
+    }
+
+    #[test]
+    fn another_destructured_prop_is_generated() {
+        assert_origin(
+            "import { Div } from '@meonode/ui'\nconst List = ({ items }) => Div({ children: items })",
+            ChildrenOrigin::Generated,
+        );
+    }
+
+    #[test]
+    fn destructured_children_of_an_inline_callback_is_generated() {
+        assert_origin(
+            "import { Div } from '@meonode/ui'\nrows.forEach(({ children }) => Div({ children }))",
+            ChildrenOrigin::Generated,
+        );
+    }
+
+    #[test]
+    fn member_children_of_an_inline_callback_parameter_is_generated() {
+        assert_origin(
+            "import { Div } from '@meonode/ui'\nrows.forEach((row) => Div({ children: row.children }))",
+            ChildrenOrigin::Generated,
+        );
+    }
+
+    /// `memo` is only React's when it is imported from `react`.
+    #[test]
+    fn component_inside_a_local_memo_is_generated() {
+        assert_origin(
+            "import { Div } from '@meonode/ui'\nconst memo = (f) => f\nconst Card = memo(({ children }) => Div({ children }))",
+            ChildrenOrigin::Generated,
+        );
+    }
+
+    #[test]
+    fn children_with_a_computed_default_is_generated() {
+        assert_origin(
+            "import { Div } from '@meonode/ui'\nconst Card = ({ children = rows.map(f) }) => Div({ children })",
+            ChildrenOrigin::Generated,
+        );
+    }
+
+    #[test]
+    fn nested_destructured_children_is_generated() {
+        assert_origin(
+            "import { Div } from '@meonode/ui'\nconst Card = ({ data: { children } }) => Div({ children })",
+            ChildrenOrigin::Generated,
+        );
+    }
+
+    #[test]
+    fn module_level_children_binding_is_generated() {
+        assert_origin(
+            "import { Div } from '@meonode/ui'\nconst children = rows.map(f)\nDiv({ children })",
+            ChildrenOrigin::Generated,
+        );
+    }
+
+    #[test]
+    fn this_props_children_outside_a_class_is_generated() {
+        assert_origin(
+            "import { Div } from '@meonode/ui'\nfunction f() { return Div({ children: this.props.children }) }",
+            ChildrenOrigin::Generated,
+        );
+    }
+
+    #[test]
+    fn children_first_factory_given_a_positional_parameter_is_generated() {
+        assert_origin(
+            "import { Span } from '@meonode/ui'\nconst Label = (children) => Span(children, { padding: 4 })",
+            ChildrenOrigin::Generated,
+        );
     }
 }
