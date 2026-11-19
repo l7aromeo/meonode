@@ -28,11 +28,17 @@ const ROUNDS = Number(process.env.ROUNDS || 8)
 /** The one style property MeoNode's styled side writes. */
 const PADDING = { padding: '1px' }
 
-function mount(element) {
+/**
+ * Mounts one tree and times the whole step: building it (MeoNode's
+ * construction and `.render()`, or React's `createElement` calls) and React's
+ * render and commit. Creating the root is outside the clock.
+ */
+function mount(build) {
   const host = document.createElement('div')
   document.body.appendChild(host)
   const root = createRoot(host)
   const t0 = performance.now()
+  const element = build()
   flushSync(() => root.render(element))
   const ms = performance.now() - t0
   flushSync(() => root.unmount())
@@ -44,7 +50,7 @@ const reactProps = { bare: null, styled: { className: 'c' } }
 const meoProps = { bare: {}, styled: PADDING }
 
 const flatReact = pair => () =>
-  mount(
+  mount(() =>
     createElement(
       'div',
       null,
@@ -52,19 +58,21 @@ const flatReact = pair => () =>
     ),
   )
 
-const flatMeo = pair => () => mount(Div({ children: Array.from({ length: FLAT }, (_, i) => Span(`n${i}`, { key: i, ...meoProps[pair] })) }).render())
+const flatMeo = pair => () => mount(() => Div({ children: Array.from({ length: FLAT }, (_, i) => Span(`n${i}`, { key: i, ...meoProps[pair] })) }).render())
 
-const nestedReact = pair => () => {
-  let node = createElement('span', reactProps[pair], 'leaf')
-  for (let i = 0; i < NESTED; i++) node = createElement('div', reactProps[pair], node)
-  return mount(node)
-}
+const nestedReact = pair => () =>
+  mount(() => {
+    let node = createElement('span', reactProps[pair], 'leaf')
+    for (let i = 0; i < NESTED; i++) node = createElement('div', reactProps[pair], node)
+    return node
+  })
 
-const nestedMeo = pair => () => {
-  let node = Span('leaf', meoProps[pair])
-  for (let i = 0; i < NESTED; i++) node = Div({ ...meoProps[pair], children: node })
-  return mount(node.render())
-}
+const nestedMeo = pair => () =>
+  mount(() => {
+    let node = Span('leaf', meoProps[pair])
+    for (let i = 0; i < NESTED; i++) node = Div({ ...meoProps[pair], children: node })
+    return node.render()
+  })
 
 /** Runs one pair and reports MeoNode's added time per node alongside both medians. */
 function pairResult(a, b, nodes) {

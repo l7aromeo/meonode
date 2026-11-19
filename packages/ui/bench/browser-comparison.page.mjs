@@ -74,25 +74,32 @@ const median = xs => {
 const MIN_SAMPLE_MS = 20
 
 /**
- * Times `count` mounts of freshly built trees back to back. Building happens
- * before the clock starts and unmounting after it stops, as in `mount`.
- * @returns Time per mount, in ms.
+ * Times `count` mounts back to back, each the whole step a page pays: building
+ * the tree (MeoNode's construction and `.render()`, or React's
+ * `createElement` calls), then React's render and commit. Builds run first
+ * and commits second, each phase timed on its own, so the split is reported
+ * too. Creating the roots happens before the clock starts and unmounting
+ * after it stops.
+ * @returns Time per mount, in ms: `ms` for the whole step, `buildMs` and
+ * `commitMs` for its phases.
  */
 function mountMany(side, shape, n, count) {
-  const trees = Array.from({ length: count }, () => build(side, shape, n))
-  const roots = trees.map(() => {
+  const roots = Array.from({ length: count }, () => {
     const host = document.createElement('div')
     document.body.appendChild(host)
     return { host, root: createRoot(host) }
   })
+  const trees = new Array(count)
   const t0 = performance.now()
+  for (let i = 0; i < count; i++) trees[i] = build(side, shape, n)
+  const t1 = performance.now()
   for (let i = 0; i < count; i++) flushSync(() => roots[i].root.render(trees[i]))
-  const ms = (performance.now() - t0) / count
+  const t2 = performance.now()
   for (const { host, root } of roots) {
     flushSync(() => root.unmount())
     host.remove()
   }
-  return ms
+  return { ms: (t2 - t0) / count, buildMs: (t1 - t0) / count, commitMs: (t2 - t1) / count }
 }
 
 /**
@@ -102,18 +109,18 @@ function mountMany(side, shape, n, count) {
  */
 window.runSides = ({ shape, n, rounds }) => {
   const sides = Object.keys(SIDES)
-  const times = Object.fromEntries(sides.map(side => [side, []]))
+  const samples = Object.fromEntries(sides.map(side => [side, []]))
   const warm = Object.fromEntries(sides.map(side => [side, []]))
-  for (let i = 0; i < 2; i++) for (const side of sides) warm[side].push(mountMany(side, shape, n, 1))
+  for (let i = 0; i < 2; i++) for (const side of sides) warm[side].push(mountMany(side, shape, n, 1).ms)
   // Size samples from the warm-ups, then once more from a sample of that size: warm-ups run cold and overestimate a mount.
   // A quarter more than the minimum, since a mount's time varies between samples.
   const mountsFor = msPerMount => Math.max(1, Math.ceil((MIN_SAMPLE_MS * 1.25) / Math.max(msPerMount, 0.01)))
   const perSample = Object.fromEntries(sides.map(side => [side, mountsFor(Math.min(...warm[side]))]))
-  for (const side of sides) perSample[side] = mountsFor(mountMany(side, shape, n, perSample[side]))
+  for (const side of sides) perSample[side] = mountsFor(mountMany(side, shape, n, perSample[side]).ms)
   for (let r = 0; r < rounds; r++) {
     for (let i = 0; i < sides.length; i++) {
       const side = sides[(i + r) % sides.length]
-      times[side].push(mountMany(side, shape, n, perSample[side]))
+      samples[side].push(mountMany(side, shape, n, perSample[side]))
     }
   }
   // Fibers per node from a ten-node tree: flat has one extra root element, nested has ten wraps around one leaf.
@@ -121,5 +128,17 @@ window.runSides = ({ shape, n, rounds }) => {
     const { fibers } = mount(build(side, shape, 10), true)
     return shape === 'flat' ? (fibers - 1) / 10 : fibers / 11
   }
-  return Object.fromEntries(sides.map(side => [side, { ms: median(times[side]), mountsPerSample: perSample[side], fibersPerNode: fibersPerNode(side) }]))
+  const phase = (side, key) => median(samples[side].map(sample => sample[key]))
+  return Object.fromEntries(
+    sides.map(side => [
+      side,
+      {
+        ms: phase(side, 'ms'),
+        buildMs: phase(side, 'buildMs'),
+        commitMs: phase(side, 'commitMs'),
+        mountsPerSample: perSample[side],
+        fibersPerNode: fibersPerNode(side),
+      },
+    ]),
+  )
 }
