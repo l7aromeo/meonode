@@ -4,7 +4,7 @@ import type * as React from 'react'
 // namespace import would make reading it a missing-export access.
 // eslint-disable-next-line no-restricted-syntax
 import ReactRuntime from 'react'
-import { type ComponentProps, type ElementType, type ReactNode, createElement, isValidElement } from 'react'
+import { type ElementType, type ReactNode, createElement, isValidElement } from 'react'
 import type {
   FunctionRendererProps,
   NodeElement,
@@ -550,41 +550,23 @@ export class NodeUtil {
           return node
         }
       }
-      // Only extract style if it's a DOM element (string type)
-      // For components, treat style as a normal prop
-      if (typeof node.type === 'string') {
-        const { style: childStyleObject, ...otherChildProps } = node.props as ComponentProps<ElementType>
-        const combinedProps = { ...otherChildProps, ...(childStyleObject || {}) }
-        return new BaseNode(
-          node.type as ElementType,
-          {
-            ...combinedProps,
-            ...(node.key !== null && node.key !== undefined ? { key: node.key } : {}),
-            disableEmotion,
-          },
-          undefined,
-        )
-      }
-
-      // For components, the props on an already-created element are final: they
-      // were classified when that element was built. Re-wrapping used to spread
-      // them back in at the top level, which sent them through classification a
-      // second time — so a component prop whose name matches a CSS property was
-      // converted into a style on the way through.
-      //
-      // That silently defeated `props`, the documented escape hatch for exactly
-      // that case ("wrap it in `props` so the styling engine ignores it"). A
-      // shielded `height` survived only while its element stayed the render
-      // root; the moment it became someone's child it came back as a className.
+      // The props on an already-created element are final: they were classified
+      // when that element was built, by a node or by whoever called
+      // `createElement`. Spreading them back in at the top level would classify
+      // them a second time, so an attribute whose name matches a CSS property
+      // (`width` on an img, `fill` on a rect, a component's `height`) and a host
+      // element's inline `style` would turn into css, and `props`, the escape
+      // hatch for exactly that case, would hold only while its element stayed
+      // the render root.
       //
       // Handing them over as `props` marks them as already-final, so
       // classification skips them. `children` is lifted back out, since it is a
-      // node-level concern rather than a component prop.
-      const { children: elementChildren, ...finalComponentProps } = node.props as Record<string, unknown>
+      // node-level concern rather than a prop.
+      const { children: elementChildren, ...finalProps } = node.props as Record<string, unknown>
       return new BaseNode(
         node.type as ElementType,
         {
-          props: finalComponentProps,
+          props: finalProps,
           ...(elementChildren !== undefined ? { children: elementChildren as Children } : {}),
           ...(node.key !== null && node.key !== undefined ? { key: node.key } : {}),
           disableEmotion,
