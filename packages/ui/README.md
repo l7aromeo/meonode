@@ -394,17 +394,16 @@ Heap growth measured after a forced collection, against the ceiling each check a
 ```typescript
 import { ThemeProvider, Center, Column, H1, Button, Text } from '@meonode/ui'
 
-const theme = {
-  mode: 'light',
-  system: {
-    primary: { default: '#FF6B6B', content: '#FFFFFF' },
-    base: { default: '#F8F8F8', content: '#333333' },
-  },
+const tokens = {
+  primary: { default: '#FF6B6B', content: '#FFFFFF' },
+  base: { default: '#F8F8F8', content: '#333333' },
 }
 
 const App = () =>
   ThemeProvider({
-    theme,
+    modes: ['light'],
+    defaultMode: 'light',
+    tokens,
     children: [
       Center({
         padding: 40,

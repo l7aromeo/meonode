@@ -292,14 +292,6 @@ export function useThemeSnapshot<T>(store: ThemeStore | null, select: ((snapshot
 }
 
 /**
- * The internal implementation of the ThemeProvider component.
- * @param {object} props The props for the component.
- * @param {Children} [props.children] The children to render.
- * @param {Theme} props.theme The theme to provide.
- * @returns {ReactNode} The rendered component.
- */
-
-/**
  * The media query a hidden provider's block is given: it matches no medium, so the
  * block's rules stop applying while the element stays in place.
  */
@@ -414,6 +406,15 @@ function ReaderCatchUp({ store }: { store: ThemeStore }): null {
   return null
 }
 
+/**
+ * The internal implementation of the ThemeProvider component.
+ * @param props The provider's props; see {@link ThemeProviderProps}.
+ * @param props.tokens The token map that `theme.*` paths resolve against.
+ * @param props.modes Every mode the site has.
+ * @param props.defaultMode What applies when no stored or system mode does.
+ * @param props.children The children to render.
+ * @returns The rendered component.
+ */
 export default function ThemeProvider({
   children,
   tokens,
