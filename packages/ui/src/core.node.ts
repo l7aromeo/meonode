@@ -34,6 +34,7 @@ import { checkCss, checkFactoryCss, isMergeableCss, markCombinedCssChecked } fro
 import { NodeUtil } from '@src/util/node.util.js'
 import { IS_REACT_SERVER_LAYER } from '@src/util/react-layer.util.js'
 import { passesChildrenThrough } from '@src/util/children-pass-through.util.js'
+import { observeChildren } from '@src/util/generated-list.util.js'
 import { compileServerEmotionRule } from '@src/util/server-emotion.util.js'
 import { replaceThemeTokensWithCssVars } from '@src/util/server-theme.util.js'
 import { collectThemeVarRefs, diagnosticsEnabled, getThemeVarIndex, reportThemeIssues, reportUnresolvedThemeKey } from '@src/util/theme-diagnostics.util.js'
@@ -851,7 +852,25 @@ function Node<AdditionalProps, E extends NodeElementType, ExactProps extends obj
   props: PolymorphicProps<E, As, AdditionalProps, ExactProps> = {} as any,
   deps?: DependencyList,
 ): NodeInstance<NoInfer<As>> {
-  return new BaseNode(element, props as NodeProps<E>, deps) as unknown as NodeInstance<NoInfer<As>>
+  const node = buildNode(element, props, deps, Node)
+  return node as unknown as NodeInstance<NoInfer<As>>
+}
+
+/**
+ * Builds the node for a factory call the author wrote.
+ *
+ * Every factory comes through here, and the nodes MeoNode builds for itself do
+ * not, so the development list report sees each call the author wrote and
+ * nothing else.
+ *
+ * Its callers keep the result in a variable rather than returning the call:
+ * Safari implements proper tail calls, which drop a tail caller's frame, and
+ * the call site's stack is cut at the caller's frame.
+ * @param factory The function the author called, where the call site's stack begins.
+ */
+function buildNode(element: NodeElementType, props: object, deps: DependencyList | undefined, factory: (...args: never[]) => unknown): BaseNode {
+  if (diagnosticsEnabled()) observeChildren(element, props as Record<string, unknown>, factory)
+  return new BaseNode(element, props as NodeProps, deps)
 }
 
 // Export the Node factory as the main export
@@ -943,8 +962,18 @@ export function createNode<AdditionalInitialProps, E extends NodeElementType, Ex
     ) => NodeInstance<NoInfer<As>>) & {
       element: E
     } {
-  const Instance = <AdditionalProps, ExactProps extends object = object>(props?: MergedProps<E, AdditionalProps, ExactProps>, deps?: DependencyList) =>
-    Node(element, combineFactoryProps(initialProps as Record<string, unknown> | undefined, props as Record<string, unknown> | undefined) as any, deps)
+  const Instance = <AdditionalProps, ExactProps extends object = object>(
+    props?: MergedProps<E, AdditionalProps, ExactProps>,
+    deps?: DependencyList,
+  ): BaseNode => {
+    const node = buildNode(
+      element,
+      combineFactoryProps(initialProps as Record<string, unknown> | undefined, props as Record<string, unknown> | undefined),
+      deps,
+      Instance,
+    )
+    return node
+  }
   Instance.element = element
   return Instance as any
 }
@@ -974,12 +1003,15 @@ export function createChildrenFirstNode<AdditionalInitialProps, E extends NodeEl
     children?: Children,
     props?: MergedProps<E, AdditionalProps, ExactProps> & { children?: never },
     deps?: DependencyList,
-  ) =>
-    Node(
+  ): BaseNode => {
+    const node = buildNode(
       element,
-      { ...combineFactoryProps(initialProps as Record<string, unknown> | undefined, props as Record<string, unknown> | undefined), children } as any,
+      { ...combineFactoryProps(initialProps as Record<string, unknown> | undefined, props as Record<string, unknown> | undefined), children },
       deps,
+      Instance,
     )
+    return node
+  }
   Instance.element = element
   return Instance as any
 }
