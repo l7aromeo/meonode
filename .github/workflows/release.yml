@@ -92,13 +92,20 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
 
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-wasip1
+      # The exact Rust that packages/compiler/rust-toolchain.toml pins, with its
+      # targets and components; the version is logged and keys the cache.
+      - name: Install the pinned Rust toolchain
+        id: rust
+        working-directory: packages/compiler
+        run: |
+          rustup toolchain install
+          rustc --version
+          echo "version=$(rustc --version | cut -d' ' -f2)" >> "$GITHUB_OUTPUT"
 
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: packages/compiler
+          key: rustc-${{ steps.rust.outputs.version }}
 
       - run: bun install --frozen-lockfile
 

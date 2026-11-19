@@ -1,4 +1,6 @@
 [toolchain]
-channel = "stable"
+# An exact version: the published wasm is rebuilt from source and compared by hash,
+# and two rustc releases compile the same source to different bytes.
+channel = "1.100.0"
 components = ["rustfmt", "clippy"]
 targets = ["wasm32-wasip1"]
