@@ -1,5 +1,11 @@
 # @meonode/compiler
 
+## 0.10.3
+
+### Patch Changes
+
+- [#104](https://github.com/l7aromeo/meonode/pull/104) [`1030cd6`](https://github.com/l7aromeo/meonode/commit/1030cd6c0d097068eff08f05cb4798d729bfa080) Thanks [@l7aromeo](https://github.com/l7aromeo)! - The plugin's wasm now builds to the same bytes from the same commit on any machine of the same OS and CPU type, so a release can be checked by rebuilding its commit and comparing the file's sha256 with the published one. Releases build on Linux x86_64; `bun run build:wasm:linux-x64` in `packages/compiler` reproduces one from any machine with Docker. The build pins an exact Rust version and keeps machine-specific paths, such as the cargo home a dependency was unpacked into, out of the binary. What the plugin does is unchanged.
+
 ## 0.10.2
 
 ### Patch Changes
