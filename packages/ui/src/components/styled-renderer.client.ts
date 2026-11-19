@@ -1,8 +1,10 @@
 'use client'
-import { createElement, type ElementType, type JSX, type ReactElement, type ReactNode, useContext } from 'react'
-import { __unsafe_useEmotionCache as useEmotionCache, CacheProvider, jsx } from '@emotion/react'
+import { createElement, type ElementType, Fragment, type JSX, type ReactElement, type ReactNode, useContext, useInsertionEffect } from 'react'
+import { __unsafe_useEmotionCache as useEmotionCache, CacheProvider, jsx, ThemeContext as EmotionThemeContext } from '@emotion/react'
 import type { EmotionCache } from '@emotion/cache'
-import { serializeStyles } from '@emotion/serialize'
+import { serializeStyles, type SerializedStyles } from '@emotion/serialize'
+import { getRegisteredStyles, insertStyles, registerStyles } from '@emotion/utils'
+import { NodeUtil } from '@src/util/node.util.js'
 import { compile, middleware, serialize, stringify } from 'stylis'
 import type { CssProp, NodeElement, Theme } from '@src/types/node.type.js'
 import { ThemeContext, type ThemeContextState, type ThemeSnapshot, useThemeSnapshot } from '@src/components/theme-provider.client.js'
@@ -31,11 +33,7 @@ export interface StyledRendererProps<E extends NodeElement> {
  */
 const selectMode = (snapshot: ThemeSnapshot) => snapshot.mode
 
-export default function StyledRenderer<E extends NodeElement, TProps extends Record<string, any>>({
-  element,
-  children,
-  ...props
-}: StyledRendererProps<E> & TProps): JSX.Element {
+export default function StyledRenderer<E extends NodeElement, TProps extends Record<string, any>>(props: StyledRendererProps<E> & TProps): JSX.Element {
   const context = useContext(ThemeContext)
   const emotionCache = useEmotionCache()
 
@@ -44,9 +42,62 @@ export default function StyledRenderer<E extends NodeElement, TProps extends Rec
   // is handed the theme and may read its mode, so an element with one follows the
   // reader's. The same hooks run either way, so an element whose css gains or
   // loses a function keeps its identity and everything below it.
-  const mode = useThemeSnapshot(context?.store ?? null, ThemeUtil.hasThemeFunction(props.css) ? selectMode : null)
+  const readsTheme = ThemeUtil.hasThemeFunction(props.css)
+  const mode = useThemeSnapshot(context?.store ?? null, readsTheme ? selectMode : null)
+  const emotionTheme = useContext(EmotionThemeContext)
   const theme = context && mode !== undefined ? { ...context.theme, mode: mode as typeof context.theme.mode } : context?.theme
-  return renderStyled(element, children, props, theme, emotionCache, context)
+  if (NodeUtil.isServer || emotionCache === null) {
+    const { element, children, ...rest } = props
+    return renderStyled(element, children, rest, theme, emotionCache, context)
+  }
+  return renderOwnClass(props as Record<string, any>, theme, emotionCache, emotionTheme, context)
+}
+
+/** Inserts one element's rule before layout effects run, where Emotion's own `Insertion` would. */
+function RuleInsertion({ cache, serialized, isStringTag }: { cache: EmotionCache; serialized: SerializedStyles; isStringTag: boolean }): null {
+  useInsertionEffect(() => {
+    insertStyles(cache, serialized, isStringTag)
+  })
+  return null
+}
+
+/** The props a styled element's own element is not given. */
+const RENDERER_ONLY = new Set(['element', 'children', 'css', 'as'])
+
+/**
+ * Renders the element with the class Emotion's `css` prop would give it, computed
+ * here rather than in Emotion's own components. It renders as Emotion's do, beside
+ * a leaf for its rule, so what sits below has the place it has on the server; the
+ * leaf is there only while the rule is not yet in the sheet.
+ */
+function renderOwnClass(
+  props: Record<string, any>,
+  theme: Theme | undefined,
+  cache: EmotionCache,
+  emotionTheme: unknown,
+  context: ThemeContextState | null,
+): JSX.Element {
+  const asTarget = props.as
+  const renderTarget = (asTarget != null && isValidElementType(asTarget) ? asTarget : props.element) as ElementType
+  const css = props.css as Record<string, unknown>
+  const givenClass = props.className
+  let className = ''
+  const finalCss: CssProp = ThemeUtil.resolveObjWithTheme(css, theme, { processFunctions: true, themeStringsMode: 'vars' })
+  reportStyleTokens(finalCss, context)
+  const cssForEmotion = ThemeUtil.resolveDefaultStyle(ThemeUtil.dropThemedKeys(finalCss, reportUnresolvedThemeKey))
+  const registered: unknown[] = [cssForEmotion]
+  if (typeof givenClass === 'string') className = getRegisteredStyles(cache.registered, registered as string[], givenClass)
+  else if (givenClass != null) className = `${givenClass as string} `
+  const serialized = serializeStyles(registered as never, undefined, emotionTheme as never)
+  const isStringTag = typeof renderTarget === 'string'
+  registerStyles(cache, serialized, isStringTag)
+  className += `${cache.key}-${serialized.name}`
+  const hostProps: Record<string, unknown> = {}
+  for (const name in props) if (!RENDERER_ONLY.has(name)) hostProps[name] = props[name]
+  hostProps.className = className
+  const host = createElement(renderTarget, hostProps, props.children as ReactNode)
+  const leaf = cache.inserted[serialized.name] === undefined ? createElement(RuleInsertion, { cache, serialized, isStringTag }) : null
+  return createElement(Fragment, null, leaf, host)
 }
 
 /**

@@ -962,6 +962,23 @@ describe('Component HOC across the hydration boundary', () => {
   })
 })
 
+describe('useId in client components rendered below styled nodes', () => {
+  it('hydrates with the ids the server sent, below every kind of styled element', async () => {
+    // `getPage` fails on any hydration mismatch, which a moved id shows as text.
+    const { status, html } = await getPage('/id-under-styles')
+
+    expect(status).toBe(200)
+    assertNoRscErrors(html)
+    const ids = [...html.matchAll(/data-testid="id-probe-value-([a-z-]+)"[^>]*>([^<]*)</g)].map(m => m[2])
+    expect(ids.length).toBe(7)
+    expect(new Set(ids).size).toBe(7)
+    // MUI's own ids hydrated as the server sent them: the label points at its input.
+    const input = /<input[^>]*\bid="([^"]+)"/.exec(html)?.[1]
+    expect(input).toBeTruthy()
+    expect(html).toContain(`for="${input}"`)
+  })
+})
+
 describe('server styles under concurrency', () => {
   // The server Emotion cache is what a render mutates while collecting styles,
   // and `StyleRegistry` flushes it into the response. A cache shared by every
