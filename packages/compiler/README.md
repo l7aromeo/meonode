@@ -116,22 +116,29 @@ CSS variables are invalid in media features and selector text.
 
 | Benchmark | Result |
 | --- | --- |
-| Node construction in isolation (`@meonode/ui`'s `bench/`) | **~1.7x faster** |
-| Client render — mount plus re-renders (`@meonode/ui`'s `bench/`) | **~1.06x faster** |
-| End-to-end SSR, 156-node tree, production React/Emotion (`e2e/bench-theme-tokens.mjs`) | **~1.4x faster** |
+| Node construction in isolation (`@meonode/ui`'s `bench/node-construction.mjs`) | **3.06–3.16x faster** |
+| Client render, mount plus 20 re-renders, token-free (`@meonode/ui`'s `bench/client-render.mjs`) | **1.11–1.16x faster** |
+| Client render, the same with a token in every style value | **1.18–1.19x faster** |
+| End-to-end SSR, 156-node tree, partitioning + theme rewrite (`e2e/bench-theme-tokens.mjs`) | **1.32–1.39x faster** (24.2–28.1% less time) |
+| End-to-end SSR, partitioning only (`--no-tokens`) | **1.15–1.18x faster** (13.2–14.9% less time) |
 
-Both figures are much smaller than they were, and that is not a regression in
-the plugin. Against `@meonode/ui@1.x` they read ~4x and ~1.6x, but most of what
-they measured was the stable-key hashing the runtime no longer does at all:
-uncompiled construction got ~2.4x faster in `2.0.0-beta`, so there is far less
-left for compiling to remove. What remains is prop classification and the
+Each range is three runs of `@meonode/compiler` 0.10.3 against `@meonode/ui`
+3.2.0 with the next release's changes (commit `d3bafea`), on 2026-11-20, on an
+Apple M4 Pro with Node 26.13, `NODE_ENV=production`. The 1-minute load average
+was 5.1–6.2 at every step. The `@meonode/ui` benches ran from `packages/ui`
+after `bun run build` at the repository root; the SSR bench ran in this package
+as `node e2e/bench-theme-tokens.mjs 400`, with and without `--no-tokens`.
+
+Against `@meonode/ui@1.x` the first two figures read ~4x and ~1.6x, but most of
+what they measured was the stable-key hashing the runtime no longer does at all:
+uncompiled construction got ~2.4x faster in `2.0.0-beta`, so there is less left
+for compiling to remove. What remains is prop classification and the
 theme-token rewrite.
 
 The construction figure excludes React, Emotion and the DOM; it is the ceiling
 on what compiling can remove, not what a page render improves by. The client
-figure is measured separately because it is where the difference used to live —
-`_getStableKey` returned early on the server, so the old `__meo$k` did nothing
-during SSR — and it is now close to noise.
+figures render through React and Emotion in jsdom, so they are what a client
+render improves by.
 
 The end-to-end SSR figure renders the whole tree, React and Emotion included, so
 it is what a server render improves by.
@@ -153,20 +160,14 @@ against @meonode/ui 1.7.4
   partitioning only:              1.0038 -> 0.8271 ms/render   17.6% faster
   partitioning + theme rewrite:   1.1894 -> 0.8446 ms/render   29.0% faster
 
-against @meonode/ui after 3.1.5 (unreleased changes included), compiler 0.10.1
-  partitioning only:              1.4917 -> 1.2446 ms/render   14.4% faster
-  partitioning + theme rewrite:   1.8169 -> 1.3527 ms/render   27.8% faster
+against @meonode/ui 3.2.0 with the next release's changes, compiler 0.10.3
+  partitioning only:              0.9682 -> 0.8282 ms/render   14.5% faster
+  partitioning + theme rewrite:   1.1996 -> 0.8907 ms/render   25.6% faster
 ```
 
-The 3.x lines were measured on 2026-11-19 on an Apple M4 Pro under heavy
-concurrent load (load average ~20), so the absolute times are higher than the
-older lines' and not comparable with them; compare the percentages. Each line is
-the median of 11 runs, alternating the two modes, of
-`NODE_ENV=production node e2e/bench-theme-tokens.mjs 400` with and without
-`--no-tokens`, run in this package after `bun run build` at the repository
-root. Single runs under that load spread widely: the middle half of the runs
-fell between 24% and 31% faster with the theme rewrite, and between 13% and 20%
-for partitioning only.
+The 3.2.0 line is the median of the three runs above. The 1.7.x lines are
+medians of alternating runs on the same machine at an unrecorded load; compare
+percentages across lines, not absolute times.
 
 Against 1.7.4 the compiled timings are ~0.83 ms in both modes — compiled props are token-free
 either way — while the *uncompiled* timings differ by ~0.19 ms. That gap is the
