@@ -10,6 +10,7 @@
 // Running as plain node scripts also restores `--cpu-prof` (vitest's forked
 // workers make it capture nothing) and stdout (vitest intercepts console).
 import { readFileSync } from 'node:fs'
+import { Worker } from 'node:worker_threads'
 
 if (process.env.NODE_ENV !== 'production') {
   throw new Error('benchmarks must run with NODE_ENV=production — dev React measures overhead no deployed app pays')
@@ -157,4 +158,37 @@ export function makeChecks() {
       }
     },
   }
+}
+
+/**
+ * Stack, in MB, for the thread that mounts the deepest tree. React's commit
+ * phase recurses once per fiber, a styled node is three fibers deep, and V8
+ * gives the main thread about 1 MB, so 10,000 styled levels overflow it.
+ *
+ * Node allocates a worker's thread stack at this size and puts V8's limit
+ * inside it, so running out throws `RangeError`. Raising `--stack-size` on
+ * the main thread does not do that: V8 then recurses past the stack the OS
+ * granted (8 MB by default on macOS and Linux) and the process dies with
+ * SIGSEGV, printing nothing.
+ */
+export const DEEP_STACK_MB = 64
+
+/**
+ * Runs a module in a worker thread with {@link DEEP_STACK_MB} of stack.
+ * @param moduleUrl The worker module; it posts one message with its result.
+ * @param workerData Passed to the worker as `workerData`.
+ * @returns The posted message. Rejects with the worker's error, or when it
+ * exits without posting one.
+ */
+export function runWithDeepStack(moduleUrl, workerData) {
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(moduleUrl, { workerData, resourceLimits: { stackSizeMb: DEEP_STACK_MB } })
+    let result
+    worker.once('message', message => (result = { message }))
+    worker.once('error', reject)
+    worker.once('exit', code => {
+      if (result) resolve(result.message)
+      else reject(new Error(`worker exited with code ${code} before reporting a result`))
+    })
+  })
 }

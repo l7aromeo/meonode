@@ -60,10 +60,14 @@ NODE_ENV=production node --cpu-prof --cpu-prof-dir=prof bench/client-render.mjs
   with a theme token in every style value inside a component under a
   `ThemeProvider`, which adds the token rewrite an uncompiled call site runs on
   every render.
-- **`large-trees.mjs`** — a realistic page layout, 10k flat nodes, and 10k
-  levels of nesting. The nesting case doubles as a stack-safety check: `render()`
-  walks iteratively with an explicit work stack precisely so this does not blow
-  the call stack.
+- **`large-trees.mjs`** — a realistic page layout, 10k flat nodes, and a
+  stack-safety check: 10k levels of styled nesting must render, and only
+  pass/fail is reported. `render()` walks iteratively, but React's commit phase
+  recurses once per fiber and a styled node is three fibers deep, so the check
+  mounts in a worker thread given a 64 MB stack (`runWithDeepStack` in
+  `_lib.mjs`). An overflow there throws `RangeError` and the script exits
+  non-zero; raising `--stack-size` on the main thread instead can crash the
+  process with SIGSEGV.
 - **`react-comparison.mjs`** — against raw `React.createElement`. Read the
   `withProps` rows: bare `createElement` does no prop work at all, so comparing
   it to MeoNode overstates the gap. Note also that React writes inline style

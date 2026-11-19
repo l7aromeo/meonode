@@ -1,10 +1,12 @@
 // Large-tree rendering: flat breadth and deep nesting.
 //
-// Replaces the "Layout Rendering" cases from the old tests/performance.test.ts.
-// The deep-nesting case doubles as a stack-safety check — `render()` walks
-// iteratively with an explicit work stack precisely so 10k levels do not blow
-// the call stack, and a regression there would throw rather than run slowly.
-import { bootDom, median, report } from './_lib.mjs'
+// The stack-safety case mounts 10,000 nested levels and reports whether they
+// rendered, not how long it took. `render()` walks iteratively with an explicit
+// work stack so building the tree cannot overflow; React's commit phase does
+// recurse per fiber, so the mount runs in a worker with a stack the OS really
+// grants (see `runWithDeepStack`).
+import { URL } from 'node:url'
+import { bootDom, median, report, runWithDeepStack } from './_lib.mjs'
 
 await bootDom()
 
@@ -13,7 +15,7 @@ const { createRoot } = await import('react-dom/client')
 const { flushSync } = await import('react-dom')
 
 const FLAT_NODES = Number(process.env.FLAT_NODES || 10000)
-const NESTED_NODES = Number(process.env.NESTED_NODES || 10000)
+const STACK_SAFETY_LEVELS = Number(process.env.STACK_SAFETY_LEVELS || 10000)
 const ROUNDS = Number(process.env.ROUNDS || 5)
 
 function mount(tree) {
@@ -32,12 +34,6 @@ function flatTree() {
   const children = new Array(FLAT_NODES)
   for (let i = 0; i < FLAT_NODES; i++) children[i] = Span(`n${i}`, { padding: '1px', color: '#333' })
   return Div({ children }).render()
-}
-
-function nestedTree() {
-  let node = Span('leaf', { padding: '1px' })
-  for (let i = 0; i < NESTED_NODES; i++) node = Div({ padding: '1px', children: node })
-  return node.render()
 }
 
 // A realistic page shape: mixed depth and breadth rather than one degenerate axis.
@@ -81,12 +77,19 @@ const measure = build => {
 
 const layoutMs = measure(layoutTree)
 const flatMs = measure(flatTree)
-const nestedMs = measure(nestedTree)
+const stackSafety = await runWithDeepStack(new URL('./stack-safety.worker.mjs', import.meta.url), { levels: STACK_SAFETY_LEVELS }).then(
+  ({ leafRendered, depth, error }) => (error ? { ok: false, error } : { ok: leafRendered && depth === STACK_SAFETY_LEVELS, depth }),
+  error => ({ ok: false, error: `${error.name}: ${error.message}` }),
+)
 
 await report('large-trees', {
   singlePageLayoutMs: +layoutMs.toFixed(2),
   flatNodes: FLAT_NODES,
   flatMs: +flatMs.toFixed(2),
-  nestedNodes: NESTED_NODES,
-  nestedMs: +nestedMs.toFixed(2),
+  stackSafety: { levels: STACK_SAFETY_LEVELS, ...stackSafety },
 })
+
+if (!stackSafety.ok) {
+  console.error(`\nstack safety: ${STACK_SAFETY_LEVELS} nested levels did not render (${stackSafety.error ?? `depth ${stackSafety.depth}`})`)
+  process.exitCode = 1
+}
