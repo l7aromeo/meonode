@@ -55,7 +55,11 @@ NODE_ENV=production node --cpu-prof --cpu-prof-dir=prof bench/client-render.mjs
 - **`client-render.mjs`** — mount plus re-renders through React and jsdom.
   Closest to what a user experiences. Matters specifically because
   `_getStableKey` returns early when `isServer`, so `__meo$k` is only ever
-  consumed on the client — SSR benchmarks never exercised it at all.
+  consumed on the client — SSR benchmarks never exercised it at all. It renders
+  the tree twice over: once with plain values, and once, under the `tokens` rows,
+  with a theme token in every style value inside a component under a
+  `ThemeProvider`, which adds the token rewrite an uncompiled call site runs on
+  every render.
 - **`large-trees.mjs`** — a realistic page layout, 10k flat nodes, and 10k
   levels of nesting. The nesting case doubles as a stack-safety check: `render()`
   walks iteratively with an explicit work stack precisely so this does not blow

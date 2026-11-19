@@ -33,7 +33,7 @@ process.on('uncaughtException', e => {
   process.exit(1)
 })
 
-const { Div } = await import('../dist/esm/main.js')
+const { Div, Node, ThemeProvider } = await import('../dist/esm/main.js')
 const { COMPILED_MARKER, COMPILER_SCHEMA_KEYS } = await import('../dist/esm/constant/common.const.js')
 const { createElement, useState } = await import('react')
 const { createRoot } = await import('react-dom/client')
@@ -72,13 +72,59 @@ const buildCompiled = (depth, path, tick) =>
     children: depth > 0 ? Array.from({ length: BREADTH }, (_, i) => buildCompiled(depth - 1, `${path}-${i}`, tick)) : [`leaf ${path} ${tick}`],
   })
 
-function cycleFor(build) {
+// The same tree with a theme token in every style value, as written, and as the
+// plugin emits it: each token already a `var()` reference. The tree above has no
+// tokens, so it leaves out the token rewrite, which an uncompiled call site runs
+// on every render.
+const tokens = { spacing: { sm: 4, md: 20 }, radius: { md: 4 }, colors: { accent: 'red', text: '#333' } }
+
+const buildLegacyTokens = (depth, path, tick) =>
+  Div({
+    id: `n-${path}`,
+    padding: 'theme.spacing.md',
+    backgroundColor: 'theme.colors.accent',
+    margin: 'theme.spacing.sm',
+    borderRadius: 'theme.radius.md',
+    display: 'flex',
+    color: 'theme.colors.text',
+    onClick: () => {},
+    children: depth > 0 ? Array.from({ length: BREADTH }, (_, i) => buildLegacyTokens(depth - 1, `${path}-${i}`, tick)) : [`leaf ${path} ${tick}`],
+  })
+
+const lengthVar = path => `var(--meonode-theme-${path}--len, var(--meonode-theme-${path}))`
+
+const buildCompiledTokens = (depth, path, tick) =>
+  Div({
+    [COMPILED_MARKER]: 2,
+    [SK.css]: {
+      padding: lengthVar('spacing-md'),
+      backgroundColor: 'var(--meonode-theme-colors-accent)',
+      margin: lengthVar('spacing-sm'),
+      borderRadius: lengthVar('radius-md'),
+      display: 'flex',
+      color: 'var(--meonode-theme-colors-text)',
+    },
+    [SK.dom]: { id: `n-${path}`, onClick: () => {} },
+    [SK.key]: `site-${path}`,
+    children: depth > 0 ? Array.from({ length: BREADTH }, (_, i) => buildCompiledTokens(depth - 1, `${path}-${i}`, tick)) : [`leaf ${path} ${tick}`],
+  })
+
+/**
+ * Renders the tree inside a component under a ThemeProvider, as an app does. The
+ * provider's own child would have its tokens converted with the provider's props,
+ * a path no tree one component further down takes.
+ */
+const Tree = ({ build, tick }) => build(DEPTH, 'r', tick).render()
+
+function cycleFor(build, themed = false) {
   return () => {
     let setTick = () => {}
     const App = () => {
       const [tick, set] = useState(0)
       setTick = set
-      return build(DEPTH, 'r', tick).render()
+      return themed
+        ? ThemeProvider({ tokens, modes: ['light'], defaultMode: 'light', children: Node(Tree, { build, tick }) }).render()
+        : build(DEPTH, 'r', tick).render()
     }
     const host = document.createElement('div')
     document.body.appendChild(host)
@@ -109,6 +155,20 @@ if (result.ratio < 0.5 || result.ratio > 5) {
   throw new Error(`implausible ratio ${result.ratio} — harness is measuring something other than render work`)
 }
 
+const legacyTokens = cycleFor(buildLegacyTokens, true)
+const compiledTokens = cycleFor(buildCompiledTokens, true)
+
+for (let i = 0; i < 5; i++) {
+  legacyTokens()
+  compiledTokens()
+}
+
+const tokenResult = compare({ rounds: CYCLES, a: legacyTokens, b: compiledTokens, labelA: 'uncompiledMs', labelB: 'compiledMs' })
+
+if (tokenResult.ratio < 0.5 || tokenResult.ratio > 5) {
+  throw new Error(`implausible ratio ${tokenResult.ratio} — harness is measuring something other than render work`)
+}
+
 await report('client-render', {
   nodesPerTree: 85,
   rerendersPerCycle: RERENDERS,
@@ -116,4 +176,9 @@ await report('client-render', {
   uncompiledMs: result.uncompiledMs,
   compiledMs: result.compiledMs,
   compiledSpeedup: result.ratio,
+  tokens: {
+    uncompiledMs: tokenResult.uncompiledMs,
+    compiledMs: tokenResult.compiledMs,
+    compiledSpeedup: tokenResult.ratio,
+  },
 })
