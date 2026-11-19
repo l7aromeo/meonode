@@ -231,6 +231,7 @@
     "lint": "eslint --fix && tsc --noEmit && bun run typecheck:types",
     "typecheck:types": "tsc -p tests/types/tsconfig.json",
     "test:peer-floor": "bun install --cwd tests/peer-floor --frozen-lockfile && bun test tests/peer-floor.test.ts",
+    "test:build-order": "bun test tests/build-order.test.ts",
     "watch:build": "bunx concurrently \"bun run watch:core\" \"bun run watch:src\"",
     "watch:core": "bunx nodemon --watch $MEONODE/core/dist --ext ts,js,json --exec \"bun add -d @meonode/ui@file:$MEONODE/core\"",
     "watch:src": "bunx nodemon --watch src --ext ts,js,json --exec \"bun run build\""

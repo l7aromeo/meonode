@@ -5,7 +5,7 @@ import typescript from '@rollup/plugin-typescript'
 import commonjs from '@rollup/plugin-commonjs'
 import { nodeResolve } from '@rollup/plugin-node-resolve'
 import esbuild from 'rollup-plugin-esbuild'
-import { defineConfig, type ExternalOption } from 'rollup'
+import { defineConfig, type ExternalOption, type TreeshakingOptions } from 'rollup'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -33,6 +33,17 @@ const input = [
 
 const external: ExternalOption = id => !id.startsWith('.') && !path.isAbsolute(id) && !id.startsWith('src/') && !id.startsWith('@src/')
 
+/**
+ * Every module of this package is side-effect free, as package.json's `"sideEffects": false`
+ * says; external modules keep rollup's default. node-resolve reports that flag for a module it
+ * resolves, but the typescript plugin, which resolves the `.js` specifiers between source files,
+ * reports none, and rollup then assumes side effects. A module reached by both routes takes the
+ * answer of whichever resolution completes first: the mui.core barrel is an entry and also an
+ * import of main.ts, and its answer decides the order of main.js's re-exports. Stating the flag
+ * here gives every resolution the same answer, so every build writes the same files.
+ */
+const treeshake: TreeshakingOptions = { moduleSideEffects: (_id, isExternal) => isExternal }
+
 const plugins = [
   alias({
     entries: [{ find: '@src', replacement: SRC_DIR }],
@@ -59,6 +70,7 @@ export default defineConfig([
     input,
     external,
     plugins,
+    treeshake,
     output: {
       dir: 'dist/esm',
       format: 'esm',
@@ -73,6 +85,7 @@ export default defineConfig([
     input,
     external,
     plugins,
+    treeshake,
     output: {
       dir: 'dist/cjs',
       format: 'cjs',
