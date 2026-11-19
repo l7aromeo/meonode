@@ -1,5 +1,13 @@
 # @meonode/compiler
 
+## 0.10.4
+
+### Patch Changes
+
+- [#128](https://github.com/l7aromeo/meonode/pull/128) [`dcadf13`](https://github.com/l7aromeo/meonode/commit/dcadf1347a6a6bfc814b7b61659fea61d0f46b94) Thanks [@l7aromeo](https://github.com/l7aromeo)! - The README's measured effect is re-measured against the current `@meonode/ui`: node construction 3.06–3.16x faster compiled, a client render 1.11–1.16x (1.18–1.19x with a token in every style value), and an end-to-end server render 1.32–1.39x with the theme rewrite and 1.15–1.18x with partitioning only, over three runs each. It read ~1.7x, ~1.06x and ~1.4x, measured against older runtimes and under heavy load.
+
+- [#124](https://github.com/l7aromeo/meonode/pull/124) [`31f37d6`](https://github.com/l7aromeo/meonode/commit/31f37d696d0ae5108a73dbf262b7b0e68da53115) Thanks [@l7aromeo](https://github.com/l7aromeo)! - A wrapper that hands on the `children` its caller passed in no longer has its inner call site marked as a generated list, so React stops asking for keys on a list that was written out at the caller. This covers `({ children }) => Div({ children })`, a renamed `{ children: kids }`, `props.children` (also `props?.children`, `props['children']` and `rest.children`), unchanged aliases of these, components wrapped in React's `memo` or `forwardRef`, and `this.props.children` in a class component. A binding that is reassigned, or a value derived from the children (`children.filter(…)`, `[...children, extra]`), is still marked, as is any list built inside the wrapper. A generated list a wrapper receives this way is no longer reported at the wrapper; the place that built it is where its keys belong. A helper that takes its children as a plain positional argument, `(children) => Div({ children })`, is still marked, because its caller can pass any value there. An array written out behind a type-only wrapper (`[A(), B()] as X`, `satisfies`, `!`, `<T>`) is now read as written rather than as a generated list.
+
 ## 0.10.3
 
 ### Patch Changes

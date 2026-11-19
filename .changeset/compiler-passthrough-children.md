@@ -1,5 +1,0 @@
----
-'@meonode/compiler': patch
----
-
-A wrapper that hands on the `children` its caller passed in no longer has its inner call site marked as a generated list, so React stops asking for keys on a list that was written out at the caller. This covers `({ children }) => Div({ children })`, a renamed `{ children: kids }`, `props.children` (also `props?.children`, `props['children']` and `rest.children`), unchanged aliases of these, components wrapped in React's `memo` or `forwardRef`, and `this.props.children` in a class component. A binding that is reassigned, or a value derived from the children (`children.filter(…)`, `[...children, extra]`), is still marked, as is any list built inside the wrapper. A generated list a wrapper receives this way is no longer reported at the wrapper; the place that built it is where its keys belong. A helper that takes its children as a plain positional argument, `(children) => Div({ children })`, is still marked, because its caller can pass any value there. An array written out behind a type-only wrapper (`[A(), B()] as X`, `satisfies`, `!`, `<T>`) is now read as written rather than as a generated list.

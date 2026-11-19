@@ -1,5 +1,33 @@
 # @meonode/ui
 
+## 3.3.0
+
+### Minor Changes
+
+- [#114](https://github.com/l7aromeo/meonode/pull/114) [`f238b39`](https://github.com/l7aromeo/meonode/commit/f238b39a8f17103acd0ee272c3185028db4352fb) Thanks [@l7aromeo](https://github.com/l7aromeo)! - In development, an unkeyed list generated at runtime is now reported without `@meonode/compiler`. When one call site hands over `children` lists without keys of different lengths, MeoNode warns once, naming the call site, because React never asks a MeoNode list for keys. A list whose length never changes during the session is not detected; the compiler still reports those. Production builds are unchanged.
+
+- [#123](https://github.com/l7aromeo/meonode/pull/123) [`576b696`](https://github.com/l7aromeo/meonode/commit/576b696cffed0f7aae407be0de3fb01032afde91) Thanks [@l7aromeo](https://github.com/l7aromeo)! - In the browser, a styled node now resolves its class where it renders, instead of through Emotion's `css` prop components. It renders its element beside a leaf that inserts the element's rule while the sheet lacks it, in the two places Emotion's own components render, so the elements a component receives, what remounts, `useId` and hydration are as before, and rules go into the sheet in the order of the tree. Server rendering is unchanged.
+  
+  A styled node now takes 3 fibers on the mount that first inserts its rule and 2 after, where it took 4.
+  
+  It is faster on a page's first load and more so after. In Chrome 158, an app-shaped tree of about 10k nodes, with theme tokens, two providers and css that differs on every node, mounts on a fresh page in 111.5 ms, where it took 117.3 (−5.6 ± 1.1 ms, −4.8%), and mounts again in 43.0 ms, where it took 51.6 (−8.7 ± 0.7 ms, −16.8%); 10k styled spans under a `ThemeProvider` mount again in 41.2 ms, where they took 48.2 (−7.3 ± 0.6 ms, −15.0%). Over React setting a static `className`, a styled node now adds 2.87 µs to a mount, where it added 3.72; a nested level 2.36 µs, where it added 3.41; and a row whose colour changes 2.20 µs per update, where it added 2.78. Each ± is the resolution the README's performance section defines.
+  
+  A chain of styled nodes now mounts 1,287 levels deep before the browser's stack runs out, where it mounted 857; under a `ThemeProvider` with different css on every level, 1,355, where it was 897; and with a component at every level, 875, where it was 648. Counted in Chrome 158 on the first mount of a fresh page.
+
+### Patch Changes
+
+- [#123](https://github.com/l7aromeo/meonode/pull/123) [`d3e0148`](https://github.com/l7aromeo/meonode/commit/d3e014834403f412715b6960e0a441939a9ffc7a) Thanks [@l7aromeo](https://github.com/l7aromeo)! - A host element that has already been built, by `.render()` or by `createElement`, now keeps its attributes and its inline `style` when it is placed as a child of a node (Fixes [#121](https://github.com/l7aromeo/meonode/issues/121)), as React renders it and as a styled node already did. Before, its props were classified a second time on the way in, so an attribute whose name matches a CSS property (`width` and `height` on an `img` or an SVG `rect`, including ones shielded with `props`) and its `style` were turned into an Emotion class, in every child position, in the browser, in server rendering and in React Server Components; under `disableEmotion` they were dropped. A theme token in such a `style` still renders as its `var()`. Because the `style` is now inline, it wins over a class rule for the same property, as any inline style does: a rule an app wrote for that property, a `:hover` rule among them, no longer overrides it.
+
+- [#127](https://github.com/l7aromeo/meonode/pull/127) [`c230ce9`](https://github.com/l7aromeo/meonode/commit/c230ce9733170d23a59df75fced0d97bd110d2ac) Thanks [@l7aromeo](https://github.com/l7aromeo)! - README: the "Interactive Playground" link pointed to a CodeSandbox import that no longer opens. It now links the Next.js and Vite example apps on GitHub.
+
+- [#117](https://github.com/l7aromeo/meonode/pull/117) [`c09e131`](https://github.com/l7aromeo/meonode/commit/c09e131716e907f2c5788e4c58eefd6c46a827df) Thanks [@l7aromeo](https://github.com/l7aromeo)! - README: drop the "zero-runtime overhead" claim for Emotion, which serializes and inserts styles at runtime, and the stale compiler client-side figure; name jsdom 29 in the benchmark environment the figures were measured on.
+
+- [#112](https://github.com/l7aromeo/meonode/pull/112) [`8fd1e19`](https://github.com/l7aromeo/meonode/commit/8fd1e198cb60c2fc1a9ca321fde19d0ac31ec307) Thanks [@l7aromeo](https://github.com/l7aromeo)! - A call site the compiler has not rewritten renders its `theme.*` tokens faster (Fixes [#109](https://github.com/l7aromeo/meonode/issues/109)). An inline call site passes new props on every render but the same string literals, so each string a token is rewritten from is now kept with its `var()` form, and is rewritten on its first two renders instead of on every one. On an 85-node tree with a token in every style value, a client render with 20 re-renders takes 20.5–23.7% less time over three runs (`bench/client-render.mjs`, Node 26, against the same build with the cache bypassed).
+  
+  A string is kept only on its second sighting, so strings that are new on every render, such as tokens a template literal builds per row, never push out the ones a page writes each time. What is kept, and what has been seen once, is capped at 512 strings per kind of property; a cache that fills is emptied and fills again, so memory stays bounded on the client and across server requests. What renders is unchanged.
+  
+  Strings in a `css` value that hold no block are no longer scanned for a token left in a prelude, since a prelude needs a block.
+
 ## 3.2.0
 
 ### Minor Changes
