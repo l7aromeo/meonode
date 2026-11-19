@@ -7,7 +7,7 @@
 **Type-safe React components without JSX**
 
 A production-ready component library that replaces JSX with function-based composition, featuring direct CSS prop
-styling, context-based theming, automatic memoization, and full React Server Components support—powered by
+styling, context-based theming, opt-in node-level memoization, and full React Server Components support—powered by
 @emotion/react.
 
 ## Core Concept
@@ -337,54 +337,77 @@ deliberate — the bugs worth this much logging are usually the ones that only r
 
 ## Performance Benchmarks
 
-> **How to read these numbers.** They come from `bun run bench`, which runs in **jsdom on Node**, not a browser.
-> They are microbenchmarks against **production** React, and absolute timings move with hardware, Node version and
-> background load — 10–20% run-to-run spread on one machine is normal. Treat them as orders of magnitude and as
-> regression guards, not precise figures. Measured on an **Apple M4 Pro / 24 GB / Node 26 / React 19.2 / jsdom 29**,
-> taking medians of alternating rounds.
->
-> The scripts run outside vitest on purpose: vitest sets `NODE_ENV=test`, so React loads its *development* build, whose
-> validation work hides most of the difference the library and the compiler make.
+> **How these were measured.** In Google Chrome 158, in a window, through Playwright: `bench/browser-comparison.mjs`
+> with `BENCH_BROWSER=chrome`, against **production** React 19 and @emotion/react 11.14, on an Apple M4 Pro. A
+> measurement is the whole step a page pays: building the tree (`Node` calls and `.render()`), then React's render and
+> commit. Each figure is the median over 10 fresh pages; the sides run in a shuffled order every round, garbage is
+> collected before every sample, and every page started at a 1-minute load average under 10. Two clocks: **JavaScript
+> only** stops after the commit; **to the frame** also includes the browser's style, layout and paint of the frame that
+> shows it (not raster or GPU presentation). The script is in the repository; its `bench/README.md` describes every case.
 
-### Layout Rendering
+### Cost over plain React
 
-| Metric                  | Value    | Description                                         |
-|:------------------------|:---------|:----------------------------------------------------|
-| **Single-Page Layout**  | ~2 ms    | Full page layout with header, sections and footer   |
-| **10,000 Flat Nodes**   | ~65 ms   | Rendering 10k nodes at the same level               |
-| **10,000 Nested Nodes** | ~1200 ms | Deeply nested structure (single parent-child chain) |
+Time each side adds over React setting a static `className`, in µs per node (or per level, row or update), on the
+same tree:
 
-The nesting case doubles as a stack-safety check: `render()` walks iteratively with an explicit work stack precisely so
-10,000 levels do not overflow the call stack.
+| Case                                  | Emotion `css` prop | MeoNode, styled | MeoNode, `className` only |
+|:--------------------------------------|-------------------:|----------------:|--------------------------:|
+| Mount, 10k flat nodes                 | 1.16 · 1.02        | 2.87 · 2.62     | 0.91 · 0.99               |
+| Mount, 500 nested levels              | 1.06 · 1.52        | 2.36 · 2.97     | 0.78 · 1.34               |
+| Update, 1k rows whose colour flips    | 0.96 · 0.90        | 2.20 · 2.63     | 0.80 · 0.82               |
+| Update, a controlled input            | 1.10               | 3.05            | 1.20                      |
+
+Each cell is **JavaScript only · to the frame**. "Styled" gives every node one style prop, which MeoNode resolves and
+hands to Emotion, so it includes Emotion's own cost (the first column). "`className` only" is MeoNode with no
+CSS-in-JS: about what building the node and passing its props costs. The input's time to the frame is not published:
+at one input per update its resolution is about ±20 µs.
+
+### A whole app, first load and after
+
+An app-shaped tree of about 10k nodes, 31 levels deep with a component every 3 levels, a `ThemeProvider` at the root
+and one inside, theme tokens, and css that differs on every node; its update changes the css of 30% of the nodes. And
+10k styled spans under a `ThemeProvider`. **Cold** is the first mount on a fresh page, with Emotion's sheet empty and
+the code not yet run, and for the app the update right after it; **warm** is a later mount or update on the same page.
+In ms, JavaScript only, this release against the one before:
+
+| Case                         | Before | This release | Change              |
+|:-----------------------------|-------:|-------------:|:--------------------|
+| App, cold mount              | 117.3  | 111.5        | −5.6 ± 1.1 (−4.8%)  |
+| App, cold update             | 67.4   | 61.4         | −5.8 ± 1.0 (−8.7%)  |
+| App, warm mount              | 51.6   | 43.0         | −8.7 ± 0.7 (−16.8%) |
+| App, warm update             | 46.5   | 39.2         | −7.4 ± 0.3 (−15.9%) |
+| 10k under a provider, cold   | 71.2   | 67.1         | −3.7 ± 0.9 (−5.2%)  |
+| 10k under a provider, warm   | 48.2   | 41.2         | −7.3 ± 0.6 (−15.0%) |
+
+To the frame, the app's cold mount takes 163.7 ms (−5.5 ± 1.0) and its warm mount 79.6 ms (−8.8 ± 0.9).
+
+**±** is the resolution: the half-width of a 90% bootstrap interval of the per-page differences, plus the largest
+difference two copies of one build showed between runs (up to about 0.17 µs per node on some cases; its cause is not
+known). A change inside its ± is not a measured change, and at 90% about one figure in twenty that did not change will
+still land outside it, so a lone small change near its ± needs a second run before it is quoted.
+
+### Fibers and depth
+
+A styled node takes **3 fibers** on the mount that first inserts its rule and **2** after; Emotion's `css` prop takes 3
+and React with a `className` 1.
+
+`.render()` itself walks the tree with an explicit stack, but React's commit recurses through every fiber, so a deep
+tree is bounded by the browser's stack. In Chrome 158, on the first mount of a fresh page, a chain of styled nodes
+mounts **1,287** levels deep; under a `ThemeProvider` with different css on every level, **1,355**; with a component at
+every level, **875**.
 
 ### Memory Management
 
-Heap growth measured after a forced collection, against the ceiling each check asserts:
+Heap growth measured in jsdom after a forced collection (`bench/memory.mjs`, Node 26, the same in each of three runs),
+against the ceiling each check asserts:
 
 | Check                              | Growth      | Ceiling  |
 |:-----------------------------------|:------------|:---------|
-| 50 heavy state updates             | **~2.5 MB** | 150 MB   |
-| 200 mounts/unmounts over 20 cycles | ~14 MB      | 20 MB    |
-| 10 navigation cycles               | **~1 MB**   | 20 MB    |
+| 50 heavy state updates             | **1.8 MB**  | 150 MB   |
+| 200 mounts/unmounts over 20 cycles | 14.1 MB     | 20 MB    |
+| 10 navigation cycles               | **1.0 MB**  | 20 MB    |
 
 `bench/memory.mjs` exits non-zero if any ceiling is exceeded, so it works as a leak gate you run deliberately.
-
-### React Comparison (10k flat nodes, one style property)
-
-| Implementation                | Time     |
-|:------------------------------|:---------|
-| React.createElement           | ~44 ms   |
-| **React.createElement+Props** | ~85 ms   |
-| MeoNode                       | ~41 ms   |
-| **MeoNode+Props**             | ~93 ms   |
-
-> **Read the bold rows.** Bare `React.createElement` does no prop work at all, while MeoNode classifies every prop
-> into CSS vs DOM attributes. Against the like-for-like pair MeoNode is **~1.08x** slower — and roughly at parity
-> (~1.01x) on the 5,000-node nested case.
->
-> The style object is kept to a single property on purpose. React writes inline style properties onto the DOM node one
-> at a time while MeoNode emits a single Emotion class, so a larger style object inflates React's side — with three
-> properties this table would show MeoNode as 3x *faster*, which would be a measurement artifact rather than a result.
 
 ## Quick Start
 
@@ -454,7 +477,7 @@ extracts critical CSS for SSR.
 - Component composition patterns scale naturally
 - Full TypeScript support catches design token errors
 
-**For Performance-Critical Applications:**
+**For Server Rendering and Scale:**
 
 - Emotion inserts each distinct style once and reuses its class
 - Surgical memoization at node granularity
