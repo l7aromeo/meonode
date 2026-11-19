@@ -13,7 +13,7 @@ import {
   type TokenContext,
   valueContext,
 } from '@src/util/css-unit.util.js'
-import { isComponentSelector, isMergeableCss } from '@src/util/css.util.js'
+import { checkThemeFunctionResult, isComponentSelector, isMergeableCss } from '@src/util/css.util.js'
 import { isClientReference } from '@src/helper/react-is.helper.js'
 import { reportDroppedThemeFunction } from '@src/util/theme-diagnostics.util.js'
 import { replaceThemeTokensWithCssVars } from '@src/util/server-theme.util.js'
@@ -147,11 +147,17 @@ const isThemeFunction = (value: unknown): value is (theme: Theme) => unknown => 
  * server component receives for a client module's export, is a function too, and
  * throws when the server calls it; it is no style, so it resolves to nothing and
  * Emotion writes nothing for it. Development rejects one where it is written.
+ * What the function returns is checked as written css is (see `checkThemeFunctionResult`).
  * @param fn The theme function.
  * @param theme The theme to call it with.
  * @returns What it returns, or `undefined` for a client reference.
  */
-const callThemeFunction = (fn: (theme: Theme) => unknown, theme: Theme): unknown => (isClientReference(fn) ? undefined : fn(theme))
+const callThemeFunction = (fn: (theme: Theme) => unknown, theme: Theme): unknown => {
+  if (isClientReference(fn)) return undefined
+  const result = fn(theme)
+  checkThemeFunctionResult(result)
+  return result
+}
 
 /**
  * Read-only, allocation-free test for whether {@link ThemeUtil.resolveObjWithTheme}

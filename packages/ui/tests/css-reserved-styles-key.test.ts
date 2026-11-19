@@ -75,6 +75,23 @@ it("reports a call site's key once beside a factory's css, where the call site w
   expect(warnings[0]).toContain(`\`css[0]\` ${RESERVED}`)
 })
 
+// What a theme function returns exists only once the theme resolves it, so it is
+// reported there, without a place in the css as written.
+it('reports a styles key holding no string that a theme function returns, once, and renders the rest', () => {
+  const theme: Theme = { mode: 'light', system: { spacing: { md: 16 } } }
+  const tree = () =>
+    ThemeProvider({
+      ...asThemeProps(theme),
+      children: Div({ css: { '& > span': () => ({ styles: { marginTop: 61 }, paddingLeft: 61 }) } as never, children: 'x' }),
+    }).render()
+  const warnings = warningsFrom(() => [render(tree()), render(tree())])
+  expect(warnings).toEqual([expect.stringContaining('A theme function returned a `styles` key that holds no string.')])
+  expect(warnings[0]).toContain('left out')
+  const rules = [...document.head.querySelectorAll('style')].map(s => s.textContent).join('')
+  expect(rules).toContain('padding-left:61px;')
+  expect(rules).not.toContain('margin-top:61px')
+})
+
 it("reports nothing for a css() result, whose styles is Emotion's CSS text", () => {
   expect(warningsFrom(() => Div({ css: css({ padding: 4 }), children: 'x' }))).toEqual([])
 })

@@ -448,21 +448,23 @@ export const reportUnresolvedThemeKey = (key: string): void => {
  * after it is combined with the call site's, and the first report names the css
  * the object was written in; an inline literal is a new object on every render,
  * with the same place and keys; and two components that make the mistake at the
- * same place with different keys are both reported. `checkCss` calls this only
- * while diagnostics are on.
+ * same place with different keys are both reported. One a theme function returns
+ * has no place in the css as written, and is reported once per shape.
+ * `checkCss` and `checkThemeFunctionResult` call this only while diagnostics are on.
  * @param owner The object holding the `styles` key.
- * @param at Where the object sits in `css`, such as `css["&:hover"]`.
+ * @param at Where the object sits in `css`, such as `css["&:hover"]`, or `undefined` when a theme function returned it.
  */
-export const reportReservedStylesKey = (owner: Record<string, unknown>, at: string): void => {
+export const reportReservedStylesKey = (owner: Record<string, unknown>, at: string | undefined): void => {
   if (reportedReservedOwners.has(owner)) return
   reportedReservedOwners.add(owner)
   const { styles } = owner
   const shape = `${Object.keys(owner).join(',')}|${typeof styles === 'object' && styles !== null ? Object.keys(styles).join(',') : typeof styles}`
-  const seenKey = `reserved-styles:${at}:${shape}`
+  const seenKey = `reserved-styles:${at ?? ''}:${shape}`
   if (reported.has(seenKey)) return
   reported.add(seenKey)
+  const subject = at === undefined ? 'A theme function returned a `styles` key' : `\`${at}\` has a \`styles\` key`
   console.warn(
-    `[MeoNode] \`${at}\` has a \`styles\` key that holds no string. Emotion reserves \`styles\` for serialized styles, ` +
+    `[MeoNode] ${subject} that holds no string. Emotion reserves \`styles\` for serialized styles, ` +
       'such as what `css()` returns, and would write that object from it alone, so the key was left out and the rest of the object applies. ' +
       'Rename the key.',
   )

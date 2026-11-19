@@ -201,6 +201,21 @@ export function checkCss(css: unknown): void {
 }
 
 /**
+ * Reports a `styles` key that holds no string in what a theme function returned,
+ * while diagnostics are on. That value exists only once the theme resolves it,
+ * so {@link checkCss} cannot see it where the css is written; the key is left
+ * out all the same (see {@link holdsReservedStylesKey}).
+ * @param value What the theme function returned.
+ */
+export function checkThemeFunctionResult(value: unknown): void {
+  if (value === null || typeof value !== 'object' || !diagnosticsEnabled()) return
+  inspectCss(value, 0)
+  if (reservedFound.length === 0) return
+  for (const owner of reservedFound) reportReservedStylesKey(owner, undefined)
+  reservedFound.length = 0
+}
+
+/**
  * {@link checkCss} for a factory's `css`, which is walked once.
  * @param css The factory's `css`.
  * @throws In development, when `css` holds a value that is not a style.
