@@ -1,5 +1,11 @@
 # @meonode/mui
 
+## 3.1.3
+
+### Patch Changes
+
+- [#117](https://github.com/l7aromeo/meonode/pull/117) [`c09e131`](https://github.com/l7aromeo/meonode/commit/c09e131716e907f2c5788e4c58eefd6c46a827df) Thanks [@l7aromeo](https://github.com/l7aromeo)! - README: replace "zero additional abstraction overhead", which nothing measured, with what a wrapper does: it merges its props and hands the MUI component to `@meonode/ui`'s `Node`.
+
 ## 3.1.2
 
 ### Patch Changes
