@@ -1,17 +1,15 @@
 'use client'
 import { createElement, type ElementType, Fragment, type JSX, type ReactElement, type ReactNode, useContext, useInsertionEffect } from 'react'
 import { __unsafe_useEmotionCache as useEmotionCache, CacheProvider, jsx, ThemeContext as EmotionThemeContext } from '@emotion/react'
-import type { EmotionCache } from '@emotion/cache'
+import createCache, { type EmotionCache } from '@emotion/cache'
 import { serializeStyles, type SerializedStyles } from '@emotion/serialize'
 import { getRegisteredStyles, insertStyles, registerStyles } from '@emotion/utils'
 import { NodeUtil } from '@src/util/node.util.js'
-import { compile, middleware, serialize, stringify } from 'stylis'
 import type { CssProp, NodeElement, Theme } from '@src/types/node.type.js'
 import { ThemeContext, type ThemeContextState, type ThemeSnapshot, useThemeSnapshot } from '@src/components/theme-provider.client.js'
 import { ThemeUtil } from '@src/util/theme.util.js'
 import { diagnosticsEnabled, reportThemeIssues, reportThemeVarRefs, reportUnresolvedThemeKey, type ThemeVarRef } from '@src/util/theme-diagnostics.util.js'
 import { isValidElementType } from '@src/helper/react-is.helper.js'
-import { prefixer } from '@src/util/emotion-prefixer.util.js'
 import { createServerCssCache } from '@src/util/server-css-cache.util.js'
 import { replaceThemeTokensWithCssVars } from '@src/util/server-theme.util.js'
 
@@ -170,6 +168,37 @@ function renderStyled(
 
 ;(StyledRenderer as { __meonodeAcceptsServerCss?: boolean }).__meonodeAcceptsServerCss = true
 
+/**
+ * The key of the cache `ThemedRule` compiles with in the browser. No server
+ * style carries it, so creating the cache adopts none of the page's style
+ * elements.
+ */
+const THEMED_RULE_CACHE_KEY = 'meonode-themed-rule'
+
+/** The cache `ThemedRule` compiles with in the browser, created on first use. */
+let browserRuleCache: EmotionCache | undefined
+
+/**
+ * Compiles `serialized` for the class `className` through an Emotion cache's own
+ * pipeline, so the text is what Emotion writes for it: its stylis, its labels
+ * and selector fixes, its vendor prefixes. Nothing is inserted or marked
+ * inserted.
+ *
+ * On the server the cache is one of {@link createServerCssCache}'s, whose memo of
+ * compiled rules is bounded; the name it memoizes under includes the class, so a
+ * rule compiled for another class is never reused. In the browser Emotion keeps
+ * no such memo, and one cache serves every rule.
+ * @returns The rule text.
+ */
+function compileRule(className: string, serialized: SerializedStyles): string {
+  const cache = NodeUtil.isServer ? createServerCssCache() : (browserRuleCache ??= createCache({ key: THEMED_RULE_CACHE_KEY }))
+  const written: string[] = []
+  const sheet = { insert: (rule: string) => void written.push(rule) }
+  // The server build returns the rules; the browser build writes them to the sheet.
+  const rules = cache.insert(`.${className}`, { ...serialized, name: `${className}-${serialized.name}` }, sheet as never, false)
+  return typeof rules === 'string' ? rules : written.join('')
+}
+
 export interface ThemedRuleProps {
   /** The class the server compiled for the element, which this rule targets. */
   className: string
@@ -200,7 +229,7 @@ export function ThemedRule({ className, css }: ThemedRuleProps): ReactElement | 
   // The declarations under its keys, as `StyledRenderer` checks a whole element's.
   reportStyleTokens(kept, context)
   const serialized = serializeStyles([kept as never])
-  const cssText = serialize(compile(`.${className}{${serialized.styles}}`), middleware([prefixer, stringify]))
+  const cssText = compileRule(className, serialized)
   if (!cssText) return null
   return createElement('style', { href: `${className}-${serialized.name}`, precedence: 'meonode' }, cssText)
 }
