@@ -30,7 +30,7 @@ import { isFragment, isValidElementType, REACT_LAZY_TYPE } from '@src/helper/rea
 import { getComponentType, getElementTypeName, hasNoStyleTag, getGlobalState, omitUndefined } from '@src/helper/common.helper.js'
 import StyledRenderer, { ThemedRule, ThemeTokenCheck } from '@src/components/styled-renderer.client.js'
 import MeoMemo from '@src/components/meo-memo.client.js'
-import { LIST_MARKER, LOCATION_MARKER } from '@src/constant/common.const.js'
+import { isDevMode, LIST_MARKER, LOCATION_MARKER } from '@src/constant/common.const.js'
 import { checkCss, checkFactoryCss, isMergeableCss, markCombinedCssChecked } from '@src/util/css.util.js'
 import { NodeUtil } from '@src/util/node.util.js'
 import { IS_REACT_SERVER_LAYER } from '@src/util/react-layer.util.js'
@@ -1099,6 +1099,7 @@ function Node<AdditionalProps, E extends NodeElementType, ExactProps extends obj
  */
 function buildNode(element: NodeElementType, props: object, deps: DependencyList | undefined, factory: (...args: never[]) => unknown): BaseNode {
   if (diagnosticsEnabled()) observeChildren(element, props as Record<string, unknown>, factory)
+  if (isDevMode()) NodeUtil.markWrittenOutChildren(props as Record<string, unknown>)
   return new BaseNode(element, props as NodeProps, deps)
 }
 

@@ -11,11 +11,13 @@ import { Node, Span } from '@src/main.js'
 
 /** React's report of a child without a key, naming the author's component. */
 const MISSING = 'missing key, passed from Author'
+/** React's report of a child without a key, naming no other component: the list and its parent share an owner. */
+const MISSING_SAME_OWNER = 'missing key'
 /** MeoNode's report of an unkeyed list whose length changed between renders. */
 const GENERATED = 'generated list'
 
 const kindOf = (message: string): string | undefined => {
-  if (message.includes('unique "key" prop') && message.includes('It was passed a child from Author.')) return MISSING
+  if (message.includes('unique "key" prop')) return message.includes('It was passed a child from Author.') ? MISSING : MISSING_SAME_OWNER
   if (message.includes('[MeoNode] A `children` list without keys came from one call site')) return GENERATED
   return undefined
 }
@@ -41,20 +43,28 @@ const cases: Record<string, { tree: () => ReactNode; reports: string[]; seenVali
   componentArray: { tree: () => Node(Pass, { children: [Span('a').render(), Span('b').render()] }).render(), reports: [], seenValidated: [1, 1] },
   generated: { tree: () => Node(TAG, { children: Array.from({ length: rows }, (_, i) => Span(`r${i}`).render()) }).render(), reports: [GENERATED] },
   generatedNested: { tree: () => Node(TAG, { children: ['h', Array.from({ length: rows }, (_, i) => Span(`r${i}`).render())] }).render(), reports: [MISSING] },
+  // React reports nothing for this tree built with `createElement`: the call that
+  // takes the element as a written-out child marks it, and a node's factory call
+  // marks it the same way, whichever list renders first.
   reusedSingleThenNested: {
     tree: () => {
       const element = Span('a').render()
       return Node('div', { children: [Node('p', { children: element }), Node(TAG, { children: ['h', [element]] })] }).render()
     },
-    reports: [MISSING],
+    reports: [],
   },
+  // React reports nothing for this tree built with `createElement`: the call that
+  // takes the element as a written-out child marks it, and a node's factory call
+  // marks it the same way, whichever list renders first.
   reusedNestedThenSingle: {
     tree: () => {
       const element = Span('a').render()
       return Node('div', { children: [Node(TAG, { children: ['h', [element]] }), Node('p', { children: element })] }).render()
     },
-    reports: [MISSING],
+    reports: [],
   },
+  // React reports nothing for this tree built with `createElement`: the `p` call
+  // marks the element, so the raw list's check passes it, as it does here.
   reusedRawList: {
     tree: () => {
       const element = Span('a').render()
@@ -62,27 +72,56 @@ const cases: Record<string, { tree: () => ReactNode; reports: string[]; seenVali
     },
     reports: [],
   },
+  // React reports nothing for this tree built with `createElement`: the `p` call
+  // marks the element when it is made, before the raw list renders.
+  rawListThenSingle: {
+    tree: () => {
+      const element = Span('a').render()
+      return Node('div', { children: [createElement(TAG, null, ['h', element]), Node('p', { children: element })] }).render()
+    },
+    reports: [],
+  },
+  // A raw list whose other member holds a node, so it takes the walk: React
+  // reports its unkeyed `i`, and passes the element the `p` call marked.
+  builtReusedThenList: {
+    tree: () => {
+      const element = Span('a').render()
+      return Node('div', {
+        children: [Node('p', { children: element }), createElement(TAG, null, [createElement('i', null, Span('n') as never), element])],
+      }).render()
+    },
+    reports: [MISSING_SAME_OWNER],
+  },
   nestedOne: { tree: () => Node(TAG, { children: ['h', [Span('a').render()]] }).render(), reports: [MISSING] },
+  // React reports nothing for this tree built with `createElement`: the call that
+  // takes the element as a written-out child marks it, and a node's factory call
+  // marks it the same way, whichever list renders first.
   reusedBothThenNested: {
     tree: () => {
       const [a, b] = [Span('a').render(), Span('b').render()]
       return Node('div', { children: [Node('p', { children: [a, b] }), Node(TAG, { children: ['h', [a, b]] })] }).render()
     },
-    reports: [MISSING],
+    reports: [],
   },
+  // React reports nothing for this tree built with `createElement`: the call that
+  // takes the element as a written-out child marks it, and a node's factory call
+  // marks it the same way, whichever list renders first.
   reusedBothNestedFirst: {
     tree: () => {
       const [a, b] = [Span('a').render(), Span('b').render()]
       return Node('div', { children: [Node(TAG, { children: ['h', [a, b]] }), Node('p', { children: [a, b] })] }).render()
     },
-    reports: [MISSING],
+    reports: [],
   },
+  // React reports nothing for this tree built with `createElement`: the call that
+  // takes the element as a written-out child marks it, and a node's factory call
+  // marks it the same way, whichever list renders first.
   styledReusedBoth: {
     tree: () => {
       const [a, b] = [Span('a', { margin: 1 }).render(), Span('b', { margin: 2 }).render()]
       return Node('div', { children: [Node('p', { children: [a, b] }), Node(TAG, { children: ['h', [a, b]] })] }).render()
     },
-    reports: [MISSING],
+    reports: [],
   },
   styledNested: {
     tree: () => Node(TAG, { children: ['h', [Span('a', { margin: 1 }).render(), Span('b', { margin: 2 }).render()]] }).render(),
@@ -99,12 +138,15 @@ const cases: Record<string, { tree: () => ReactNode; reports: string[]; seenVali
     },
     reports: [GENERATED],
   },
+  // React reports nothing for this tree built with `createElement`: the call that
+  // takes the element as a written-out child marks it, and a node's factory call
+  // marks it the same way, whichever list renders first.
   reusedInComponent: {
     tree: () => {
       const [a, b] = [Span('a').render(), Span('b').render()]
       return Node('div', { children: [Node(Pass, { children: [a, b] }), Node(TAG, { children: ['h', [a, b]] })] }).render()
     },
-    reports: [MISSING],
+    reports: [],
     seenValidated: [1, 1],
   },
 }

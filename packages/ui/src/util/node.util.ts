@@ -51,6 +51,13 @@ const isReactComponentInstance = (value: unknown): value is React.Component =>
   typeof ReactRuntime.Component === 'function' && value instanceof ReactRuntime.Component
 
 /**
+ * Elements whose mark for React's key check a node set, when it handed them on
+ * as written-out children and React had not marked them. Weak, so an element
+ * leaves it once nothing else holds it.
+ */
+const MARKED_BY_NODES = new WeakSet<object>()
+
+/**
  * Elements whose subtree holds something only the node walk renders: a node, a
  * function child, a component type or instance, or a nested array that repeats.
  * {@link NodeUtil.rendersAsCopy} records every element on the path from the
@@ -441,6 +448,67 @@ export class NodeUtil {
       nativeProps: omitUndefined(nativeProps),
       children: normalizedChildren,
     })
+  }
+
+  /**
+   * Whether a node's `children` are a generated list, which it hands React as
+   * one array: the compiler's marker, under the key its schema names, or the
+   * runtime's own marker.
+   * @param rawProps The props a factory was called with.
+   * @returns `true` when the children are marked as generated.
+   */
+  public static isGeneratedList(rawProps: Record<string, unknown>): boolean {
+    const schema = NodeUtil.getCompiledSchema(rawProps)
+    if (schema !== undefined) {
+      const listKey = COMPILER_SCHEMA_KEYS[schema].list
+      return listKey !== undefined && Boolean(rawProps[listKey])
+    }
+    return Boolean(rawProps[LIST_MARKER])
+  }
+
+  /**
+   * In development, marks the elements a factory call's `children` hold at the
+   * top level as checked for React's key check, as `createElement` marks its
+   * child arguments when it is called. A node hands those children to React as
+   * written-out arguments, so an element passed this way is exempt wherever it
+   * is used again, exactly as one `createElement` was given. A generated list
+   * goes to React as one array, and the elements in it stay unmarked.
+   * @param rawProps The props a factory was called with.
+   */
+  public static markWrittenOutChildren(rawProps: Record<string, unknown>): void {
+    const children = rawProps.children
+    if (isValidElement(children)) {
+      NodeUtil._markChecked(children)
+      return
+    }
+    if (!Array.isArray(children) || NodeUtil.isGeneratedList(rawProps)) return
+    for (let i = 0; i < children.length; i++) {
+      const child = children[i]
+      if (isValidElement(child)) NodeUtil._markChecked(child)
+    }
+  }
+
+  /**
+   * Sets a development element's mark for React's key check, as `createElement`
+   * does for a child argument, and records the mark as a node's when React had
+   * not set one.
+   */
+  private static _markChecked(element: ReactElement): void {
+    const store = (element as ReactElement & { _store?: { validated?: number } })._store
+    if (store === undefined || store.validated === 1) return
+    store.validated = 1
+    MARKED_BY_NODES.add(element)
+  }
+
+  /**
+   * Whether an element's mark for React's key check was set by a node handing it
+   * on, not by React. The generated-list report reads React's own marks as a
+   * record of a list written out by hand, and leaves a node's aside.
+   * @param element An element in a `children` list.
+   * @returns `true` when only a node marked it.
+   */
+  public static isMarkedByNode(element: object): boolean {
+    return MARKED_BY_NODES.has(element)
   }
 
   /**
