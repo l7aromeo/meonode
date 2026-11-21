@@ -496,6 +496,11 @@ fn extract_optional_node() {
 }
 
 #[test]
+fn extract_empty_block() {
+    run_partition_with_config("extract_empty_block", extract_config());
+}
+
+#[test]
 fn extract_layout() {
     run_partition_with_config("extract_layout", extract_config());
 }

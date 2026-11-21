@@ -978,6 +978,9 @@ struct Model {
     keys: Vec<String>,
     /// Final base values of the keys [`DEFAULT_READ_KEYS`] names.
     base_values: HashMap<String, Route>,
+    /// Nested selector and at-rule objects with no entries, as path and key:
+    /// they write nothing, and are dropped from the runtime's css with the rest.
+    empty: Vec<(Vec<String>, String)>,
 }
 
 impl ModuleScope {
@@ -987,6 +990,7 @@ impl ModuleScope {
             blocks: Vec::new(),
             keys: entries.iter().map(|(k, _)| k.clone()).collect(),
             base_values: HashMap::new(),
+            empty: Vec::new(),
         };
         self.collect_object(
             &entries,
@@ -1020,6 +1024,9 @@ impl ModuleScope {
                 let (text, inner_scope) = scope.at_rule(key)?;
                 if writes_at_rule(key) {
                     let inner = object_entries(obj)?;
+                    if inner.is_empty() {
+                        model.empty.push((path.to_vec(), key.clone()));
+                    }
                     let mut child = context.clone();
                     child.at_rules.push(text);
                     self.collect_object(&inner, &child, &inner_scope, &extend(path, key), model)?;
@@ -1039,6 +1046,9 @@ impl ModuleScope {
                 match atomic_suffix(&child_scope, key) {
                     Some(suffix) if !context.selector.contains("::") => {
                         let inner = object_entries(obj)?;
+                        if inner.is_empty() {
+                            model.empty.push((path.to_vec(), key.clone()));
+                        }
                         let mut child = context.clone();
                         child.selector = suffix;
                         self.collect_object(
@@ -1740,6 +1750,9 @@ impl ModuleScope {
         for block in model.blocks.iter().filter(|b| b.extractable) {
             plan.remove(&block.path, &block.key);
         }
+        for (path, key) in &model.empty {
+            plan.visit(path, key);
+        }
         let top: HashSet<String> = plan.top.clone();
         c_props.retain(|p| prop_key(p).is_none_or(|k| !top.contains(&k)));
         // A marked call site skips the runtime's merge, so an initial entry
@@ -1842,6 +1855,20 @@ impl Plan {
                 .entry(head.clone())
                 .or_default()
                 .remove(rest, key),
+        }
+    }
+
+    /// Visits nested object `key` at `path`, so it is dropped when left empty.
+    fn visit(&mut self, path: &[String], key: &str) {
+        match path.split_first() {
+            None => {
+                self.nested.entry(key.to_string()).or_default();
+            }
+            Some((head, rest)) => self
+                .nested
+                .entry(head.clone())
+                .or_default()
+                .visit(rest, key),
         }
     }
 
@@ -2340,6 +2367,7 @@ mod tests {
                 blocks: Vec::new(),
                 keys: Vec::new(),
                 base_values: HashMap::new(),
+                empty: Vec::new(),
             };
             for (key, value) in input {
                 model.keys.push(key.clone());
