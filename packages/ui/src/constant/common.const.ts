@@ -177,6 +177,13 @@ export const STATIC_BEFORE_SPREAD_MARKER = '__meo$b'
 export const STATIC_AFTER_SPREAD_MARKER = '__meo$a'
 
 /**
+ * Marker key of a layout factory's call site whose initial props the compiler
+ * merged itself: a fingerprint of what it merged (see `initialPropsFingerprint`).
+ * When it is the factory's own, the factory uses the call site's props as given.
+ */
+export const INITIAL_PROPS_MARKER = '__meo$i'
+
+/**
  * Per-schema names of the compiled marker's contract keys. Indexed by the schema
  * version found in {@link COMPILED_MARKER}.
  */

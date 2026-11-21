@@ -30,7 +30,7 @@ import { isFragment, isValidElementType, REACT_LAZY_TYPE } from '@src/helper/rea
 import { getComponentType, getElementTypeName, hasNoStyleTag, getGlobalState, omitUndefined } from '@src/helper/common.helper.js'
 import StyledRenderer, { ThemedRule, ThemeTokenCheck } from '@src/components/styled-renderer.client.js'
 import MeoMemo from '@src/components/meo-memo.client.js'
-import { isDevMode, LIST_MARKER, LOCATION_MARKER, STATIC_CLASSES_MARKER, STATIC_VARS_MARKER } from '@src/constant/common.const.js'
+import { INITIAL_PROPS_MARKER, isDevMode, LIST_MARKER, LOCATION_MARKER, STATIC_CLASSES_MARKER, STATIC_VARS_MARKER } from '@src/constant/common.const.js'
 import { checkCss, checkFactoryCss, isMergeableCss, markCombinedCssChecked } from '@src/util/css.util.js'
 import { NodeUtil } from '@src/util/node.util.js'
 import { IS_REACT_SERVER_LAYER } from '@src/util/react-layer.util.js'
@@ -1243,6 +1243,51 @@ function combineFactoryProps(initialProps: Record<string, unknown> | undefined, 
 }
 
 /**
+ * A factory's initial props as the compiler writes them in `__meo$i`: each entry
+ * as `key:value;`, keys in UTF-16 code-unit order, a number as JavaScript writes
+ * it. Only flat entries with string or number values have one, and none whose key
+ * or value holds `;` or `:`, which would make the text ambiguous.
+ * @returns The fingerprint, or `undefined` when the props have none.
+ */
+export function initialPropsFingerprint(initialProps: Record<string, unknown> | undefined): string | undefined {
+  if (initialProps === undefined) return undefined
+  let fingerprint = ''
+  for (const key of Object.keys(initialProps).sort()) {
+    const value = initialProps[key]
+    if (typeof value !== 'string' && typeof value !== 'number') return undefined
+    const text = String(value)
+    if (/[;:]/.test(key) || /[;:]/.test(text)) return undefined
+    fingerprint += `${key}:${text};`
+  }
+  return fingerprint
+}
+
+/** Each factory's fingerprint, worked out at its first marked call. */
+const fingerprints = new WeakMap<object, string | undefined>()
+
+/**
+ * A call site's props with its factory's initial props merged in, unless the
+ * compiler merged them itself: a call site marked with the factory's own
+ * fingerprint already holds every initial entry, the call site's winning, so its
+ * props are used as given and the initial ones do not come back as runtime css.
+ * Any other call merges as before. A marker naming other initial props means the
+ * compiler saw another version of the factory, and merging again only re-adds
+ * what it merged.
+ */
+function factoryProps(initialProps: Record<string, unknown> | undefined, props: Record<string, unknown> | undefined): Record<string, unknown> {
+  const marker = props?.[INITIAL_PROPS_MARKER]
+  if (typeof marker === 'string' && initialProps !== undefined) {
+    let own = fingerprints.get(initialProps)
+    if (!fingerprints.has(initialProps)) {
+      own = initialPropsFingerprint(initialProps)
+      fingerprints.set(initialProps, own)
+    }
+    if (own !== undefined && marker === own) return props as Record<string, unknown>
+  }
+  return combineFactoryProps(initialProps, props)
+}
+
+/**
  * Creates a curried node factory for a given React element or component type.
  * This is useful for creating reusable, specialized factory functions (e.g., `const Div = createNode('div')`).
  * @function createNode
@@ -1269,7 +1314,7 @@ export function createNode<AdditionalInitialProps, E extends NodeElementType, Ex
   ): BaseNode => {
     const node = buildNode(
       element,
-      combineFactoryProps(initialProps as Record<string, unknown> | undefined, props as Record<string, unknown> | undefined),
+      factoryProps(initialProps as Record<string, unknown> | undefined, props as Record<string, unknown> | undefined),
       deps,
       Instance,
     )
@@ -1307,7 +1352,7 @@ export function createChildrenFirstNode<AdditionalInitialProps, E extends NodeEl
   ): BaseNode => {
     const node = buildNode(
       element,
-      { ...combineFactoryProps(initialProps as Record<string, unknown> | undefined, props as Record<string, unknown> | undefined), children },
+      { ...factoryProps(initialProps as Record<string, unknown> | undefined, props as Record<string, unknown> | undefined), children },
       deps,
       Instance,
     )
