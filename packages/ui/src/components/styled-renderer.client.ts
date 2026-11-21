@@ -12,6 +12,7 @@ import { diagnosticsEnabled, reportThemeIssues, reportThemeVarRefs, reportUnreso
 import { isValidElementType } from '@src/helper/react-is.helper.js'
 import { createServerCssCache } from '@src/util/server-css-cache.util.js'
 import { replaceThemeTokensWithCssVars } from '@src/util/server-theme.util.js'
+import { nameStyles } from '@src/util/style-name.util.js'
 
 export interface StyledRendererProps<E extends NodeElement> {
   element: E
@@ -46,7 +47,7 @@ export default function StyledRenderer<E extends NodeElement, TProps extends Rec
   const theme = context && mode !== undefined ? { ...context.theme, mode: mode as typeof context.theme.mode } : context?.theme
   if (NodeUtil.isServer || emotionCache === null) {
     const { element, children, ...rest } = props
-    return renderStyled(element, children, rest, theme, emotionCache, context)
+    return renderStyled(element, children, rest, theme, emotionCache, emotionTheme, context)
   }
   return renderOwnClass(props as Record<string, any>, theme, emotionCache, emotionTheme, context)
 }
@@ -63,10 +64,11 @@ function RuleInsertion({ cache, serialized, isStringTag }: { cache: EmotionCache
 const RENDERER_ONLY = new Set(['element', 'children', 'css', 'as'])
 
 /**
- * Renders the element with the class Emotion's `css` prop would give it, computed
- * here rather than in Emotion's own components. It renders as Emotion's do, beside
- * a leaf for its rule, so what sits below has the place it has on the server; the
- * leaf is there only while the rule is not yet in the sheet.
+ * Renders the element with the class Emotion's `css` prop would give it under
+ * MeoNode's name for its styles ({@link nameStyles}), computed here rather than
+ * in Emotion's own components. It renders as Emotion's do, beside a leaf for its
+ * rule, so what sits below has the place it has on the server; the leaf is there
+ * only while the rule is not yet in the sheet.
  */
 function renderOwnClass(
   props: Record<string, any>,
@@ -86,7 +88,7 @@ function renderOwnClass(
   const registered: unknown[] = [cssForEmotion]
   if (typeof givenClass === 'string') className = getRegisteredStyles(cache.registered, registered as string[], givenClass)
   else if (givenClass != null) className = `${givenClass as string} `
-  const serialized = serializeStyles(registered as never, undefined, emotionTheme as never)
+  const serialized = nameStyles(serializeStyles(registered as never, undefined, emotionTheme as never))
   const isStringTag = typeof renderTarget === 'string'
   registerStyles(cache, serialized, isStringTag)
   className += `${cache.key}-${serialized.name}`
@@ -123,6 +125,7 @@ function renderStyled(
   props: Record<string, any>,
   theme: Theme | undefined,
   emotionCache: EmotionCache | null,
+  emotionTheme: unknown,
   context: ThemeContextState | null,
 ): JSX.Element {
   // `as` is consumed (never spread onto the DOM). It swaps the render target,
@@ -130,7 +133,7 @@ function renderStyled(
   // path already strips `as` and forwards the resolved element, but if `as` ever
   // reaches here we honor it instead of leaking it as a bogus attribute.
   // `isValidElementType` narrows `asTarget` to `ElementType`, so no cast is needed there.
-  const { css, as: asTarget, ...otherProps } = props
+  const { css, as: asTarget, className: givenClass, ...otherProps } = props
   let renderTarget = element as ElementType
   if (asTarget != null && isValidElementType(asTarget)) {
     renderTarget = asTarget
@@ -156,14 +159,26 @@ function renderStyled(
   // out rather than handed to Emotion.
   const cssForEmotion = ThemeUtil.resolveDefaultStyle(ThemeUtil.dropThemedKeys(finalCss, reportUnresolvedThemeKey))
 
-  const styled = jsx(renderTarget, { ...otherProps, css: cssForEmotion }, children)
   // With no cache above it — only on the server, since the browser always has
   // Emotion's default one — Emotion would create a `css` cache here itself, whose
   // memo of compiled rules is shared by all such caches for the life of the
   // process. This one, for the elements below it as Emotion's would be, writes
-  // the same rules and classes with that memo bounded.
+  // the same rules with that memo bounded.
+  const cache = emotionCache ?? createServerCssCache()
+
+  // Composed here, as `renderOwnClass` composes in the browser, so the styles get
+  // MeoNode's name: the handed classes this cache registered are folded into the
+  // styles, and the rest kept. Emotion's `css` prop then takes the one serialized
+  // value as it is, name included, and renders its rule as it always does.
+  const registered: unknown[] = [cssForEmotion]
+  let className: string | undefined
+  if (typeof givenClass === 'string') className = getRegisteredStyles(cache.registered, registered as string[], givenClass).trim() || undefined
+  else if (givenClass != null) className = String(givenClass)
+  const serialized = nameStyles(serializeStyles(registered as never, undefined, emotionTheme as never))
+
+  const styled = jsx(renderTarget, { ...otherProps, className, css: serialized }, children)
   if (emotionCache !== null) return styled
-  return createElement(CacheProvider, { value: createServerCssCache() }, styled)
+  return createElement(CacheProvider, { value: cache }, styled)
 }
 
 ;(StyledRenderer as { __meonodeAcceptsServerCss?: boolean }).__meonodeAcceptsServerCss = true
@@ -233,7 +248,7 @@ export function ThemedRule({ className, css }: ThemedRuleProps): ReactElement | 
   const kept = ThemeUtil.dropThemedKeys(resolved, reportUnresolvedThemeKey)
   // The declarations under its keys, as `StyledRenderer` checks a whole element's.
   reportStyleTokens(kept, context)
-  const serialized = serializeStyles([kept as never])
+  const serialized = nameStyles(serializeStyles([kept as never]))
   const cssText = compileRule(className, serialized)
   if (!cssText) return null
   return createElement('style', { href: `${className}-${serialized.name}`, precedence: 'meonode' }, cssText)

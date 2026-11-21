@@ -487,7 +487,8 @@ export const reportDroppedThemeFunction = (property?: string): void => {
  * A server-compiled class handed to an element could not be composed with the
  * element's own css: it was compiled in another cache scope — outside a
  * `'use cache'` boundary the element is inside — and is no longer in the store
- * that carries such classes across, or was never compiled for a component. The
+ * that carries such classes across, was never compiled for a component, or names
+ * two different styles there, so its own cannot be told apart. The
  * element keeps it as a separate class, and which rule wins a conflict then
  * depends on stylesheet order. Reported once per class.
  * @param className The class that could not be composed.
@@ -500,6 +501,16 @@ export const reportUncomposedClass = (className: string): void => {
       `so the element carries both classes and which one wins a conflict depends on stylesheet order. ` +
       `The shared store keeps the most recent classes compiled for components; pass the styles as \`css\` instead of a className to compose them in the element's own scope.`,
   )
+}
+
+/**
+ * Two different styles were given one class name. Each is still written with its
+ * own rule. Reported once per name.
+ * @param name The name the two styles share.
+ */
+export const reportSharedStyleName = (name: string): void => {
+  if (!diagnosticsEnabled()) return
+  report(`shared-style-name:${name}`, `Two different styles were given the class name \`${name}\`. Each was written with its own rule.`)
 }
 
 /**

@@ -644,7 +644,7 @@ export class ThemeUtil {
     //
     // A `var()` reference needs no theme, so in `vars` mode a value token still
     // becomes one. The server writes it that way whether or not a provider is
-    // above the node, and the class Emotion derives from the style has to match
+    // above the node, and the class derived from the style has to match
     // there for the tree to hydrate. Keys keep their tokens, as on the server,
     // since a condition or selector needs the theme's concrete value.
     if (!theme || !theme.system || typeof theme.system !== 'object') {

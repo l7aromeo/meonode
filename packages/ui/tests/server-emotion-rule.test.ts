@@ -4,11 +4,13 @@
 // Components layer, and what reaches a server render with no registry.
 import { createElement } from 'react'
 import { renderToString } from 'react-dom/server'
-import { CacheProvider, jsx } from '@emotion/react'
+import { CacheProvider } from '@emotion/react'
 import createCache from '@emotion/cache'
 import { describe, expect, it } from 'vitest'
 import { createNode, Body, Head, Html } from '@src/main.js'
 import { compileServerEmotionRule } from '@src/util/server-emotion.util.js'
+import StyledRenderer from '@src/components/styled-renderer.client.js'
+import { ThemeUtil } from '@src/util/theme.util.js'
 
 const OBJECT = { color: '#112233', padding: 4 }
 // What a non-map `css` resolves to before it is compiled.
@@ -18,14 +20,17 @@ describe('compileServerEmotionRule', () => {
   it.each([
     ['an object', OBJECT],
     ['an array', ARRAY],
-  ] as const)('gives %s the class Emotion’s css prop gives it under StyleRegistry’s cache', (_, css) => {
-    // A client component renders the same css through Emotion's `css` prop with
-    // the cache `StyleRegistry` provides, so a server component has to produce
-    // the class that does.
+  ] as const)('gives %s the class a client component gets for it under StyleRegistry’s cache', (_, css) => {
+    // A client component renders the same css through `StyledRenderer` with the
+    // cache `StyleRegistry` provides, so a server component has to produce the
+    // class that does. Both add the default declarations before compiling, as the
+    // server layer does before calling `compileServerEmotionRule`.
     const cache = createCache({ key: 'meonode-css' })
-    const client = renderToString(jsx(CacheProvider, { value: cache }, jsx('div', { css })) as never).match(/class="([^"]*)"/)?.[1]
-    expect(client).toMatch(/^meonode-css-/)
-    expect(compileServerEmotionRule(css as never)?.className).toBe(client)
+    const client = renderToString(
+      createElement(CacheProvider, { value: cache }, createElement(StyledRenderer, { element: 'div', css, children: 'x' } as never)),
+    ).match(/class="([^"]*)"/)?.[1]
+    expect(client).toMatch(/^meonode-css-[0-9a-z]{13}$/)
+    expect(compileServerEmotionRule(ThemeUtil.resolveDefaultStyle(css as never))?.className).toBe(client)
   })
 
   it('compiles nothing for a value that is not an object or an array', () => {

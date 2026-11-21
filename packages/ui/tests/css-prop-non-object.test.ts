@@ -99,9 +99,9 @@ describe('css prop shapes other than a plain object', () => {
     }
 
     it.each<[string, CssValue, string]>([
-      ['a fallback list under one property', { fontFamily: ['Arial', 'theme.font.body'] } as never, 'css-1me33pq'],
-      ['a string css', 'color: theme.colors.primary;', 'css-kk9f6w'],
-      ['a string inside a composed css', [{ margin: 4 }, 'color: theme.colors.primary;'], 'css-74wits'],
+      ['a fallback list under one property', { fontFamily: ['Arial', 'theme.font.body'] } as never, 'css-19xyw0u80lax4'],
+      ['a string css', 'color: theme.colors.primary;', 'css-3i26qwzku9oaa'],
+      ['a string inside a composed css', [{ margin: 4 }, 'color: theme.colors.primary;'], 'css-3k9qj8rwso5vi'],
     ])('%s', (_, cssValue, serverClass) => {
       expect(renderUnderComponent(cssValue).classList).toContain(serverClass)
     })
