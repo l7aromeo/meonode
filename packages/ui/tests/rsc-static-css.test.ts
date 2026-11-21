@@ -1,5 +1,6 @@
 import { chromium, type Browser } from '@playwright/test'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { DOCS_STYLE_SRC, STRICT_STYLE_SRC, underDocsPolicy } from './_docs-csp.js'
 
 /**
  * Compiled output with extracted styles in a Next app, written by hand in the
@@ -113,6 +114,40 @@ describe('extracted styles in a Next app', () => {
       expect(lastStatic).toBeLessThan(firstRuntime)
     } finally {
       await context.close()
+    }
+  })
+
+  /**
+   * The page under meonode-docs' policy, which MeoNode's styles are held to: the
+   * static rules, the runtime rules and the variables of extracted values must
+   * all apply with no violation. The same page under a `style-src` without
+   * `'unsafe-inline'`, which MeoNode does not support, shows the check sees one.
+   */
+  it.each([
+    ['meonode-docs’ policy', DOCS_STYLE_SRC, true],
+    ['a strict style-src', STRICT_STYLE_SRC, false],
+  ] as const)('under %s, applies every value: %s', async (_, styleSrc, allowed) => {
+    const page = await browser!.newPage()
+    try {
+      const violations = await underDocsPolicy(page, { styleSrc, dev: true })
+      const messages: string[] = []
+      page.on('console', message => void messages.push(message.text()))
+      await page.goto(`${base()}${PAGE}`, { waitUntil: 'networkidle' })
+      await page.waitForSelector('[data-testid="static-late"]')
+      const width = await page.evaluate(() => getComputedStyle(document.querySelector('[data-testid="static-client"]')!).width)
+      const color = await page.evaluate(() => getComputedStyle(document.querySelector('[data-testid="static-server"]')!).color)
+      const seen = await violations()
+
+      if (allowed) {
+        expect(seen).toEqual([])
+        expect(messages.filter(message => /hydrat|did not match|recoverable/i.test(message))).toEqual([])
+        expect([width, color]).toEqual(['40px', 'rgb(255, 0, 0)'])
+      } else {
+        expect(seen.some(violation => violation.startsWith('style-src-attr'))).toBe(true)
+        expect(width).not.toBe('40px')
+      }
+    } finally {
+      await page.close()
     }
   })
 })

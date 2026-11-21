@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { chromium, type Browser } from '@playwright/test'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { serverLog } from './globalSetup.build.js'
+import { DOCS_STYLE_SRC, STRICT_STYLE_SRC, underDocsPolicy } from './_docs-csp.js'
 
 /**
  * What a production build of a MeoNode app emits.
@@ -1097,6 +1098,40 @@ describe.each(['cc', 'plain'] as const)('extracted styles in a production build 
       const lastStatic = Math.max(...state.heads.map((kind, i) => (kind?.startsWith('mn-static-') ? i : -1)))
       const firstOther = state.heads.findIndex(kind => kind === 'emotion' || kind === 'meonode')
       expect(lastStatic).toBeLessThan(firstOther)
+    } finally {
+      await page.close()
+    }
+  })
+
+  /**
+   * The page under meonode-docs' policy, which MeoNode's styles are held to: the
+   * static rules, the runtime rules and the variables of extracted values must
+   * all apply with no violation. The same page under a `style-src` without
+   * `'unsafe-inline'`, which MeoNode does not support, shows the check sees one.
+   */
+  it.each([
+    ['meonode-docs’ policy', DOCS_STYLE_SRC, true],
+    ['a strict style-src', STRICT_STYLE_SRC, false],
+  ] as const)('under %s, applies every value: %s', async (_, styleSrc, allowed) => {
+    const page = await browser!.newPage()
+    try {
+      const violations = await underDocsPolicy(page, { styleSrc, dev: false })
+      const messages: string[] = []
+      page.on('console', message => void messages.push(message.text()))
+      await page.goto(`http://localhost:${port(variant)}${PAGE}`, { waitUntil: 'networkidle' })
+      await page.waitForSelector('[data-testid="static-late"]')
+      const width = await page.evaluate(() => getComputedStyle(document.querySelector('[data-testid="static-client"]')!).width)
+      const color = await page.evaluate(() => getComputedStyle(document.querySelector('[data-testid="static-server"]')!).color)
+      const seen = await violations()
+
+      if (allowed) {
+        expect(seen).toEqual([])
+        expect(messages.filter(message => /hydrat|did not match|recoverable/i.test(message))).toEqual([])
+        expect([width, color]).toEqual(['40px', 'rgb(255, 0, 0)'])
+      } else {
+        expect(seen.some(violation => violation.startsWith('style-src-attr'))).toBe(true)
+        expect(width).not.toBe('40px')
+      }
     } finally {
       await page.close()
     }
