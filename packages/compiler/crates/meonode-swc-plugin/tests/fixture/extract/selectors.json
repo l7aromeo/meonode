@@ -3895,5 +3895,14 @@
 [[":hover"],".N:hover{color:red;}"],
 [[":hover"],".N:hover{color:red;}"],
 [[":hover"],".N:hover{color:red;}"],
-[[":hover"],".N:hover{color:red;}"]
+[[":hover"],".N:hover{color:red;}"],
+[["p(&)"],".N p(&){color:red;}"],
+[[":hover","p(&)"],".N:hover p(&){color:red;}"],
+[["&:hover","p(&)"],".N:hover p(&){color:red;}"],
+[["a\\,b, c"],".N a\\,b,.N c{color:red;}"],
+[[":hover","a\\,b, c"],".N:hover a\\,.N:hover b,.N:hover c{color:red;}"],
+[["&:hover","a\\,b, c"],".N:hover a\\,.N:hover b,.N:hover c{color:red;}"],
+[[".a\\,b &"],".a\\,b .N{color:red;}"],
+[[":hover",".a\\,b &"],".N:hover .a\\,b .N:hover{color:red;}"],
+[["&:hover",".a\\,b &"],".a\\,b .N:hover{color:red;}"]
 ]

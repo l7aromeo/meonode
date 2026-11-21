@@ -194,6 +194,9 @@ async function selectorCases(uiDir: string): Promise<[string[], string][]> {
     for (const step of steps) chains.push([at, step], [step, at], [step, at, '&:focus'], [at, atRules[0], step])
   }
   for (const key of ['& > p', '.dark &', '&:hover, &:focus', ':is(&, .a) p', '& + &', '&  ~  .b', ':hover']) for (const ws of grammar.WHITESPACE) chains.push([ws(key)])
+  // Parentheses after no colon, and an escaped comma, which compat splits
+  // only in rules it composes again.
+  for (const key of ['p(&)', 'a\\,b, c', '.a\\,b &']) chains.push([key], [':hover', key], ['&:hover', key])
   const out: [string[], string][] = []
   for (const chain of chains) {
     let css: Record<string, unknown> = { color: 'red' }
