@@ -105,6 +105,20 @@ function serverRender(): string {
   }
 }
 
+/** Time for a render's commit and effects to run after `start`. */
+const SETTLE_MS = 50
+
+/**
+ * Runs `start` and waits for its render to commit and its effects to run: through
+ * `act` in a development build, by waiting in a production build, which has no
+ * `act`, so the hydration tests also run with `NODE_ENV=production`.
+ */
+async function settle(start: () => void): Promise<void> {
+  if (typeof act === 'function') return act(async () => start())
+  start()
+  await new Promise(resolve => setTimeout(resolve, SETTLE_MS))
+}
+
 /** Loads `html` as the page, registers the modules as the browser would, and hydrates. */
 async function hydrate(html: string, loadModules: () => void): Promise<string[]> {
   document.open()
@@ -115,7 +129,7 @@ async function hydrate(html: string, loadModules: () => void): Promise<string[]>
   const messages: string[] = []
   const errorSpy = vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => void messages.push(args.map(String).join(' ')))
   try {
-    await act(async () => {
+    await settle(() => {
       hydrateRoot(document, createElement(App), { onRecoverableError: error => void messages.push(String(error)) })
     })
   } finally {
@@ -198,7 +212,7 @@ describe('a server-rendered document with static css', () => {
     document.body.append(container)
     // `document.write` gave the page a new head; Emotion's default cache still
     // holds the one before it, so this root gets a cache for the page's own.
-    await act(async () => {
+    await settle(() => {
       createRoot(container).render(
         createElement(
           CacheProvider,

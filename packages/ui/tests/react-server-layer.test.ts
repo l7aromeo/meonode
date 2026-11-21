@@ -180,7 +180,11 @@ describe('static css in the React Server Components layer', () => {
       expect(slot.map(element => (element.type === StaticStyles ? 'static' : element.props.precedence))).toEqual(['static', 'meonode', 'meonode'])
       expect(slot[0].props.classes).toEqual([RED, MEDIA])
 
-      const hoisted = (StaticStyles(slot[0].props as never) as ReactElement<{ children: ReactElement<{ href: string; precedence: string }>[] }>).props.children
+      // No `StaticInsertion` in this layer: its output is only ever hoisted.
+      const [insertion, hoisted] = (
+        StaticStyles(slot[0].props as never) as ReactElement<{ children: [unknown, ReactElement<{ href: string; precedence: string }>[]] }>
+      ).props.children
+      expect(insertion).toBeNull()
       expect(hoisted.map(element => [element.props.href, element.props.precedence])).toEqual([
         ['mn-static-0', 'mn-static-0'],
         ['mn-static-1', 'mn-static-1'],
