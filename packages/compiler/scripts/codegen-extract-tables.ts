@@ -177,7 +177,7 @@ async function selectorCases(uiDir: string): Promise<[string[], string][]> {
   const { prefixer } = await import(join(uiDir, 'src/util/emotion-prefixer.util.ts'))
   const { default: createCache } = await import(join(uiDir, 'node_modules/@emotion/cache/dist/emotion-cache.cjs.js')).catch(() => import('@emotion/cache'))
   const { serializeStyles } = await import(join(uiDir, 'node_modules/@emotion/serialize/dist/emotion-serialize.cjs.js')).catch(() => import('@emotion/serialize'))
-  const grammar = await import('../tests/selector-grammar.ts')
+  const grammar = await import('../tests/selector-grammar')
   const cache = createCache({ key: 'css', stylisPlugins: [prefixer] })
   const sheet = { insert() {} }
   const chains: string[][] = []
