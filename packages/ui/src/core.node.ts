@@ -570,14 +570,10 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
       // Gathered as the nodes completed, deepest first, which is the order Emotion
       // inserts in the browser; the server's is the order they began, parents first.
       if (NodeUtil.isServer) lists.sort((a, b) => a[0] - b[0])
+      // A class several nodes use is listed for each: the server's hoistables are
+      // deduped by React by `href`, and the browser inserts a class once.
       const classes: string[] = []
-      const seen = new Set<string>()
-      for (const [, list] of lists)
-        for (const className of list)
-          if (!seen.has(className)) {
-            seen.add(className)
-            classes.push(className)
-          }
+      for (const [, list] of lists) for (const className of list) classes.push(className)
       const checks = staticChecks?.get(rules)
       const candidates = staticCandidates?.get(rules)
       rules.set(

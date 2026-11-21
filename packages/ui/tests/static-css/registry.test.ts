@@ -175,6 +175,29 @@ describe.each([
 describe('where the sheets go, for the cache MeoNode’s rules go into', () => {
   beforeEach(registerAll)
 
+  // A cache that appends puts its first tag at the end of the head whenever it inserts it.
+  it('leaves where a cache that appends puts its first tag to the cache', () => {
+    const cache = createCache({ key: 'css' })
+    insertStaticClasses(sheetOf(cache), ['mn-0000000000001'])
+    userStyle('later')
+    cache.sheet.insert('.css-a{color:red}')
+
+    expect(order()).toEqual(['static 0', 'static 1', 'static 2', 'static 3', 'later', 'css'])
+    expect(cache.sheet.insertionPoint).toBeUndefined()
+  })
+
+  // Two caches taking turns: the sheets come back where the first needs them.
+  it('places the sheets for a cache seen again after another', () => {
+    userStyle('user')
+    const first = createCache({ key: 'css', prepend: true })
+    insertStaticClasses(sheetOf(first), ['mn-0000000000001'])
+    insertStaticClasses(sheetOf(createCache({ key: 'other' })), ['mn-0000000000002'])
+    insertStaticClasses(sheetOf(first), ['mn-0000000000003'])
+    first.sheet.insert('.css-a{color:red}')
+
+    expect(order()).toEqual(['static 0', 'static 1', 'static 2', 'static 3', 'css', 'user'])
+  })
+
   it('at the end of the head with no cache, or one that appends and has no tags yet', () => {
     userStyle('user')
     const cache = createCache({ key: 'css' })
@@ -278,7 +301,8 @@ describe('a cache whose container is not the document head', () => {
     host.remove()
   })
 
-  it('gets its own sheets in another document, made by that document', () => {
+  // Inserting adopts an element made by another document, so which document makes it is not observable here.
+  it('gets its own sheets in another document', () => {
     const frame = document.createElement('iframe')
     document.body.append(frame)
     const frameDocument = frame.contentDocument!

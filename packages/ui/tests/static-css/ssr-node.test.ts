@@ -88,6 +88,22 @@ describe('a server render with no document', () => {
     expect(hrefs).toBe('data-href="mn-static-0 mn-static-mn-00000000000p0 mn-static-mn-00000000000c1 mn-static-mn-00000000000c2"')
   })
 
+  // One hoistable per class, so React meets no two children with one key.
+  it('sends a class used by several nodes of a render once, with no key warning', () => {
+    const errors: string[] = []
+    vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => void errors.push(String(args[0])))
+    const html = page(
+      Div({
+        __meo$: 2,
+        __meo$s: RED,
+        children: [Div({ __meo$: 2, __meo$s: RED, key: 1 } as never), Div({ __meo$: 2, __meo$s: `${RED} ${MEDIA}`, key: 2 } as never)],
+      } as never),
+    )
+
+    expect(html.match(/mn-static-mn-000000000000r/g)).toHaveLength(1)
+    expect(errors.filter(error => /same key/.test(error))).toEqual([])
+  })
+
   it('sends nothing for a render without static classes', () => {
     expect(page(Div({ children: 'x' }))).toBe('<html><head></head><body><div>x</div></body></html>')
   })
