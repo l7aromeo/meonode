@@ -29,3 +29,25 @@ export function registerChildrenPassThrough(component: unknown): void {
 export function passesChildrenThrough(component: unknown): boolean {
   return (typeof component === 'function' || typeof component === 'object') && component !== null && passThrough.has(component)
 }
+
+/** Of those, the ones that provide a theme from their `tokens` prop. */
+const themeProviders = new WeakSet<object>()
+
+/**
+ * Records that a component provides a theme from its `tokens`, as `ThemeProvider`
+ * does, so a render that holds it can tell which tokens its children resolve
+ * against without reading the context.
+ * @param component The component a MeoNode factory renders.
+ */
+export function registerThemeProvider(component: unknown): void {
+  if ((typeof component === 'function' || typeof component === 'object') && component !== null) themeProviders.add(component)
+}
+
+/**
+ * Whether a component provides a theme from its `tokens` prop.
+ * @param component An element type.
+ * @returns `true` for a registered component.
+ */
+export function providesTheme(component: unknown): boolean {
+  return (typeof component === 'function' || typeof component === 'object') && component !== null && themeProviders.has(component)
+}

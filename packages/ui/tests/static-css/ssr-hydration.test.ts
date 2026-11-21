@@ -11,7 +11,7 @@ import { act } from 'react'
 import { hydrateRoot } from 'react-dom/client'
 import { renderToString } from 'react-dom/server'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { Div, Span } from '@src/main.js'
+import { Div, Node, Span } from '@src/main.js'
 import { NodeUtil } from '@src/util/node.util.js'
 import { __resetStaticCss, registerStaticCss, STATIC_CSS_PREFIX } from '@src/util/static-css.util.js'
 
@@ -212,5 +212,96 @@ describe('a server render without static css', () => {
     } finally {
       NodeUtil.isServer = false
     }
+  })
+})
+
+// In development a node's undefined theme token is checked without adding to the
+// tree: one in the scope of `StaticStyles` while rendering, on both sides, and
+// one under a component in the browser after commit. The host under the
+// component has three children, so a slot added on either side alone would take
+// it to four and shift the ids below.
+describe('a server-rendered document whose static css references an undefined theme token, in development', () => {
+  const MISSING = 'mn-00000000000mt'
+  const MISSING_RULE = `.${MISSING}{color:var(--meonode-theme-primary-missing);}`
+  const registerTokens = () => registerStaticCss('tokens', [[0, MISSING, MISSING_RULE]])
+
+  const Wrapper = ({ children }: { children?: unknown }) => children as ReturnType<typeof createElement>
+
+  function TokenApp() {
+    return createElement(
+      'html',
+      null,
+      createElement('head', null, createElement('title', null, 't')),
+      createElement(
+        'body',
+        null,
+        Div({
+          __meo$: 2,
+          __meo$s: MISSING,
+          id: 'scoped',
+          children: [
+            createElement(Labelled, { key: 'o', name: 'outer' }),
+            Node(Wrapper, {
+              key: 'w',
+              children: Div({
+                __meo$: 2,
+                __meo$s: MISSING,
+                id: 'under-component',
+                children: [
+                  createElement(Labelled, { key: 'a', name: 'a' }),
+                  createElement('p', { key: 'b' }, createElement(Labelled, { name: 'b' }), 'x'),
+                  createElement(Labelled, { key: 'c', name: 'c' }),
+                ],
+              } as never),
+            }),
+          ],
+        } as never).render(),
+      ),
+    )
+  }
+
+  it('warns on both sides, hydrates with no mismatch and ids intact', async () => {
+    const { __resetThemeDiagnostics } = await import('@src/util/theme-diagnostics.util.js')
+    const warnings: string[] = []
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation((...args: unknown[]) => void warnings.push(String(args[0])))
+
+    __resetStaticCss()
+    __resetThemeDiagnostics()
+    registerTokens()
+    NodeUtil.isServer = true
+    let html: string
+    try {
+      html = renderToString(createElement(TokenApp))
+    } finally {
+      NodeUtil.isServer = false
+    }
+    const serverWarnings = warnings.splice(0).filter(text => text.includes('--meonode-theme-primary-missing'))
+    const serverIds = Object.fromEntries(
+      [...new DOMParser().parseFromString(html, 'text/html').querySelectorAll('label')].map(label => [label.dataset.probe, label.htmlFor]),
+    )
+
+    document.open()
+    document.write(html)
+    document.close()
+    __resetStaticCss()
+    __resetThemeDiagnostics()
+    registerTokens()
+    for (const name of Object.keys(clientIds)) delete clientIds[name]
+    const messages: string[] = []
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => void messages.push(args.map(String).join(' ')))
+    try {
+      await act(async () => {
+        hydrateRoot(document, createElement(TokenApp), { onRecoverableError: error => void messages.push(String(error)) })
+      })
+    } finally {
+      errorSpy.mockRestore()
+      warnSpy.mockRestore()
+    }
+
+    expect(serverWarnings).toHaveLength(1)
+    expect(warnings.filter(text => text.includes('--meonode-theme-primary-missing'))).toEqual(serverWarnings)
+    expect(messages.filter(message => HYDRATION_MARKERS.some(marker => marker.test(message)))).toEqual([])
+    expect(Object.keys(serverIds)).toEqual(['outer', 'a', 'b', 'c'])
+    expect(clientIds).toEqual(serverIds)
   })
 })

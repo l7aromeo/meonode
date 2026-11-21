@@ -74,8 +74,11 @@ const state = getGlobalState(Symbol.for('@meonode/ui/staticCss'), (): StaticCssS
 /** Whether rules go in through the CSSOM rather than as text: in production, as with Emotion. */
 let speedy = !isDevMode()
 
-/** Whether any module has registered static css. Until one has, nothing here costs a render anything. */
-export const hasStaticCss = (): boolean => state.modules.size > 0
+/** Whether any rule is registered. Until one is, nothing here costs a render anything, and a server render sends nothing for it. */
+export const hasStaticCss = (): boolean => state.rules.size > 0
+
+/** The registered text of a static class, or `undefined` when none is registered. */
+export const staticRuleOf = (className: string): string | undefined => state.rules.get(className)
 
 /** The precedence of a bucket's hoistable styles. */
 export const staticPrecedence = (bucket: number): string => `${STATIC_CSS_PREFIX}${bucket}`

@@ -1,5 +1,5 @@
 import { createNode } from '@src/core.node.js'
-import { registerChildrenPassThrough } from '@src/util/children-pass-through.util.js'
+import { registerChildrenPassThrough, registerThemeProvider } from '@src/util/children-pass-through.util.js'
 import _ThemeProvider from '@src/components/theme-provider.client.js'
 
 /**
@@ -12,8 +12,10 @@ import _ThemeProvider from '@src/components/theme-provider.client.js'
  */
 export const ThemeProvider = createNode(_ThemeProvider)
 
-// It renders its children as given, inside its context.
+// It renders its children as given, inside its context, and that context's
+// tokens are its own `tokens` merged over those above.
 registerChildrenPassThrough(_ThemeProvider)
+registerThemeProvider(_ThemeProvider)
 
 // The prop and context shapes, so an application can name what it passes and
 // what `useTheme` hands back without reaching into the client module.

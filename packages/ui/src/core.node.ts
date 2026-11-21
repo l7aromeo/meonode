@@ -34,13 +34,25 @@ import { INITIAL_PROPS_MARKER, isDevMode, LIST_MARKER, LOCATION_MARKER, STATIC_C
 import { checkCss, checkFactoryCss, isMergeableCss, markCombinedCssChecked } from '@src/util/css.util.js'
 import { NodeUtil } from '@src/util/node.util.js'
 import { IS_REACT_SERVER_LAYER } from '@src/util/react-layer.util.js'
-import { passesChildrenThrough } from '@src/util/children-pass-through.util.js'
+import { passesChildrenThrough, providesTheme } from '@src/util/children-pass-through.util.js'
 import { observeChildren } from '@src/util/generated-list.util.js'
 import { compileServerEmotionRule } from '@src/util/server-emotion.util.js'
-import { hasStaticCss, modulesOfClasses } from '@src/util/static-css.util.js'
-import { StaticStyles } from '@src/components/static-styles.js'
+import { hasStaticCss, modulesOfClasses, staticRuleOf } from '@src/util/static-css.util.js'
+import { StaticStyles, type StaticThemeCandidate, type StaticThemeCheck } from '@src/components/static-styles.js'
 import { replaceThemeTokensWithCssVars } from '@src/util/server-theme.util.js'
-import { collectThemeVarRefs, diagnosticsEnabled, getThemeVarIndex, reportThemeIssues, reportUnresolvedThemeKey } from '@src/util/theme-diagnostics.util.js'
+import {
+  addThemeVarRef,
+  collectStaticThemeVarRefs,
+  collectThemeVarRefs,
+  diagnosticsEnabled,
+  getThemeVarIndex,
+  getTokensVarIndex,
+  reportThemeIssues,
+  reportThemeVarRefs,
+  reportUnresolvedThemeKey,
+  type ThemeVarIndex,
+  unionThemeVarIndexes,
+} from '@src/util/theme-diagnostics.util.js'
 import { ThemeUtil } from '@src/util/theme.util.js'
 
 /**
@@ -553,8 +565,23 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
     }
     const finishStaticSlot = (rules: Map<string, ReactElement>): void => {
       const modules = staticModules?.get(rules)
-      if (modules) rules.set(STATIC_STYLES_KEY, createElement(StaticStyles, { key: STATIC_STYLES_KEY, modules }))
+      if (!modules) return
+      const checks = staticChecks?.get(rules)
+      const candidates = staticCandidates?.get(rules)
+      rules.set(
+        STATIC_STYLES_KEY,
+        createElement(StaticStyles, { key: STATIC_STYLES_KEY, modules, ...(checks && { checks }), ...(candidates && { candidates }) }),
+      )
     }
+    // In development, the theme tokens of extracted styles are checked where the
+    // providers are, as `StyledRenderer` checks a styled element's, by the
+    // `StaticStyles` of each rules map; see there. Production builds none of this.
+    const staticChecks = staticModules !== undefined && diagnosticsEnabled() ? new Map<Map<string, ReactElement>, StaticThemeCheck[]>() : undefined
+    // Checked after commit, which only a development build's `StaticStyles` does, and only in the browser.
+    const staticCandidates =
+      staticChecks !== undefined && isDevMode() && !NodeUtil.isServer && !IS_REACT_SERVER_LAYER
+        ? new Map<Map<string, ReactElement>, StaticThemeCandidate[]>()
+        : undefined
 
     try {
       // Fast capacity check with exponential growth
@@ -582,6 +609,9 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
         inForeignNamespace: false,
         themeAnchor: null,
         besidePassThrough: false,
+        opaqueAbove: false,
+        opaqueBelowAnchor: false,
+        themeOwn: undefined,
       }
 
       // Iterative depth-first traversal with explicit begin/complete phases to avoid recursion.
@@ -591,7 +621,18 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
           stackPointer--
           continue
         }
-        const { node, isProcessed, theme: inheritedTheme, anchor, inForeignNamespace, themeAnchor, besidePassThrough } = currentWork
+        const {
+          node,
+          isProcessed,
+          theme: inheritedTheme,
+          anchor,
+          inForeignNamespace,
+          themeAnchor,
+          besidePassThrough,
+          opaqueAbove,
+          opaqueBelowAnchor,
+          themeOwn,
+        } = currentWork as typeof currentWork & { opaqueAbove: boolean; opaqueBelowAnchor: boolean; themeOwn: ThemeVarIndex | undefined }
 
         const getActiveTheme = (props: FinalNodeProps, current?: Theme): Theme | undefined => {
           const candidate = (props as { theme?: unknown }).theme
@@ -624,6 +665,22 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
             !IS_REACT_SERVER_LAYER || mayChangeTheme(beginTarget)
               ? null
               : (themeAnchor ?? (canAnchorRules(beginTarget, node.props as Record<string, unknown>, inForeignNamespace) ? node : null))
+          // For the theme scope of the child's checks: whether a component the render
+          // cannot see into is above it, and whether one is between it and the topmost
+          // host, where its `StaticStyles` renders. MeoNode's own providers render
+          // their children as given, and a ThemeProvider's tokens are known here, so
+          // the child's tokens resolve against those merged over the ones above.
+          let childOpaqueAbove = opaqueAbove
+          let childOpaqueBelowAnchor = opaqueBelowAnchor
+          let childThemeOwn = themeOwn
+          if (staticChecks !== undefined && mayChangeTheme(beginTarget)) {
+            if (providesTheme(beginTarget))
+              childThemeOwn = unionThemeVarIndexes(themeOwn ?? null, getTokensVarIndex((node.props as { tokens?: unknown }).tokens))
+            else if (!passesChildrenThrough(beginTarget)) {
+              childOpaqueAbove = true
+              childOpaqueBelowAnchor ||= anchor !== null
+            }
+          }
 
           if (children) {
             // Only consider BaseNode children for further traversal; primitives and React elements are terminal.
@@ -663,6 +720,9 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
                 // their children as given, so a rule may go beside it. Not inside
                 // SVG or MathML, where a `<style>` would be that namespace's element.
                 besidePassThrough: IS_REACT_SERVER_LAYER && !childInForeignNamespace && passesChildrenThrough(beginTarget),
+                opaqueAbove: childOpaqueAbove,
+                opaqueBelowAnchor: childOpaqueBelowAnchor,
+                themeOwn: childThemeOwn,
               }
             }
           }
@@ -905,6 +965,42 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
               }
               const modules = staticSlot(rules)
               if (NodeUtil.isServer) for (const moduleId of modulesOfClasses(staticClasses as string)) if (!modules.includes(moduleId)) modules.push(moduleId)
+              if (staticChecks !== undefined) {
+                const { refs, valueRefs } = collectStaticThemeVarRefs(staticClasses as string, staticVars as Record<string, unknown> | undefined, staticRuleOf)
+                if (refs.length > 0 || valueRefs.length > 0) {
+                  if (IS_REACT_SERVER_LAYER) {
+                    const allRefs = [...refs]
+                    for (const [, found] of valueRefs) for (const ref of found) addThemeVarRef(allRefs, ref)
+                    // With a theme in scope, checked here; with none, where the providers
+                    // are, by `ThemeTokenCheck`, placed as a server rule's check is.
+                    if (activeTheme) reportThemeVarRefs(allRefs, getThemeVarIndex(activeTheme))
+                    else {
+                      const canCarry = canAnchorRules(renderTarget, elementProps as Record<string, unknown>, inForeignNamespace)
+                      const themeCarrier = themeAnchor ?? (canCarry ? node : null)
+                      const checkKey = `${STATIC_STYLES_KEY}:check:${allRefs.map(([varName, property]) => `${varName}|${property}`).join(' ')}`
+                      const check = createElement(ThemeTokenCheck, { key: checkKey, refs: allRefs })
+                      const carried = themeCarrier
+                        ? (anchoredRules.get(themeCarrier) ?? new Map<string, ReactElement>())
+                        : besidePassThrough
+                          ? (besideRules.get(node) ?? new Map<string, ReactElement>())
+                          : rules
+                      if (themeCarrier) anchoredRules.set(themeCarrier, carried)
+                      else if (besidePassThrough) besideRules.set(node, carried)
+                      carried.set(checkKey, check)
+                    }
+                  } else if (carrier !== null ? !opaqueBelowAnchor : !opaqueAbove) {
+                    const allRefs = [...refs]
+                    for (const [, found] of valueRefs) for (const ref of found) addThemeVarRef(allRefs, ref)
+                    const checks = staticChecks.get(rules) ?? []
+                    staticChecks.set(rules, checks)
+                    checks.push(themeOwn ? { refs: allRefs, own: themeOwn } : { refs: allRefs })
+                  } else if (staticCandidates !== undefined) {
+                    const candidates = staticCandidates.get(rules) ?? []
+                    staticCandidates.set(rules, candidates)
+                    candidates.push({ classes: staticClasses as string, refs, valueRefs })
+                  }
+                }
+              }
             }
           }
 
