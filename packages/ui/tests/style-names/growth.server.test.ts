@@ -20,5 +20,5 @@ describe('the memo of names across server requests', () => {
 
     expect(most).toBeLessThanOrEqual(STYLE_NAME_MEMO_ENTRIES)
     expect(last).toContain(`padding-left:${REQUESTS - 1}px;`)
-  }, 30_000)
+  }, 60_000)
 })

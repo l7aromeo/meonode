@@ -135,6 +135,24 @@ describe('the memo of names', () => {
     expect(most).toBeGreaterThan(STYLE_NAME_MEMO_CHARACTERS / 2)
   })
 
+  // A page whose renders go through the same 15,000 styles again and again, as
+  // one of about 10,000 styled nodes does when it mounts and then updates.
+  it('hashes a cycle of 15,000 texts only on its first pass', () => {
+    __clearStyleNameMemo()
+    let calls = 0
+    __setStyleHash(text => {
+      calls++
+      return hashStyles(text)
+    })
+    const cycle = texts(15_000)
+    for (const text of cycle) nameStyles({ name: 'x', styles: text } as never)
+    const first = calls
+    for (let pass = 0; pass < 3; pass++) for (const text of cycle) nameStyles({ name: 'x', styles: text } as never)
+
+    expect(first).toBe(15_000)
+    expect(calls - first).toBe(0)
+  })
+
   it('keeps no text longer than half its characters, and still names it', () => {
     __clearStyleNameMemo()
     const text = 'x'.repeat(STYLE_NAME_MEMO_CHARACTERS / 2 + 1)

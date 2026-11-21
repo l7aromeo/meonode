@@ -34,7 +34,7 @@ describe('the memo of names', () => {
 
   it(`stays within ${STYLE_NAME_MEMO_ENTRIES} names across routes whose styles pass it, and names each element by its own style`, () => {
     const root = createRoot(document.body.appendChild(document.createElement('div')))
-    const ROUTES = 21
+    const ROUTES = STYLE_NAME_MEMO_ENTRIES / 1000 + 1
     const PER_ROUTE = 1000
     let most = 0
     for (let route = 0; route < ROUTES; route++) {
@@ -49,5 +49,5 @@ describe('the memo of names', () => {
     expect(most).toBeLessThanOrEqual(STYLE_NAME_MEMO_ENTRIES)
     expect(getComputedStyle(element).paddingLeft).toBe('7px')
     act(() => root.unmount())
-  }, 30_000)
+  }, 60_000)
 })

@@ -153,7 +153,7 @@ export function hashStyles(styles: string): string {
 }
 
 /** The most texts the memo of names keeps, across both its generations. */
-export const STYLE_NAME_MEMO_ENTRIES = 20_000
+export const STYLE_NAME_MEMO_ENTRIES = 40_000
 
 /** The most characters of text the memo of names keeps, across both its generations. */
 export const STYLE_NAME_MEMO_CHARACTERS = 4 * 1024 * 1024
