@@ -411,3 +411,61 @@ fn transform_empty_props() {
 fn transform_paren_wrapped_props() {
     run_partition("transform_paren_wrapped_props");
 }
+
+/// `experimental_extractCss` on, nothing else.
+fn extract_config() -> CompileConfig {
+    CompileConfig {
+        experimental_extract_css: true,
+        ..CompileConfig::default()
+    }
+}
+
+#[test]
+fn extract_static() {
+    run_partition_with_config("extract_static", extract_config());
+}
+
+#[test]
+fn extract_switch() {
+    run_partition_with_config("extract_switch", extract_config());
+}
+
+#[test]
+fn extract_var() {
+    run_partition_with_config("extract_var", extract_config());
+}
+
+#[test]
+fn extract_partial() {
+    run_partition_with_config("extract_partial", extract_config());
+}
+
+#[test]
+fn extract_defaults() {
+    run_partition_with_config("extract_defaults", extract_config());
+}
+
+#[test]
+fn extract_conflicts() {
+    run_partition_with_config("extract_conflicts", extract_config());
+}
+
+#[test]
+fn extract_per_node() {
+    run_partition_with_config("extract_per_node", extract_config());
+}
+
+#[test]
+fn extract_not_host() {
+    run_partition_with_config("extract_not_host", extract_config());
+}
+
+#[test]
+fn extract_prefixed() {
+    run_partition_with_config("extract_prefixed", extract_config());
+}
+
+#[test]
+fn extract_const() {
+    run_partition_with_config("extract_const", extract_config());
+}

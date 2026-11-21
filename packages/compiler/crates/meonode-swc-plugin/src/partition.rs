@@ -45,6 +45,7 @@ use crate::css_props::is_css_prop;
 use crate::detect::{self, ChildrenOrigin, Decision};
 use crate::effect::is_inline_function;
 use crate::effect::is_static_literal;
+use crate::extract::{ModuleExtraction, ModuleScope, emit_module};
 use crate::keys::{is_special_key, is_stable_key_visible_special, key_name_atom};
 use crate::theme::{is_length_key, is_selector_or_at_rule, rewrite_theme_tokens_for};
 
@@ -694,6 +695,7 @@ fn rewrite_object(
     ctx: &SiteContext<'_>,
     span: Span,
     children: ChildrenOrigin,
+    extract: Option<(&ModuleScope, &mut ModuleExtraction)>,
 ) {
     let filename = ctx.filename;
     let old_props = mem::take(&mut obj.props);
@@ -801,6 +803,30 @@ fn rewrite_object(
     rewrite_theme_tokens_in_buckets([&mut c_props, &mut d_props]);
     rewrite_theme_tokens_in_css_prop(&mut special_props);
 
+    // Build-time CSS for what can be proved; the rest stays where it is. Never
+    // with a spread, whose keys are unknown here.
+    let mut extracted_props = Vec::new();
+    if !has_spread
+        && let Some((scope, module)) = extract
+        && let Some(site) = scope.extract_site(&mut c_props, &mut special_props, &d_props, module)
+    {
+        let remaining: std::collections::HashSet<String> = c_props
+            .iter()
+            .chain(d_props.iter())
+            .chain(special_props.iter())
+            .filter_map(|p| match p {
+                PropOrSpread::Prop(prop) => match &**prop {
+                    Prop::KeyValue(kv) => Some(key_name_atom(&kv.key).to_string()),
+                    Prop::Shorthand(id) => Some(id.sym.to_string()),
+                    _ => None,
+                },
+                PropOrSpread::Spread(_) => None,
+            })
+            .collect();
+        dyn_names.retain(|name| remaining.contains(name.as_ref()));
+        extracted_props = site.props;
+    }
+
     // A spread present means `k`/`dyn` are never emitted (stable-key hazard
     // — see the doc comment above, and [`BUCKET_SITE_KEY`] for which
     // `@meonode/ui` still reads them), regardless of whether `dyn_names`
@@ -819,6 +845,7 @@ fn rewrite_object(
 
     new_props.push(marker_prop());
     new_props.extend(leading);
+    new_props.extend(extracted_props);
     if !c_props.is_empty() {
         new_props.push(bucket_prop(BUCKET_CSS_KEY, c_props));
     }
@@ -875,6 +902,9 @@ struct Rewriter<'a> {
     /// at. The children origin is `Generated` by construction, so it isn't
     /// carried here.
     synthesize: HashMap<(u32, u32), usize>,
+    /// The module's bindings and collected rules, when extraction is on and
+    /// the program can carry it.
+    extract: Option<(ModuleScope, ModuleExtraction)>,
 }
 
 impl VisitMut for Rewriter<'_> {
@@ -905,6 +935,11 @@ impl VisitMut for Rewriter<'_> {
                 None => return,
             },
         };
+        let host = partition
+            && self
+                .extract
+                .as_ref()
+                .is_some_and(|(scope, _)| scope.is_host_call(call));
         let Some(arg) = call.args.get_mut(props_arg_idx) else {
             return;
         };
@@ -912,7 +947,11 @@ impl VisitMut for Rewriter<'_> {
             return;
         };
         if partition {
-            rewrite_object(obj, &self.ctx, span, children);
+            let extract = match &mut self.extract {
+                Some((scope, module)) if host => Some((&*scope, module)),
+                _ => None,
+            };
+            rewrite_object(obj, &self.ctx, span, children, extract);
         } else {
             stamp_call_site_key(obj, &self.ctx, span, children);
         }
@@ -959,6 +998,11 @@ pub fn transform_program(
         return;
     }
 
+    let extract = if config.experimental_extract_css {
+        ModuleScope::collect(program).map(|scope| (scope, ModuleExtraction::default()))
+    } else {
+        None
+    };
     let mut rewriter = Rewriter {
         ctx: SiteContext {
             filename,
@@ -968,8 +1012,12 @@ pub fn transform_program(
         compilable,
         key_only,
         synthesize,
+        extract,
     };
     program.visit_mut_with(&mut rewriter);
+    if let (Some((_, extraction)), Program::Module(module)) = (&rewriter.extract, program) {
+        emit_module(module, extraction);
+    }
 }
 
 #[cfg(test)]

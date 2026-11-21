@@ -72,6 +72,9 @@ pub mod style_name;
 // Emotion's whitespace handling and vendor prefixer, ported.
 pub mod stylis;
 
+// Build-time CSS extraction behind `experimental_extractCss`.
+pub mod extract;
+
 // Prop partitioning + call-site key emission. Public for the same
 // reason as `detect`.
 pub mod partition;
