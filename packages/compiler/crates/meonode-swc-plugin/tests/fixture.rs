@@ -474,3 +474,8 @@ fn extract_const() {
 fn extract_defaults_var() {
     run_partition_with_config("extract_defaults_var", extract_config());
 }
+
+#[test]
+fn extract_overlap() {
+    run_partition_with_config("extract_overlap", extract_config());
+}

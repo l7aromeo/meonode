@@ -31,7 +31,8 @@
 //!   order-dependent shapes stay on the runtime path: two overlapping
 //!   properties in one context (`padding` and `paddingTop`), and one property
 //!   in two or more non-base contexts (`:hover` and `:focus`, two media
-//!   queries).
+//!   queries). Overlap is read from the CSS specifications' shorthand and
+//!   logical property tables (see [`overlaps`]).
 //! - `resolveDefaultStyle`'s defaults (`flex-shrink`, `min-height`,
 //!   `min-width`) read the whole style. When everything is extracted they are
 //!   computed here and written as classes; when anything is left, every entry
@@ -44,7 +45,9 @@ use swc_core::common::{DUMMY_SP, SyntaxContext};
 use swc_core::ecma::ast::*;
 use swc_core::ecma::atoms::Atom;
 
-use crate::extract_tables::{is_host_factory, is_unitless};
+use crate::extract_tables::{
+    CSS_ALIASES, CSS_LOGICAL, CSS_PROPERTIES, CSS_SHORTHANDS, is_host_factory, is_unitless,
+};
 use crate::keys::key_name_atom;
 use crate::style_name::{class_name, hash_styles};
 use crate::stylis;
@@ -565,206 +568,18 @@ fn value_text(key: &str, value: &Value) -> Option<String> {
 // ---------------------------------------------------------------------------
 // Overlap between properties
 
-/// Shorthands and the properties they set, by written name without a vendor
-/// prefix. A longhand that starts with its shorthand's name and `-` is caught
-/// by the prefix test in [`overlaps`] and needs no entry; the entries here are
-/// the ones whose names do not show it.
-const SHORTHANDS: &[(&str, &[&str])] = &[
-    ("all", &["*"]),
-    ("inset", &["top", "right", "bottom", "left"]),
-    ("place-content", &["align-content", "justify-content"]),
-    ("place-items", &["align-items", "justify-items"]),
-    ("place-self", &["align-self", "justify-self"]),
-    (
-        "gap",
-        &[
-            "row-gap",
-            "column-gap",
-            "grid-gap",
-            "grid-row-gap",
-            "grid-column-gap",
-        ],
-    ),
-    (
-        "grid-gap",
-        &["row-gap", "column-gap", "grid-row-gap", "grid-column-gap"],
-    ),
-    ("grid-row-gap", &["row-gap"]),
-    ("grid-column-gap", &["column-gap"]),
-    (
-        "grid-area",
-        &[
-            "grid-row",
-            "grid-column",
-            "grid-row-start",
-            "grid-row-end",
-            "grid-column-start",
-            "grid-column-end",
-        ],
-    ),
-    (
-        "grid",
-        &[
-            "grid-template",
-            "grid-auto-rows",
-            "grid-auto-columns",
-            "grid-auto-flow",
-            "grid-template-rows",
-            "grid-template-columns",
-            "grid-template-areas",
-        ],
-    ),
-    (
-        "font",
-        &[
-            "line-height",
-            "font-size-adjust",
-            "font-kerning",
-            "font-optical-sizing",
-            "font-variation-settings",
-            "font-feature-settings",
-            "font-language-override",
-        ],
-    ),
-    ("columns", &["column-width", "column-count"]),
-    ("flex-flow", &["flex-direction", "flex-wrap"]),
-    (
-        "white-space",
-        &[
-            "white-space-collapse",
-            "text-wrap",
-            "text-wrap-mode",
-            "text-wrap-style",
-        ],
-    ),
-    ("text-wrap", &["text-wrap-mode", "text-wrap-style"]),
-    (
-        "border",
-        &[
-            "border-image",
-            "border-image-source",
-            "border-image-slice",
-            "border-image-width",
-            "border-image-outset",
-            "border-image-repeat",
-            "border-color",
-            "border-style",
-            "border-width",
-            "border-top",
-            "border-right",
-            "border-bottom",
-            "border-left",
-            "border-block",
-            "border-inline",
-        ],
-    ),
-    (
-        "border-color",
-        &[
-            "border-top-color",
-            "border-right-color",
-            "border-bottom-color",
-            "border-left-color",
-            "border-block-color",
-            "border-inline-color",
-        ],
-    ),
-    (
-        "border-style",
-        &[
-            "border-top-style",
-            "border-right-style",
-            "border-bottom-style",
-            "border-left-style",
-            "border-block-style",
-            "border-inline-style",
-        ],
-    ),
-    (
-        "border-width",
-        &[
-            "border-top-width",
-            "border-right-width",
-            "border-bottom-width",
-            "border-left-width",
-            "border-block-width",
-            "border-inline-width",
-        ],
-    ),
-    (
-        "border-radius",
-        &[
-            "border-top-left-radius",
-            "border-top-right-radius",
-            "border-bottom-right-radius",
-            "border-bottom-left-radius",
-            "border-start-start-radius",
-            "border-start-end-radius",
-            "border-end-start-radius",
-            "border-end-end-radius",
-        ],
-    ),
-    ("overflow", &["overflow-block", "overflow-inline"]),
-    ("container", &["container-name", "container-type"]),
-    (
-        "contain-intrinsic-size",
-        &[
-            "contain-intrinsic-width",
-            "contain-intrinsic-height",
-            "contain-intrinsic-block-size",
-            "contain-intrinsic-inline-size",
-        ],
-    ),
-    ("marker", &["marker-start", "marker-mid", "marker-end"]),
-    (
-        "text-decoration",
-        &[
-            "text-decoration-line",
-            "text-decoration-color",
-            "text-decoration-style",
-            "text-decoration-thickness",
-        ],
-    ),
-    (
-        "background",
-        &["background-position-x", "background-position-y"],
-    ),
-    (
-        "mask",
-        &[
-            "mask-border",
-            "mask-border-source",
-            "mask-border-slice",
-            "mask-border-width",
-            "mask-border-outset",
-            "mask-border-repeat",
-            "mask-border-mode",
-        ],
-    ),
-];
-
-/// Logical names and the physical properties they may stand for, depending on
-/// the writing mode and direction.
-const LOGICAL: &[(&str, &[&str])] = &[
-    ("inline-size", &["width", "height"]),
-    ("block-size", &["width", "height"]),
-    ("min-inline-size", &["min-width", "min-height"]),
-    ("min-block-size", &["min-width", "min-height"]),
-    ("max-inline-size", &["max-width", "max-height"]),
-    ("max-block-size", &["max-width", "max-height"]),
-    ("overflow-inline", &["overflow-x", "overflow-y"]),
-    ("overflow-block", &["overflow-x", "overflow-y"]),
-    (
-        "contain-intrinsic-inline-size",
-        &["contain-intrinsic-width", "contain-intrinsic-height"],
-    ),
-    (
-        "contain-intrinsic-block-size",
-        &["contain-intrinsic-width", "contain-intrinsic-height"],
-    ),
-];
-
 const VENDOR_PREFIXES: &[&str] = &["-webkit-", "-moz-", "-ms-", "-o-"];
+
+/// Properties `all` leaves alone, besides custom properties
+/// (css-cascade: <https://drafts.csswg.org/css-cascade-5/#propdef-all>).
+const NOT_RESET_BY_ALL: &[&str] = &["direction", "unicode-bidi"];
+
+fn table_lookup<'t, V>(table: &'t [(&str, V)], name: &str) -> Option<&'t V> {
+    table
+        .binary_search_by(|(key, _)| (*key).cmp(name))
+        .ok()
+        .map(|at| &table[at].1)
+}
 
 /// `name` without a vendor prefix.
 fn unprefixed(name: &str) -> &str {
@@ -774,80 +589,83 @@ fn unprefixed(name: &str) -> &str {
         .unwrap_or(name)
 }
 
-/// The physical properties `name` may set, every logical side read as all four
-/// physical ones. Conservative by design: reading too much only keeps more on
-/// the runtime path.
-fn atoms(name: &str) -> HashSet<String> {
-    let mut out = HashSet::new();
-    let mut stack = vec![unprefixed(name).to_string()];
-    while let Some(current) = stack.pop() {
-        if !out.insert(current.clone()) {
-            continue;
-        }
-        for (shorthand, longhands) in SHORTHANDS {
-            if *shorthand == current {
-                stack.extend(longhands.iter().map(|s| s.to_string()));
-            }
-        }
-        for (logical, physical) in LOGICAL {
-            if *logical == current {
-                stack.extend(physical.iter().map(|s| s.to_string()));
-            }
-        }
-        // Logical sides: `margin-inline-start`, `inset-block`, `border-inline-color`.
-        for logical in [
-            "-inline-start",
-            "-inline-end",
-            "-block-start",
-            "-block-end",
-            "-inline",
-            "-block",
-        ] {
-            if let Some(at) = current.find(logical) {
-                let (head, tail) = (&current[..at], &current[at + logical.len()..]);
-                let head = if head == "inset" { "" } else { head };
-                for side in ["top", "right", "bottom", "left"] {
-                    let physical = if head.is_empty() {
-                        format!("{side}{tail}")
-                    } else {
-                        format!("{head}-{side}{tail}")
-                    };
-                    stack.push(physical);
-                }
-                stack.push(format!("{head}{tail}"));
-            }
-        }
-        // Corners written logically.
-        if current.starts_with("border-")
-            && current.ends_with("-radius")
-            && (current.contains("-start-") || current.contains("-end-"))
-        {
-            stack.push("border-radius".into());
-            for corner in ["top-left", "top-right", "bottom-right", "bottom-left"] {
-                stack.push(format!("border-{corner}-radius"));
-            }
-        }
-    }
-    out
+fn is_known_property(name: &str) -> bool {
+    CSS_PROPERTIES.binary_search(&name).is_ok()
 }
 
-/// Whether setting `a` can change what `b` computes to, or the reverse.
+/// The property `name` is written for: a legacy alias's standard name, and a
+/// vendor-prefixed name's unprefixed one when the specifications define it.
+/// A name they do not define is returned without its vendor prefix.
+fn canonical(name: &str) -> &str {
+    if let Some(target) = table_lookup(CSS_ALIASES, name) {
+        return target;
+    }
+    let bare = unprefixed(name);
+    if is_known_property(bare) {
+        table_lookup(CSS_ALIASES, bare).copied().unwrap_or(bare)
+    } else if is_known_property(name) {
+        name
+    } else {
+        bare
+    }
+}
+
+/// The longhands a canonical property sets: itself when it is not a shorthand.
+fn longhands(name: &str) -> Vec<&str> {
+    match table_lookup(CSS_SHORTHANDS, name) {
+        Some(list) => list.to_vec(),
+        None => vec![name],
+    }
+}
+
+/// Whether two longhands can set the same value on an element: the same one,
+/// or a flow-relative and a physical member of one logical property group.
+/// Two flow-relative members never meet, nor do two physical ones: each
+/// writing mode maps one side, axis or corner to one physical one.
+fn longhands_meet(a: &str, b: &str) -> bool {
+    if a == b {
+        return true;
+    }
+    match (table_lookup(CSS_LOGICAL, a), table_lookup(CSS_LOGICAL, b)) {
+        (Some((group_a, logical_a)), Some((group_b, logical_b))) => {
+            group_a == group_b && logical_a != logical_b
+        }
+        _ => false,
+    }
+}
+
+/// Whether setting `a` can change what `b` computes to, or the reverse, read
+/// from the specifications' shorthand and logical property tables.
+///
+/// A name the specifications do not define (`-webkit-tap-highlight-color`)
+/// cannot be placed in them, so it overlaps any property whose name it starts,
+/// or starts with, as a family: `-webkit-box-flex` meets `-webkit-box-flex-group`.
 fn overlaps(a: &str, b: &str) -> bool {
-    let (ua, ub) = (unprefixed(a), unprefixed(b));
-    if ua == ub {
+    if a.starts_with("--") || b.starts_with("--") {
+        return a == b;
+    }
+    let (ca, cb) = (canonical(a), canonical(b));
+    if ca == cb {
         return true;
     }
-    let prefix_of =
-        |s: &str, of: &str| of.starts_with(s) && of.as_bytes().get(s.len()) == Some(&b'-');
-    if prefix_of(ua, ub) || prefix_of(ub, ua) {
-        return true;
+    if ca == "all" || cb == "all" {
+        let other = if ca == "all" { cb } else { ca };
+        return !NOT_RESET_BY_ALL.contains(&other);
     }
-    let (sa, sb) = (atoms(ua), atoms(ub));
-    if sa.contains("*") || sb.contains("*") {
-        return true;
+    if is_known_property(ca) && is_known_property(cb) {
+        let (la, lb) = (longhands(ca), longhands(cb));
+        return la.iter().any(|x| lb.iter().any(|y| longhands_meet(x, y)));
     }
+    let family = |s: &str, of: &str| of.starts_with(s) && of.as_bytes().get(s.len()) == Some(&b'-');
+    let with_longhands = |c| {
+        let mut names = longhands(c);
+        names.push(c);
+        names.iter_mut().for_each(|name| *name = unprefixed(name));
+        names
+    };
+    let (sa, sb) = (with_longhands(ca), with_longhands(cb));
     sa.iter()
-        .any(|x| sb.contains(x) || sb.iter().any(|y| prefix_of(x, y) || prefix_of(y, x)))
+        .any(|x| sb.iter().any(|y| x == y || family(x, y) || family(y, x)))
 }
 
 // ---------------------------------------------------------------------------
@@ -1971,7 +1789,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn overlap_follows_shorthands_and_logical_sides() {
+    fn overlap_follows_the_specifications_shorthands_and_logical_groups() {
         let yes = [
             ("margin", "margin-top"),
             ("margin-inline-start", "margin-left"),
@@ -1986,6 +1804,20 @@ mod tests {
             ("flex-flow", "flex-wrap"),
             ("all", "color"),
             ("-webkit-mask", "mask-image"),
+            ("border", "border-color"),
+            ("background", "background-position-y"),
+            ("background-repeat", "background-repeat-x"),
+            ("-webkit-background-clip", "background-clip"),
+            ("word-wrap", "overflow-wrap"),
+            ("margin-bottom", "margin-inline"),
+            ("inset-block", "top"),
+            ("font", "font-width"),
+            ("font-stretch", "font-width"),
+            ("border-start-start-radius", "border-top-left-radius"),
+            ("-webkit-box-flex", "-webkit-box-flex-group"),
+            ("-webkit-user-select", "user-select"),
+            ("-ms-transform", "transform"),
+            ("-webkit-mask-box-image-slice", "mask-border-slice"),
         ];
         for (a, b) in yes {
             assert!(overlaps(a, b), "{a} / {b}");
@@ -1998,9 +1830,24 @@ mod tests {
             ("color", "background-color"),
             ("width", "max-width"),
             ("text-align", "text-decoration"),
+            ("border", "border-radius"),
+            ("flex", "flex-direction"),
+            ("flex", "flex-wrap"),
+            ("padding-block", "padding-inline"),
+            ("margin-block-start", "margin-inline-end"),
+            ("inline-size", "block-size"),
+            ("outline", "outline-offset"),
+            ("overflow", "overflow-wrap"),
+            ("grid", "grid-area"),
+            ("border-start-start-radius", "border-start-end-radius"),
+            ("text-decoration", "text-decoration-skip-ink"),
+            ("--gap", "--gap-x"),
+            ("all", "direction"),
+            ("all", "--gap"),
         ];
         for (a, b) in no {
             assert!(!overlaps(a, b), "{a} / {b}");
+            assert!(!overlaps(b, a), "{b} / {a}");
         }
     }
 

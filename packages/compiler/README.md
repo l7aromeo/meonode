@@ -542,7 +542,10 @@ was, and the runtime handles it as before.
   vendor prefixes included. A property is never split between a build-time rule
   and a runtime one on the same node. Shapes whose result depends on declaration
   order stay on the runtime path: `padding` beside `paddingTop`, and one property
-  under two pseudo-classes or two media queries.
+  under two pseudo-classes or two media queries. Which properties overlap comes
+  from the CSS specifications' shorthand and logical property tables (through
+  `@webref/css`), so `border` beside `borderRadius` is extracted, while `border`
+  beside `borderColor`, or `marginBottom` beside `marginInline`, is not.
 
 Off by default. With the option off, the output is exactly what it is without
 this option.
