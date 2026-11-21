@@ -315,22 +315,73 @@ function insertRule(sheet: CSSStyleSheet, rule: string): void {
   }
 }
 
+/** Char codes the rule splitter reads. */
+const BACKSLASH = 92
+const DOUBLE_QUOTE = 34
+const SINGLE_QUOTE = 39
+const SLASH = 47
+const STAR = 42
+const OPEN_BRACE = 123
+const CLOSE_BRACE = 125
+const SEMICOLON = 59
+const CLOSE_PAREN = 41
+const NEWLINE = 10
+
+/** Whether a char code continues a CSS identifier, so `url(` after it is a function, not a url token. */
+const isNameCode = (code: number) =>
+  (code >= 97 && code <= 122) || (code >= 65 && code <= 90) || (code >= 48 && code <= 57) || code === 45 || code === 95 || code >= 128
+
 /**
  * The top-level rules in a css text, for `insertRule`, which takes one at a
- * time. Extracted values never hold braces, so depth alone finds the ends.
+ * time. It reads the text as CSS tokenizes it: a brace or semicolon inside a
+ * string, an unquoted `url(...)`, a comment or after a backslash is not a
+ * boundary; a rule ends at its block's closing brace, a statement such as
+ * `@layer a, b;` at its semicolon. A trailing remainder is kept, so a broken
+ * rule reaches the browser and is rejected there, as in a stylesheet.
  */
 export function splitRules(cssText: string): string[] {
   const rules: string[] = []
+  const length = cssText.length
   let depth = 0
   let start = 0
-  for (let i = 0; i < cssText.length; i++) {
-    const code = cssText.charCodeAt(i)
-    if (code === 123 /* { */) depth++
-    else if (code === 125 /* } */ && --depth === 0) {
-      rules.push(cssText.slice(start, i + 1))
-      start = i + 1
-    }
+  const end = (at: number) => {
+    const rule = cssText.slice(start, at)
+    if (rule.trim() !== '') rules.push(rule)
+    start = at
   }
+  for (let i = 0; i < length; i++) {
+    const code = cssText.charCodeAt(i)
+    if (code === BACKSLASH) i++
+    else if (code === DOUBLE_QUOTE || code === SINGLE_QUOTE) {
+      // A string runs to its closing quote; a raw newline ends a bad string.
+      for (i++; i < length; i++) {
+        const next = cssText.charCodeAt(i)
+        if (next === BACKSLASH) i++
+        else if (next === code || next === NEWLINE) break
+      }
+    } else if (code === SLASH && cssText.charCodeAt(i + 1) === STAR) {
+      const close = cssText.indexOf('*/', i + 2)
+      i = close === -1 ? length : close + 1
+    } else if ((code | 32) === 117 /* u */ && !isNameCode(cssText.charCodeAt(i - 1)) && cssText.slice(i + 1, i + 4).toLowerCase() === 'rl(') {
+      // An unquoted url token runs to its closing parenthesis; a quoted one is a
+      // string, read on the next pass.
+      let j = i + 4
+      while (j < length && /\s/.test(cssText[j]!)) j++
+      const first = cssText.charCodeAt(j)
+      if (first === DOUBLE_QUOTE || first === SINGLE_QUOTE) i = j - 1
+      else {
+        for (i = j; i < length; i++) {
+          const next = cssText.charCodeAt(i)
+          if (next === BACKSLASH) i++
+          else if (next === CLOSE_PAREN) break
+        }
+      }
+    } else if (code === OPEN_BRACE) depth++
+    else if (code === CLOSE_BRACE) {
+      if (depth > 0 && --depth === 0) end(i + 1)
+    } else if (code === SEMICOLON && depth === 0) end(i + 1)
+  }
+  end(length)
   return rules
 }
 
