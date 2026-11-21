@@ -463,7 +463,7 @@ export class NodeUtil {
     // inside, or anything in there that needs converting — a function child most
     // visibly — never gets converted and vanishes from the output.
     if (children.some(Array.isArray)) {
-      return NodeUtil._processNestedChildren(children, disableEmotion, new WeakSet()) as Children
+      return NodeUtil._processNestedChildren(children, disableEmotion, new Set()) as Children
     }
 
     // Fast path for single element array — except on a call site the compiler
@@ -494,25 +494,29 @@ export class NodeUtil {
    * here would hand React the same shape a spread does and lose that.
    * @param children The array to normalise, which may hold further arrays.
    * @param disableEmotion Forwarded to {@link processRawNode}.
-   * @param seen Arrays already being walked on this path, so a children array
-   * that contains itself ends the walk instead of recurring forever.
+   * @param path The arrays enclosing this one, itself included, so a children
+   * array that contains itself ends the walk instead of recurring forever. Only
+   * enclosing arrays count: the same array beside itself is a repeat, which
+   * React renders each time.
    * @returns The array with every member normalised and nesting intact.
    */
-  private static _processNestedChildren(children: readonly unknown[], disableEmotion: boolean | undefined, seen: WeakSet<object>): unknown[] {
-    seen.add(children)
-    return children.map(child => {
+  private static _processNestedChildren(children: readonly unknown[], disableEmotion: boolean | undefined, path: Set<unknown>): unknown[] {
+    path.add(children)
+    const normalised = children.map(child => {
       if (!Array.isArray(child)) return NodeUtil.processRawNode(child as NodeElement, disableEmotion, true)
       // A cycle cannot render — React would recurse on it just as we would — so
       // it is dropped here rather than left to overflow the stack somewhere less
       // legible. Development says so; production keeps rendering the rest.
-      if (seen.has(child)) {
+      if (path.has(child)) {
         if (diagnosticsEnabled()) {
           console.warn('[MeoNode] A `children` array contains itself. The self-reference is dropped; the rest of the list still renders.')
         }
         return undefined
       }
-      return NodeUtil._processNestedChildren(child, disableEmotion, seen)
+      return NodeUtil._processNestedChildren(child, disableEmotion, path)
     })
+    path.delete(children)
+    return normalised
   }
 
   /**
@@ -558,7 +562,7 @@ export class NodeUtil {
    * the walk keeps as they are, nothing in that differs from copying each element
    * with its props cleaned and its children normalised the same way. A node, a
    * function child or a component value anywhere below needs the walk itself,
-   * and so does a nested array that appears twice, which the walk drops with a
+   * and so does a nested array inside itself, which the walk drops with a
    * warning. Iterative, so the depth of the subtree is not bounded by the stack.
    * @param root The element child.
    * @returns `true` when a copy at render gives the walk's output.
@@ -604,22 +608,33 @@ export class NodeUtil {
       for (let i = 0; i < children.length; i++) if (queue(children[i])) return true
       return false
     }
-    // Nested arrays, walked with a stack. `_processNestedChildren` drops an
-    // array it has already met anywhere in this element's children.
-    const seen = new Set<unknown>([children])
+    // Nested arrays, walked depth first with a stack of the arrays enclosing
+    // the current one. An array inside itself is a cycle, which
+    // `_processNestedChildren` drops with a warning, so it takes the walk. The
+    // same array met again beside itself is a repeat and copies like any other.
+    const path = new Set<unknown>([children])
     const lists: unknown[][] = [children]
+    const next: number[] = [0]
     while (lists.length > 0) {
-      const list = lists.pop() as unknown[]
-      for (let i = 0; i < list.length; i++) {
-        const child = list[i]
-        if (!Array.isArray(child)) {
-          if (queue(child)) return true
-          continue
-        }
-        if (seen.has(child)) return true
-        seen.add(child)
-        lists.push(child)
+      const top = lists.length - 1
+      const list = lists[top]
+      const i = next[top]
+      if (i === list.length) {
+        path.delete(list)
+        lists.pop()
+        next.pop()
+        continue
       }
+      next[top] = i + 1
+      const child = list[i]
+      if (!Array.isArray(child)) {
+        if (queue(child)) return true
+        continue
+      }
+      if (path.has(child)) return true
+      path.add(child)
+      lists.push(child)
+      next.push(0)
     }
     return false
   }
