@@ -1,0 +1,10 @@
+import { Absolute, Center, Column, Grid, Root, Row } from "@meonode/ui";
+Column({ padding: 8 });
+Row({ display: "grid", gap: 4 });
+Root({ minHeight: 40 });
+Center({ css: { display: "grid" } });
+Absolute({ top: 0, css: { "&:hover": { position: "relative" } } });
+Grid({ gap: 2, gridTemplateColumns: columns });
+Column({ display: shown, padding: 4 });
+Row({ flexDirection: "column", css: [base] });
+Column({ as: "section", padding: 8 });

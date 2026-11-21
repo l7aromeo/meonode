@@ -1,6 +1,5 @@
-import { Div, Row, Node } from "@meonode/ui";
+import { Div, Node } from "@meonode/ui";
 import { Card } from "./card";
-Row({ padding: 8 });
 Node(Card, { padding: 8 });
 Node("section", { padding: 8 });
 Div({ ...rest, padding: 8 });

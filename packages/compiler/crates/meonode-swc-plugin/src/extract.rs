@@ -55,7 +55,8 @@ use swc_core::ecma::ast::*;
 use swc_core::ecma::atoms::Atom;
 
 use crate::extract_tables::{
-    CSS_ALIASES, CSS_LOGICAL, CSS_PROPERTIES, CSS_SHORTHANDS, is_host_factory, is_unitless,
+    CSS_ALIASES, CSS_LOGICAL, CSS_PROPERTIES, CSS_SHORTHANDS, InitialProps, InitialValue,
+    is_host_factory, is_unitless, layout_factory,
 };
 use crate::keys::key_name_atom;
 use crate::style_name::{class_name, hash_styles};
@@ -73,6 +74,10 @@ const VALUE_EXPORT: &str = "toCssValue";
 /// Marker keys the call site carries.
 pub const CLASSES_KEY: &str = "__meo$s";
 pub const VARIABLES_KEY: &str = "__meo$v";
+/// On a layout factory's call site whose initial props were merged here: their
+/// fingerprint, which tells a runtime with the same initial props to skip its
+/// own merge.
+pub const INITIAL_KEY: &str = "__meo$i";
 /// Prefix of the custom properties VAR values travel in.
 const VARIABLE_PREFIX: &str = "--mv-";
 
@@ -85,7 +90,6 @@ const BUCKET_PER_NODE: u8 = 3;
 /// Separator between the parts of a hashed context, as the contract names it.
 const SEP: char = '\u{0}';
 
-/// Keys `resolveDefaultStyle` reads or writes.
 /// The keys whose values `resolveDefaultStyle` reads. For the others in
 /// [`DEFAULT_KEYS`] only their presence counts: a key the author wrote, with any
 /// value, replaces the default.
@@ -100,6 +104,7 @@ const DEFAULT_READ_KEYS: &[&str] = &[
     "flex",
 ];
 
+/// Keys `resolveDefaultStyle` reads or writes.
 const DEFAULT_KEYS: &[&str] = &[
     "display",
     "overflow",
@@ -160,6 +165,8 @@ impl ModuleExtraction {
 pub struct ModuleScope {
     /// Local bindings of host factories imported from `@meonode/ui`.
     host_factories: HashSet<(Atom, SyntaxContext)>,
+    /// Local bindings of layout factories imported from `@meonode/ui`.
+    layout_factories: HashMap<(Atom, SyntaxContext), Factory>,
     /// Local bindings of `Node`.
     node_factories: HashSet<(Atom, SyntaxContext)>,
     /// Top-level `const NAME = <literal>` bindings.
@@ -221,6 +228,14 @@ impl ModuleScope {
                 self.node_factories.insert(key);
             } else if is_host_factory(imported.as_ref()) {
                 self.host_factories.insert(key);
+            } else if let Some((fingerprint, initial)) = layout_factory(imported.as_ref()) {
+                self.layout_factories.insert(
+                    key,
+                    Factory::Layout {
+                        fingerprint,
+                        initial,
+                    },
+                );
             }
         }
     }
@@ -253,28 +268,86 @@ impl ModuleScope {
         }
     }
 
-    /// Whether `call` renders a plain host element: an imported host factory,
-    /// or `Node` with a tag string.
-    pub fn is_host_call(&self, call: &CallExpr) -> bool {
+    /// The factory `call` renders a host element through, when its styles can
+    /// be extracted: an imported host or layout factory, or `Node` with a tag
+    /// string.
+    pub fn extractable_factory(&self, call: &CallExpr) -> Option<Factory> {
         let Callee::Expr(callee) = &call.callee else {
-            return false;
+            return None;
         };
         let Expr::Ident(id) = &**callee else {
-            return false;
+            return None;
         };
         let key = (id.sym.clone(), id.ctxt);
         if self.host_factories.contains(&key) {
-            return true;
+            return Some(Factory::Host);
+        }
+        if let Some(factory) = self.layout_factories.get(&key) {
+            return Some(*factory);
         }
         if self.node_factories.contains(&key) {
-            return call.args.first().is_some_and(|arg| {
+            let tag = call.args.first().is_some_and(|arg| {
                 arg.spread.is_none()
                     && matches!(unwrap_transparent(&arg.expr), Expr::Lit(Lit::Str(s))
                         if s.value.as_str().is_some_and(|tag| tag.starts_with(|c: char| c.is_ascii_lowercase())))
             });
+            return tag.then_some(Factory::Host);
         }
-        false
+        None
     }
+}
+
+/// A factory whose call sites can be extracted.
+#[derive(Debug, Clone, Copy)]
+pub enum Factory {
+    /// Declared with nothing but its tag.
+    Host,
+    /// Declared with flat initial props, which `createNode` merges in front of
+    /// the call site's.
+    Layout {
+        fingerprint: &'static str,
+        initial: InitialProps,
+    },
+}
+
+impl Factory {
+    fn initial_entries(&self) -> Vec<(String, Expr)> {
+        match self {
+            Factory::Host => Vec::new(),
+            Factory::Layout { initial, .. } => initial
+                .iter()
+                .map(|(key, value)| (key.to_string(), initial_expr(*value)))
+                .collect(),
+        }
+    }
+}
+
+fn initial_expr(value: InitialValue) -> Expr {
+    match value {
+        InitialValue::Str(s) => str_expr(s),
+        InitialValue::Num(n) => Expr::Lit(Lit::Num(Number {
+            span: DUMMY_SP,
+            value: n,
+            raw: None,
+        })),
+    }
+}
+
+/// `combineFactoryProps(initial, props)` for initial props without a `css`
+/// (the only ones [`Factory::Layout`] holds): `{ ...initial, ...props }`, each
+/// key where it first appears, holding its last value.
+fn combine_factory_props(
+    initial: &[(String, Expr)],
+    props: &[(String, Expr)],
+) -> Vec<(String, Expr)> {
+    let mut combined = initial.to_vec();
+    for (key, value) in props {
+        match combined.iter_mut().find(|(k, _)| k == key) {
+            Some(slot) => slot.1 = value.clone(),
+            None => combined.push((key.clone(), value.clone())),
+        }
+    }
+    combined
 }
 
 /// Whether any identifier in `module` is spelled `name`.
@@ -1467,6 +1540,7 @@ impl ModuleScope {
     /// when nothing is extracted.
     pub fn extract_site(
         &self,
+        factory: Factory,
         c_props: &mut Vec<PropOrSpread>,
         special_props: &mut Vec<PropOrSpread>,
         d_props: &[PropOrSpread],
@@ -1486,8 +1560,10 @@ impl ModuleScope {
             }
         }
 
-        // `{ ...c, ...css }`, as `_processCompiledProps` merges them.
-        let mut entries = object_entries(&ObjectLit {
+        // The factory's initial props merged in front of the call site's, as
+        // `createNode` merges them, then `{ ...flat, ...css }`, as
+        // `_processCompiledProps` merges those.
+        let mut call_props = object_entries(&ObjectLit {
             span: DUMMY_SP,
             props: c_props.clone(),
         })?;
@@ -1503,6 +1579,15 @@ impl ModuleScope {
                 Prop::Shorthand(id) => Expr::Ident(id.clone()),
                 _ => return None,
             };
+            call_props.push(("css".to_string(), value));
+        }
+        let initial = factory.initial_entries();
+        let mut entries = combine_factory_props(&initial, &call_props);
+        let css = entries
+            .iter()
+            .position(|(key, _)| key == "css")
+            .map(|at| entries.remove(at).1);
+        if let Some(value) = css {
             match unwrap_transparent(&value) {
                 Expr::Object(obj) => {
                     for (key, value) in object_entries(obj)? {
@@ -1640,6 +1725,21 @@ impl ModuleScope {
         }
         let top: HashSet<String> = plan.top.clone();
         c_props.retain(|p| prop_key(p).is_none_or(|k| !top.contains(&k)));
+        // A marked call site skips the runtime's merge, so an initial entry
+        // left to the runtime is written here, ahead of the call site's own:
+        // the key keeps its first place and a later one its value, as
+        // `{ ...initial, ...props }` has them.
+        let kept_initial: Vec<PropOrSpread> = initial
+            .iter()
+            .filter(|(key, _)| !top.contains(key))
+            .map(|(key, value)| {
+                PropOrSpread::Prop(Box::new(Prop::KeyValue(KeyValueProp {
+                    key: PropName::Ident(IdentName::new(Atom::from(key.as_str()), DUMMY_SP)),
+                    value: Box::new(value.clone()),
+                })))
+            })
+            .collect();
+        c_props.splice(0..0, kept_initial);
         if let Some(index) = css_index {
             let mut drop_css = false;
             if let PropOrSpread::Prop(prop) = &mut special_props[index]
@@ -1667,6 +1767,12 @@ impl ModuleScope {
             key: PropName::Ident(IdentName::new(Atom::from(CLASSES_KEY), DUMMY_SP)),
             value: Box::new(class_expr),
         })))];
+        if let Factory::Layout { fingerprint, .. } = factory {
+            props.push(PropOrSpread::Prop(Box::new(Prop::KeyValue(KeyValueProp {
+                key: PropName::Ident(IdentName::new(Atom::from(INITIAL_KEY), DUMMY_SP)),
+                value: Box::new(str_expr(fingerprint)),
+            }))));
+        }
         if !variables.is_empty() {
             props.push(PropOrSpread::Prop(Box::new(Prop::KeyValue(KeyValueProp {
                 key: PropName::Ident(IdentName::new(Atom::from(VARIABLES_KEY), DUMMY_SP)),
@@ -1939,6 +2045,99 @@ mod tests {
             assert!(!overlaps(a, b), "{a} / {b}");
             assert!(!overlaps(b, a), "{b} / {a}");
         }
+    }
+
+    /// `createNode`'s merge of each layout factory's initial props with sample
+    /// call-site props, written by `scripts/codegen-extract-tables.ts`.
+    const FACTORY_MERGES: &str = include_str!("../tests/fixture/extract/factory-merge.json");
+
+    fn json_expr(value: &serde_json::Value) -> Expr {
+        use serde_json::Value as J;
+        match value {
+            J::Null => Expr::Lit(Lit::Null(Null { span: DUMMY_SP })),
+            J::Bool(b) => Expr::Lit(Lit::Bool(Bool {
+                span: DUMMY_SP,
+                value: *b,
+            })),
+            J::Number(n) => initial_expr(InitialValue::Num(n.as_f64().expect("finite"))),
+            J::String(text) => str_expr(text),
+            J::Array(items) => Expr::Array(ArrayLit {
+                span: DUMMY_SP,
+                elems: items
+                    .iter()
+                    .map(|item| {
+                        Some(ExprOrSpread {
+                            spread: None,
+                            expr: Box::new(json_expr(item)),
+                        })
+                    })
+                    .collect(),
+            }),
+            J::Object(map) if map.get("$undefined") == Some(&J::Bool(true)) => {
+                Expr::Ident(Ident::new_no_ctxt(Atom::from("undefined"), DUMMY_SP))
+            }
+            J::Object(map) => Expr::Object(ObjectLit {
+                span: DUMMY_SP,
+                props: map
+                    .iter()
+                    .map(|(k, v)| {
+                        PropOrSpread::Prop(Box::new(Prop::KeyValue(KeyValueProp {
+                            key: PropName::Str(Str::from(Atom::from(k.as_str()))),
+                            value: Box::new(json_expr(v)),
+                        })))
+                    })
+                    .collect(),
+            }),
+        }
+    }
+
+    fn json_entries(value: &serde_json::Value) -> Vec<(String, Expr)> {
+        value
+            .as_array()
+            .map(|entries| {
+                entries
+                    .iter()
+                    .map(|entry| {
+                        let pair = entry.as_array().expect("an entry is [key, value]");
+                        (
+                            pair[0].as_str().expect("key").to_string(),
+                            json_expr(&pair[1]),
+                        )
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    #[test]
+    fn layout_factory_merge_matches_create_node() {
+        use swc_core::common::EqIgnoreSpan;
+        let cases: Vec<(String, serde_json::Value, serde_json::Value)> =
+            serde_json::from_str(FACTORY_MERGES).expect("fixture parses");
+        assert!(!cases.is_empty());
+        let mut factories = HashSet::new();
+        for (name, props, expected) in &cases {
+            let (fingerprint, initial) = layout_factory(name).expect("a layout factory");
+            factories.insert(name.clone());
+            let factory = Factory::Layout {
+                fingerprint,
+                initial,
+            };
+            let combined = combine_factory_props(&factory.initial_entries(), &json_entries(props));
+            let expected = json_entries(expected);
+            let keys = |entries: &[(String, Expr)]| -> Vec<String> {
+                entries.iter().map(|(k, _)| k.clone()).collect()
+            };
+            assert_eq!(keys(&combined), keys(&expected), "{name} {props}");
+            for ((key, got), (_, want)) in combined.iter().zip(&expected) {
+                assert!(got.eq_ignore_span(want), "{name} {props}: {key}");
+            }
+        }
+        // Every factory in the table, each against every sample.
+        assert_eq!(
+            factories.len(),
+            crate::extract_tables::LAYOUT_FACTORIES.len()
+        );
     }
 
     #[test]

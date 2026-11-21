@@ -524,9 +524,9 @@ experimental: {
 }
 ```
 
-For a call site of a plain host factory (`Div`, `Span`, …, or `Node('section', …)`),
-every style entry the compiler can prove is written as a CSS rule when the module
-is built. The call site then carries class names (`__meo$s`) and, for values only
+For a call site of a plain host factory (`Div`, `Span`, …, or `Node('section', …)`)
+or a layout factory (`Row`, `Column`, `Center`, `Absolute`, …), every style entry
+the compiler can prove is written as a CSS rule when the module is built. The call site then carries class names (`__meo$s`) and, for values only
 known at runtime, CSS variables (`__meo$v`). Each module registers its rules once
 through `registerStaticCss`. Anything the compiler cannot prove stays where it
 was, and the runtime handles it as before.
@@ -535,9 +535,8 @@ was, and the runtime handles it as before.
   `const` literals; a conditional whose branches are all of those; and a template
   literal or arithmetic, through a variable.
 - **Left to the runtime:** identifiers and member reads (they may hold a theme
-  function or nothing), calls, theme functions, fallback arrays, spreads,
-  component targets, and factories that bring their own styles (`Row`,
-  `Center`, `Absolute`, …). An at-rule other than `@media`, `@supports` or
+  function or nothing), calls, theme functions, fallback arrays, spreads, and
+  component targets. An at-rule other than `@media`, `@supports` or
   `@container`, or one with a token in its key, stays on the runtime path with
   its contents, and the rest of the node is still extracted. A property it sets
   keeps its family on the runtime path too (`@keyframes` sets none). A
@@ -551,6 +550,13 @@ was, and the runtime handles it as before.
   from the CSS specifications' shorthand and logical property tables (through
   `@webref/css`), so `border` beside `borderRadius` is extracted, while `border`
   beside `borderColor`, or `marginBottom` beside `marginInline`, is not.
+
+- **Layout factories.** A layout factory's initial props (`display: 'flex'`,
+  `flexDirection: 'row'`, …) are merged in front of the call site's, as
+  `createNode` merges them, and extracted with them. The call site then carries
+  `__meo$i`, a fingerprint of those initial props; a `@meonode/ui` whose factory
+  has the same initial props uses the call site's props as given instead of
+  merging again, so the element renders plain.
 
 Off by default. With the option off, the output is exactly what it is without
 this option.
@@ -571,6 +577,9 @@ requirements](#runtime-version-requirements) rather than emitted.
 | `__meo$k` | Deterministic call-site key (`m` + base36 FNV-1a64 hash of `filename:span`), used by the runtime to key the generated class name without re-hashing the prop signature. |
 | `__meo$dyn` | Names of bucketed props (from `__meo$c` or `__meo$d`) whose value isn't a plain literal — i.e. props the runtime still needs to treat as reactive/dynamic, in first-occurrence source order (omitted if empty). |
 | `__meo$list` | Present, as `1`, only when this call site's `children` expression was *generated* rather than written out or passed through from the caller. Absent otherwise — there is no `0`. |
+| `__meo$s` | Class names of the call site's build-time rules, with `experimental_extractCss` (omitted when nothing was extracted). |
+| `__meo$v` | CSS variables the build-time rules read, keyed by name, for values only known at runtime (omitted if none). |
+| `__meo$i` | On a layout factory's call site with `__meo$s`: the fingerprint of the initial props merged into it, `key:value;` per prop in key order. A runtime whose factory has the same fingerprint skips its own merge. |
 | `__meo$loc` | `file:line:column` of a call site carrying `__meo$list`, emitted only when [`callSiteLocations`](#callsitelocations--where-a-generated-list-was-written) is enabled. |
 
 Forward-compat policy: the runtime checks `__meo$` against the schema

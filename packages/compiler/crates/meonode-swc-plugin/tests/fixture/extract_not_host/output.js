@@ -1,5 +1,5 @@
 import { registerStaticCss as __meoCss } from "@meonode/ui";
-import { Div, Row, Node } from "@meonode/ui";
+import { Div, Node } from "@meonode/ui";
 import { Card } from "./card";
 __meoCss("00oe6oy5i7iur", [
     [
@@ -23,24 +23,17 @@ __meoCss("00oe6oy5i7iur", [
         ".mn-0zzfi4vug0nqv{min-width:0;}"
     ]
 ]);
-Row({
-    __meo$: 2,
-    __meo$c: {
-        padding: 8
-    },
-    __meo$k: "m3hqqh4c8f85ve"
-});
 Node(Card, {
     __meo$: 2,
     __meo$c: {
         padding: 8
     },
-    __meo$k: "m164fv8hsttxi5"
+    __meo$k: "m2zkhkncvxkntb"
 });
 Node("section", {
     __meo$: 2,
     __meo$s: "mn-350ngwob8xscz mn-0e47bwo0vm4o6 mn-35l163g1tjy26 mn-0zzfi4vug0nqv",
-    __meo$k: "mjiak30k8sjd9"
+    __meo$k: "m2f7je3rclcq1d"
 });
 Div({
     __meo$: 2,
@@ -54,7 +47,7 @@ Div({
     __meo$c: {
         padding: 8
     },
-    __meo$k: "m1buaq14qjdrla",
+    __meo$k: "m31ctszbl5ge",
     as: "a"
 });
 Div({
@@ -62,7 +55,7 @@ Div({
     __meo$c: {
         padding: 8
     },
-    __meo$k: "m3od1hr2w5q4c5",
+    __meo$k: "m8a2gfr5aquuc",
     __meo$dyn: [
         "css"
     ],
@@ -70,7 +63,7 @@ Div({
 });
 Div({
     __meo$: 2,
-    __meo$k: "m29ycylhvh837n",
+    __meo$k: "mmnxjlch36c33",
     __meo$dyn: [
         "css"
     ],

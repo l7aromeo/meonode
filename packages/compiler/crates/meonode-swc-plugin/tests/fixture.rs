@@ -489,3 +489,8 @@ fn extract_at_rule_fallback() {
 fn extract_self_reference() {
     run_partition_with_config("extract_self_reference", extract_config());
 }
+
+#[test]
+fn extract_layout() {
+    run_partition_with_config("extract_layout", extract_config());
+}
