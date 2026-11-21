@@ -310,6 +310,11 @@ There are two levels of diagnostics, and only the second needs a flag.
   remounts
 - a `children` array that contains itself
 
+React's own warnings and React DevTools name the component that called `.render()` as the owner of every element in
+the tree it returns, including an element built in another component and passed in as a child: a node rebuilds that
+element where it renders. So when `App` builds an element and `Panel` passes it to a node, a missing-key warning for a
+list inside it ends "It was passed a child from Panel." Look in the component that built the element too.
+
 **Behind `setDebugMode`, in any environment.** These are MeoNode's own introspection recovering from itself — the
 render is correct afterwards and there is nothing for you to fix, so they are off unless you go looking:
 

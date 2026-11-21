@@ -238,8 +238,10 @@ function copyProps(element: ReactElement): Record<string, unknown> {
 
 /**
  * Copies every queued element child into its slot, children first, as the walk
- * builds each one from a node wrapping the element. Kept out of `render` so the
- * render loop's code shape stays that of a node without element children.
+ * builds each one from a node wrapping the element. React records the component
+ * rendering the node as each copy's owner, whichever component built the
+ * element. Kept out of `render` so the render loop's code shape stays that of a
+ * node without element children.
  * @param copyQueue Frames queued by {@link resolveCopyingChild}.
  * @param disableEmotion Whether the rendering node disabled Emotion, passed on to host render props.
  */
