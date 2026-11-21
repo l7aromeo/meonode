@@ -501,6 +501,11 @@ fn extract_empty_block() {
 }
 
 #[test]
+fn extract_layer() {
+    run_partition_with_config("extract_layer", extract_config());
+}
+
+#[test]
 fn extract_layout() {
     run_partition_with_config("extract_layout", extract_config());
 }
