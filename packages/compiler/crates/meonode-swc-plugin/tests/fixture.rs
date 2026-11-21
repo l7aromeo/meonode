@@ -479,3 +479,8 @@ fn extract_defaults_var() {
 fn extract_overlap() {
     run_partition_with_config("extract_overlap", extract_config());
 }
+
+#[test]
+fn extract_at_rule_fallback() {
+    run_partition_with_config("extract_at_rule_fallback", extract_config());
+}
