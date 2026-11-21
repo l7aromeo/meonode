@@ -308,6 +308,26 @@ describe('C. Theme and provider boundaries', () => {
     expect(computedStyles[testId].color).toBe('rgb(0, 128, 0)')
   })
 
+  // React adopts a hoisted `<style href precedence>` the server sent by its href,
+  // without comparing its text, so a themed rule whose browser text differs
+  // (Emotion's development build adds an empty rule per parent selector there)
+  // hydrates as the server's one element.
+  it('hydrates the themed rules of a server component with no mismatch, each in one style element', async () => {
+    const themedHrefs = (text: string) =>
+      [...text.matchAll(/<style[^>]*data-href="([^"]*)"[^>]*>([\s\S]*?)<\/style>/g)].flatMap(match =>
+        match[1].split(' ').map(href => [href, match[2]] as const),
+      )
+    const served = await (await fetch(`${base()}/theme/themed-rule-text`)).text()
+    const { status, html } = await getPage('/theme/themed-rule-text')
+    expect(status).toBe(200)
+    assertNoRscErrors(html)
+    const before = themedHrefs(served)
+    const after = themedHrefs(html)
+    expect(before.length).toBeGreaterThan(0)
+    expect(new Set(after.map(([href]) => href)).size).toBe(after.length)
+    expect(new Map(after)).toEqual(new Map(before))
+  })
+
   describe("theme tokens in Emotion's css() and keyframes() results", () => {
     const testId = 'serialized-styles'
     const lengthRef = 'var(--meonode-theme-spacing-md--len, var(--meonode-theme-spacing-md))'

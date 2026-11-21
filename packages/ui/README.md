@@ -491,7 +491,8 @@ them as client components do, and development reports a token no `ThemeProvider`
 
 **CSS Engine**
 @emotion/react serializes each style object and inserts the resulting rule at runtime, once per distinct style, and
-extracts critical CSS for SSR.
+extracts critical CSS for SSR. MeoNode names each class from a SHA-256 of the style's whole text, so two different
+styles do not share a class. Class names are not a stable API: they may change between versions.
 
 ## Why MeoNode UI?
 

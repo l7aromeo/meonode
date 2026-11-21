@@ -2,9 +2,10 @@ import { cache as requestCache } from 'react'
 import createCache from '@emotion/cache'
 import { prefixer } from '@src/util/emotion-prefixer.util.js'
 import { serializeStyles } from '@emotion/serialize'
+import { nameStyles } from '@src/util/style-name.util.js'
 import { getRegisteredStyles, insertStyles } from '@emotion/utils'
 import type { CssProp } from '@src/types/node.type.js'
-import { reportUncomposedClass } from '@src/util/theme-diagnostics.util.js'
+import { reportSharedStyleName, reportUncomposedClass } from '@src/util/theme-diagnostics.util.js'
 
 /**
  * The emotion cache of one request in the React Server Components layer, the
@@ -37,7 +38,9 @@ const requestEmotionCache = /* @__PURE__ */ requestCache(() => {
  * looking its styles up in the cache, so without this the two would stay separate
  * classes, and which rule won a conflict would depend on stylesheet order. A class
  * name is a hash of its styles, so an entry means the same thing in every request
- * and scope; it carries no request identity.
+ * and scope; it carries no request identity. A name kept for two different
+ * styles is marked so, and is not composed at all: a handed class carries only
+ * its name, which then cannot say which of the two it means.
  *
  * Only classes compiled for a component target are kept — the only ones a
  * component can be handed. The store is bounded, and keeps the most recently used
@@ -66,6 +69,8 @@ interface SharedClass {
   styles: string
   themed?: CssProp
   size: number
+  /** Set once the name has been kept for two different styles. */
+  conflicted?: true
 }
 
 let currentClasses = new Map<string, SharedClass>()
@@ -85,18 +90,27 @@ function keepSharedClass(name: string, entry: SharedClass): void {
 }
 
 function shareClass(name: string, styles: string, themed?: CssProp): void {
-  if (currentClasses.has(name)) return
+  const held = currentClasses.get(name) ?? previousClasses.get(name)
+  if (held !== undefined) {
+    if (!held.conflicted && (held.styles !== styles || (held.themed !== themed && JSON.stringify(held.themed) !== JSON.stringify(themed)))) {
+      reportSharedStyleName(name)
+      held.conflicted = true
+    }
+    if (!currentClasses.has(name)) keepSharedClass(name, held)
+    return
+  }
   const size = styles.length + (themed === undefined ? 0 : JSON.stringify(themed).length)
   if (size > SHARED_STYLES_ENTRY_LIMIT) return
   keepSharedClass(name, { styles, themed, size })
 }
 
 function sharedClass(name: string): SharedClass | undefined {
-  const current = currentClasses.get(name)
-  if (current !== undefined) return current
-  const previous = previousClasses.get(name)
-  if (previous !== undefined) keepSharedClass(name, previous)
-  return previous
+  let entry = currentClasses.get(name)
+  if (entry === undefined) {
+    entry = previousClasses.get(name)
+    if (entry !== undefined) keepSharedClass(name, entry)
+  }
+  return entry?.conflicted ? undefined : entry
 }
 
 /**
@@ -166,8 +180,9 @@ export interface ServerEmotionRule {
  * Compiles a css value to the classes an element carries and the rule behind them.
  *
  * Takes an object or an array of them — the array is what a non-map `css`
- * resolves to — and produces the class Emotion's `css` prop gives the same input
- * under the same cache key, so server and client output match.
+ * resolves to — and produces the class a client component gives the same input
+ * under the same cache key, so server and client output match. The class is
+ * named by {@link nameStyles}, as everywhere else.
  *
  * The element's own `className` is composed the way Emotion composes it on the
  * client: each class registered in this cache is replaced by its styles, placed
@@ -201,15 +216,17 @@ export function compileServerEmotionRule(css: CssProp, className?: unknown, opti
       else if (cache.registered[name] !== undefined) parts.push(`${cache.registered[name]};`)
       else if (name) otherClasses += `${name} `
     }
-    const name = serializeStyles(parts as any, cache.registered).name
+    const name = nameStyles(serializeStyles(parts as any, cache.registered)).name
     const ownClassName = `${cache.key}-${name}`
     themedClasses.set(ownClassName, parts as CssProp)
     if (options?.share) shareClass(ownClassName, '', parts as CssProp)
     return { className: `${otherClasses}${ownClassName}`, ownClassName, id: name, cssText: '', clientCss: parts as CssProp }
   }
   const otherClasses = typeof className === 'string' ? getRegisteredStyles(cache.registered, styles as string[], className) : ''
-  const compiled = serializeStyles(styles as any, cache.registered)
-  const serialized = options?.identity ? { ...compiled, name: serializeStyles([options.identity, ...styles.slice(1)] as any, cache.registered).name } : compiled
+  const compiled = nameStyles(serializeStyles(styles as any, cache.registered))
+  const serialized = options?.identity
+    ? { ...compiled, name: nameStyles(serializeStyles([options.identity, ...styles.slice(1)] as any, cache.registered)).name }
+    : compiled
   const stylesForSSR = insertStyles(cache as any, serialized as any, false)
   const cachedStyle = (cache.inserted as Record<string, unknown>)[serialized.name]
   const cssText = typeof stylesForSSR === 'string' ? stylesForSSR : typeof cachedStyle === 'string' ? cachedStyle : undefined

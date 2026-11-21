@@ -1,5 +1,6 @@
 import createCache, { type EmotionCache } from '@emotion/cache'
 import { prefixer } from '@src/util/emotion-prefixer.util.js'
+import { reportSharedStyleName } from '@src/util/theme-diagnostics.util.js'
 
 /** The most rules the caches of one generation compile before the next generation starts. */
 export const SERVER_MEMO_RULES = 10_000
@@ -7,14 +8,20 @@ export const SERVER_MEMO_RULES = 10_000
 /** The most characters of rule text the caches of one generation compile before the next generation starts. */
 export const SERVER_MEMO_CHARACTERS = 2 * 1024 * 1024
 
-/** A plugins array the caches of one generation share, and what they have compiled on it. */
+/**
+ * A plugins array the caches of one generation share, what they have compiled on
+ * it, and the styles each name was first compiled from.
+ */
 interface Generation {
   plugins: [typeof prefixer]
   rules: number
   characters: number
+  styles: Map<string, string>
 }
 
-let generation: Generation = { plugins: [prefixer], rules: 0, characters: 0 }
+const newGeneration = (): Generation => ({ plugins: [prefixer], rules: 0, characters: 0, styles: new Map() })
+
+let generation: Generation = newGeneration()
 
 /**
  * A `css` cache for a server subtree with no cache above it: where Emotion's
@@ -33,19 +40,34 @@ let generation: Generation = { plugins: [prefixer], rules: 0, characters: 0 }
  * within it, one of these serves a single subtree, created fresh on every
  * render. Without a memo shared across them every render would compile each of
  * its styles again.
- * @returns The cache, with the key and class names Emotion's own would have.
+ *
+ * Emotion's memo trusts a name. The generation also keeps the styles each name
+ * was first compiled from, and compiles any other styles under that name apart.
+ * @returns The cache, with the key Emotion's own would have.
  */
 export function createServerCssCache(): EmotionCache {
   if (generation.rules >= SERVER_MEMO_RULES || generation.characters >= SERVER_MEMO_CHARACTERS) {
-    generation = { plugins: [prefixer], rules: 0, characters: 0 }
+    generation = newGeneration()
   }
   const own = generation
   const cache = createCache({ key: 'css', stylisPlugins: own.plugins })
   const insert = cache.insert
   // Counts every rule compiled for a class new to this cache, a rule another
   // cache of the generation already compiled included, so the bound errs early.
-  cache.insert = (...args) => {
-    const rules = insert(...args)
+  cache.insert = (selector, serialized, sheet, shouldCache) => {
+    // Emotion's memo returns the rule first compiled under a name. A name the
+    // generation holds for other styles gets its rule from a cache of its own,
+    // whose memo is not the generation's.
+    const held = own.styles.get(serialized.name)
+    let rules: string | void
+    if (held !== undefined && held !== serialized.styles) {
+      reportSharedStyleName(serialized.name)
+      rules = createCache({ key: cache.key, stylisPlugins: [prefixer] }).insert(selector, serialized, sheet, false)
+      if (shouldCache) cache.inserted[serialized.name] = true
+    } else {
+      if (held === undefined) own.styles.set(serialized.name, serialized.styles)
+      rules = insert(selector, serialized, sheet, shouldCache)
+    }
     own.rules++
     if (typeof rules === 'string') own.characters += rules.length
     return rules

@@ -59,8 +59,14 @@ import {
  * built on an array of its own holding this plugin writes the same rules into a
  * memo that goes when the cache does.
  *
+ * It runs inside Emotion's stylis pipeline on the helpers of the stylis meonode
+ * depends on, so that dependency is the exact release `@emotion/cache` pins:
+ * one copy is installed, and the helpers are the ones the pipeline's elements
+ * were built by.
+ *
  * `tests/emotion-prefixer.test.ts` fails if Emotion's default plugins ever write
- * something this copy does not.
+ * something this copy does not, and `tests/stylis-release.test.ts` if the
+ * stylis releases part.
  */
 
 function prefix(value: string, length: number): string {

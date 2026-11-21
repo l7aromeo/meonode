@@ -10,9 +10,8 @@ import { createRequire } from 'node:module'
 import { describe, expect, it } from 'vitest'
 import { prefixer } from '@src/util/emotion-prefixer.util.js'
 
-// Emotion may resolve a different stylis release from the one meonode depends on, and
-// stylis's own prefixer cannot run inside another release's pipeline. The comparison
-// takes it from the copy Emotion itself loads.
+// stylis's own prefixer runs only inside its own release's pipeline, so the
+// comparison takes it from the copy Emotion itself loads.
 const emotionRequire = createRequire(createRequire(import.meta.url).resolve('@emotion/cache'))
 const { prefixer: stylisPrefixer } = emotionRequire('stylis') as typeof import('stylis')
 
