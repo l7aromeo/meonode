@@ -160,6 +160,19 @@ describe('compiled output rendered as an element under another node', () => {
   })
 })
 
+describe('a node with Emotion disabled', () => {
+  it('takes no static classes or variables under an ancestor that disabled it', () => {
+    const html = mount(Div({ disableEmotion: true, children: [compiled({ key: 'c', __meo$d: { className: 'own' }, children: 'x' })] })).innerHTML
+
+    expect(html).toBe('<div><div class="own">x</div></div>')
+  })
+
+  it('takes none when it disabled Emotion itself', () => {
+    const el = mount(compiled({ disableEmotion: true, children: 'x' })).firstElementChild as HTMLElement
+    expect(el.outerHTML).toBe('<div>x</div>')
+  })
+})
+
 describe('a node with markers before any module registered', () => {
   it('still takes its classes, and carries no slot', () => {
     __resetStaticCss()

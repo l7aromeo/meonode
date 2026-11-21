@@ -891,8 +891,10 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
 
           // Styles the compiler extracted reach the element as classes and
           // variables on every path below. Their rules are carried by the topmost
-          // host above, for the server to send; see `StaticStyles`.
-          if (staticClasses !== undefined || staticVars !== undefined) {
+          // host above, for the server to send; see `StaticStyles`. A node with
+          // Emotion disabled, its own or an ancestor's, takes none of them, as it
+          // takes none of its css: an ancestor's reaches it here, after the build.
+          if (!disableEmotion && (staticClasses !== undefined || staticVars !== undefined)) {
             addStaticProps(elementProps as Record<string, unknown>, staticClasses as string | undefined, staticVars as Record<string, unknown> | undefined)
             if (staticClasses !== undefined && staticModules !== undefined) {
               const carrier = anchor ?? (canAnchorRules(renderTarget, elementProps as Record<string, unknown>, inForeignNamespace) ? node : null)
