@@ -6,7 +6,7 @@
 // reads to take its server branch. The browser pass starts from the registry as a
 // fresh page has it: empty, then filled by the compiled modules as they load,
 // before `hydrateRoot`.
-import { createElement, Fragment, Suspense, useId, type ReactNode } from 'react'
+import { createElement, Fragment, Suspense, useEffect, useId } from 'react'
 import { act } from 'react'
 import { hydrateRoot } from 'react-dom/client'
 import { renderToString } from 'react-dom/server'
@@ -36,9 +36,20 @@ const registerPage = () =>
   ])
 const registerLate = () => registerStaticCss('late', [[0, LATE, LATE_RULE]])
 
-/** Reads an id the way a component library does, so a shift in the tree's shape shows. */
-function Labelled({ children }: { children?: ReactNode }) {
-  return createElement('label', { htmlFor: useId() }, children)
+/** The ids the browser computed, by probe. After an attribute mismatch the DOM keeps the server's, and production React reports nothing. */
+const clientIds: Record<string, string> = {}
+
+/**
+ * Reads an id the way a component library does. Its position is what makes a
+ * change of shape show: React writes a child's index in as many bits as its
+ * siblings' count needs, so a slot missing in the browser shifts the ids below a
+ * host whose count it would take past a power of two (3 children to 4 here), as
+ * long as another fork lies below.
+ */
+function Labelled({ name }: { name: string }) {
+  const id = useId()
+  useEffect(() => void (clientIds[name] = id), [name, id])
+  return createElement('label', { htmlFor: id, 'data-probe': name }, name)
 }
 
 /** A component with its own render, so its static css is its own walk's. */
@@ -57,12 +68,20 @@ function App() {
         __meo$s: `${RED} ${WIDE}`,
         __meo$v: { '--mv-000000000000w': '8px' },
         __meo$d: { className: 'own', id: 'plain' },
+        // Three children, so the slot takes the count to four.
         children: [
-          createElement(Labelled, { key: 'l' }, 'a'),
-          Div({ __meo$: 2, __meo$s: MEDIA, __meo$c: { padding: 4 }, id: 'partial', children: 'b' } as never),
+          createElement(Labelled, { key: 'l', name: 'first' }),
+          Div({
+            __meo$: 2,
+            __meo$s: MEDIA,
+            __meo$c: { padding: 4 },
+            id: 'partial',
+            children: ['b', createElement(Labelled, { key: 'p', name: 'in-partial' })],
+          } as never),
+          createElement('p', { key: 'q' }, createElement(Labelled, { name: 'nested' }), 'x'),
         ],
       } as never).render(),
-      createElement(Labelled, null, 'c'),
+      createElement(Labelled, { name: 'after' }),
       // A carrier whose last child is text: the server separates the text from the slot.
       Div({ __meo$: 2, __meo$s: RED, id: 'text', children: 't' } as never).render(),
       createElement(Suspense, { fallback: 'loading' }, createElement(Late)),
@@ -142,14 +161,18 @@ describe('a server-rendered document with static css', () => {
 
   it('hydrates with no mismatch, ids intact, and inserts nothing the server sent', async () => {
     const html = serverRender()
-    const serverIds = [...new DOMParser().parseFromString(html, 'text/html').querySelectorAll('label')].map(label => label.htmlFor)
+    const serverIds = Object.fromEntries(
+      [...new DOMParser().parseFromString(html, 'text/html').querySelectorAll('label')].map(label => [label.dataset.probe, label.htmlFor]),
+    )
+    for (const name of Object.keys(clientIds)) delete clientIds[name]
     const errors = await hydrate(html, () => {
       registerPage()
       registerLate()
     })
 
     expect(errors).toEqual([])
-    expect([...document.querySelectorAll('label')].map(label => label.htmlFor)).toEqual(serverIds)
+    expect(Object.keys(serverIds)).toEqual(['first', 'in-partial', 'nested', 'after'])
+    expect(clientIds).toEqual(serverIds)
     expect(document.querySelectorAll('style[data-meonode-static]')).toHaveLength(0)
   })
 

@@ -29,6 +29,17 @@ afterAll(async () => {
   browser = null
 })
 
+/** Every `useId` reader on the page: inside and after a fast-path subtree, in the server tree and the client tree. */
+const ID_PROBES = ['id-probe-value-static-inside-server', 'id-probe-value-static-after-server', 'static-client-label-inside', 'static-client-label-after']
+
+/** Each probe's id in served markup, by test id. */
+function idsIn(html: string): Record<string, string> {
+  const ids: Record<string, string> = {}
+  for (const match of html.matchAll(/<label for="([^"]+)" data-testid="(static-client-label-[a-z]+)"/g)) ids[match[2]] = match[1]
+  for (const match of html.matchAll(/data-testid="(id-probe-value-static-[a-z-]+)"[^>]*>([^<]+)</g)) ids[match[1]] = match[2]
+  return Object.fromEntries(ID_PROBES.filter(probe => probe in ids).map(probe => [probe, ids[probe]]))
+}
+
 /** The precedence groups of the head's hoisted styles, in document order, with each group's hrefs. */
 function groupsIn(html: string): [string, string][] {
   const head = html.slice(0, html.indexOf('</head>'))
@@ -60,7 +71,8 @@ describe('extracted styles in a Next app', () => {
       page.on('console', message => void messages.push(message.text()))
       page.on('pageerror', error => void messages.push(error.message))
       const serverHtml = await (await fetch(`${base()}${PAGE}`)).text()
-      const serverLabel = /<label for="([^"]+)" data-testid="static-client-label"/.exec(serverHtml)?.[1]
+      const serverIds = idsIn(serverHtml)
+      expect(Object.keys(serverIds)).toEqual(ID_PROBES)
       await page.goto(`${base()}${PAGE}`, { waitUntil: 'domcontentloaded' })
       await page.waitForSelector('[data-testid="static-late"]')
       await page.waitForFunction(() => document.documentElement.hasAttribute('data-hydrated') || !!(window as { next?: unknown }).next)
@@ -74,7 +86,12 @@ describe('extracted styles in a Next app', () => {
           client: [style('static-client').color, style('static-client').width],
           clientPartial: [style('static-client-partial').color, style('static-client-partial').padding],
           late: style('static-late').marginTop,
-          label: document.querySelector('[data-testid="static-client-label"]')!.getAttribute('for'),
+          ids: Object.fromEntries(
+            [...document.querySelectorAll('[data-testid^="static-client-label-"], [data-testid^="id-probe-value-static-"]')].map(element => [
+              element.getAttribute('data-testid'),
+              element.getAttribute('for') ?? element.textContent,
+            ]),
+          ),
           ownRules: [...document.querySelectorAll<HTMLStyleElement>('style[data-meonode-static]')].reduce(
             (sum, element) => sum + element.sheet!.cssRules.length,
             0,
@@ -89,7 +106,7 @@ describe('extracted styles in a Next app', () => {
       expect(state.client).toEqual(['rgb(0, 0, 255)', '40px'])
       expect(state.clientPartial).toEqual(['rgb(0, 0, 255)', '5px'])
       expect(state.late).toBe('3px')
-      expect(state.label).toBe(serverLabel)
+      expect(state.ids).toEqual(serverIds)
       expect(state.ownRules).toBe(0)
       // The streamed module joined its buckets' groups; the order held.
       const firstRuntime = state.precedences.indexOf('meonode')

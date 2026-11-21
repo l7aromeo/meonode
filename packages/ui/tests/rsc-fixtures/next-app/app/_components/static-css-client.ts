@@ -1,6 +1,7 @@
 'use client'
 import { createElement, useId } from 'react'
 import { Div, registerStaticCss } from '@meonode/ui'
+import { compiledProps } from './compiled-props'
 
 // Compiled output written by hand in the contract's shape, for a client component.
 registerStaticCss('fixture-client', [
@@ -8,8 +9,8 @@ registerStaticCss('fixture-client', [
   [0, 'mn-00000000cli0w', '.mn-00000000cli0w{width:var(--mv-00000000cli0w);}'],
 ])
 
-const plain = { __meo$: 2, __meo$s: 'mn-00000000cli0a mn-00000000cli0w', 'data-testid': 'static-client' }
-const partial = { __meo$: 2, __meo$s: 'mn-00000000cli0a', __meo$c: { padding: '5px' }, 'data-testid': 'static-client-partial', children: 'partial' }
+const plain = compiledProps({ __meo$s: 'mn-00000000cli0a mn-00000000cli0w', 'data-testid': 'static-client' })
+const partial = compiledProps({ __meo$s: 'mn-00000000cli0a', __meo$c: { padding: '5px' }, 'data-testid': 'static-client-partial', children: 'partial' })
 
 /** Reads an id, so a change in the tree's shape between server and browser shows. */
 function Labelled({ name }: { name: string }) {

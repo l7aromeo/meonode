@@ -1010,3 +1010,96 @@ describe.each(['cc', 'plain'] as const)('development diagnostics in a production
     expect(readFileSync(serverLog(variant), 'utf8')).not.toContain(warning)
   })
 })
+
+/**
+ * Compiled output with extracted styles, written by hand in the contract's
+ * shape: a server component with static and runtime css, a client component that
+ * registers its own module, and a boundary that streams in at request time.
+ */
+describe.each(['cc', 'plain'] as const)('extracted styles in a production build (%s)', variant => {
+  let browser: Browser | null = null
+  beforeAll(async () => {
+    browser = await chromium.launch({ headless: true })
+  })
+  afterAll(async () => {
+    await browser?.close()
+  })
+
+  const PAGE = '/static-css'
+  const ID_PROBES = ['id-probe-value-static-inside-server', 'id-probe-value-static-after-server', 'static-client-label-inside', 'static-client-label-after']
+  const html = async () => (await fetch(`http://localhost:${port(variant)}${PAGE}`)).text()
+  /** Each `useId` reader's id in served markup, by test id. */
+  const idsIn = (page: string) => {
+    const ids: Record<string, string> = {}
+    for (const match of page.matchAll(/<label for="([^"]+)" data-testid="(static-client-label-[a-z]+)"/g)) ids[match[2]] = match[1]
+    for (const match of page.matchAll(/data-testid="(id-probe-value-static-[a-z-]+)"[^>]*>([^<]+)</g)) ids[match[1]] = match[2]
+    return Object.fromEntries(ID_PROBES.filter(probe => probe in ids).map(probe => [probe, ids[probe]]))
+  }
+
+  it('serves the static groups first in the head, in bucket order, before every Emotion and runtime style', async () => {
+    const page = await html()
+    const head = page.slice(0, page.indexOf('</head>'))
+    const styles = [...head.matchAll(/<style\b([^>]*)>/g)].map(
+      match => /data-precedence="([^"]+)"/.exec(match[1])?.[1] ?? (/data-emotion/.test(match[1]) ? 'emotion' : 'other'),
+    )
+
+    expect(styles.slice(0, 4)).toEqual(['mn-static-0', 'mn-static-1', 'mn-static-2', 'mn-static-3'])
+    expect(styles.slice(4).some(style => style.startsWith('mn-static-'))).toBe(false)
+    expect(styles.slice(4)).toContain('meonode')
+    expect(page.indexOf('<style data-emotion')).toBeGreaterThan(head.lastIndexOf('data-precedence="mn-static-3"'))
+    expect(head).toContain('mn-static-fixture-server-0')
+    expect(head).toContain('mn-static-fixture-client-0')
+    // The streamed boundary's module arrives after the shell.
+    expect(head).not.toContain('fixture-late')
+    expect(page).toContain('mn-static-fixture-late-0')
+  })
+
+  it('hydrates with no mismatch and identical ids, applies every rule, and inserts nothing the server sent', async () => {
+    const serverIds = idsIn(await html())
+    expect(Object.keys(serverIds)).toEqual(ID_PROBES)
+    const page = await browser!.newPage()
+    try {
+      const messages: string[] = []
+      page.on('console', message => void messages.push(message.text()))
+      page.on('pageerror', error => void messages.push(error.message))
+      await page.goto(`http://localhost:${port(variant)}${PAGE}`, { waitUntil: 'networkidle' })
+      await page.waitForSelector('[data-testid="static-late"]')
+      const state = await page.evaluate(() => {
+        const style = (testId: string) => getComputedStyle(document.querySelector(`[data-testid="${testId}"]`)!)
+        return {
+          colors: ['static-server', 'static-server-partial', 'static-client', 'static-client-partial'].map(id => style(id).color),
+          paddings: [style('static-server').paddingLeft, style('static-server-partial').padding, style('static-client-partial').padding],
+          width: style('static-client').width,
+          late: style('static-late').marginTop,
+          ids: Object.fromEntries(
+            [...document.querySelectorAll('[data-testid^="static-client-label-"], [data-testid^="id-probe-value-static-"]')].map(element => [
+              element.getAttribute('data-testid'),
+              element.getAttribute('for') ?? element.textContent,
+            ]),
+          ),
+          ownRules: [...document.querySelectorAll<HTMLStyleElement>('style[data-meonode-static]')].reduce(
+            (sum, element) => sum + element.sheet!.cssRules.length,
+            0,
+          ),
+          heads: [...document.head.querySelectorAll('style')].map(
+            element => element.getAttribute('data-precedence') ?? (element.hasAttribute('data-emotion') ? 'emotion' : 'other'),
+          ),
+        }
+      })
+
+      expect(messages.filter(message => /hydrat|did not match|recoverable/i.test(message))).toEqual([])
+      expect(state.colors).toEqual(['rgb(255, 0, 0)', 'rgb(255, 0, 0)', 'rgb(0, 0, 255)', 'rgb(0, 0, 255)'])
+      expect(state.paddings).toEqual(['7px', '4px', '5px'])
+      expect(state.width).toBe('40px')
+      expect(state.late).toBe('3px')
+      expect(state.ids).toEqual(serverIds)
+      expect(state.ownRules).toBe(0)
+      // After the stream, every static group still precedes every Emotion and runtime style.
+      const lastStatic = Math.max(...state.heads.map((kind, i) => (kind?.startsWith('mn-static-') ? i : -1)))
+      const firstOther = state.heads.findIndex(kind => kind === 'emotion' || kind === 'meonode')
+      expect(lastStatic).toBeLessThan(firstOther)
+    } finally {
+      await page.close()
+    }
+  })
+})

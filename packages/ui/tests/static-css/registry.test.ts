@@ -97,6 +97,27 @@ describe.each([
       expect(order).toEqual(['0', '1', '2', '3', 'meonode-css'])
     })
 
+    // HMR re-evaluates a module, and two bundles can each evaluate one copy: the
+    // same id with the same rules. The second registration does no work at all.
+    it('takes a module registered again as already there, without reading its rules', () => {
+      const rules: [number, string, string][] = [
+        [0, 'mn-0000000000001', BASE],
+        [2, 'mn-0000000000004', MEDIA],
+      ]
+      registerStaticCss('one', rules)
+      let reads = 0
+      const again = new Proxy(rules, {
+        get(target, key, receiver) {
+          if (key === Symbol.iterator || key === 'length') reads++
+          return Reflect.get(target, key, receiver)
+        },
+      })
+      registerStaticCss('one', again)
+
+      expect(reads).toBe(0)
+      expect(buckets().map(sheet => sheet.rules.length)).toEqual([1, 0, 1, 0])
+    })
+
     it('creates no sheet until a rule needs one', () => {
       expect(hasStaticCss()).toBe(false)
       registerStaticCss('empty', [])
