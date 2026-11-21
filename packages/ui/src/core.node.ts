@@ -8,6 +8,7 @@ import {
   Fragment,
   type FragmentProps,
   isValidElement,
+  type Key,
   type ReactElement,
   type ReactNode,
 } from 'react'
@@ -218,22 +219,32 @@ function queueCopies(list: unknown[], queue: CopyFrame[]): void {
 }
 
 /**
- * The props of an element child's copy, as the node walk builds them for the
- * node it wraps the element in: the element's props without their `undefined`
- * entries, under `props` for a target that shields its own props, after its
- * key, with `theme.*` tokens turned into CSS variables, and without `theme` on
- * a plain tag.
+ * The props a built element is rebuilt with, from its own props: under `props`
+ * for a target that shields its own props, and without `theme` on a plain tag.
+ * A built element's props are final, so its key and a plain tag's attributes
+ * reach React as written. Only style values have `theme.*` tokens turned into
+ * CSS variables: a plain tag's inline `style`, and the props of a component,
+ * which may take style values under any name (MUI's `sx`, an icon's `color`).
+ * @param type The element's type.
+ * @param key The element's key.
+ * @param own The element's props, without `children` and `undefined` entries.
+ * @returns The props to create the element with, key included.
  */
+function builtElementProps(type: unknown, key: Key | null | undefined, own: Record<string, unknown>): Record<string, unknown> {
+  if (typeof type === 'string') {
+    const props: Record<string, unknown> = { key: key ?? undefined, ...own }
+    if (own.style !== undefined) props.style = replaceThemeTokensWithCssVars(own.style)
+    if ('theme' in props) delete props.theme
+    return props
+  }
+  const converted = replaceThemeTokensWithCssVars(own)
+  return { key: key ?? undefined, ...(NodeUtil.shieldsOwnProps(type) ? { props: converted } : converted) }
+}
+
+/** The props of an element child's copy: the element's own, as {@link builtElementProps} rebuilds them. */
 function copyProps(element: ReactElement): Record<string, unknown> {
-  const type = element.type
   const { children: _children, ...finalProps } = element.props as Record<string, unknown>
-  const nativeProps = omitUndefined(finalProps)
-  const props = replaceThemeTokensWithCssVars({
-    key: element.key ?? undefined,
-    ...(NodeUtil.shieldsOwnProps(type) ? { props: nativeProps } : nativeProps),
-  }) as Record<string, unknown>
-  if (typeof type === 'string' && 'theme' in props) delete props.theme
-  return props
+  return builtElementProps(element.type, element.key, omitUndefined(finalProps))
 }
 
 /**
@@ -813,11 +824,16 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
           // `Component` HOC, would instead classify them a second time and turn
           // a CSS-named component prop into a style. Those keep the wrapper.
           const shieldNativeProps = nativeProps !== undefined && NodeUtil.shieldsOwnProps(renderTarget)
-          const elementProps = replaceThemeTokensWithCssVars({
-            ...(otherProps as ComponentProps<ElementType>),
-            key,
-            ...(shieldNativeProps ? { props: nativeProps } : nativeProps),
-          })
+          // A built element's props are its own and final; `builtElementProps`
+          // converts only their style values.
+          const elementProps =
+            builtFrom !== undefined
+              ? (builtElementProps(renderTarget, key, { ...otherProps, ...nativeProps }) as ComponentProps<ElementType>)
+              : replaceThemeTokensWithCssVars({
+                  ...(otherProps as ComponentProps<ElementType>),
+                  key,
+                  ...(shieldNativeProps ? { props: nativeProps } : nativeProps),
+                })
 
           // `theme` is deliberately not destructured off props: components such
           // as ThemeProvider take it as a real prop and dropping it was a
