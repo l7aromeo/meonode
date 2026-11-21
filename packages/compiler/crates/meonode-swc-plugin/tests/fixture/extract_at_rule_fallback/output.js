@@ -157,12 +157,12 @@ Div({
     __meo$c: {
         color: "red"
     },
-    __meo$k: "m2auazb9m0b8q2",
+    __meo$k: "m2aukpax71xfvr",
     __meo$dyn: [
         "css"
     ],
     css: {
-        "& + &": {
+        "[data-on] &": {
             color: tone
         }
     }
@@ -170,7 +170,7 @@ Div({
 Div({
     __meo$: 2,
     __meo$s: "mn-3ira0mmss1bvp",
-    __meo$k: "mdq09s98d31m6",
+    __meo$k: "m35yxf19mub59d",
     __meo$dyn: [
         "css"
     ],

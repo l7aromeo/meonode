@@ -6,5 +6,5 @@ Div({ opacity: 1, css: { animation: "spin 1s", "@keyframes spin": { from: { opac
 Div({ color: "red", css: { "&:hover": { background: "red", "@media (min-width: theme.breakpoint.md)": { color: "blue" } } } });
 Div({ padding: 8, css: { "@media (max-width: theme.breakpoint.md)": styles } });
 Div({ padding: 8, css: { "@media (max-width: theme.breakpoint.md)": { "&:hover": hover } } });
-Div({ color: "red", padding: 4, css: { "& + &": { color: tone } } });
+Div({ color: "red", padding: 4, css: { "[data-on] &": { color: tone } } });
 Div({ padding: 4, css: { "& > p": { color: "red", "@media (max-width: theme.breakpoint.md)": { color: "blue" } } } });
