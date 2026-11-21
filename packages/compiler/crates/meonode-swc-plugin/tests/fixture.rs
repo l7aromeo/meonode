@@ -469,3 +469,8 @@ fn extract_prefixed() {
 fn extract_const() {
     run_partition_with_config("extract_const", extract_config());
 }
+
+#[test]
+fn extract_defaults_var() {
+    run_partition_with_config("extract_defaults_var", extract_config());
+}

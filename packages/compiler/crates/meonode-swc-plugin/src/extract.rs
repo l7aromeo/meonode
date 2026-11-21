@@ -74,6 +74,20 @@ const BUCKET_PER_NODE: u8 = 3;
 const SEP: char = '\u{0}';
 
 /// Keys `resolveDefaultStyle` reads or writes.
+/// The keys whose values `resolveDefaultStyle` reads. For the others in
+/// [`DEFAULT_KEYS`] only their presence counts: a key the author wrote, with any
+/// value, replaces the default.
+const DEFAULT_READ_KEYS: &[&str] = &[
+    "display",
+    "overflow",
+    "overflowX",
+    "overflowY",
+    "flexFlow",
+    "flexWrap",
+    "flexDirection",
+    "flex",
+];
+
 const DEFAULT_KEYS: &[&str] = &[
     "display",
     "overflow",
@@ -1054,7 +1068,7 @@ struct Model {
     blocks: Vec<Block>,
     /// Top-level keys present in the merged css, whatever their value.
     keys: Vec<String>,
-    /// Final base values of the keys [`DEFAULT_KEYS`] names.
+    /// Final base values of the keys [`DEFAULT_READ_KEYS`] names.
     base_values: HashMap<String, Route>,
 }
 
@@ -1114,7 +1128,7 @@ impl ModuleScope {
                 }
             } else {
                 let route = checked(key, self.route(value, 0));
-                if context.is_base() && DEFAULT_KEYS.contains(&key.as_str()) {
+                if context.is_base() && DEFAULT_READ_KEYS.contains(&key.as_str()) {
                     model.base_values.insert(key.clone(), route.clone());
                 }
                 if key.contains("theme.")
@@ -1438,7 +1452,9 @@ fn defaults(model: &Model) -> Option<Vec<(&'static str, Value)>> {
     let flex_wrap = as_str(&get("flexWrap")?);
     let is_wrapping = as_str(&flex_flow).is_some_and(|f| f.contains("wrap"))
         || matches!(flex_wrap.as_deref(), Some("wrap" | "wrap-reverse"));
-    let explicit_shrink = get("flexShrink")?.is_some();
+    // Written `flexShrink` replaces the computed one whatever its value, so
+    // the computed value only matters when the key is absent.
+    let explicit_shrink = present("flexShrink");
     let flex = get("flex")?;
     let has_flex_shorthand = match &flex {
         None => false,
