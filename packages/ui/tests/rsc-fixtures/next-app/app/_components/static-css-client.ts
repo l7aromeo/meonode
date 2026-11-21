@@ -12,9 +12,14 @@ registerStaticCss('fixture-client', [
 const plain = compiledProps({ __meo$s: 'mn-00000000cli0a mn-00000000cli0w', 'data-testid': 'static-client' })
 const partial = compiledProps({ __meo$s: 'mn-00000000cli0a', __meo$c: { padding: '5px' }, 'data-testid': 'static-client-partial', children: 'partial' })
 
-/** Reads an id, so a change in the tree's shape between server and browser shows. */
+/**
+ * Shows the id `useId` gives it as text, which hydration checks and the browser
+ * corrects, unlike an attribute. A slot missing in the browser would shift it:
+ * React writes a child's index in as many bits as its siblings' count needs, and
+ * the slot takes the root's three children to four, with a fork below each probe.
+ */
 function Labelled({ name }: { name: string }) {
-  return createElement('label', { htmlFor: useId(), 'data-testid': `static-client-label-${name}` }, 'label')
+  return createElement('span', { 'data-testid': `static-client-label-${name}` }, useId())
 }
 
 export default function StaticCssClient() {
@@ -27,7 +32,8 @@ export default function StaticCssClient() {
         children: [createElement(Labelled, { key: 'label', name: 'inside' }), Div({ ...partial, key: 'partial' } as never)],
       } as never),
       // After a fast-path subtree, in the client tree.
-      createElement(Labelled, { key: 'after', name: 'after' }),
+      createElement('p', { key: 'after' }, createElement(Labelled, { name: 'after' }), 'x'),
+      createElement('b', { key: 'b' }, 'b'),
     ],
   }).render()
 }

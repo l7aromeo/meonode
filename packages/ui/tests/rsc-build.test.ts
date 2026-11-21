@@ -1031,8 +1031,7 @@ describe.each(['cc', 'plain'] as const)('extracted styles in a production build 
   /** Each `useId` reader's id in served markup, by test id. */
   const idsIn = (page: string) => {
     const ids: Record<string, string> = {}
-    for (const match of page.matchAll(/<label for="([^"]+)" data-testid="(static-client-label-[a-z]+)"/g)) ids[match[2]] = match[1]
-    for (const match of page.matchAll(/data-testid="(id-probe-value-static-[a-z-]+)"[^>]*>([^<]+)</g)) ids[match[1]] = match[2]
+    for (const match of page.matchAll(/data-testid="((?:id-probe-value-static|static-client-label)-[a-z-]+)"[^>]*>([^<]+)</g)) ids[match[1]] = match[2]
     return Object.fromEntries(ID_PROBES.filter(probe => probe in ids).map(probe => [probe, ids[probe]]))
   }
 
@@ -1074,7 +1073,7 @@ describe.each(['cc', 'plain'] as const)('extracted styles in a production build 
           ids: Object.fromEntries(
             [...document.querySelectorAll('[data-testid^="static-client-label-"], [data-testid^="id-probe-value-static-"]')].map(element => [
               element.getAttribute('data-testid'),
-              element.getAttribute('for') ?? element.textContent,
+              element.textContent,
             ]),
           ),
           ownRules: [...document.querySelectorAll<HTMLStyleElement>('style[data-meonode-static]')].reduce(
