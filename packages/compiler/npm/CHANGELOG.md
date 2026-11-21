@@ -1,5 +1,11 @@
 # @meonode/compiler
 
+## 0.10.5
+
+### Patch Changes
+
+- [#132](https://github.com/l7aromeo/meonode/pull/132) [`c615f94`](https://github.com/l7aromeo/meonode/commit/c615f940620350644bcacf11a9235b1cd78ad214) Thanks [@l7aromeo](https://github.com/l7aromeo)! - The README's measured effect describes the client-render bench with its real 40 re-renders per mount, not 20 (Fixes [#131](https://github.com/l7aromeo/meonode/issues/131)).
+
 ## 0.10.4
 
 ### Patch Changes
