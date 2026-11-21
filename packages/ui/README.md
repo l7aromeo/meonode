@@ -67,7 +67,24 @@ so the check never runs and the missing key goes unreported while the rows still
 the only option before, because a nested array used to reach React unrendered and throw
 `Objects are not valid as a React child`.
 
-Nesting is unlimited, and an array that contains itself is dropped rather than left to overflow the stack.
+Nesting is unlimited. The same array placed twice renders twice, as in React; only an array that contains itself is
+dropped, rather than left to overflow the stack.
+
+A child renders as React renders it: `Span(0)` gives `<span>0</span>`, and `''` reaches a component as `''`. Only `null`,
+`undefined` and `false` render nothing. So `children: count && Badge(count)` renders `0` when `count` is 0, exactly as
+`{count && <Badge />}` does in JSX; write `count > 0 && Badge(count)` to render nothing.
+
+### Built Elements as Children
+
+A node takes elements made elsewhere as children: `createElement` output, JSX from another file, or a node's `.render()`
+result. Their props are final, so the node passes them on as they are rather than sorting them into styles and
+attributes again.
+
+- **Keys and attributes stay as written.** A `theme.*` token is turned into a CSS variable only where it is a style
+  value: in a plain tag's inline `style`, and in a component element's props, which may take style values under any name
+  (MUI's `sx`, an icon's `color`). A `title` or a key that happens to contain `theme.` is left alone.
+- **Children keep their shape.** A list stays a list, a list of one included, so React checks its keys and reports a
+  missing one exactly as when it renders the element itself.
 
 ### Keyed Lists with `For()`
 
@@ -309,6 +326,11 @@ There are two levels of diagnostics, and only the second needs a flag.
 - `For()` given a list where every item is a fresh object, so reference identity cannot match renders and every row
   remounts
 - a `children` array that contains itself
+
+React's own warnings and React DevTools name the component that called `.render()` as the owner of every element in
+the tree it returns, including an element built in another component and passed in as a child: a node rebuilds that
+element where it renders. So when `App` builds an element and `Panel` passes it to a node, a missing-key warning for a
+list inside it ends "It was passed a child from Panel." Look in the component that built the element too.
 
 **Behind `setDebugMode`, in any environment.** These are MeoNode's own introspection recovering from itself — the
 render is correct afterwards and there is nothing for you to fix, so they are off unless you go looking:

@@ -8,6 +8,7 @@ import {
   Fragment,
   type FragmentProps,
   isValidElement,
+  type Key,
   type ReactElement,
   type ReactNode,
 } from 'react'
@@ -26,10 +27,10 @@ import type {
   WorkItem,
 } from '@src/types/node.type.js'
 import { isFragment, isValidElementType, REACT_LAZY_TYPE } from '@src/helper/react-is.helper.js'
-import { getComponentType, getElementTypeName, hasNoStyleTag, getGlobalState } from '@src/helper/common.helper.js'
+import { getComponentType, getElementTypeName, hasNoStyleTag, getGlobalState, omitUndefined } from '@src/helper/common.helper.js'
 import StyledRenderer, { ThemedRule, ThemeTokenCheck } from '@src/components/styled-renderer.client.js'
 import MeoMemo from '@src/components/meo-memo.client.js'
-import { LIST_MARKER, LOCATION_MARKER } from '@src/constant/common.const.js'
+import { isDevMode, LIST_MARKER, LOCATION_MARKER } from '@src/constant/common.const.js'
 import { checkCss, checkFactoryCss, isMergeableCss, markCombinedCssChecked } from '@src/util/css.util.js'
 import { NodeUtil } from '@src/util/node.util.js'
 import { IS_REACT_SERVER_LAYER } from '@src/util/react-layer.util.js'
@@ -177,9 +178,113 @@ function assertNoNodeInHostProps(props: Record<string, unknown>, location: unkno
   }
 }
 
-function resolveChild(child: unknown, rendered: Map<BaseNode, ReactElement>, location: unknown): ReactNode {
-  if (Array.isArray(child)) return child.map(c => resolveChild(c, rendered, location)) as unknown as ReactNode
-  if (!NodeUtil.isNodeInstance(child)) return child as ReactNode
+/** A React element in development, which records whether React checks its key. */
+type DevElement = ReactElement & { _store?: { validated?: number } }
+
+/**
+ * One element child being copied where its node renders: the element, a box
+ * holding its children once they are laid out, and the slot its copy goes into.
+ */
+interface CopyFrame {
+  element: ReactElement
+  box: unknown[] | undefined
+  into: unknown[] | undefined
+  at: number
+}
+
+/**
+ * An element child's `children` as the element holds them, with every list a
+ * fresh array so copies can be put in its slots: a list of one stays a list,
+ * and a falsy child stays a child.
+ */
+function copyLayout(element: ReactElement): unknown {
+  const children = (element.props as { children?: unknown }).children
+  if (!Array.isArray(children)) return children
+  return children.map(function copyList(child: unknown): unknown {
+    return Array.isArray(child) ? child.map(copyList) : child
+  })
+}
+
+/** Queues a frame for every element in `list` and the lists nested in it, each copied into its slot. */
+function queueCopies(list: unknown[], queue: CopyFrame[]): void {
+  const lists: unknown[][] = [list]
+  while (lists.length > 0) {
+    const current = lists.pop() as unknown[]
+    for (let i = 0; i < current.length; i++) {
+      const child = current[i]
+      if (Array.isArray(child)) lists.push(child)
+      else if (isValidElement(child) && !NodeUtil.isFinalizedElement(child)) queue.push({ element: child, box: undefined, into: current, at: i })
+    }
+  }
+}
+
+/**
+ * The props a built element is rebuilt with, from its own props: under `props`
+ * for a target that shields its own props, and without `theme` on a plain tag.
+ * A built element's props are final, so its key and a plain tag's attributes
+ * reach React as written. Only style values have `theme.*` tokens turned into
+ * CSS variables: a plain tag's inline `style`, and the props of a component,
+ * which may take style values under any name (MUI's `sx`, an icon's `color`).
+ * @param type The element's type.
+ * @param key The element's key.
+ * @param own The element's props, without `children` and `undefined` entries.
+ * @returns The props to create the element with, key included.
+ */
+function builtElementProps(type: unknown, key: Key | null | undefined, own: Record<string, unknown>): Record<string, unknown> {
+  if (typeof type === 'string') {
+    const props: Record<string, unknown> = { key: key ?? undefined, ...own }
+    if (own.style !== undefined) props.style = replaceThemeTokensWithCssVars(own.style)
+    if ('theme' in props) delete props.theme
+    return props
+  }
+  const converted = replaceThemeTokensWithCssVars(own)
+  return { key: key ?? undefined, ...(NodeUtil.shieldsOwnProps(type) ? { props: converted } : converted) }
+}
+
+/** The props of an element child's copy: the element's own, as {@link builtElementProps} rebuilds them. */
+function copyProps(element: ReactElement): Record<string, unknown> {
+  const { children: _children, ...finalProps } = element.props as Record<string, unknown>
+  return builtElementProps(element.type, element.key, omitUndefined(finalProps))
+}
+
+/**
+ * Copies every queued element child into its slot, children first, as the walk
+ * builds each one from a node wrapping the element. A copy holds the element's
+ * children in the element's own shape, handed to `createElement` as one
+ * argument, and in development takes the element's mark for React's key check,
+ * so React asks for keys exactly where it would for the element itself. React
+ * records the component rendering the node as each copy's owner, whichever
+ * component built the element. Kept out of `render` so the render loop's code
+ * shape stays that of a node without element children.
+ * @param copyQueue Frames queued by {@link resolveCopyingChild}.
+ * @param disableEmotion Whether the rendering node disabled Emotion, passed on to host render props.
+ */
+function drainCopies(copyQueue: CopyFrame[], disableEmotion: boolean | undefined): void {
+  while (copyQueue.length > 0) {
+    const frame = copyQueue[copyQueue.length - 1]
+    const { element } = frame
+    if (frame.box === undefined) {
+      const layout = copyLayout(element)
+      const children = NodeUtil.resolveHostRenderProp(element.type, layout, disableEmotion)
+      frame.box = [children]
+      // A host element's render prop became a final `functionRenderer`
+      // element; only the element's own children are copied.
+      if (children === layout) queueCopies(frame.box, copyQueue)
+      continue
+    }
+    copyQueue.pop()
+    const copyType = element.type as ElementType
+    const children = frame.box[0]
+    const props = copyType === Fragment || isFragment(copyType) ? { key: element.key ?? undefined } : copyProps(element)
+    const copy: DevElement = children === undefined ? createElement(copyType, props) : createElement(copyType, props, children as ReactNode)
+    const store = (element as DevElement)._store
+    if (store !== undefined && copy._store !== undefined) copy._store.validated = store.validated
+    ;(frame.into as unknown[])[frame.at] = copy
+  }
+}
+
+/** A child node's rendered element, looked up from the begin phase. */
+function renderedChild(child: BaseNode, rendered: Map<BaseNode, ReactElement>, location: unknown): ReactElement {
   const element = rendered.get(child)
   if (!element) {
     const where = typeof location === 'string' ? ` at ${location}` : ''
@@ -190,6 +295,36 @@ function resolveChild(child: unknown, rendered: Map<BaseNode, ReactElement>, loc
     )
   }
   return element
+}
+
+function resolveChild(child: unknown, rendered: Map<BaseNode, ReactElement>, location: unknown): ReactNode {
+  if (Array.isArray(child)) return child.map(c => resolveChild(c, rendered, location)) as unknown as ReactNode
+  if (!NodeUtil.isNodeInstance(child)) return child as ReactNode
+  return renderedChild(child, rendered, location)
+}
+
+/**
+ * {@link resolveChild} for a node whose children hold element children: each
+ * one is queued on `copies`, to be copied into the slot it is returned in.
+ */
+function resolveCopyingChild(child: unknown, rendered: Map<BaseNode, ReactElement>, location: unknown, copies: CopyFrame[]): ReactNode {
+  if (Array.isArray(child)) {
+    const list: unknown[] = new Array(child.length)
+    for (let i = 0; i < child.length; i++) {
+      const queued = copies.length
+      list[i] = resolveCopyingChild(child[i], rendered, location, copies)
+      if (copies.length > queued && copies[copies.length - 1].into === undefined) {
+        copies[copies.length - 1].into = list
+        copies[copies.length - 1].at = i
+      }
+    }
+    return list as unknown as ReactNode
+  }
+  if (!NodeUtil.isNodeInstance(child)) {
+    if (isValidElement(child) && !NodeUtil.isFinalizedElement(child)) copies.push({ element: child, box: undefined, into: undefined, at: 0 })
+    return child as ReactNode
+  }
+  return renderedChild(child, rendered, location)
 }
 
 /**
@@ -208,6 +343,21 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
   public readonly isBaseNode = true
 
   private _props?: FinalNodeProps
+
+  /**
+   * Set when processing this node's props kept an element child for copying
+   * where it renders. Declared without a value so a node that keeps none, nearly
+   * every node, carries no such property.
+   */
+  declare private _copiesChildren?: true
+
+  /**
+   * The built element this node stands for: an element child that holds a node
+   * of its own, so it takes the walk instead of a copy. The node renders back to
+   * that element with its children in the element's own shape. Declared without
+   * a value, like `_copiesChildren`.
+   */
+  declare private _builtFrom?: ReactElement
   private readonly _deps?: DependencyList
 
   // Render Context Pooling
@@ -255,13 +405,47 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
   }
 
   /**
+   * A node standing for a built element child that holds a node, made from the
+   * element's props as final props.
+   * @param element The built element.
+   * @param rawProps The node's props: the element's under `props`, its children and key.
+   * @returns The node, which renders back to the element's shape.
+   */
+  public static fromElement(element: ReactElement, rawProps: Partial<NodeProps>): BaseNode {
+    const node = new BaseNode(element.type as ElementType, rawProps as never, undefined)
+    node._builtFrom = element
+    return node
+  }
+
+  /**
+   * In development, marks the elements authored nodes rendered to in a built
+   * element's list as checked, as handing them to `createElement` one by one
+   * would. A node is an authored child, which MeoNode keeps out of React's key
+   * check; the built elements and copies beside them keep their own marks.
+   * @param children The list as the node holds it.
+   * @param rendered The same list with every node resolved to its element.
+   */
+  private static markAuthoredChildren(children: readonly unknown[], rendered: readonly unknown[]): void {
+    for (let i = 0; i < children.length; i++) {
+      const child = children[i]
+      if (Array.isArray(child)) BaseNode.markAuthoredChildren(child, rendered[i] as unknown[])
+      else if (NodeUtil.isNodeInstance(child) && child._builtFrom === undefined) {
+        const store = (rendered[i] as DevElement | undefined)?._store
+        if (store !== undefined) store.validated = 1
+      }
+    }
+  }
+
+  /**
    * Lazily processes and retrieves the final, normalized props for the node.
    * The props are processed only once and then cached for subsequent accesses.
    * @getter props
    */
   public get props(): FinalNodeProps {
     if (!this._props) {
-      this._props = NodeUtil.processProps(this.rawProps)
+      const kept = NodeUtil.elementsKeptForCopy
+      this._props = NodeUtil.processProps(this.rawProps, this._builtFrom !== undefined)
+      if (NodeUtil.elementsKeptForCopy !== kept) this._copiesChildren = true
     }
     return this._props
   }
@@ -459,6 +643,7 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
           } = node.props
 
           const activeTheme = getActiveTheme(node.props, inheritedTheme)
+          const builtFrom = node._builtFrom
 
           // Resolve the element to actually render. `as` swaps the render target
           // ("render this other tag/component, keep the styles") while reusing the
@@ -486,7 +671,7 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
           let finalChildren: ReactNode[] = []
 
           const hostChildren = NodeUtil.resolveHostRenderProp(renderTarget, childrenInProps, disableEmotion) as typeof childrenInProps
-          if (hostChildren) {
+          if (!NodeUtil.isNoChild(hostChildren)) {
             // Convert child placeholders into concrete React nodes:
             // - If it's a BaseNode, lookup its rendered ReactElement from the map.
             // - If it's already a React element, use it directly (with enhanced key).
@@ -496,8 +681,33 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
             // Pre-allocate array to avoid resizing during iteration
             finalChildren = new Array(childCount)
 
-            for (let i = 0; i < childCount; i++) {
-              finalChildren[i] = resolveChild(childArray[i], renderedElements, callSiteLocation)
+            // A node's own children, unlike a render prop's resolved element, may
+            // hold element children, which are copied below. A node whose
+            // children hold none resolves them with `resolveChild` alone.
+            const copyQueue: CopyFrame[] | undefined = node._copiesChildren === true && hostChildren === childrenInProps ? [] : undefined
+            if (copyQueue === undefined) {
+              for (let i = 0; i < childCount; i++) {
+                finalChildren[i] = resolveChild(childArray[i], renderedElements, callSiteLocation)
+              }
+            } else {
+              for (let i = 0; i < childCount; i++) {
+                finalChildren[i] = resolveCopyingChild(childArray[i], renderedElements, callSiteLocation, copyQueue)
+                if (copyQueue.length > 0 && copyQueue[copyQueue.length - 1].into === undefined) {
+                  copyQueue[copyQueue.length - 1].into = finalChildren
+                  copyQueue[copyQueue.length - 1].at = i
+                }
+              }
+            }
+
+            // Each element child becomes a fresh copy, as the walk would build it
+            // from a node wrapping the element, and so does every element below it.
+            if (copyQueue !== undefined && copyQueue.length > 0) drainCopies(copyQueue, disableEmotion)
+
+            // A built element's list is key-checked by React as the element's own
+            // would be, so in development the elements its authored nodes rendered
+            // to are marked as handing them over one by one would have marked them.
+            if (builtFrom !== undefined && (builtFrom as DevElement)._store !== undefined && Array.isArray(hostChildren)) {
+              BaseNode.markAuthoredChildren(hostChildren, finalChildren)
             }
           }
 
@@ -538,6 +748,9 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
           // both precisely when a component wanted its empty state — and on a
           // void element React rejects the child argument outright and throws.
           const childArguments = generatedChildren && Array.isArray(childrenInProps) && finalChildren.length > 0 ? [finalChildren] : finalChildren
+          // A built element's children reach React in the element's own shape: a
+          // list as one argument, which React key-checks as it would the element's.
+          const elementChildren = builtFrom !== undefined && Array.isArray(childrenInProps) ? [finalChildren] : childArguments
 
           // React's report says a key is missing; it cannot say where. Every
           // element in the tree is created inside this one `.render()` call, so
@@ -611,11 +824,16 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
           // `Component` HOC, would instead classify them a second time and turn
           // a CSS-named component prop into a style. Those keep the wrapper.
           const shieldNativeProps = nativeProps !== undefined && NodeUtil.shieldsOwnProps(renderTarget)
-          const elementProps = replaceThemeTokensWithCssVars({
-            ...(otherProps as ComponentProps<ElementType>),
-            key,
-            ...(shieldNativeProps ? { props: nativeProps } : nativeProps),
-          })
+          // A built element's props are its own and final; `builtElementProps`
+          // converts only their style values.
+          const elementProps =
+            builtFrom !== undefined
+              ? (builtElementProps(renderTarget, key, { ...otherProps, ...nativeProps }) as ComponentProps<ElementType>)
+              : replaceThemeTokensWithCssVars({
+                  ...(otherProps as ComponentProps<ElementType>),
+                  key,
+                  ...(shieldNativeProps ? { props: nativeProps } : nativeProps),
+                })
 
           // `theme` is deliberately not destructured off props: components such
           // as ThemeProvider take it as a real prop and dropping it was a
@@ -630,7 +848,7 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
 
           // Handle fragments specially: create fragment element with key and children.
           if (node.element === Fragment || isFragment(node.element)) {
-            element = createElement(node.element as ExoticComponent<FragmentProps>, { key }, ...childArguments)
+            element = createElement(node.element as ExoticComponent<FragmentProps>, { key }, ...elementChildren)
           } else {
             // StyledRenderer for emotion-based styling unless explicitly disabled or no styles are present.
             // StyledRenderer handles SSR hydration and emotion CSS injection when css prop exists or element has style tags.
@@ -660,7 +878,7 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
               // client runtime's vars-mode resolution keeps the Emotion class
               // hash identical across SSR/CSR.
               const cssForRenderer = NodeUtil.isServer ? replaceThemeTokensWithCssVars(css) : css
-              element = createElement(StyledRenderer, { element: renderTarget, ...elementProps, css: cssForRenderer }, ...childArguments)
+              element = createElement(StyledRenderer, { element: renderTarget, ...elementProps, css: cssForRenderer }, ...elementChildren)
             } else if (shouldBypassStyledRendererOnServer && isStyledComponent && !NodeUtil.acceptsServerCss(renderTarget)) {
               // Emit `var(--meonode-theme-*)` on the server so the generated Emotion class
               // matches the client runtime output — unifies the class hash across SSR/CSR.
@@ -695,7 +913,7 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
                 identity: themed ? cssWithDefaults : undefined,
               })
               const elementPropsWithClassName = rule ? { ...elementProps, className: rule.className } : elementProps
-              element = createElement(renderTarget, elementPropsWithClassName, ...childArguments)
+              element = createElement(renderTarget, elementPropsWithClassName, ...elementChildren)
               if (rule && (rule.cssText || themed || rule.clientCss)) {
                 const canCarry = canAnchorRules(renderTarget, elementProps as Record<string, unknown>, inForeignNamespace)
                 const carrier = anchor ?? (canCarry ? node : null)
@@ -744,7 +962,7 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
               // unknown attributes like css="[object Object]" into HTML.
               const shouldForwardCssDirectly = isStyledComponent && (!shouldBypassStyledRendererOnServer || NodeUtil.acceptsServerCss(renderTarget))
               const elementPropsWithCss = shouldForwardCssDirectly ? { ...elementProps, css } : elementProps
-              element = createElement(renderTarget, elementPropsWithCss, ...childArguments)
+              element = createElement(renderTarget, elementPropsWithCss, ...elementChildren)
             }
           }
 
@@ -752,9 +970,17 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
           // own children, so none of those shift and the element stays the one
           // element it would be without them.
           const carriedRules = anchoredRules.get(node)
-          if (carriedRules) element = cloneElement(element, undefined, ...childArguments, [...carriedRules.values()])
+          if (carriedRules) element = cloneElement(element, undefined, ...elementChildren, [...carriedRules.values()])
           const rulesBeside = besideRules.get(node)
           if (rulesBeside) element = createElement(Fragment, { key: element.key }, element, [...rulesBeside.values()])
+
+          // In development, the element React receives keeps the built element's
+          // mark for React's key check.
+          if (builtFrom !== undefined) {
+            const store = (builtFrom as DevElement)._store
+            const rendered = (element as DevElement)._store
+            if (store !== undefined && rendered !== undefined) rendered.validated = store.validated
+          }
 
           // Store the rendered element so parent nodes can reference it.
           renderedElements.set(node, element)
@@ -873,6 +1099,7 @@ function Node<AdditionalProps, E extends NodeElementType, ExactProps extends obj
  */
 function buildNode(element: NodeElementType, props: object, deps: DependencyList | undefined, factory: (...args: never[]) => unknown): BaseNode {
   if (diagnosticsEnabled()) observeChildren(element, props as Record<string, unknown>, factory)
+  if (isDevMode()) NodeUtil.markWrittenOutChildren(props as Record<string, unknown>)
   return new BaseNode(element, props as NodeProps, deps)
 }
 

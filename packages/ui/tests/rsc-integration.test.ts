@@ -1148,25 +1148,28 @@ describe('the list marker across the RSC boundary', () => {
   // because it cannot see inside it. So the report survives composition, and
   // the pass-through over-report is what keeps it alive.
   //
+  // This is React's array form: the same tree built with
+  // `createElement(Host, null, spans)` reports too.
+  //
   // Renderer-independent — jsdom gives the same result — so this is cheap here
   // but would be cheaper as a unit test.
   it('keeps the report when the wrapper node is itself marked', async () => {
     expect(await keyReports('/lm-row3')).toBeGreaterThan(0)
   })
 
-  // An UNMARKED outer node whose children reach a MARKED wrapper.
+  // An unmarked outer node whose children are written out, reaching the same
+  // marked wrapper. The outer node hands them to `createElement` as separate
+  // arguments, which marks them as written out, and the copies the wrapper
+  // renders keep that mark. React reports nothing for the same tree built with
+  // `createElement(Host, null, ...spans)`, in Flight and in the client
+  // reconciler in Chromium alike, and this fixture matches it. React's array
+  // form, `createElement(Host, null, spans)`, reports; lm-row3 is that form.
   //
-  // This one is renderer-dependent, which is why it is pinned here rather than
-  // only in a unit test. Under jsdom it reports nothing: the outer node spread
-  // the children variadically, React marked them validated at that point, and
-  // they stay immune downstream. Under Flight it reports: whatever makes
-  // validation sticky in the client reconciler does not carry across the RSC
-  // boundary here.
-  //
-  // Asserted as the Flight behaviour because that is what this suite runs. If a
-  // change makes the two agree, this is the expectation that will say so.
-  it('still reports when only the wrapper is marked, unlike the client reconciler', async () => {
-    expect(await keyReports('/lm-row5')).toBeGreaterThan(0)
+  // The children are an array literal of factory calls, which the plugin leaves
+  // unmarked, so the expectation holds whether or not the plugin ran over the
+  // fixture.
+  it('reports nothing for written-out children when only the wrapper is marked', async () => {
+    expect(await keyReports('/lm-row5')).toBe(0)
   })
 
   it('renders a marked generated list on the client without a hydration mismatch', async () => {

@@ -29,6 +29,7 @@
 // `_store.validated` is what React actually consults, nothing dedupes it, and it
 // distinguishes "exempt" from "already reported" — which a count cannot.
 import { Div, Span, Component } from '@src/main.js'
+import { NodeUtil } from '@src/util/node.util.js'
 import { cleanup, render } from '@testing-library/react'
 import { createElement } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -111,6 +112,67 @@ describe('nested arrays in children', () => {
     const cyclic: unknown[] = [Span('a')]
     cyclic.push(cyclic)
     expect(() => capture(as => Div({ as, children: cyclic } as never).render())).not.toThrow(/Maximum call stack/)
+  })
+})
+
+// A nested array that appears twice beside itself is a repeat, not a cycle: React
+// renders every occurrence. Only an array inside itself, at any depth, is a cycle.
+describe('a nested array repeated in one children array', () => {
+  const CYCLE = 'A `children` array contains itself'
+  const shared = () => [createElement('i', { key: 'x' }, 'x')]
+
+  it('renders every occurrence in a node, with no cycle warning', () => {
+    const items = shared()
+    const { html, messages } = capture(as => Div({ as, children: ['h', items, items] } as never).render())
+    expect(html).toMatch(/^<meo-nest-\d+>h<i>x<\/i><i>x<\/i><\/meo-nest-\d+>$/)
+    expect(messages.filter(m => m.includes(CYCLE))).toEqual([])
+  })
+
+  it('renders every occurrence in a built element child', () => {
+    const items = shared()
+    const { html, messages } = capture(as => Div({ as, children: createElement('p', null, [items, items]) } as never).render())
+    expect(html).toMatch(/^<meo-nest-\d+><p><i>x<\/i><i>x<\/i><\/p><\/meo-nest-\d+>$/)
+    expect(messages.filter(m => m.includes(CYCLE))).toEqual([])
+  })
+
+  it('renders every occurrence in a built element child that holds a node', () => {
+    const items = shared()
+    const { html, messages } = capture(as => Div({ as, children: createElement('p', null, Span('n') as never, items, items) } as never).render())
+    expect(html).toMatch(/^<meo-nest-\d+><p><span>n<\/span><i>x<\/i><i>x<\/i><\/p><\/meo-nest-\d+>$/)
+    expect(messages.filter(m => m.includes(CYCLE))).toEqual([])
+  })
+
+  it('renders an array repeated at two depths', () => {
+    const items = shared()
+    const { html, messages } = capture(as => Div({ as, children: createElement('p', null, [items, [items]]) } as never).render())
+    expect(html).toMatch(/^<meo-nest-\d+><p><i>x<\/i><i>x<\/i><\/p><\/meo-nest-\d+>$/)
+    expect(messages.filter(m => m.includes(CYCLE))).toEqual([])
+  })
+
+  it('still warns once for a real cycle in a node, and renders the rest', () => {
+    const cyclic: unknown[] = [createElement('i', { key: 'a' }, 'a')]
+    cyclic.push(['b', cyclic])
+    const { html, messages } = capture(as => Div({ as, children: ['h', cyclic] } as never).render())
+    expect(html).toMatch(/^<meo-nest-\d+>h<i>a<\/i>b<\/meo-nest-\d+>$/)
+    expect(messages.filter(m => m.includes(CYCLE))).toHaveLength(1)
+  })
+
+  it('still warns once for a real cycle in a built element child, and renders the rest', () => {
+    const cyclic: unknown[] = [createElement('i', { key: 'a' }, 'a')]
+    cyclic.push(['b', cyclic])
+    const { html, messages } = capture(as => Div({ as, children: createElement('p', null, 'h', cyclic as never) } as never).render())
+    expect(html).toMatch(/^<meo-nest-\d+><p>h<i>a<\/i>b<\/p><\/meo-nest-\d+>$/)
+    expect(messages.filter(m => m.includes(CYCLE))).toHaveLength(1)
+  })
+
+  // A node copies a built element child when nothing in it needs the walk. A
+  // repeat needs nothing; a cycle needs the walk, which drops it with the warning.
+  it('leaves a built element copyable, and a cycle does not', () => {
+    const items = shared()
+    expect(NodeUtil.rendersAsCopy(createElement('p', null, [items, [items]]))).toBe(true)
+    const cyclic: unknown[] = ['a']
+    cyclic.push(['b', cyclic])
+    expect(NodeUtil.rendersAsCopy(createElement('p', null, ['h', cyclic] as never))).toBe(false)
   })
 })
 
