@@ -113,8 +113,17 @@ NODE_ENV=production node --cpu-prof --cpu-prof-dir=prof bench/client-render.mjs
 
   `BENCH_BROWSER=chrome` runs the installed Google Chrome in a visible window
   with a fresh temporary profile; the default, `headless`, runs Playwright's
-  headless Chromium shell. Both turn off background throttling, and a sample
-  taken while the page was hidden is not counted. Headless and headed agree,
+  headless Chromium shell. On macOS the window opens behind the app in front
+  and never takes focus, so a run can go on while someone works: the browser
+  is started with `open -g` and no window, and each page gets a window of its
+  own, created in the background over the DevTools protocol. The window is on
+  screen behind the others, its page reports `visible`, and its frames keep
+  the display's rate, so the to-the-frame figures are measured as before.
+  `BENCH_FOREGROUND=1` launches through Playwright instead, which brings the
+  browser to the front on every page. Headed figures recorded before the
+  background launch came from that foreground launch; compare runs of one
+  launch method only. Every browser runs with background
+  throttling off, and a sample taken while the page was hidden is not counted. Headless and headed agree,
   within one Chrome version, on every case but the controlled input: headless
   times its update about 0.6 µs slower for MeoNode styled (less for the other
   sides), in both Chrome 158 and Chromium 159. So input figures come from

@@ -32,6 +32,14 @@
 //   version difference from a headless one when those two disagree:
 //   `chromium`, Playwright's full Chromium build in a window, the same version
 //   as the shell; and `chrome-headless`, the installed Chrome with no window.
+//   On macOS the windowed browsers open behind the app in front and never
+//   take focus from it: the browser is started through `open -g` with no
+//   window, and each page gets its own window, created in the background over
+//   the DevTools protocol. The window is still on screen and its frames still
+//   run, so the to-the-frame clock is unchanged. `BENCH_FOREGROUND=1` starts
+//   it through Playwright instead, in front, as before. Headed figures from
+//   before this background launch came from the foreground one; compare runs
+//   of one launch method only.
 // - `BENCH_DIST_B`: a second `@meonode/ui` dist directory. Its MeoNode sides
 //   join the page as `meoStyledB` and `meoClassNameB`, and `variantB` reports
 //   their time over the package's own build. Pointing it at `dist` itself
@@ -42,8 +50,9 @@
 //   sample counts and sizes.
 import { execFileSync } from 'node:child_process'
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { loadavg } from 'node:os'
+import { loadavg, tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
+import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath, URL } from 'node:url'
 import { median, report } from './_lib.mjs'
 
@@ -61,11 +70,90 @@ const NO_THROTTLING = ['--disable-background-timer-throttling', '--disable-rende
 const EXPOSE_GC = '--js-flags=--expose-gc'
 const ARGS = [...NO_THROTTLING, EXPOSE_GC]
 
-/** The browsers `BENCH_BROWSER` selects. Playwright gives each launch a fresh temporary profile. */
+/**
+ * Whether a windowed browser opens behind the app in front. A browser Playwright
+ * launches itself activates over whatever the user is working in, on every
+ * launch and every new page; on macOS it can be started without that.
+ */
+const IN_BACKGROUND = process.platform === 'darwin' && process.env.BENCH_FOREGROUND !== '1'
+
+/** How long a background browser may take to start: a fresh profile's first start takes several seconds. */
+const BACKGROUND_START_MS = 60_000
+
+/**
+ * Starts a windowed browser behind the app in front, with a fresh temporary
+ * profile, and connects to it over the DevTools protocol.
+ *
+ * `open -g` starts the app without activating it, and `--no-startup-window`
+ * keeps it from opening a window, which would activate it. Each page is a new
+ * window in a context of its own, as `browser.newPage()` gives: the target is
+ * created with `background: true`, which Playwright's own `newPage` does not
+ * pass, and without which the browser comes to the front. Throttling stays off
+ * through `ARGS`, so a window behind another runs its timers and frames as a
+ * window in front does.
+ * @param app What `open -a` takes: an app name or the path to its bundle.
+ * @returns The browser, as far as this script uses one.
+ */
+async function launchInBackground(app) {
+  const profile = mkdtempSync(join(tmpdir(), 'meonode-bench-browser-'))
+  execFileSync('open', [
+    '-g',
+    '-n',
+    '-a',
+    app,
+    '--args',
+    `--user-data-dir=${profile}`,
+    '--remote-debugging-port=0',
+    '--no-first-run',
+    '--no-default-browser-check',
+    '--no-startup-window',
+    ...ARGS,
+  ])
+  // The browser writes the port it chose to this file once it listens.
+  const portFile = join(profile, 'DevToolsActivePort')
+  const deadline = Date.now() + BACKGROUND_START_MS
+  while (!existsSync(portFile) || !readFileSync(portFile, 'utf8').includes('\n')) {
+    if (Date.now() > deadline) throw new Error(`${app} did not start within ${BACKGROUND_START_MS} ms`)
+    await sleep(100)
+  }
+  const browser = await chromium.connectOverCDP(`http://127.0.0.1:${readFileSync(portFile, 'utf8').split('\n')[0]}`)
+  const cdp = await browser.newBrowserCDPSession()
+  return {
+    inBackground: true,
+    version: () => browser.version(),
+    async newPage() {
+      const known = new Set((await cdp.send('Target.getBrowserContexts')).browserContextIds)
+      const context = await browser.newContext()
+      const browserContextId = (await cdp.send('Target.getBrowserContexts')).browserContextIds.find(id => !known.has(id))
+      const opened = context.waitForEvent('page')
+      await cdp.send('Target.createTarget', { url: 'about:blank', browserContextId, newWindow: true, background: true })
+      const page = await opened
+      page.once('close', () => context.close().catch(() => {}))
+      return page
+    },
+    async close() {
+      const disconnected = new Promise(done => browser.once('disconnected', done))
+      await cdp.send('Browser.close').catch(() => {})
+      await disconnected
+      // The browser may still be writing its profile as it exits.
+      rmSync(profile, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 })
+    },
+  }
+}
+
+/** The browsers `BENCH_BROWSER` selects. Each launch gets a fresh temporary profile. */
 const BROWSERS = {
   headless: { name: 'chromium-headless-shell', launch: () => chromium.launch({ args: ARGS }) },
-  chrome: { name: 'chrome', launch: () => chromium.launch({ channel: 'chrome', headless: false, args: ARGS }) },
-  chromium: { name: 'chromium', launch: () => chromium.launch({ headless: false, args: ARGS }) },
+  chrome: {
+    name: 'chrome',
+    launch: () => (IN_BACKGROUND ? launchInBackground('Google Chrome') : chromium.launch({ channel: 'chrome', headless: false, args: ARGS })),
+  },
+  chromium: {
+    name: 'chromium',
+    // The app bundle that holds Playwright's Chromium executable.
+    launch: () =>
+      IN_BACKGROUND ? launchInBackground(chromium.executablePath().replace(/\.app\/.*$/, '.app')) : chromium.launch({ headless: false, args: ARGS }),
+  },
   'chrome-headless': { name: 'chrome-headless', launch: () => chromium.launch({ channel: 'chrome', headless: true, args: ARGS }) },
 }
 const BROWSER = process.env.BENCH_BROWSER || 'headless'
@@ -160,7 +248,9 @@ async function openPage(browser) {
     ),
   )
   await page.goto(`${ORIGIN}/`)
-  await page.bringToFront()
+  // Bringing a page to the front activates its browser; a background page is
+  // alone in its window, so it is the tab shown there already.
+  if (!browser.inBackground) await page.bringToFront()
   return page
 }
 
