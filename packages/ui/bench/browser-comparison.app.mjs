@@ -75,6 +75,68 @@ export function appOf({ Div, Span, Node, ThemeProvider }) {
   return { element: () => createElement(App), bump: () => state.set(v => v + 1) }
 }
 
+/**
+ * The app with every level's leaves handed to their node as built elements:
+ * each leaf is rendered with `.render()` before it goes into the level's
+ * children, as a component does when it composes elements it built. The tree
+ * and its css are `appOf`'s.
+ */
+export function appRenderedOf({ Div, Span, Node, ThemeProvider }) {
+  const outer = { c: { a: 'rgb(10, 20, 30)' }, s: { md: '600px' } }
+  const inner = { c: { a: 'rgb(70, 80, 90)' }, s: { md: '700px' } }
+
+  function Block({ col, level, v }) {
+    let below = level + 3 < DEPTH ? Node(Block, { key: 'below', col, level: level + 3, v }) : null
+    for (let l = Math.min(level + 2, DEPTH - 1); l >= level; l--) {
+      const id = (col * DEPTH + l) * (LEAVES + 1)
+      const leaves = Array.from({ length: LEAVES }, (_, k) => Span(`${k}`, { key: k, css: cssOf(id + 1 + k, v) }).render())
+      below = Div({ key: 'below', css: cssOf(id, v), children: below ? [...leaves, below] : leaves })
+    }
+    return below.render()
+  }
+
+  const state = { set: () => {} }
+  function App() {
+    const [v, setV] = useState(0)
+    state.set = setV
+    const columns = Array.from({ length: COLUMNS }, (_, col) =>
+      col === INNER_COLUMN ? theme(ThemeProvider, inner, Node(Block, { col, level: 0, v }), col) : Node(Block, { key: col, col, level: 0, v }),
+    )
+    return theme(ThemeProvider, outer, Div({ css: { display: 'grid', gridTemplateColumns: `repeat(${COLUMNS}, 1fr)` }, children: columns })).render()
+  }
+  return { element: () => createElement(App), bump: () => state.set(v => v + 1) }
+}
+
+/** 10k plain spans, built as elements by hand, in a div under a ThemeProvider. Building it is part of every mount. */
+export function flatElementsOf({ ThemeProvider }) {
+  return {
+    element: () =>
+      theme(
+        ThemeProvider,
+        { c: { a: 'red' } },
+        createElement(
+          'div',
+          { className: 'list' },
+          Array.from({ length: FLAT_THEMED_NODES }, (_, i) => createElement('span', { key: i, className: 'item' }, `n${i}`)),
+        ),
+      ).render(),
+    bump: null,
+  }
+}
+
+/** 10k styled spans, each rendered with `.render()` before it goes into the list's children, under a ThemeProvider. */
+export function flatRenderedOf({ Div, Span, ThemeProvider }) {
+  return {
+    element: () =>
+      theme(
+        ThemeProvider,
+        { c: { a: 'red' } },
+        Div({ className: 'list', children: Array.from({ length: FLAT_THEMED_NODES }, (_, i) => Span(`n${i}`, { key: i, padding: '1px' }).render()) }),
+      ).render(),
+    bump: null,
+  }
+}
+
 /** 10k styled spans under a ThemeProvider, as rows. Building it is part of every mount. */
 export function flatThemedOf({ Div, Span, ThemeProvider }) {
   return {

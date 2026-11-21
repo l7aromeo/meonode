@@ -9,7 +9,7 @@ import { jsx } from '@emotion/react'
 import { createElement, useState } from 'react'
 import { flushSync } from 'react-dom'
 import { createRoot } from 'react-dom/client'
-import { appOf, flatThemedOf } from './browser-comparison.app.mjs'
+import { appOf, appRenderedOf, flatElementsOf, flatRenderedOf, flatThemedOf } from './browser-comparison.app.mjs'
 
 /** One style property, the same on every side that styles. */
 const PADDING = { padding: '1px' }
@@ -458,7 +458,7 @@ async function runUpdates({ kind, n, rounds }) {
 let BUILDS = {}
 
 /** The app-shaped cases: each maps a build to a root element maker and, where it updates, a bump. */
-const APP_CASES = { app: appOf, flatThemed: flatThemedOf }
+const APP_CASES = { app: appOf, flatThemed: flatThemedOf, appRendered: appRenderedOf, flatElements: flatElementsOf, flatRendered: flatRenderedOf }
 
 /**
  * Times one app-shaped case for one build on this page, which must be fresh.

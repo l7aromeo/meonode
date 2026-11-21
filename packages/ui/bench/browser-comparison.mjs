@@ -47,6 +47,8 @@
 // - `BENCH_LOAD_MAX`: the highest 1-minute load average a page may start at
 //   before the run is marked invalid (default 10). `BENCH_LOAD_WAIT=1` makes
 //   each page wait until the load is under it instead.
+// - `BENCH_APP_KINDS`: the app-shaped cases to run, comma-separated (default
+//   `app,flatThemed`).
 // - `ROUNDS`, `PAGES`, `FLAT`, `NESTED`, `ROWS`, `COLD_PAGES`, `WARM_ROUNDS`:
 //   sample counts and sizes.
 import { execFileSync } from 'node:child_process'
@@ -184,8 +186,15 @@ const UPDATE_CASES = [
   { kind: 'rows', n: Number(process.env.ROWS || 1000) },
   { kind: 'input', n: 1 },
 ]
-/** The app-shaped cases, MeoNode only: `app` (about 10k nodes, tokens, two providers) and `flatThemed` (10k spans under a provider). */
-const APP_KINDS = ['app', 'flatThemed']
+
+/**
+ * The app-shaped cases, MeoNode only: `app` (about 10k nodes, tokens, two
+ * providers) and `flatThemed` (10k spans under a provider) by default.
+ * `BENCH_APP_KINDS` picks others from `browser-comparison.app.mjs`, the ones
+ * that hand nodes built elements as children: `appRendered`, `flatElements` and
+ * `flatRendered`.
+ */
+const APP_KINDS = (process.env.BENCH_APP_KINDS || 'app,flatThemed').split(',')
 /** Fresh pages per build for each app-shaped case; each page gives one cold sample. */
 const COLD_PAGES = Number(process.env.COLD_PAGES || 15)
 /** Warm rounds on each page after its cold mount. */

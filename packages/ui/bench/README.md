@@ -109,7 +109,11 @@ NODE_ENV=production node --cpu-prof --cpu-prof-dir=prof bench/client-render.mjs
   and the code not yet run (and for `app`, the update after it), then
   `WARM_ROUNDS` warm mounts and updates. They report the median and range over
   `COLD_PAGES` pages, in ms, JavaScript only and to the frame. The tree is in
-  `browser-comparison.app.mjs`.
+  `browser-comparison.app.mjs`. `BENCH_APP_KINDS` runs other cases from it,
+  the ones that hand nodes built elements as children: `appRendered` is `app`
+  with every leaf rendered before it reaches its level, `flatElements` is 10k
+  hand-built spans under a provider, and `flatRendered` is 10k rendered styled
+  spans.
 
   `BENCH_BROWSER=chrome` runs the installed Google Chrome in a visible window
   with a fresh temporary profile; the default, `headless`, runs Playwright's
