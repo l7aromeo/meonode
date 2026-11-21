@@ -26,7 +26,7 @@ import type {
   WorkItem,
 } from '@src/types/node.type.js'
 import { isFragment, isValidElementType, REACT_LAZY_TYPE } from '@src/helper/react-is.helper.js'
-import { getComponentType, getElementTypeName, hasNoStyleTag, getGlobalState } from '@src/helper/common.helper.js'
+import { getComponentType, getElementTypeName, hasNoStyleTag, getGlobalState, omitUndefined } from '@src/helper/common.helper.js'
 import StyledRenderer, { ThemedRule, ThemeTokenCheck } from '@src/components/styled-renderer.client.js'
 import MeoMemo from '@src/components/meo-memo.client.js'
 import { LIST_MARKER, LOCATION_MARKER } from '@src/constant/common.const.js'
@@ -177,9 +177,96 @@ function assertNoNodeInHostProps(props: Record<string, unknown>, location: unkno
   }
 }
 
-function resolveChild(child: unknown, rendered: Map<BaseNode, ReactElement>, location: unknown): ReactNode {
-  if (Array.isArray(child)) return child.map(c => resolveChild(c, rendered, location)) as unknown as ReactNode
-  if (!NodeUtil.isNodeInstance(child)) return child as ReactNode
+/**
+ * One element child being copied where its node renders: the element, its child
+ * arguments once they are laid out, and the slot its copy goes into.
+ */
+interface CopyFrame {
+  element: ReactElement
+  args: unknown[] | undefined
+  into: unknown[] | undefined
+  at: number
+}
+
+/**
+ * An element child's `children` in the shapes `_processChildren` gives a
+ * rebuilt element: a falsy `children` dropped, a function kept, a one-element
+ * list collapsed, nested lists kept nested, every list a fresh array.
+ */
+function copyLayout(element: ReactElement): unknown {
+  const children = (element.props as { children?: unknown }).children
+  if (!children) return undefined
+  if (typeof children === 'function' || !Array.isArray(children)) return children
+  if (children.some(Array.isArray))
+    return children.map(function copyList(child: unknown): unknown {
+      return Array.isArray(child) ? child.map(copyList) : child
+    })
+  return children.length === 1 ? children[0] : children.slice()
+}
+
+/** Queues a frame for every element in `list` and the lists nested in it, each copied into its slot. */
+function queueCopies(list: unknown[], queue: CopyFrame[]): void {
+  const lists: unknown[][] = [list]
+  while (lists.length > 0) {
+    const current = lists.pop() as unknown[]
+    for (let i = 0; i < current.length; i++) {
+      const child = current[i]
+      if (Array.isArray(child)) lists.push(child)
+      else if (isValidElement(child) && !NodeUtil.isFinalizedElement(child)) queue.push({ element: child, args: undefined, into: current, at: i })
+    }
+  }
+}
+
+/**
+ * The props of an element child's copy, as the node walk builds them for the
+ * node it wraps the element in: the element's props without their `undefined`
+ * entries, under `props` for a target that shields its own props, after its
+ * key, with `theme.*` tokens turned into CSS variables, and without `theme` on
+ * a plain tag.
+ */
+function copyProps(element: ReactElement): Record<string, unknown> {
+  const type = element.type
+  const { children: _children, ...finalProps } = element.props as Record<string, unknown>
+  const nativeProps = omitUndefined(finalProps)
+  const props = replaceThemeTokensWithCssVars({
+    key: element.key ?? undefined,
+    ...(NodeUtil.shieldsOwnProps(type) ? { props: nativeProps } : nativeProps),
+  }) as Record<string, unknown>
+  if (typeof type === 'string' && 'theme' in props) delete props.theme
+  return props
+}
+
+/**
+ * Copies every queued element child into its slot, children first, as the walk
+ * builds each one from a node wrapping the element. Kept out of `render` so the
+ * render loop's code shape stays that of a node without element children.
+ * @param copyQueue Frames queued by {@link resolveCopyingChild}.
+ * @param disableEmotion Whether the rendering node disabled Emotion, passed on to host render props.
+ */
+function drainCopies(copyQueue: CopyFrame[], disableEmotion: boolean | undefined): void {
+  while (copyQueue.length > 0) {
+    const frame = copyQueue[copyQueue.length - 1]
+    const { element } = frame
+    if (frame.args === undefined) {
+      const layout = copyLayout(element)
+      const copyChildren = NodeUtil.resolveHostRenderProp(element.type, layout, disableEmotion)
+      frame.args = copyChildren ? (Array.isArray(copyChildren) ? copyChildren : [copyChildren]) : []
+      // A host element's render prop became a final `functionRenderer`
+      // element; only the element's own children are copied.
+      if (copyChildren === layout) queueCopies(frame.args, copyQueue)
+      continue
+    }
+    copyQueue.pop()
+    const copyType = element.type as ElementType
+    ;(frame.into as unknown[])[frame.at] =
+      copyType === Fragment || isFragment(copyType)
+        ? createElement(copyType as ExoticComponent<FragmentProps>, { key: element.key ?? undefined }, ...(frame.args as ReactNode[]))
+        : createElement(copyType, copyProps(element), ...(frame.args as ReactNode[]))
+  }
+}
+
+/** A child node's rendered element, looked up from the begin phase. */
+function renderedChild(child: BaseNode, rendered: Map<BaseNode, ReactElement>, location: unknown): ReactElement {
   const element = rendered.get(child)
   if (!element) {
     const where = typeof location === 'string' ? ` at ${location}` : ''
@@ -190,6 +277,36 @@ function resolveChild(child: unknown, rendered: Map<BaseNode, ReactElement>, loc
     )
   }
   return element
+}
+
+function resolveChild(child: unknown, rendered: Map<BaseNode, ReactElement>, location: unknown): ReactNode {
+  if (Array.isArray(child)) return child.map(c => resolveChild(c, rendered, location)) as unknown as ReactNode
+  if (!NodeUtil.isNodeInstance(child)) return child as ReactNode
+  return renderedChild(child, rendered, location)
+}
+
+/**
+ * {@link resolveChild} for a node whose children hold element children: each
+ * one is queued on `copies`, to be copied into the slot it is returned in.
+ */
+function resolveCopyingChild(child: unknown, rendered: Map<BaseNode, ReactElement>, location: unknown, copies: CopyFrame[]): ReactNode {
+  if (Array.isArray(child)) {
+    const list: unknown[] = new Array(child.length)
+    for (let i = 0; i < child.length; i++) {
+      const queued = copies.length
+      list[i] = resolveCopyingChild(child[i], rendered, location, copies)
+      if (copies.length > queued && copies[copies.length - 1].into === undefined) {
+        copies[copies.length - 1].into = list
+        copies[copies.length - 1].at = i
+      }
+    }
+    return list as unknown as ReactNode
+  }
+  if (!NodeUtil.isNodeInstance(child)) {
+    if (isValidElement(child) && !NodeUtil.isFinalizedElement(child)) copies.push({ element: child, args: undefined, into: undefined, at: 0 })
+    return child as ReactNode
+  }
+  return renderedChild(child, rendered, location)
 }
 
 /**
@@ -208,6 +325,13 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
   public readonly isBaseNode = true
 
   private _props?: FinalNodeProps
+
+  /**
+   * Set when processing this node's props kept an element child for copying
+   * where it renders. Declared without a value so a node that keeps none, nearly
+   * every node, carries no such property.
+   */
+  declare private _copiesChildren?: true
   private readonly _deps?: DependencyList
 
   // Render Context Pooling
@@ -261,7 +385,9 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
    */
   public get props(): FinalNodeProps {
     if (!this._props) {
+      const kept = NodeUtil.elementsKeptForCopy
       this._props = NodeUtil.processProps(this.rawProps)
+      if (NodeUtil.elementsKeptForCopy !== kept) this._copiesChildren = true
     }
     return this._props
   }
@@ -496,9 +622,27 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
             // Pre-allocate array to avoid resizing during iteration
             finalChildren = new Array(childCount)
 
-            for (let i = 0; i < childCount; i++) {
-              finalChildren[i] = resolveChild(childArray[i], renderedElements, callSiteLocation)
+            // A node's own children, unlike a render prop's resolved element, may
+            // hold element children, which are copied below. A node whose
+            // children hold none resolves them with `resolveChild` alone.
+            const copyQueue: CopyFrame[] | undefined = node._copiesChildren === true && hostChildren === childrenInProps ? [] : undefined
+            if (copyQueue === undefined) {
+              for (let i = 0; i < childCount; i++) {
+                finalChildren[i] = resolveChild(childArray[i], renderedElements, callSiteLocation)
+              }
+            } else {
+              for (let i = 0; i < childCount; i++) {
+                finalChildren[i] = resolveCopyingChild(childArray[i], renderedElements, callSiteLocation, copyQueue)
+                if (copyQueue.length > 0 && copyQueue[copyQueue.length - 1].into === undefined) {
+                  copyQueue[copyQueue.length - 1].into = finalChildren
+                  copyQueue[copyQueue.length - 1].at = i
+                }
+              }
             }
+
+            // Each element child becomes a fresh copy, as the walk would build it
+            // from a node wrapping the element, and so does every element below it.
+            if (copyQueue !== undefined && copyQueue.length > 0) drainCopies(copyQueue, disableEmotion)
           }
 
           // How the children reach `createElement` is what decides whether React

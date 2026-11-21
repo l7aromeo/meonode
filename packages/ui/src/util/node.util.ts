@@ -4,7 +4,7 @@ import type * as React from 'react'
 // namespace import would make reading it a missing-export access.
 // eslint-disable-next-line no-restricted-syntax
 import ReactRuntime from 'react'
-import { type ElementType, type ReactNode, createElement, isValidElement } from 'react'
+import { type ElementType, type ReactElement, type ReactNode, createElement, isValidElement } from 'react'
 import type {
   FunctionRendererProps,
   NodeElement,
@@ -50,8 +50,31 @@ const isChildList = (children: Children): children is readonly Children[] => Arr
 const isReactComponentInstance = (value: unknown): value is React.Component =>
   typeof ReactRuntime.Component === 'function' && value instanceof ReactRuntime.Component
 
+/**
+ * Elements whose subtree holds something only the node walk renders: a node, a
+ * function child, a component type or instance, or a nested array that repeats.
+ * {@link NodeUtil.rendersAsCopy} records every element on the path from the
+ * element it scanned down to that value, so the walk that then renders each of
+ * them does not scan the same path again. Weak, so it keeps no element alive.
+ */
+const WALKED_ELEMENTS = new WeakSet<object>()
+
+/** A value in an element's children that a copy keeps as it is. */
+const KEEP = 0
+/** An element in an element's children that a copy copies in turn. */
+const COPY = 1
+/** A value in an element's children that only the node walk renders. */
+const WALK = 2
+
 export class NodeUtil {
   private constructor() {}
+
+  /**
+   * How many element children {@link processRawNode} has kept for copying,
+   * counting up. A node compares it before and after processing its props to
+   * learn whether its children hold any.
+   */
+  public static elementsKeptForCopy = 0
 
   private static readBooleanFlag(value: unknown, key: '__meonodeAcceptsServerCss' | '__meonodeShieldsOwnProps'): boolean {
     if (typeof value !== 'function') return false
@@ -430,7 +453,7 @@ export class NodeUtil {
     // which does not subtract `readonly Children[]` from the union, so the guard
     // has to say what it proves.
     if (!isChildList(children)) {
-      return NodeUtil.processRawNode(children, disableEmotion)
+      return NodeUtil.processRawNode(children, disableEmotion, true)
     }
 
     // A nested array is a list of children in its own right — React flattens
@@ -456,11 +479,11 @@ export class NodeUtil {
     // array — a fact the element type cannot carry, since `Children` describes any
     // depth.
     if (children.length === 1 && !keepArray) {
-      return NodeUtil.processRawNode(children[0] as NodeElement, disableEmotion)
+      return NodeUtil.processRawNode(children[0] as NodeElement, disableEmotion, true)
     }
 
     // General case: multiple children
-    return children.map(child => NodeUtil.processRawNode(child as NodeElement, disableEmotion))
+    return children.map(child => NodeUtil.processRawNode(child as NodeElement, disableEmotion, true))
   }
 
   /**
@@ -478,7 +501,7 @@ export class NodeUtil {
   private static _processNestedChildren(children: readonly unknown[], disableEmotion: boolean | undefined, seen: WeakSet<object>): unknown[] {
     seen.add(children)
     return children.map(child => {
-      if (!Array.isArray(child)) return NodeUtil.processRawNode(child as NodeElement, disableEmotion)
+      if (!Array.isArray(child)) return NodeUtil.processRawNode(child as NodeElement, disableEmotion, true)
       // A cycle cannot render — React would recurse on it just as we would — so
       // it is dropped here rather than left to overflow the stack somewhere less
       // legible. Development says so; production keeps rendering the rest.
@@ -493,6 +516,115 @@ export class NodeUtil {
   }
 
   /**
+   * Whether `element` is finalized output from an upstream render, which a node
+   * hands to React as it is: its type is a client reference, a lazy wrapper, a
+   * memo or a forwardRef.
+   * @param element The element to test.
+   * @returns `true` when the element is passed through unchanged.
+   */
+  public static isFinalizedElement(element: ReactElement): boolean {
+    const elementType = element.type as unknown
+    if (!elementType || typeof elementType !== 'object') return false
+    const typeSymbol = (elementType as { $$typeof?: symbol }).$$typeof
+    return (
+      typeSymbol === Symbol.for('react.client.reference') ||
+      typeSymbol === Symbol.for('react.lazy') ||
+      typeSymbol === Symbol.for('react.memo') ||
+      typeSymbol === Symbol.for('react.forward_ref')
+    )
+  }
+
+  /**
+   * What a value in an element's children needs from a copy of that element,
+   * following the branches of {@link processRawNode} in their order.
+   * @param value One child.
+   * @returns {@link KEEP}, {@link COPY} or {@link WALK}.
+   */
+  private static _childNeed(value: unknown): number {
+    if (value === null || value === undefined || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return KEEP
+    if (NodeUtil.isNodeInstance(value) || NodeUtil.isFunctionChild(value as NodeElement)) return WALK
+    if (isValidElement(value)) return NodeUtil.isFinalizedElement(value) ? KEEP : WALKED_ELEMENTS.has(value) ? WALK : COPY
+    if (isReactClassComponent(value) || isMemo(value) || isForwardRef(value) || isReactComponentInstance(value)) return WALK
+    return KEEP
+  }
+
+  /**
+   * Whether the node walk would rebuild `root` exactly as a plain copy does, so
+   * a parent can hand React a fresh copy of it at render instead of a node.
+   *
+   * The walk turns an element child into a node with the element's props as
+   * final props, normalises its children, and renders it back to a new element,
+   * at every depth. Where the subtree holds only elements, primitives and values
+   * the walk keeps as they are, nothing in that differs from copying each element
+   * with its props cleaned and its children normalised the same way. A node, a
+   * function child or a component value anywhere below needs the walk itself,
+   * and so does a nested array that appears twice, which the walk drops with a
+   * warning. Iterative, so the depth of the subtree is not bounded by the stack.
+   * @param root The element child.
+   * @returns `true` when a copy at render gives the walk's output.
+   */
+  public static rendersAsCopy(root: ReactElement): boolean {
+    if (WALKED_ELEMENTS.has(root)) return false
+    // Every element found so far, and for each the index of the element whose
+    // children hold it, so a value the walk needs can mark its whole path.
+    const elements: ReactElement[] = [root]
+    const parents: number[] = [-1]
+    for (let at = 0; at < elements.length; at++) {
+      if (NodeUtil._childrenNeedWalk((elements[at].props as { children?: unknown }).children, elements, parents, at)) {
+        for (let i = at; i !== -1; i = parents[i]) WALKED_ELEMENTS.add(elements[i])
+        return false
+      }
+    }
+    return true
+  }
+
+  /**
+   * Whether one element's children hold a value only the walk renders. The
+   * elements among them are queued for the same question.
+   * @param children The element's `children` prop.
+   * @param elements The queue of elements to scan.
+   * @param parents The parent index of each queued element.
+   * @param at The index of the element these children belong to.
+   * @returns `true` when the element needs the walk.
+   */
+  private static _childrenNeedWalk(children: unknown, elements: ReactElement[], parents: number[], at: number): boolean {
+    // A falsy `children` is dropped and a function `children` is kept, both
+    // before any child is looked at, as `_processChildren` does.
+    if (!children || typeof children === 'function') return false
+    const queue = (value: unknown): boolean => {
+      const need = NodeUtil._childNeed(value)
+      if (need === COPY) {
+        elements.push(value as ReactElement)
+        parents.push(at)
+      }
+      return need === WALK
+    }
+    if (!Array.isArray(children)) return queue(children)
+    if (!children.some(Array.isArray)) {
+      for (let i = 0; i < children.length; i++) if (queue(children[i])) return true
+      return false
+    }
+    // Nested arrays, walked with a stack. `_processNestedChildren` drops an
+    // array it has already met anywhere in this element's children.
+    const seen = new Set<unknown>([children])
+    const lists: unknown[][] = [children]
+    while (lists.length > 0) {
+      const list = lists.pop() as unknown[]
+      for (let i = 0; i < list.length; i++) {
+        const child = list[i]
+        if (!Array.isArray(child)) {
+          if (queue(child)) return true
+          continue
+        }
+        if (seen.has(child)) return true
+        seen.add(child)
+        lists.push(child)
+      }
+    }
+    return false
+  }
+
+  /**
    * The core normalization function for a single child. It takes any valid `NodeElement`
    * (primitive, React element, function, `BaseNode` instance) and converts it into a standardized `BaseNode`
    * instance if it isn't one already. This ensures a consistent structure for the iterative renderer.
@@ -500,9 +632,12 @@ export class NodeUtil {
    * component classes, and component instances.
    * @param node The node element to process and normalize.
    * @param disableEmotion If true, emotion styling will be disabled for this node.
+   * @param inChildren Whether `node` is one of a node's own children. Such an
+   * element child, when the walk would only rebuild it, is kept as it is: the
+   * node copies it where it renders (see {@link NodeUtil.rendersAsCopy}).
    * @returns The normalized node element in BaseNode format.
    */
-  public static processRawNode(node: NodeElement, disableEmotion?: boolean): NodeElement {
+  public static processRawNode(node: NodeElement, disableEmotion?: boolean, inChildren = false): NodeElement {
     // Primitives and null/undefined are returned as-is.
     if (node === null || node === undefined || typeof node === 'string' || typeof node === 'number' || typeof node === 'boolean') return node
 
@@ -538,17 +673,10 @@ export class NodeUtil {
       // lazy-wrapped client component fails isClientReference/acceptsServerCss checks),
       // which produces a server-compiled className that diverges from the hash the
       // underlying client component emits during hydration.
-      const elementType = node.type as unknown
-      if (elementType && typeof elementType === 'object') {
-        const typeSymbol = (elementType as { $$typeof?: symbol }).$$typeof
-        if (
-          typeSymbol === Symbol.for('react.client.reference') ||
-          typeSymbol === Symbol.for('react.lazy') ||
-          typeSymbol === Symbol.for('react.memo') ||
-          typeSymbol === Symbol.for('react.forward_ref')
-        ) {
-          return node
-        }
+      if (NodeUtil.isFinalizedElement(node)) return node
+      if (inChildren && NodeUtil.rendersAsCopy(node)) {
+        NodeUtil.elementsKeptForCopy++
+        return node
       }
       // The props on an already-created element are final: they were classified
       // when that element was built, by a node or by whoever called
