@@ -113,8 +113,17 @@ NODE_ENV=production node --cpu-prof --cpu-prof-dir=prof bench/client-render.mjs
 
   `BENCH_BROWSER=chrome` runs the installed Google Chrome in a visible window
   with a fresh temporary profile; the default, `headless`, runs Playwright's
-  headless Chromium shell. Both turn off background throttling, and a sample
-  taken while the page was hidden is not counted. Headless and headed agree,
+  headless Chromium shell. On macOS the window opens behind the app in front
+  and never takes focus, so a run can go on while someone works: the browser
+  is started with `open -g` and no window, and each page gets a window of its
+  own, created in the background over the DevTools protocol. The window is on
+  screen behind the others, its page reports `visible`, and its frames keep
+  the display's rate, so the to-the-frame figures are measured as before.
+  `BENCH_FOREGROUND=1` launches through Playwright instead, which brings the
+  browser to the front on every page. Headed figures recorded before the
+  background launch came from that foreground launch; compare runs of one
+  launch method only. Every browser runs with background
+  throttling off, and a sample taken while the page was hidden is not counted. Headless and headed agree,
   within one Chrome version, on every case but the controlled input: headless
   times its update about 0.6 µs slower for MeoNode styled (less for the other
   sides), in both Chrome 158 and Chromium 159. So input figures come from
@@ -125,7 +134,10 @@ NODE_ENV=production node --cpu-prof --cpu-prof-dir=prof bench/client-render.mjs
   build. So every sample starts from a collected heap, and the garbage a side
   makes inside a sample, with any collection during it, is still counted. The
   1-minute load average is read as each page starts; if one starts at 10 or
-  more (`BENCH_LOAD_MAX`), the report marks the run `valid: false`. The page is cross-origin
+  more (`BENCH_LOAD_MAX`), the report marks the run `valid: false`;
+  `BENCH_LOAD_WAIT=1` makes each page wait until the load is under the limit
+  instead, checking every 15 s, and the report counts the waits
+  (`load1.waits`). The page is cross-origin
   isolated, so `performance.now()` steps by 5 µs. `BENCH_DIST_B=<dist>` adds a
   second `@meonode/ui` build as `meoStyledB` and `meoClassNameB`, reported in
   `variantB` against the package's own build; `BENCH_DIST_B=dist` is an A/A
