@@ -30,8 +30,18 @@ const W = /* @__PURE__ */ new Uint32Array(64)
 /** The bytes of the text being hashed, reused by every call and grown as needed. */
 let bytes = new Uint8Array(1024)
 
-/** 36⁶: the base-36 value of the last six characters of a name. */
-const BASE36_LOW = 36 ** 6
+/** 36⁴: four base-36 digits, small enough that every digit is found with small-integer arithmetic. */
+const BASE36_CHUNK = 36 ** 4
+
+/** The 64-bit value being written in base 36, as four 16-bit limbs, reused by every call. */
+const limbs = /* @__PURE__ */ new Float64Array(4)
+
+/** 36³ and 36²: the place values of the first two of four base-36 digits. */
+const PLACE_3 = 36 ** 3
+const PLACE_2 = 36 ** 2
+
+/** The character codes of the 36 digits. */
+const DIGITS = /* @__PURE__ */ Uint8Array.from('0123456789abcdefghijklmnopqrstuvwxyz', digit => digit.charCodeAt(0))
 
 /**
  * Writes `text` as bytes, each UTF-16 unit as the UTF-8 encoding of its value, one
@@ -127,20 +137,52 @@ function sha256Prefix(length: number): [number, number] {
 }
 
 /**
- * The 64-bit value `high · 2³² + low` in exactly 13 base-36 characters. Divides on
- * 16-bit limbs so every step stays an exact integer in a double.
+ * Divides the value in {@link limbs} by 36⁴ in place. Each step stays an exact
+ * integer in a double.
+ * @returns The remainder: the value's last four base-36 digits.
  */
-function base36(high: number, low: number): string {
-  const limbs = [high >>> 16, high & 0xffff, low >>> 16, low & 0xffff]
+function divideByChunk(): number {
   let rest = 0
-  let quotient = 0
-  for (const limb of limbs) {
-    const current = rest * 0x10000 + limb
-    const digit = Math.floor(current / BASE36_LOW)
-    rest = current - digit * BASE36_LOW
-    quotient = quotient * 0x10000 + digit
+  for (let i = 0; i < 4; i++) {
+    const current = rest * 0x10000 + limbs[i]
+    const quotient = Math.floor(current / BASE36_CHUNK)
+    rest = current - quotient * BASE36_CHUNK
+    limbs[i] = quotient
   }
-  return quotient.toString(36).padStart(7, '0') + rest.toString(36).padStart(6, '0')
+  return rest
+}
+
+/**
+ * The 64-bit value `high · 2³² + low` in exactly 13 base-36 characters.
+ *
+ * Every digit comes from small-integer arithmetic and the name is built by one
+ * `String.fromCharCode`: `Number.prototype.toString(36)` on a value past the
+ * small-integer range takes a slow path that cost more than the hash itself.
+ */
+export function base36(high: number, low: number): string {
+  limbs[0] = high >>> 16
+  limbs[1] = high & 0xffff
+  limbs[2] = low >>> 16
+  limbs[3] = low & 0xffff
+  const last = divideByChunk()
+  const middle = divideByChunk()
+  const first = divideByChunk()
+  // 2⁶⁴ < 36¹³, so what is left is below 36: the leading digit.
+  return String.fromCharCode(
+    DIGITS[limbs[3]],
+    DIGITS[(first / PLACE_3) | 0],
+    DIGITS[((first / PLACE_2) | 0) % 36],
+    DIGITS[((first / 36) | 0) % 36],
+    DIGITS[first % 36],
+    DIGITS[(middle / PLACE_3) | 0],
+    DIGITS[((middle / PLACE_2) | 0) % 36],
+    DIGITS[((middle / 36) | 0) % 36],
+    DIGITS[middle % 36],
+    DIGITS[(last / PLACE_3) | 0],
+    DIGITS[((last / PLACE_2) | 0) % 36],
+    DIGITS[((last / 36) | 0) % 36],
+    DIGITS[last % 36],
+  )
 }
 
 /**

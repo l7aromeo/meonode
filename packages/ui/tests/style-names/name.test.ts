@@ -9,6 +9,7 @@ import {
   __clearStyleNameMemo,
   __setStyleHash,
   __styleNameMemoSize,
+  base36,
   hashStyles,
   nameStyles,
   STYLE_NAME_MEMO_CHARACTERS,
@@ -54,6 +55,28 @@ describe('the name of a styles text', () => {
   // Forward, then back, so a short text follows a long one in the reused buffer.
   it.each([...TEXTS, ...[...TEXTS].reverse()].map(text => [text.slice(0, 24), text]))('is the first 64 bits of its SHA-256, in base 36: %j', (_, text) => {
     expect(hashStyles(text)).toBe(reference(text))
+  })
+
+  it('writes a 64-bit value as exactly its 13 base-36 digits', () => {
+    const digits = (high: number, low: number) => ((BigInt(high) << 32n) + BigInt(low)).toString(36).padStart(13, '0')
+    // Place-value boundaries of each half, and of each four-digit chunk.
+    const edges = [0, 1, 35, 36, 1295, 1296, 46_655, 46_656, 36 ** 4 - 1, 36 ** 4, 0xffff, 0x10000, 2 ** 31 - 1, 2 ** 31, 2 ** 32 - 1]
+    for (const high of edges) for (const low of edges) expect(base36(high, low)).toBe(digits(high, low))
+    // A fixed sequence of values over the whole range (xorshift32, seeded).
+    let seed = 0x2545f491
+    const next = () => {
+      seed ^= seed << 13
+      seed ^= seed >>> 17
+      seed ^= seed << 5
+      return seed >>> 0
+    }
+    let wrong = 0
+    for (let i = 0; i < 200_000; i++) {
+      const high = next()
+      const low = next()
+      if (base36(high, low) !== digits(high, low)) wrong++
+    }
+    expect(wrong).toBe(0)
   })
 
   it('is 13 base-36 characters', () => {
