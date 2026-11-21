@@ -362,6 +362,18 @@ function fibersOf(container: Element): Fiber[] {
   return out
 }
 
+/** The contexts a fiber read when it last rendered, as React records them. */
+const contextsRead = (fiber: Fiber): unknown[] => {
+  const read: unknown[] = []
+  for (
+    let entry = (fiber.dependencies as { firstContext?: { context: unknown; next: unknown } } | null)?.firstContext;
+    entry;
+    entry = entry.next as typeof entry
+  )
+    read.push(entry.context)
+  return read
+}
+
 /** A fiber's type, as a name a test can compare. */
 const typeName = (type: unknown): string =>
   typeof type === 'string' ? type : typeof type === 'function' ? type.name : typeof type === 'symbol' ? String(type) : type === null ? 'root' : 'object'
@@ -410,11 +422,12 @@ describe('in production', () => {
 
     // The development run shows what the production run is held to: both nodes reported, the context read.
     expect(development.warnings).toHaveLength(2)
-    expect(development.staticStyles.every(fiber => fiber.dependencies !== null)).toBe(true)
 
     expect(production.warnings).toEqual([])
     expect(production.staticStyles.length).toBeGreaterThan(0)
-    expect(production.staticStyles.every(fiber => fiber.dependencies === null)).toBe(true)
+    // It reads Emotion's cache, to place the static sheets, in either build; never the theme.
+    expect(production.staticStyles.every(fiber => !contextsRead(fiber).includes(ThemeContext))).toBe(true)
+    expect(development.staticStyles.some(fiber => contextsRead(fiber).includes(ThemeContext))).toBe(true)
     expect(production.html).toBe(development.html)
     expect(production.fibers).toEqual(development.fibers)
     expect(production.fibers).not.toContain(ThemeTokenCheck.name)

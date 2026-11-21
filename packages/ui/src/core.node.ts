@@ -37,7 +37,7 @@ import { IS_REACT_SERVER_LAYER } from '@src/util/react-layer.util.js'
 import { passesChildrenThrough, providesTheme } from '@src/util/children-pass-through.util.js'
 import { observeChildren } from '@src/util/generated-list.util.js'
 import { compileServerEmotionRule } from '@src/util/server-emotion.util.js'
-import { hasStaticCss, modulesOfClasses, staticRuleOf } from '@src/util/static-css.util.js'
+import { hasStaticCss, registeredClassesOf, staticRuleOf } from '@src/util/static-css.util.js'
 import { StaticStyles, type StaticThemeCandidate, type StaticThemeCheck } from '@src/components/static-styles.js'
 import { replaceThemeTokensWithCssVars } from '@src/util/server-theme.util.js'
 import {
@@ -548,31 +548,45 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
     // `ThemedRule`s that render beside the element keyed here, inside one of
     // MeoNode's own providers, because no host in that provider can carry them.
     const besideRules = new Map<BaseNode, Map<string, ReactElement>>()
-    // The modules each rules map's static css needs, once static css is
-    // registered. A map holding any gets one `StaticStyles` slot, reserved ahead
-    // of its other rules: in the server layer those are hoisted at a precedence
-    // React must meet after the static ones.
-    const staticModules = hasStaticCss() ? new Map<Map<string, ReactElement>, string[]>() : undefined
-    const staticSlot = (rules: Map<string, ReactElement>): string[] => {
-      let modules = staticModules!.get(rules)
-      if (!modules) {
-        modules = []
-        staticModules!.set(rules, modules)
+    // The static classes of each rules map's nodes, once static css is
+    // registered, each list with the order its node began in. A map holding any
+    // gets one `StaticStyles` slot, reserved ahead of its other rules: in the
+    // server layer those are hoisted at a precedence React must meet after the
+    // static ones.
+    const staticModules = hasStaticCss() ? new Map<Map<string, ReactElement>, [began: number, classes: readonly string[]][]>() : undefined
+    const staticSlot = (rules: Map<string, ReactElement>): [began: number, classes: readonly string[]][] => {
+      let lists = staticModules!.get(rules)
+      if (!lists) {
+        lists = []
+        staticModules!.set(rules, lists)
         // Holds the map position until the carrier completes.
         rules.set(STATIC_STYLES_KEY, null as unknown as ReactElement)
       }
-      return modules
+      return lists
     }
     const finishStaticSlot = (rules: Map<string, ReactElement>): void => {
-      const modules = staticModules?.get(rules)
-      if (!modules) return
+      const lists = staticModules?.get(rules)
+      if (!lists) return
+      // Gathered as the nodes completed, deepest first, which is the order Emotion
+      // inserts in the browser; the server's is the order they began, parents first.
+      if (NodeUtil.isServer) lists.sort((a, b) => a[0] - b[0])
+      const classes: string[] = []
+      const seen = new Set<string>()
+      for (const [, list] of lists)
+        for (const className of list)
+          if (!seen.has(className)) {
+            seen.add(className)
+            classes.push(className)
+          }
       const checks = staticChecks?.get(rules)
       const candidates = staticCandidates?.get(rules)
       rules.set(
         STATIC_STYLES_KEY,
-        createElement(StaticStyles, { key: STATIC_STYLES_KEY, modules, ...(checks && { checks }), ...(candidates && { candidates }) }),
+        createElement(StaticStyles, { key: STATIC_STYLES_KEY, classes, ...(checks && { checks }), ...(candidates && { candidates }) }),
       )
     }
+    // The order nodes begin in, for the server's order.
+    let began = 0
     // In development, the theme tokens of extracted styles are checked where the
     // providers are, as `StyledRenderer` checks a styled element's, by the
     // `StaticStyles` of each rules map; see there. Production builds none of this.
@@ -645,6 +659,7 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
         if (!isProcessed) {
           // Begin phase: mark processed and push child BaseNodes onto the stack (in reverse order)
           currentWork.isProcessed = true
+          if (staticModules !== undefined) (currentWork as { began?: number }).began = began++
           const children = node.props.children
           const activeTheme = getActiveTheme(node.props, inheritedTheme)
           // The topmost host above each child that can carry its rules, and
@@ -963,8 +978,7 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
                 rules = new Map<string, ReactElement>()
                 anchoredRules.set(carrier as BaseNode, rules)
               }
-              const modules = staticSlot(rules)
-              if (NodeUtil.isServer) for (const moduleId of modulesOfClasses(staticClasses as string)) if (!modules.includes(moduleId)) modules.push(moduleId)
+              staticSlot(rules).push([(currentWork as { began?: number }).began ?? 0, registeredClassesOf(staticClasses as string)])
               if (staticChecks !== undefined) {
                 const { refs, valueRefs } = collectStaticThemeVarRefs(staticClasses as string, staticVars as Record<string, unknown> | undefined, staticRuleOf)
                 if (refs.length > 0 || valueRefs.length > 0) {

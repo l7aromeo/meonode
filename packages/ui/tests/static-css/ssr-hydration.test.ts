@@ -8,7 +8,9 @@
 // before `hydrateRoot`.
 import { createElement, Fragment, Suspense, useEffect, useId } from 'react'
 import { act } from 'react'
-import { hydrateRoot } from 'react-dom/client'
+import { createRoot, hydrateRoot } from 'react-dom/client'
+import { CacheProvider } from '@emotion/react'
+import createCache from '@emotion/cache'
 import { renderToString } from 'react-dom/server'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Div, Node, Span } from '@src/main.js'
@@ -135,14 +137,18 @@ afterEach(() => {
 })
 
 describe('a server-rendered document with static css', () => {
-  it('sends each module once, as hoisted styles in bucket order', async () => {
+  it('sends each class once, as hoisted styles in bucket order, parents first', async () => {
     const html = serverRender()
     const doc = new DOMParser().parseFromString(html, 'text/html')
 
     expect(precedenceGroups(doc.head)).toEqual([
-      [`${STATIC_CSS_PREFIX}0`, `${STATIC_CSS_PREFIX}0 ${STATIC_CSS_PREFIX}page-0 ${STATIC_CSS_PREFIX}late-0`, RED_RULE + WIDE_RULE + LATE_RULE],
+      [
+        `${STATIC_CSS_PREFIX}0`,
+        `${STATIC_CSS_PREFIX}0 ${STATIC_CSS_PREFIX}${RED} ${STATIC_CSS_PREFIX}${WIDE} ${STATIC_CSS_PREFIX}${LATE}`,
+        RED_RULE + WIDE_RULE + LATE_RULE,
+      ],
       [`${STATIC_CSS_PREFIX}1`, `${STATIC_CSS_PREFIX}1`, ''],
-      [`${STATIC_CSS_PREFIX}2`, `${STATIC_CSS_PREFIX}2 ${STATIC_CSS_PREFIX}page-2`, MEDIA_RULE],
+      [`${STATIC_CSS_PREFIX}2`, `${STATIC_CSS_PREFIX}2 ${STATIC_CSS_PREFIX}${MEDIA}`, MEDIA_RULE],
       [`${STATIC_CSS_PREFIX}3`, `${STATIC_CSS_PREFIX}3`, ''],
     ])
     // Nothing static is left in the body. (Emotion writes its own there only on a
@@ -176,12 +182,30 @@ describe('a server-rendered document with static css', () => {
     expect(document.querySelectorAll('style[data-meonode-static]')).toHaveLength(0)
   })
 
-  it('inserts only a module the server did not send, in the bucket order', async () => {
+  // A module's classes reach the page when a node using them renders, not when it
+  // loads, so this test renders one; registering alone inserts nothing.
+  it('inserts only a class the server did not send, once a node uses it, in the bucket order', async () => {
     const html = serverRender()
     await hydrate(html, () => {
       registerPage()
       registerLate()
       registerStaticCss('client-only', [[1, 'mn-000000000000c', '.mn-000000000000c:hover{color:blue;}']])
+    })
+    const ownRules = () => [...document.head.querySelectorAll<HTMLStyleElement>('style[data-meonode-static]')].map(element => element.sheet!.cssRules.length)
+    expect(ownRules().every(count => count === 0)).toBe(true)
+
+    const container = document.createElement('div')
+    document.body.append(container)
+    // `document.write` gave the page a new head; Emotion's default cache still
+    // holds the one before it, so this root gets a cache for the page's own.
+    await act(async () => {
+      createRoot(container).render(
+        createElement(
+          CacheProvider,
+          { value: createCache({ key: 'css', container: document.head }) },
+          Div({ __meo$: 2, __meo$s: 'mn-000000000000c' } as never).render(),
+        ),
+      )
     })
 
     const order = [...document.head.querySelectorAll('style')].map(
@@ -197,8 +221,7 @@ describe('a server-rendered document with static css', () => {
       `${STATIC_CSS_PREFIX}3`,
       'own 3',
     ])
-    const own = [...document.head.querySelectorAll<HTMLStyleElement>('style[data-meonode-static]')].map(element => element.sheet!.cssRules.length)
-    expect(own).toEqual([0, 1, 0, 0])
+    expect(ownRules()).toEqual([0, 1, 0, 0])
   })
 })
 

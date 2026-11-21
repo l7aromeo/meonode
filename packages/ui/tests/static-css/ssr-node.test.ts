@@ -1,7 +1,7 @@
 // @vitest-environment node
 //
 // A server with no document, as in production: registration only records the
-// rules, and a render sends the ones its nodes use as React hoistable styles,
+// rules, and a render sends each class its nodes use as a React hoistable style,
 // before Emotion's inline rules for the css left on the runtime path.
 import { createElement } from 'react'
 import { renderToString } from 'react-dom/server'
@@ -33,9 +33,9 @@ describe('a server render with no document', () => {
     expect(html).toMatch(
       new RegExp(
         '^<html><head>' +
-          '<style data-precedence="mn-static-0" data-href="mn-static-0 mn-static-page-0">\\.mn-000000000000r\\{color:red;\\}</style>' +
+          '<style data-precedence="mn-static-0" data-href="mn-static-0 mn-static-mn-000000000000r">\\.mn-000000000000r\\{color:red;\\}</style>' +
           '<style data-precedence="mn-static-1" data-href="mn-static-1"></style>' +
-          '<style data-precedence="mn-static-2" data-href="mn-static-2 mn-static-page-2">@media \\(min-width: 600px\\)\\{\\.mn-000000000000m\\{padding:9px;\\}\\}</style>' +
+          '<style data-precedence="mn-static-2" data-href="mn-static-2 mn-static-mn-000000000000m">@media \\(min-width: 600px\\)\\{\\.mn-000000000000m\\{padding:9px;\\}\\}</style>' +
           '<style data-precedence="mn-static-3" data-href="mn-static-3"></style>' +
           '</head><body><style data-emotion="css [0-9a-z]+">[^<]*margin:2px;[^<]*</style>' +
           // The slot after the text renders nothing; React separates the text from it.
@@ -53,20 +53,39 @@ describe('a server render with no document', () => {
     expect(precedences).toEqual(['mn-static-0', 'mn-static-1', 'mn-static-2', 'mn-static-3'])
   })
 
-  it('sends a module once however many nodes use it', () => {
+  it('sends a class once however many nodes use it', () => {
     const html = page(Div({ children: [1, 2, 3].map(key => Div({ __meo$: 2, __meo$s: RED, key } as never)) }))
 
-    expect(html.match(/mn-static-page-0/g)).toHaveLength(1)
+    expect(html.match(/mn-static-mn-000000000000r/g)).toHaveLength(1)
   })
 
-  it('sends the module for a spread site whose spread brings no CSS key, and not for one whose spread does', () => {
+  it('sends the class of a spread site whose spread brings no CSS key, and not for one whose spread does', () => {
     const site = (rest: object) => Div({ __meo$: 2, __meo$s: RED, __meo$a: { color: 'red' }, ...rest } as never)
 
-    expect(page(site({ id: 'x' }))).toContain('mn-static-page-0')
+    expect(page(site({ id: 'x' }))).toContain(`mn-static-${RED}`)
     const overridden = page(site({ color: 'blue' }))
-    expect(overridden).not.toContain('mn-static-page-0')
+    expect(overridden).not.toContain(`mn-static-${RED}`)
     expect(overridden).not.toContain(RED)
     expect(overridden).toMatch(/color:red;/)
+  })
+
+  // Emotion's server render inserts a parent's rules before its children's.
+  it('sends a render’s classes in the order its nodes began, parents first', () => {
+    registerStaticCss('order', [
+      [0, 'mn-00000000000p0', '.mn-00000000000p0{color:red;}'],
+      [0, 'mn-00000000000c1', '.mn-00000000000c1{color:blue;}'],
+      [0, 'mn-00000000000c2', '.mn-00000000000c2{color:green;}'],
+    ])
+    const html = page(
+      Div({
+        __meo$: 2,
+        __meo$s: 'mn-00000000000p0',
+        children: [Div({ __meo$: 2, __meo$s: 'mn-00000000000c1', key: 1, children: Div({ __meo$: 2, __meo$s: 'mn-00000000000c2' } as never) } as never)],
+      } as never),
+    )
+    const hrefs = html.match(/data-href="mn-static-0[^"]*"/)![0]
+
+    expect(hrefs).toBe('data-href="mn-static-0 mn-static-mn-00000000000p0 mn-static-mn-00000000000c1 mn-static-mn-00000000000c2"')
   })
 
   it('sends nothing for a render without static classes', () => {
@@ -92,10 +111,10 @@ describe('a server render with no document', () => {
     expect(most).toBe(STATIC_CLASS_LIST_MEMO_ENTRIES)
   }, 60_000)
 
-  it('emits the module of a component’s own render too', () => {
+  it('emits the class of a component’s own render too', () => {
     const Card = () => Div({ __meo$: 2, __meo$s: MEDIA, children: 'card' } as never).render()
     const html = page(Div({ children: Node(Card) }))
 
-    expect(html).toContain('data-href="mn-static-2 mn-static-page-2"')
+    expect(html).toContain('data-href="mn-static-2 mn-static-mn-000000000000m"')
   })
 })

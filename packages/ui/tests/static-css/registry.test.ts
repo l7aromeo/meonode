@@ -1,11 +1,23 @@
 // @vitest-environment jsdom
 //
-// The browser side of the static css registry: compiled modules register their
-// extracted rules once at load, and the rules go into four bucket sheets, in
-// bucket order across modules, before Emotion's.
+// The browser side of the static css registry. Compiled modules register their
+// extracted rules once at load, which only records them; a render's
+// `StaticStyles` inserts the classes its nodes use, which this file calls
+// directly. The rules go into four bucket sheets per container, right before the
+// tags of the Emotion cache MeoNode's rules go into.
+import createCache from '@emotion/cache'
+import { StyleSheet } from '@emotion/sheet'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { registerStaticCss } from '@src/main.js'
-import { __resetStaticCss, __setStaticCssSpeedy, hasStaticCss, splitRules, STATIC_CSS_PREFIX } from '@src/util/static-css.util.js'
+import {
+  __resetStaticCss,
+  __setStaticCssSpeedy,
+  type EmotionSheetPlacement,
+  hasStaticCss,
+  insertStaticClasses,
+  splitRules,
+  STATIC_CSS_PREFIX,
+} from '@src/util/static-css.util.js'
 
 const BASE = '.mn-0000000000001{color:red;}'
 const OTHER_BASE = '.mn-0000000000002{margin:2px;}'
@@ -13,15 +25,48 @@ const HOVER = '.mn-0000000000003:hover{color:blue;}'
 const MEDIA = '@media (min-width: 600px){.mn-0000000000004{padding:9px;}}'
 const SELECTOR = '.mn-0000000000005 pre{color:green;}@media (min-width: 600px){.mn-0000000000005 pre{color:teal;}}'
 
-/** The bucket sheets in document order, each as its rules' text. */
-function buckets(): { bucket: string | null; rules: string[] }[] {
-  return [...document.head.querySelectorAll<HTMLStyleElement>('style[data-meonode-static]')].map(element => ({
+/** Registers the five classes above, from two modules. */
+function registerAll() {
+  registerStaticCss('one', [
+    [2, 'mn-0000000000004', MEDIA],
+    [0, 'mn-0000000000001', BASE],
+    [3, 'mn-0000000000005', SELECTOR],
+  ])
+  registerStaticCss('two', [
+    [1, 'mn-0000000000003', HOVER],
+    [0, 'mn-0000000000002', OTHER_BASE],
+  ])
+}
+
+/** The bucket sheets of a container in document order, each as its rules' text. */
+function buckets(root: ParentNode = document.head): { bucket: string | null; rules: string[] }[] {
+  return [...root.querySelectorAll<HTMLStyleElement>('style[data-meonode-static]')].map(element => ({
     bucket: element.getAttribute('data-meonode-static'),
     rules: [...(element.sheet as CSSStyleSheet).cssRules].map(rule => rule.cssText.replace(/\s+/g, '')),
   }))
 }
 
+/** The head's children, each named by what it is. */
+const order = (root: ParentNode = document.head) =>
+  [...root.children].map(
+    element =>
+      (element.hasAttribute('data-meonode-static') && `static ${element.getAttribute('data-meonode-static')}`) ||
+      element.getAttribute('data-emotion') ||
+      element.getAttribute('data-name') ||
+      element.tagName,
+  )
+
 const squash = (text: string) => text.replace(/\s+/g, '')
+const sheetOf = (cache: { sheet: unknown }) => cache.sheet as unknown as EmotionSheetPlacement
+
+/** A stylesheet of the page's own, as an app links or writes one. */
+function userStyle(name: string): HTMLStyleElement {
+  const element = document.createElement('style')
+  element.setAttribute('data-name', name)
+  element.textContent = '.card{padding:0}'
+  document.head.append(element)
+  return element
+}
 
 beforeEach(() => {
   __resetStaticCss()
@@ -41,156 +86,286 @@ describe.each([
   beforeEach(() => __setStaticCssSpeedy(speedy))
 
   it('uses that mechanism', () => {
-    registerStaticCss('one', [[0, 'mn-0000000000001', BASE]])
+    registerAll()
+    insertStaticClasses(undefined, ['mn-0000000000001'])
     const element = document.head.querySelector<HTMLStyleElement>('style[data-meonode-static="0"]')!
 
     expect(element.textContent).toBe(speedy ? '' : BASE)
     expect(element.sheet!.cssRules).toHaveLength(1)
   })
 
-  describe('registering static css in the browser', () => {
-    it('puts each rule at the end of its bucket, buckets in order', () => {
-      registerStaticCss('one', [
-        [2, 'mn-0000000000004', MEDIA],
-        [0, 'mn-0000000000001', BASE],
-      ])
-      // A later module's base rule still lands before the earlier module's at-rule.
-      registerStaticCss('two', [
-        [1, 'mn-0000000000003', HOVER],
-        [0, 'mn-0000000000002', OTHER_BASE],
-      ])
+  // Emotion inserts a node's rules when it renders, not when its module loads.
+  it('inserts nothing when a module registers', () => {
+    registerAll()
+    expect(hasStaticCss()).toBe(true)
+    expect(buckets()).toEqual([])
+  })
 
-      expect(buckets()).toEqual([
-        { bucket: '0', rules: [squash(BASE), squash(OTHER_BASE)] },
-        { bucket: '1', rules: [squash(HOVER)] },
-        { bucket: '2', rules: [squash(MEDIA)] },
-        { bucket: '3', rules: [] },
-      ])
-      expect(hasStaticCss()).toBe(true)
+  it('puts each class at the end of its bucket, in the order given, buckets in order', () => {
+    registerAll()
+    insertStaticClasses(undefined, ['mn-0000000000004', 'mn-0000000000002', 'mn-0000000000003'])
+    insertStaticClasses(undefined, ['mn-0000000000001'])
+
+    expect(buckets()).toEqual([
+      { bucket: '0', rules: [squash(OTHER_BASE), squash(BASE)] },
+      { bucket: '1', rules: [squash(HOVER)] },
+      { bucket: '2', rules: [squash(MEDIA)] },
+      { bucket: '3', rules: [] },
+    ])
+  })
+
+  it('inserts a rule text holding several rules as each of them', () => {
+    registerAll()
+    insertStaticClasses(undefined, ['mn-0000000000005'])
+
+    expect(splitRules(SELECTOR)).toHaveLength(2)
+    expect(buckets()[3].rules).toEqual(splitRules(SELECTOR).map(squash))
+  })
+
+  it('inserts a class once, however often and from whichever module', () => {
+    registerAll()
+    registerStaticCss('three', [[0, 'mn-0000000000001', BASE]])
+    insertStaticClasses(undefined, ['mn-0000000000001'])
+    insertStaticClasses(undefined, ['mn-0000000000001', 'mn-0000000000002'])
+
+    expect(buckets()[0].rules).toEqual([squash(BASE), squash(OTHER_BASE)])
+  })
+
+  // HMR re-evaluates a module, and two bundles can each evaluate one copy: the
+  // same id with the same rules. The second registration does no work at all.
+  it('takes a module registered again as already there, without reading its rules', () => {
+    const rules: [number, string, string][] = [[0, 'mn-0000000000001', BASE]]
+    registerStaticCss('one', rules)
+    let reads = 0
+    const again = new Proxy(rules, {
+      get(target, key, receiver) {
+        if (key === Symbol.iterator || key === 'length') reads++
+        return Reflect.get(target, key, receiver)
+      },
+    })
+    registerStaticCss('one', again)
+    expect(reads).toBe(0)
+  })
+
+  it('throws in development for a class registered with another rule', () => {
+    registerStaticCss('one', [[0, 'mn-0000000000001', BASE]])
+    expect(() => registerStaticCss('two', [[0, 'mn-0000000000001', '.mn-0000000000001{color:blue;}']])).toThrow(
+      /`mn-0000000000001` is registered with two different rules/,
+    )
+  })
+
+  it('throws in development for a bucket out of range', () => {
+    expect(() => registerStaticCss('one', [[4, 'mn-0000000000001', BASE]])).toThrow(/names bucket 4/)
+  })
+
+  // Moving a `<style>` drops the rules inserted through the CSSOM; they go in again.
+  it('keeps every rule when a new cache needs the sheets elsewhere', () => {
+    registerAll()
+    userStyle('user')
+    insertStaticClasses(sheetOf(createCache({ key: 'css' })), ['mn-0000000000001', 'mn-0000000000003'])
+    const prepended = createCache({ key: 'css', prepend: true })
+    insertStaticClasses(sheetOf(prepended), ['mn-0000000000002'])
+
+    expect(order()).toEqual(['static 0', 'static 1', 'static 2', 'static 3', 'user'])
+    expect(buckets()[0].rules).toEqual([squash(BASE), squash(OTHER_BASE)])
+    expect(buckets()[1].rules).toEqual([squash(HOVER)])
+  })
+})
+
+describe('where the sheets go, for the cache MeoNode’s rules go into', () => {
+  beforeEach(registerAll)
+
+  it('at the end of the head with no cache, or one that appends and has no tags yet', () => {
+    userStyle('user')
+    const cache = createCache({ key: 'css' })
+    insertStaticClasses(sheetOf(cache), ['mn-0000000000001'])
+    cache.sheet.insert('.css-a{color:red}')
+
+    expect(order()).toEqual(['user', 'static 0', 'static 1', 'static 2', 'static 3', 'css'])
+  })
+
+  it('right before the cache’s first tag', () => {
+    const cache = createCache({ key: 'css' })
+    cache.sheet.insert('.css-a{color:red}')
+    userStyle('user')
+    insertStaticClasses(sheetOf(cache), ['mn-0000000000001'])
+
+    expect(order()).toEqual(['static 0', 'static 1', 'static 2', 'static 3', 'css', 'user'])
+  })
+
+  // MUI's `injectFirst`: the cache puts its first tag at the start of the head.
+  describe('with a cache that prepends', () => {
+    it('at the start, ahead of the page’s styles, when the cache has no tags yet; its tags then follow them', () => {
+      userStyle('user')
+      const cache = createCache({ key: 'css', prepend: true })
+      insertStaticClasses(sheetOf(cache), ['mn-0000000000001'])
+      cache.sheet.insert('.css-a{color:red}')
+      cache.sheet.insert('.css-b{color:blue}')
+
+      expect(order()).toEqual(['static 0', 'static 1', 'static 2', 'static 3', 'css', 'css', 'user'])
     })
 
-    it('inserts a rule text holding several rules as each of them', () => {
-      registerStaticCss('one', [[3, 'mn-0000000000005', SELECTOR]])
+    it('right before its tags when it has some', () => {
+      userStyle('user')
+      const cache = createCache({ key: 'css', prepend: true })
+      cache.sheet.insert('.css-a{color:red}')
+      insertStaticClasses(sheetOf(cache), ['mn-0000000000001'])
 
-      expect(splitRules(SELECTOR)).toHaveLength(2)
-      expect(buckets()[3].rules).toEqual(splitRules(SELECTOR).map(squash))
-    })
-
-    it('registers a module once, and a class once across modules', () => {
-      registerStaticCss('one', [[0, 'mn-0000000000001', BASE]])
-      registerStaticCss('one', [[0, 'mn-0000000000001', BASE]])
-      registerStaticCss('two', [
-        [0, 'mn-0000000000001', BASE],
-        [0, 'mn-0000000000002', OTHER_BASE],
-      ])
-
-      expect(buckets()[0].rules).toEqual([squash(BASE), squash(OTHER_BASE)])
-    })
-
-    it('goes before the first Emotion sheet', () => {
-      const emotion = document.createElement('style')
-      emotion.setAttribute('data-emotion', 'meonode-css')
-      document.head.append(emotion)
-      registerStaticCss('one', [[0, 'mn-0000000000001', BASE]])
-
-      const order = [...document.head.children].map(element => element.getAttribute('data-meonode-static') ?? element.getAttribute('data-emotion'))
-      expect(order).toEqual(['0', '1', '2', '3', 'meonode-css'])
-    })
-
-    // HMR re-evaluates a module, and two bundles can each evaluate one copy: the
-    // same id with the same rules. The second registration does no work at all.
-    it('takes a module registered again as already there, without reading its rules', () => {
-      const rules: [number, string, string][] = [
-        [0, 'mn-0000000000001', BASE],
-        [2, 'mn-0000000000004', MEDIA],
-      ]
-      registerStaticCss('one', rules)
-      let reads = 0
-      const again = new Proxy(rules, {
-        get(target, key, receiver) {
-          if (key === Symbol.iterator || key === 'length') reads++
-          return Reflect.get(target, key, receiver)
-        },
-      })
-      registerStaticCss('one', again)
-
-      expect(reads).toBe(0)
-      expect(buckets().map(sheet => sheet.rules.length)).toEqual([1, 0, 1, 0])
-    })
-
-    it('creates no sheet until a rule needs one', () => {
-      expect(hasStaticCss()).toBe(false)
-      registerStaticCss('empty', [])
-
-      expect(buckets()).toEqual([])
-    })
-
-    it('throws in development for a class registered with another rule', () => {
-      registerStaticCss('one', [[0, 'mn-0000000000001', BASE]])
-
-      expect(() => registerStaticCss('two', [[0, 'mn-0000000000001', '.mn-0000000000001{color:blue;}']])).toThrow(
-        /`mn-0000000000001` is registered with two different rules/,
-      )
-      // The first rule stays.
-      expect(buckets()[0].rules).toEqual([squash(BASE)])
-    })
-
-    it('throws in development for a bucket out of range', () => {
-      expect(() => registerStaticCss('one', [[4, 'mn-0000000000001', BASE]])).toThrow(/names bucket 4/)
+      expect(order()).toEqual(['static 0', 'static 1', 'static 2', 'static 3', 'css', 'user'])
     })
   })
 
-  describe('a page the server rendered', () => {
-    /** Hoisted styles as React writes them for the server's static css. */
-    function serverStyles(groups: [bucket: number, hrefs: string[], text: string][]) {
-      for (const [bucket, hrefs, text] of groups) {
-        const element = document.createElement('style')
-        element.setAttribute('data-precedence', `${STATIC_CSS_PREFIX}${bucket}`)
-        element.setAttribute('data-href', hrefs.join(' '))
-        element.textContent = text
-        document.head.append(element)
-      }
+  // Another library's prepended cache ahead of MeoNode's own: not the first `data-emotion` style.
+  it('before MeoNode’s cache, not before another cache’s', () => {
+    const mui = createCache({ key: 'mui', prepend: true })
+    mui.sheet.insert('.mui-a{color:red}')
+    userStyle('user')
+    const own = createCache({ key: 'meonode-css' })
+    insertStaticClasses(sheetOf(own), ['mn-0000000000001'])
+    own.sheet.insert('.meonode-css-a{color:red}')
+
+    expect(order()).toEqual(['mui', 'user', 'static 0', 'static 1', 'static 2', 'static 3', 'meonode-css'])
+  })
+
+  it('right after an insertion point the app set, keeping its order', () => {
+    const marker = document.createElement('meta')
+    marker.setAttribute('data-name', 'marker')
+    document.head.append(marker)
+    userStyle('user')
+    const cache = createCache({ key: 'css', insertionPoint: marker as unknown as HTMLElement })
+    insertStaticClasses(sheetOf(cache), ['mn-0000000000001'])
+    cache.sheet.insert('.css-a{color:red}')
+
+    expect(order()).toEqual(['marker', 'static 0', 'static 1', 'static 2', 'static 3', 'css', 'user'])
+  })
+
+  // A cache that already has tags places its next one after its last; nothing to change.
+  it('changes no insertion point of a cache that has tags', () => {
+    const cache = createCache({ key: 'css', prepend: true })
+    cache.sheet.insert('.css-a{color:red}')
+    insertStaticClasses(sheetOf(cache), ['mn-0000000000001'])
+    expect(cache.sheet.insertionPoint).toBeUndefined()
+  })
+
+  // A remount with another cache, or a module replaced in development.
+  it('follows a new cache for the same container', () => {
+    userStyle('user')
+    insertStaticClasses(sheetOf(createCache({ key: 'css' })), ['mn-0000000000001'])
+    expect(order()).toEqual(['user', 'static 0', 'static 1', 'static 2', 'static 3'])
+
+    const next = createCache({ key: 'next', prepend: true })
+    insertStaticClasses(sheetOf(next), ['mn-0000000000002'])
+    next.sheet.insert('.next-a{color:red}')
+
+    expect(order()).toEqual(['static 0', 'static 1', 'static 2', 'static 3', 'next', 'user'])
+    expect(buckets()[0].rules).toEqual([squash(BASE), squash(OTHER_BASE)])
+  })
+})
+
+describe('a cache whose container is not the document head', () => {
+  beforeEach(registerAll)
+
+  // Emotion's rules go into the shadow root, where the document's sheets do not apply.
+  it('gets its own sheets in a shadow root', () => {
+    const host = document.createElement('div')
+    document.body.append(host)
+    const shadow = host.attachShadow({ mode: 'open' })
+    const cache = createCache({ key: 'css', container: shadow as unknown as Node })
+    insertStaticClasses(sheetOf(cache), ['mn-0000000000001'])
+
+    expect(buckets(shadow)[0].rules).toEqual([squash(BASE)])
+    expect(buckets()).toEqual([])
+    host.remove()
+  })
+
+  it('gets its own sheets in another document, made by that document', () => {
+    const frame = document.createElement('iframe')
+    document.body.append(frame)
+    const frameDocument = frame.contentDocument!
+    const cache = createCache({ key: 'css', container: frameDocument.head })
+    insertStaticClasses(sheetOf(cache), ['mn-0000000000001'])
+
+    const sheets = [...frameDocument.head.querySelectorAll<HTMLStyleElement>('style[data-meonode-static]')]
+    expect(sheets).toHaveLength(4)
+    expect(sheets.every(element => element.ownerDocument === frameDocument)).toBe(true)
+    expect(buckets(frameDocument.head)[0].rules).toEqual([squash(BASE)])
+    expect(buckets()).toEqual([])
+    frame.remove()
+  })
+
+  it('inserts each class once per container, into every container in use', () => {
+    const host = document.createElement('div')
+    document.body.append(host)
+    const shadow = host.attachShadow({ mode: 'open' })
+    insertStaticClasses(undefined, ['mn-0000000000001'])
+    insertStaticClasses(sheetOf(createCache({ key: 'css', container: shadow as unknown as Node })), ['mn-0000000000001'])
+
+    expect(buckets()[0].rules).toEqual([squash(BASE)])
+    expect(buckets(shadow)[0].rules).toEqual([squash(BASE)])
+    host.remove()
+  })
+})
+
+// What the anchoring relies on: the installed `@emotion/sheet` reads
+// `insertionPoint`, set after the sheet was made, when it inserts its first tag.
+describe('@emotion/sheet', () => {
+  it('reads an insertion point set before its first tag, when it inserts it', () => {
+    const marker = document.createElement('meta')
+    document.head.append(document.createElement('link'), marker, document.createElement('link'))
+    const sheet = new StyleSheet({ key: 'pin', container: document.head })
+    sheet.insertionPoint = marker
+    sheet.insert('.pin{color:red}')
+
+    expect(marker.nextElementSibling?.getAttribute('data-emotion')).toBe('pin')
+  })
+})
+
+describe('a page the server rendered', () => {
+  /** Hoisted styles as React writes them for the server's static css. */
+  function serverStyles(groups: [bucket: number, classes: string[], text: string][]) {
+    for (const [bucket, classes, text] of groups) {
+      const element = document.createElement('style')
+      element.setAttribute('data-precedence', `${STATIC_CSS_PREFIX}${bucket}`)
+      element.setAttribute('data-href', [`${STATIC_CSS_PREFIX}${bucket}`, ...classes.map(className => `${STATIC_CSS_PREFIX}${className}`)].join(' '))
+      element.textContent = text
+      document.head.append(element)
     }
+  }
 
-    it('keeps the modules the server sent, without inserting them again', () => {
-      serverStyles([
-        [0, [`${STATIC_CSS_PREFIX}0`, `${STATIC_CSS_PREFIX}one-0`], BASE],
-        [1, [`${STATIC_CSS_PREFIX}1`], ''],
-        [2, [`${STATIC_CSS_PREFIX}2`], ''],
-        [3, [`${STATIC_CSS_PREFIX}3`], ''],
-      ])
-      registerStaticCss('one', [[0, 'mn-0000000000001', BASE]])
+  beforeEach(registerAll)
 
-      expect(buckets()).toEqual([])
-    })
+  it('keeps the classes the server sent, without inserting them again', () => {
+    serverStyles([
+      [0, ['mn-0000000000001'], BASE],
+      [1, [], ''],
+      [2, [], ''],
+      [3, [], ''],
+    ])
+    insertStaticClasses(undefined, ['mn-0000000000001'])
 
-    it('places its own sheets after the server’s styles of each bucket', () => {
-      serverStyles([
-        [0, [`${STATIC_CSS_PREFIX}0`, `${STATIC_CSS_PREFIX}one-0`], BASE],
-        [1, [`${STATIC_CSS_PREFIX}1`], ''],
-        [2, [`${STATIC_CSS_PREFIX}2`], ''],
-        [3, [`${STATIC_CSS_PREFIX}3`], ''],
-      ])
-      registerStaticCss('one', [[0, 'mn-0000000000001', BASE]])
-      registerStaticCss('two', [
-        [0, 'mn-0000000000001', BASE],
-        [2, 'mn-0000000000004', MEDIA],
-        [0, 'mn-0000000000002', OTHER_BASE],
-      ])
+    expect(buckets().every(sheet => sheet.rules.length === 0)).toBe(true)
+  })
 
-      const order = [...document.head.children].map(element => element.getAttribute('data-precedence') ?? `own ${element.getAttribute('data-meonode-static')}`)
-      expect(order).toEqual([
-        `${STATIC_CSS_PREFIX}0`,
-        'own 0',
-        `${STATIC_CSS_PREFIX}1`,
-        'own 1',
-        `${STATIC_CSS_PREFIX}2`,
-        'own 2',
-        `${STATIC_CSS_PREFIX}3`,
-        'own 3',
-      ])
-      // The class the server's module already defined is not inserted again.
-      expect(buckets().map(sheet => sheet.rules)).toEqual([[squash(OTHER_BASE)], [], [squash(MEDIA)], []])
-    })
+  it('places its own sheets after the server’s styles of each bucket', () => {
+    serverStyles([
+      [0, ['mn-0000000000001'], BASE],
+      [1, [], ''],
+      [2, [], ''],
+      [3, [], ''],
+    ])
+    insertStaticClasses(undefined, ['mn-0000000000001', 'mn-0000000000004', 'mn-0000000000002'])
+
+    const placed = [...document.head.children].map(element => element.getAttribute('data-precedence') ?? `own ${element.getAttribute('data-meonode-static')}`)
+    expect(placed).toEqual([
+      `${STATIC_CSS_PREFIX}0`,
+      'own 0',
+      `${STATIC_CSS_PREFIX}1`,
+      'own 1',
+      `${STATIC_CSS_PREFIX}2`,
+      'own 2',
+      `${STATIC_CSS_PREFIX}3`,
+      'own 3',
+    ])
+    expect(buckets().map(sheet => sheet.rules)).toEqual([[squash(OTHER_BASE)], [], [squash(MEDIA)], []])
   })
 })

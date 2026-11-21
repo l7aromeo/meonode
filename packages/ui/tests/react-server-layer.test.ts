@@ -175,10 +175,10 @@ describe('static css in the React Server Components layer', () => {
         })
         .render() as ReactElement<{ children: unknown[] }>
       const children = root.props.children
-      const slot = children[children.length - 1] as ReactElement<{ precedence?: string; modules?: string[] }>[]
+      const slot = children[children.length - 1] as ReactElement<{ precedence?: string; classes?: string[] }>[]
 
       expect(slot.map(element => (element.type === StaticStyles ? 'static' : element.props.precedence))).toEqual(['static', 'meonode', 'meonode'])
-      expect(slot[0].props.modules).toEqual(['rsc-page'])
+      expect(slot[0].props.classes).toEqual([RED, MEDIA])
 
       const hoisted = (StaticStyles(slot[0].props as never) as ReactElement<{ children: ReactElement<{ href: string; precedence: string }>[] }>).props.children
       expect(hoisted.map(element => [element.props.href, element.props.precedence])).toEqual([
@@ -186,8 +186,8 @@ describe('static css in the React Server Components layer', () => {
         ['mn-static-1', 'mn-static-1'],
         ['mn-static-2', 'mn-static-2'],
         ['mn-static-3', 'mn-static-3'],
-        ['mn-static-rsc-page-0', 'mn-static-0'],
-        ['mn-static-rsc-page-2', 'mn-static-2'],
+        [`mn-static-${RED}`, 'mn-static-0'],
+        [`mn-static-${MEDIA}`, 'mn-static-2'],
       ])
 
       const [, plain, partial] = children as ReactElement<{ className?: string }>[]

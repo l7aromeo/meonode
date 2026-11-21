@@ -1,9 +1,19 @@
-import { createElement, Fragment, type ReactElement, use, useEffect } from 'react'
+import { createElement, Fragment, type ReactElement, use, useEffect, useInsertionEffect } from 'react'
+import { __unsafe_useEmotionCache as useEmotionCache } from '@emotion/react'
 import { isDevMode } from '@src/constant/common.const.js'
 import { ThemeContext, type ThemeContextState } from '@src/components/theme-provider.client.js'
 import { NodeUtil } from '@src/util/node.util.js'
 import { IS_REACT_SERVER_LAYER } from '@src/util/react-layer.util.js'
-import { STATIC_CSS_BUCKETS, staticHref, staticModuleTexts, staticPrecedence, STATIC_CSS_PREFIX } from '@src/util/static-css.util.js'
+import {
+  type EmotionSheetPlacement,
+  insertStaticClasses,
+  STATIC_CSS_BUCKETS,
+  staticBucketOf,
+  staticHref,
+  staticPrecedence,
+  staticRuleOf,
+  STATIC_CSS_PREFIX,
+} from '@src/util/static-css.util.js'
 import { mountedThemeVarIndex, reportThemeVarRefs, unionThemeVarIndexes, type ThemeVarIndex, type ThemeVarRef } from '@src/util/theme-diagnostics.util.js'
 
 /**
@@ -15,22 +25,18 @@ const SEEDS: readonly ReactElement[] = Array.from({ length: STATIC_CSS_BUCKETS }
   createElement('style', { key: `${STATIC_CSS_PREFIX}${bucket}`, href: `${STATIC_CSS_PREFIX}${bucket}`, precedence: staticPrecedence(bucket) }, ''),
 )
 
-/** Each module's hoistable styles, built once: modules are bounded by the code. */
-const moduleElements = new Map<string, readonly ReactElement[]>()
+/** Each class's hoistable style, built once: classes are bounded by the code. */
+const classElements = new Map<string, ReactElement | null>()
 
-function elementsOf(moduleId: string): readonly ReactElement[] {
-  let elements = moduleElements.get(moduleId)
-  if (elements) return elements
-  const texts = staticModuleTexts(moduleId) ?? []
-  const built: ReactElement[] = []
-  for (let bucket = 0; bucket < texts.length; bucket++) {
-    if (texts[bucket] === '') continue
-    const href = staticHref(moduleId, bucket)
-    built.push(createElement('style', { key: href, href, precedence: staticPrecedence(bucket) }, texts[bucket]))
-  }
-  elements = built
-  moduleElements.set(moduleId, elements)
-  return elements
+function elementOf(className: string): ReactElement | null {
+  let element = classElements.get(className)
+  if (element !== undefined) return element
+  const cssText = staticRuleOf(className)
+  const bucket = staticBucketOf(className)
+  const href = staticHref(className)
+  element = cssText === undefined || bucket === undefined ? null : createElement('style', { key: href, href, precedence: staticPrecedence(bucket) }, cssText)
+  classElements.set(className, element)
+  return element
 }
 
 /**
@@ -136,15 +142,20 @@ const candidatesKey = (candidates: readonly StaticThemeCandidate[] | undefined):
   candidates ? candidates.map(({ classes, refs, valueRefs }) => `${classes}|${refs.join()}|${valueRefs.join()}`).join('\n') : ''
 
 /**
- * The static css a render uses, as React hoistable styles, on the server; nothing
- * in the browser.
+ * The static css a render uses: React hoistable styles on the server, and in the
+ * browser, insertion into the static sheets once the render commits.
  *
- * The browser inserts every module's rules itself when the module loads, and
- * reads which ones a server-rendered page already holds. The server cannot, so a
- * render places one of these in its tree, and the browser renders the same
- * component returning nothing: the tree has the same shape on both sides, which
- * keeps `useId` stable through hydration, and a hoistable leaves nothing in place
- * for hydration to match.
+ * Its classes come in Emotion's order for the side it renders on. On the server
+ * they are the render's classes in the order its nodes began, parents first, as
+ * Emotion's server render meets them. In the browser they are in the order its
+ * nodes completed, deepest first, as Emotion's insertion effects run, and they go
+ * in from this component's insertion effect, which runs after those of any render
+ * nested inside it. Across renders the order is where each `StaticStyles` sits:
+ * at the end of its render's topmost host, so a render nested inside another
+ * emits before it on the server as well.
+ *
+ * The tree has the same shape on both sides, which keeps `useId` stable through
+ * hydration, and a hoistable leaves nothing in place for hydration to match.
  *
  * In development it also checks the theme tokens its render's static classes
  * reference, as `StyledRenderer` checks a styled element's, without adding to the
@@ -153,19 +164,30 @@ const candidatesKey = (candidates: readonly StaticThemeCandidate[] | undefined):
  * inside the render between them. Those of nodes under any other component, which
  * may provide another theme, it checks in the browser once they are committed,
  * on each element, against the providers above that element.
- * @param props.modules The modules whose rules the render's static classes need.
+ * @param props.classes The registered classes of the render's nodes, in the order they reach the page.
  * @param props.checks The theme variables to check while rendering, while diagnostics are on.
  * @param props.candidates The theme variables to check after commit, in a development build in the browser.
  */
 export function StaticStyles({
-  modules,
+  classes,
   checks,
   candidates,
 }: {
-  modules?: readonly string[]
+  classes?: readonly string[]
   checks?: readonly StaticThemeCheck[]
   candidates?: readonly StaticThemeCandidate[]
 }): ReactElement | null {
+  // The server layer's React has no context or effects, and its output is only ever
+  // hoisted; a build of the layer folds this out.
+  if (!IS_REACT_SERVER_LAYER) {
+    // Where MeoNode's runtime rules go, so the static ones go right before them.
+    const cache = useEmotionCache()
+    // Before layout effects and paint, as Emotion inserts its own: in this
+    // render's order, which is the order its nodes completed, deepest first.
+    useInsertionEffect(() => {
+      if (classes) insertStaticClasses(cache?.sheet as unknown as EmotionSheetPlacement | undefined, classes)
+    }, [cache, classes])
+  }
   // `use` may be called conditionally; `checks` is only passed while diagnostics are on.
   if (checks) {
     const context = use(ThemeContext)
@@ -184,9 +206,12 @@ export function StaticStyles({
   }
   if (!NodeUtil.isServer) return null
   const children: ReactElement[] = [...SEEDS]
-  for (const moduleId of modules ?? []) children.push(...elementsOf(moduleId))
+  for (const className of classes ?? []) {
+    const element = elementOf(className)
+    if (element) children.push(element)
+  }
   return createElement(Fragment, null, children)
 }
 
 /** Test seam: forgets the built module elements. */
-export const __resetStaticStyles = (): void => moduleElements.clear()
+export const __resetStaticStyles = (): void => classElements.clear()
