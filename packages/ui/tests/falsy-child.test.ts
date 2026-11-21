@@ -57,3 +57,7 @@ it("hands a node's component a sole `''`", () => {
   render(Node(Seen, { children: '' }).render())
   expect(seen).toEqual({ has: true, value: '' })
 })
+
+it("keeps a node's sole `''`", () => {
+  expect((Span('').render() as unknown as { props: { children?: unknown } }).props.children).toBe('')
+})

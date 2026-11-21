@@ -10,7 +10,7 @@
 // the tag names made the same. Only flat lists are used here; a nested array's
 // report shares one budget across parents (see `nested-array-children.test.ts`).
 import { Div, Span } from '@src/main.js'
-import { act, createElement, type ReactNode } from 'react'
+import { act, createElement, useEffect, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { expect, it, vi } from 'vitest'
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -105,4 +105,32 @@ it('stays silent for a keyed list', () => {
 it('stays silent for nodes in a built list', () => {
   const tag = `meo-node-${++uid}`
   expect(messagesFor(() => Div({ children: h(tag, null, [Span('a'), Span('b')] as never) }).render())).toEqual([])
+})
+
+// A one-item list stays a list. React reconciles a sole child and the first item
+// of a list in the same slot, so the item stays mounted when the list grows, as
+// it does for the element rendered itself.
+it('keeps the first item of a one-item list mounted when the list grows', () => {
+  let mounts = 0
+  const Item = () => {
+    useEffect(() => {
+      mounts++
+    }, [])
+    return h('li', null, 'item')
+  }
+  let size = 1
+  const Author = (_: { pass: number }) =>
+    Div({
+      children: h(
+        'ul',
+        null,
+        Array.from({ length: size }, (_, i) => h(Item, { key: i })),
+      ),
+    }).render()
+  const root = createRoot(document.body.appendChild(document.createElement('div')))
+  act(() => root.render(h(Author, { pass: 1 })))
+  size = 2
+  act(() => root.render(h(Author, { pass: 2 })))
+  act(() => root.unmount())
+  expect(mounts).toBe(2)
 })

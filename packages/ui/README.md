@@ -67,7 +67,24 @@ so the check never runs and the missing key goes unreported while the rows still
 the only option before, because a nested array used to reach React unrendered and throw
 `Objects are not valid as a React child`.
 
-Nesting is unlimited, and an array that contains itself is dropped rather than left to overflow the stack.
+Nesting is unlimited. The same array placed twice renders twice, as in React; only an array that contains itself is
+dropped, rather than left to overflow the stack.
+
+A child renders as React renders it: `Span(0)` gives `<span>0</span>`, and `''` reaches a component as `''`. Only `null`,
+`undefined` and `false` render nothing. So `children: count && Badge(count)` renders `0` when `count` is 0, exactly as
+`{count && <Badge />}` does in JSX; write `count > 0 && Badge(count)` to render nothing.
+
+### Built Elements as Children
+
+A node takes elements made elsewhere as children: `createElement` output, JSX from another file, or a node's `.render()`
+result. Their props are final, so the node passes them on as they are rather than sorting them into styles and
+attributes again.
+
+- **Keys and attributes stay as written.** A `theme.*` token is turned into a CSS variable only where it is a style
+  value: in a plain tag's inline `style`, and in a component element's props, which may take style values under any name
+  (MUI's `sx`, an icon's `color`). A `title` or a key that happens to contain `theme.` is left alone.
+- **Children keep their shape.** A list stays a list, a list of one included, so React checks its keys and reports a
+  missing one exactly as when it renders the element itself.
 
 ### Keyed Lists with `For()`
 
