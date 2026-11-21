@@ -1,0 +1,289 @@
+#!/usr/bin/env bun
+/**
+ * Codegen: the tables CSS extraction reads from @meonode/ui and Emotion, so the
+ * plugin writes exactly what the runtime would without a hand-kept copy.
+ *
+ * Emits crates/meonode-swc-plugin/src/extract_tables.rs:
+ * - `HOST_FACTORIES`: the @meonode/ui factories (and their aliases) declared
+ *   as a bare `createNode('tag')` / `createChildrenFirstNode('tag')`. A factory
+ *   declared with initial props (`Row`, `Center`, `Absolute`, …) merges styles
+ *   the call site cannot see, so its call sites are never extracted.
+ * - `UNITLESS`: `@emotion/unitless`'s keys, which decide where Emotion appends
+ *   `px` to a number.
+ *
+ * Also writes the fixtures the Rust tests compare against, produced by running
+ * the runtime's own code:
+ * - tests/fixture/extract/prefixer.json: Emotion's vendor prefixer
+ *   (`@meonode/ui`'s copy, `src/util/emotion-prefixer.util.ts`) run on every
+ *   CSS property against sample values;
+ * - tests/fixture/extract/defaults.json: `ThemeUtil.resolveDefaultStyle` on
+ *   combinations of the values it decides on;
+ * - tests/fixture/extract/style-names.json: `hashStyles` from
+ *   `src/util/style-name.util.ts` on sample texts.
+ *
+ * Usage:
+ *   bun run scripts/codegen-extract-tables.ts
+ *   MEONODE_UI_DIR=/path/to/ui bun run scripts/codegen-extract-tables.ts
+ */
+
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { dirname, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const OUT_PATH = join(REPO_ROOT, 'crates/meonode-swc-plugin/src/extract_tables.rs')
+const FIXTURE_DIR = join(REPO_ROOT, 'crates/meonode-swc-plugin/tests/fixture/extract')
+
+/** A factory declared with nothing but its tag: `export const Div = createNode('div')`. */
+const HOST_LINE_RE = /^export const ([A-Za-z_$][A-Za-z0-9_$]*) = (?:createNode|createChildrenFirstNode)\('([A-Za-z][A-Za-z0-9-]*)'\)$/
+
+/** Any factory declaration, host or not. */
+const CREATOR_LINE_RE = /^export const ([A-Za-z_$][A-Za-z0-9_$]*) = (?:createNode|createChildrenFirstNode)\(/
+
+/** A bare alias re-export: `export const Container = Div`. */
+const ALIAS_LINE_RE = /^export const ([A-Za-z_$][A-Za-z0-9_$]*) = ([A-Za-z_$][A-Za-z0-9_$]*)$/
+
+/** Values each property is prefixed against; the prefixer's branches read the value's first characters. */
+const SAMPLE_VALUES = [
+  '0',
+  '1',
+  '8px',
+  'auto',
+  'none',
+  'inherit',
+  'flex',
+  'inline-flex',
+  'grid',
+  'block',
+  'sticky',
+  'center',
+  'flex-start',
+  'space-between',
+  'stretch',
+  'max-content',
+  'min-content',
+  'fit-content',
+  'fill-available',
+  'grab',
+  'zoom-in',
+  'image-set(url(a.png) 1x)',
+  'transform 1s',
+  'opacity 1s, transform 2s',
+  'vertical-rl',
+  'horizontal-tb',
+  'text',
+  'red !important',
+  'flex !important',
+  'sticky !important',
+  '1 1 auto',
+  'row wrap',
+  // Whitespace stylis drops or collapses.
+  ' auto',
+  '1px  solid  red ',
+  'a , b',
+  'calc( 1px + 2px )',
+  '"a  b"',
+]
+
+/** Properties every sample, whitespace ones included, is kept for whatever the prefixer does. */
+const WHITESPACE_PROPERTIES = new Set(['color', 'margin', 'font-family', 'grid-template-columns'])
+
+const STYLE_NAME_SAMPLES = [
+  '',
+  'a',
+  '\u0000padding\u00008px',
+  '@media (min-width: 600px)\u0000:hover\u0000color\u0000red',
+  'color:š',
+  'content:"\u{1F600}"',
+  'x'.repeat(55),
+  'x'.repeat(56),
+  'x'.repeat(64),
+  'x'.repeat(200),
+]
+
+function hostFactories(uiDir: string): string[] {
+  const srcPath = join(uiDir, 'src/components/html.node.ts')
+  const text = readFileSync(srcPath, 'utf8')
+  const host = new Set<string>()
+  const all = new Set<string>()
+  for (const rawLine of text.split('\n')) {
+    const line = rawLine.trim()
+    const hostMatch = HOST_LINE_RE.exec(line)
+    if (hostMatch) {
+      host.add(hostMatch[1])
+      all.add(hostMatch[1])
+      continue
+    }
+    const creatorMatch = CREATOR_LINE_RE.exec(line)
+    if (creatorMatch) {
+      all.add(creatorMatch[1])
+      continue
+    }
+    const aliasMatch = ALIAS_LINE_RE.exec(line)
+    if (aliasMatch && all.has(aliasMatch[2])) {
+      all.add(aliasMatch[1])
+      if (host.has(aliasMatch[2])) host.add(aliasMatch[1])
+    }
+  }
+  if (host.size === 0) throw new Error(`No host factory declarations found in ${srcPath}.`)
+  return sortedAscii([...host])
+}
+
+function sortedAscii(names: string[]): string[] {
+  for (const name of names) {
+    if (!/^[\x00-\x7f]*$/.test(name)) throw new Error(`Non-ASCII entry ${JSON.stringify(name)}: JS and Rust sort orders may differ.`)
+  }
+  return names.sort()
+}
+
+async function prefixerCases(uiDir: string): Promise<[string, number, string][]> {
+  const { prefixer } = await import(join(uiDir, 'src/util/emotion-prefixer.util.ts'))
+  const { compile, serialize, middleware, stringify } = await import(join(uiDir, 'node_modules/stylis/index.js')).catch(() => import('stylis'))
+  const { default: CSSPropertySet } = await import(join(uiDir, 'src/constant/css-properties.const.ts'))
+  const cases: [string, number, string][] = []
+  const kebab = (name: string) => name.replace(/[A-Z]|^ms/g, '-$&').toLowerCase()
+  const run = (declaration: string) => serialize(compile(`.x{${declaration}}`), middleware([prefixer, stringify]))
+  const plain = (declaration: string) => serialize(compile(`.x{${declaration}}`), stringify)
+  for (const property of [...(CSSPropertySet as Set<string>)].map(kebab).sort()) {
+    const declarations = SAMPLE_VALUES.map(value => `${property}:${value};`)
+    // A property the prefixer touches for some sample keeps every sample, since
+    // its branches read the value. One it never touches needs a single case to
+    // show that; stylis's whitespace handling is checked on a few properties.
+    const touched = declarations.some(d => run(d) !== plain(d))
+    const kept = touched || WHITESPACE_PROPERTIES.has(property) ? declarations : [`${property}:8px;`]
+    for (const d of kept) cases.push([d, property.length, run(d)])
+  }
+  return cases
+}
+
+async function styleNames(uiDir: string): Promise<[string, string][]> {
+  const { hashStyles } = await import(join(uiDir, 'src/util/style-name.util.ts'))
+  return STYLE_NAME_SAMPLES.map(text => [text, hashStyles(text)])
+}
+
+/** Values `resolveDefaultStyle` decides on, per key it reads. */
+const DEFAULT_SAMPLES: Record<string, unknown[]> = {
+  display: [undefined, 'flex', 'inline-flex', 'block', 'grid'],
+  overflow: [undefined, 'auto', ''],
+  overflowY: [undefined, 'scroll'],
+  flexDirection: [undefined, 'row', 'column', 'row-reverse', 'column-reverse'],
+  flexWrap: [undefined, 'wrap', 'nowrap', 'wrap-reverse'],
+  flexFlow: [undefined, 'row wrap', 'column'],
+  flex: [undefined, 1, 0, -1, '1', 'none', 'auto', 'initial', '1 0 auto', '2 3', '1 1 0', '1 1 2', 'auto 2 3', 'calc(1px + 2px)', '1px', 'x', ''],
+  flexShrink: [undefined, 0, 2],
+  minHeight: [undefined, 40],
+  minWidth: [undefined, 0],
+}
+
+/** `resolveDefaultStyle`'s output on combinations of the samples, keyed by the defaulted keys. */
+async function defaultCases(uiDir: string): Promise<[Record<string, unknown>, Record<string, unknown>][]> {
+  const { ThemeUtil } = await import(join(uiDir, 'src/util/theme.util.ts'))
+  const keys = Object.keys(DEFAULT_SAMPLES)
+  const cases: [Record<string, unknown>, Record<string, unknown>][] = []
+  // Every key alone, then pairs of the layout-deciding keys, so each branch is reached.
+  const objects: Record<string, unknown>[] = []
+  for (const key of keys) for (const value of DEFAULT_SAMPLES[key]) objects.push({ [key]: value })
+  const deciding = ['display', 'overflow', 'flexDirection', 'flexWrap', 'flexFlow', 'flex', 'flexShrink']
+  for (const a of deciding) for (const b of deciding) {
+    if (a >= b) continue
+    for (const va of DEFAULT_SAMPLES[a]) for (const vb of DEFAULT_SAMPLES[b]) objects.push({ display: 'flex', [a]: va, [b]: vb })
+  }
+  for (const input of objects) {
+    const out = ThemeUtil.resolveDefaultStyle({ ...input }) as Record<string, unknown>
+    const defaults: Record<string, unknown> = {}
+    for (const key of ['flexShrink', 'minHeight', 'minWidth']) {
+      if (out[key] !== undefined && !(key in input)) defaults[key] = out[key]
+    }
+    // JSON has no `undefined`: a key present with it is written as null.
+    const written: Record<string, unknown> = {}
+    for (const key of Object.keys(input)) written[key] = input[key] === undefined ? null : input[key]
+    cases.push([written, defaults])
+  }
+  return cases
+}
+
+async function unitlessKeys(uiDir: string): Promise<string[]> {
+  const mod = await import(join(uiDir, 'node_modules/@emotion/unitless/dist/emotion-unitless.esm.js')).catch(() => import('@emotion/unitless'))
+  const table = (mod.default ?? mod) as Record<string, number>
+  return sortedAscii(Object.keys(table).filter(key => table[key] === 1))
+}
+
+function renderRust(host: string[], unitless: string[]): string {
+  const list = (names: string[]) => names.map(name => `    ${JSON.stringify(name)},`).join('\n')
+  return `// @generated by scripts/codegen-extract-tables.ts — do not edit.
+// Sources: @meonode/ui src/components/html.node.ts, @emotion/unitless.
+//
+// Both tables are sorted in byte order, identical to JavaScript's default sort
+// for these pure-ASCII names, so lookups use \`binary_search\`.
+
+/// @meonode/ui factories (and aliases of them) declared with nothing but a tag,
+/// whose call sites can be extracted: no initial props merge in at runtime.
+pub static HOST_FACTORIES: &[&str] = &[
+${list(host)}
+];
+
+/// \`@emotion/unitless\`'s keys: properties Emotion writes a number to as it is.
+/// Keyed as authored, in camelCase, which is how Emotion looks them up.
+pub static UNITLESS: &[&str] = &[
+${list(unitless)}
+];
+
+/// Whether \`name\` is an extractable host factory.
+pub fn is_host_factory(name: &str) -> bool {
+    HOST_FACTORIES.binary_search(&name).is_ok()
+}
+
+/// Whether Emotion writes a number against the key \`key\`, as authored, without \`px\`.
+pub fn is_unitless(key: &str) -> bool {
+    UNITLESS.binary_search(&key).is_ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tables_are_sorted() {
+        assert!(HOST_FACTORIES.windows(2).all(|w| w[0] < w[1]));
+        assert!(UNITLESS.windows(2).all(|w| w[0] < w[1]));
+    }
+
+    #[test]
+    fn host_factories_exclude_factories_with_initial_props() {
+        assert!(is_host_factory("Div"));
+        assert!(is_host_factory("Span"));
+        assert!(!is_host_factory("Row"));
+        assert!(!is_host_factory("Center"));
+        assert!(!is_host_factory("Absolute"));
+    }
+
+    #[test]
+    fn unitless_is_keyed_as_emotion_keys_it() {
+        assert!(is_unitless("lineHeight"));
+        assert!(is_unitless("zIndex"));
+        assert!(!is_unitless("line-height"));
+        assert!(!is_unitless("width"));
+    }
+}
+`
+}
+
+async function main() {
+  const uiDir = resolve(REPO_ROOT, process.env.MEONODE_UI_DIR ?? '../ui')
+  const host = hostFactories(uiDir)
+  const unitless = await unitlessKeys(uiDir)
+  mkdirSync(dirname(OUT_PATH), { recursive: true })
+  writeFileSync(OUT_PATH, renderRust(host, unitless), 'utf8')
+
+  mkdirSync(FIXTURE_DIR, { recursive: true })
+  const prefixer = await prefixerCases(uiDir)
+  writeFileSync(join(FIXTURE_DIR, 'prefixer.json'), '[\n' + prefixer.map(c => JSON.stringify(c)).join(',\n') + '\n]\n', 'utf8')
+  const defaults = await defaultCases(uiDir)
+  writeFileSync(join(FIXTURE_DIR, 'defaults.json'), '[\n' + defaults.map(c => JSON.stringify(c)).join(',\n') + '\n]\n', 'utf8')
+  const names = await styleNames(uiDir)
+  writeFileSync(join(FIXTURE_DIR, 'style-names.json'), '[\n' + names.map(c => JSON.stringify(c)).join(',\n') + '\n]\n', 'utf8')
+
+  console.log(`Wrote ${host.length} host factories, ${unitless.length} unitless keys, ${prefixer.length} prefixer cases, ${names.length} style names`)
+}
+
+await main()
