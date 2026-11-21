@@ -62,6 +62,19 @@ pub mod config;
 // drive the real detection pass directly.
 pub mod detect;
 
+// Tables extraction reads from @meonode/ui and Emotion (see
+// scripts/codegen-extract-tables.ts).
+mod extract_tables;
+
+// Class names for extracted rules, matching the runtime's `hashStyles`.
+pub mod style_name;
+
+// Emotion's whitespace handling and vendor prefixer, ported.
+pub mod stylis;
+
+// Build-time CSS extraction behind `experimental_extractCss`.
+pub mod extract;
+
 // Prop partitioning + call-site key emission. Public for the same
 // reason as `detect`.
 pub mod partition;

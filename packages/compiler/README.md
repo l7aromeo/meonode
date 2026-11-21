@@ -513,6 +513,43 @@ keys emitted: **+4,747 bytes of transform output (1.44%), +759 bytes gzipped
 authored call site, so the cost scales with how many generated lists a codebase
 has rather than with its size.
 
+### `experimental_extractCss` — styles written at build time (experimental)
+
+A prototype, needing a `@meonode/ui` that exports `registerStaticCss` and
+`toCssValue`. The name and the output may change before it ships.
+
+```js
+experimental: {
+  swcPlugins: [['@meonode/compiler', { experimental_extractCss: true }]],
+}
+```
+
+For a call site of a plain host factory (`Div`, `Span`, …, or `Node('section', …)`),
+every style entry the compiler can prove is written as a CSS rule when the module
+is built. The call site then carries class names (`__meo$s`) and, for values only
+known at runtime, CSS variables (`__meo$v`). Each module registers its rules once
+through `registerStaticCss`. Anything the compiler cannot prove stays where it
+was, and the runtime handles it as before.
+
+- **Written at build time:** literals, `theme.*` token strings and same-file
+  `const` literals; a conditional whose branches are all of those; and a template
+  literal or arithmetic, through a variable.
+- **Left to the runtime:** identifiers and member reads (they may hold a theme
+  function or nothing), calls, theme functions, fallback arrays, keyframes,
+  tokens in at-rule keys, spreads, component targets, and factories that bring
+  their own styles (`Row`, `Center`, `Absolute`, …).
+- **Same output as the runtime.** Values are written the way Emotion writes them,
+  vendor prefixes included. A property is never split between a build-time rule
+  and a runtime one on the same node. Shapes whose result depends on declaration
+  order stay on the runtime path: `padding` beside `paddingTop`, and one property
+  under two pseudo-classes or two media queries. Which properties overlap comes
+  from the CSS specifications' shorthand and logical property tables (through
+  `@webref/css`), so `border` beside `borderRadius` is extracted, while `border`
+  beside `borderColor`, or `marginBottom` beside `marginInline`, is not.
+
+Off by default. With the option off, the output is exactly what it is without
+this option.
+
 ## Marker contract
 
 Compiled call sites get a marker object, recognized by the `__meo$` key. This
