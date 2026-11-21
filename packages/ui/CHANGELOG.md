@@ -1,5 +1,36 @@
 # @meonode/ui
 
+## 3.4.0
+
+### Minor Changes
+
+- [#148](https://github.com/l7aromeo/meonode/pull/148) [`48b9d5d`](https://github.com/l7aromeo/meonode/commit/48b9d5d91399ce5ebe98f30f284ce4bd8e354925) Thanks [@l7aromeo](https://github.com/l7aromeo)! - Two different styles no longer share one class name (Fixes [#143](https://github.com/l7aromeo/meonode/issues/143)). MeoNode now names each class from a SHA-256 of the style's whole text, in the browser, in server rendering and in React Server Components, where it used Emotion's 32-bit hash. A class name is now 13 base-36 characters after the cache key, for example `css-27fvjgatqmrja` where it was `css-1cqf8hq`, plus any label.
+  
+  Class names change form, so snapshot tests that record MeoNode class names need updating. Class names are not a stable API and may change between versions. Classes that `@meonode/mui` and code using Emotion directly create keep Emotion's names, and never equal a MeoNode name.
+  
+  Naming a style costs more the first time it is seen. In Chrome, a page of about 10,000 styled nodes, each with its own style, mounts about 14% slower the first time; later mounts and updates of the same styles take 1–5% longer. Names are kept for up to 40,000 styles, about 9.4 MiB at most for typical styles.
+
+### Patch Changes
+
+- [#147](https://github.com/l7aromeo/meonode/pull/147) [`ded4788`](https://github.com/l7aromeo/meonode/commit/ded4788801a392f58f43613fba1bc27825ea9aed) Thanks [@l7aromeo](https://github.com/l7aromeo)! - A built element passed to a node keeps its children in its own shape, so React's missing-key warning fires for an unkeyed list inside it, as when React renders the element itself, with the same text and once per parent. A one-item list stays a list instead of becoming a single child, so React checks its key too. An element a node is given as a written-out child is marked as `createElement` marks its arguments, so reusing it in a list elsewhere reports what React reports for the same tree.
+
+- [#147](https://github.com/l7aromeo/meonode/pull/147) [`0161931`](https://github.com/l7aromeo/meonode/commit/016193181f23da5fa36316394696497460f10ed2) Thanks [@l7aromeo](https://github.com/l7aromeo)! - README: the Debug Mode section says which component React's warnings and DevTools name as the owner of an element built in one component and passed to a node in another.
+
+- [#147](https://github.com/l7aromeo/meonode/pull/147) [`0d8a240`](https://github.com/l7aromeo/meonode/commit/0d8a2407ab9bd4d197115c3805e24c8a0419509f) Thanks [@l7aromeo](https://github.com/l7aromeo)! - A built element passed to a node keeps its key and, on a plain tag, its attributes as written: `theme.*` text in a `title` or a key is no longer turned into a CSS variable. Tokens are still converted in a plain tag's inline `style` and in a component element's props, which may take style values under any name.
+
+- [#135](https://github.com/l7aromeo/meonode/pull/135) [`c364795`](https://github.com/l7aromeo/meonode/commit/c36479595e8b02edd88899e6521047ffa4db7b20) Thanks [@l7aromeo](https://github.com/l7aromeo)! - README: the Debug Mode section states what shipping the diagnostics costs: about 4 KB gzipped in every browser bundle, whether or not `setDebugMode` is set.
+
+- [#147](https://github.com/l7aromeo/meonode/pull/147) [`f4746b0`](https://github.com/l7aromeo/meonode/commit/f4746b0cfea852f6f98e252feaa74d13424b6cb6) Thanks [@l7aromeo](https://github.com/l7aromeo)! - A nested array that appears more than once in one `children` array renders every time, as React renders it. It was dropped after the first time, with a false warning that the array contains itself. The warning now fires only for an array inside itself.
+
+- [#148](https://github.com/l7aromeo/meonode/pull/148) [`411103b`](https://github.com/l7aromeo/meonode/commit/411103b31049418a4b1116ef7ec9c66353ce1e96) Thanks [@l7aromeo](https://github.com/l7aromeo)! - Depends on `stylis` 4.2.0, the exact release `@emotion/cache` 11.14.0 pins, instead of `^4.4.0`. An app now installs and bundles one copy of stylis rather than two. That holds with bun, npm and pnpm, including an app whose lockfile already resolved 4.4.0 for `@meonode/ui` (Fixes [#136](https://github.com/l7aromeo/meonode/issues/136)).
+  
+  The rule written for a server component's css key holding a theme token is now compiled by Emotion's own cache, so it is what Emotion writes for the same css:
+  - a `label` is left out;
+  - a pseudo selector after a comma attaches to the element: `'&:hover, :focus'` writes `.x:focus`, where it wrote the descendant selector `.x :focus`;
+  - a custom property with an empty value is left out.
+
+- [#147](https://github.com/l7aromeo/meonode/pull/147) [`ded4788`](https://github.com/l7aromeo/meonode/commit/ded4788801a392f58f43613fba1bc27825ea9aed) Thanks [@l7aromeo](https://github.com/l7aromeo)! - A sole `0` or `''` child renders as React renders it, in a node ([#144](https://github.com/l7aromeo/meonode/issues/144)) and in a built element passed to a node ([#139](https://github.com/l7aromeo/meonode/issues/139)): `Span(0)` gives `<span>0</span>`, and a component receives `''` as its `children`. Both were dropped before. As in React, `children: count && X` now renders `0` when `count` is 0; write `count > 0 && X` to render nothing.
+
 ## 3.3.0
 
 ### Minor Changes
