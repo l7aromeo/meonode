@@ -4,6 +4,8 @@
 // module's rule text is split into its rules first; development appends the
 // text as it is. A brace or semicolon inside a string, an escape or a comment is
 // not a rule boundary, so both must end with the same rules.
+import createCache from '@emotion/cache'
+import { type CSSObject, serializeStyles } from '@emotion/serialize'
 import { act, type ReactElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -79,5 +81,33 @@ describe('splitting a rule text into its rules', () => {
     ['blank text between rules', '.a{x:y} \n', ['.a{x:y}']],
   ])('%s', (_, text, rules) => {
     expect(splitRules(text)).toEqual(rules)
+  })
+})
+
+// Emotion's cache hands each rule of a compiled style to its sheet's `insert`,
+// which is how it reaches `insertRule`: the split extracted rules must match.
+describe('splitting the rules Emotion compiles, as Emotion does', () => {
+  /** The rules Emotion's cache inserts for `styles`, in order. */
+  function emotionRules(styles: CSSObject): string[] {
+    const rules: string[] = []
+    const cache = createCache({ key: 'css' })
+    const sheet = { ...cache.sheet, insert: (rule: string) => void rules.push(rule) }
+    cache.insert('', serializeStyles([styles], cache.registered), sheet as unknown as typeof cache.sheet, false)
+    return rules
+  }
+
+  it.each<[string, CSSObject]>([
+    ['braces in strings, on a rule and a pseudo-element', { content: '"}"', '&::before': { content: '"{"' } }],
+    ['semicolons and braces in quoted font names', { fontFamily: `'a;b', "c}d"` }],
+    ['a brace in an unquoted url', { background: 'url(a}b)' }],
+    ['a parenthesis and a brace in a quoted url', { background: 'url( "a)}b" )' }],
+    ['a brace in a quoted attribute value', { '&[data-x="}"]': { color: 'red' } }],
+    ['an escaped brace in a selector', { '&.a\\}b': { color: 'red' } }],
+    ['the vendor copies of a placeholder', { '&::placeholder': { color: 'red' } }],
+    ['the vendor copies of a read-only state in a media query', { '@media (min-width: 1px)': { '&:read-only': { color: 'red' } } }],
+  ])('%s', (_, styles) => {
+    const rules = emotionRules(styles)
+    expect(rules.length).toBeGreaterThan(0)
+    expect(splitRules(rules.join(''))).toEqual(rules)
   })
 })
