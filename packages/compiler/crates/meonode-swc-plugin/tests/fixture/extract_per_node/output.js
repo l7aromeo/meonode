@@ -1,6 +1,6 @@
 import { registerStaticCss as __meoCss } from "@meonode/ui";
 import { Div } from "@meonode/ui";
-__meoCss("0cd5oloqobstq", [
+__meoCss("1zap5j6ewclm6", [
     [
         0,
         "mn-2g9zz8k64uf9u",
@@ -8,8 +8,8 @@ __meoCss("0cd5oloqobstq", [
     ],
     [
         3,
-        "mn-1er5n126fb0mz",
-        ".mn-1er5n126fb0mz pre{margin:0;}.mn-1er5n126fb0mz pre:hover{color:red;}.dark .mn-1er5n126fb0mz{color:white;}"
+        "mn-2f5up1pij988p",
+        ".mn-2f5up1pij988p pre{margin:0;}.mn-2f5up1pij988p pre:hover{color:red;}.dark .mn-2f5up1pij988p{color:white;}"
     ],
     [
         0,
@@ -29,6 +29,6 @@ __meoCss("0cd5oloqobstq", [
 ]);
 Div({
     __meo$: 2,
-    __meo$s: "mn-2g9zz8k64uf9u mn-1er5n126fb0mz mn-0e47bwo0vm4o6 mn-35l163g1tjy26 mn-0zzfi4vug0nqv",
+    __meo$s: "mn-2g9zz8k64uf9u mn-2f5up1pij988p mn-0e47bwo0vm4o6 mn-35l163g1tjy26 mn-0zzfi4vug0nqv",
     __meo$k: "m15r4simo7fggj"
 });

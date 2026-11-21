@@ -29,7 +29,10 @@
  * - tests/fixture/extract/style-names.json: `hashStyles` from
  *   `src/util/style-name.util.ts` on sample texts;
  * - tests/fixture/extract/factory-merge.json: the props \`createNode\` builds a
- *   node with, for every layout factory against sample call-site props.
+ *   node with, for every layout factory against sample call-site props;
+ * - tests/fixture/extract/selectors.json: the rules Emotion writes (through
+ *   the runtime's cache plugins) for one declaration under chains of nested
+ *   selector and at-rule keys from \`tests/selector-grammar.ts\`.
  *
  * Usage:
  *   bun run scripts/codegen-extract-tables.ts
@@ -164,6 +167,40 @@ async function prefixerCases(uiDir: string): Promise<[string, number, string][]>
     for (const d of kept) cases.push([d, property.length, run(d)])
   }
   return cases
+}
+
+/**
+ * Chains of nested keys from the selector grammar, and the rules Emotion writes
+ * for `color:red` at the end of each, under the class `.N`.
+ */
+async function selectorCases(uiDir: string): Promise<[string[], string][]> {
+  const { prefixer } = await import(join(uiDir, 'src/util/emotion-prefixer.util.ts'))
+  const { default: createCache } = await import(join(uiDir, 'node_modules/@emotion/cache/dist/emotion-cache.cjs.js')).catch(() => import('@emotion/cache'))
+  const { serializeStyles } = await import(join(uiDir, 'node_modules/@emotion/serialize/dist/emotion-serialize.cjs.js')).catch(() => import('@emotion/serialize'))
+  const grammar = await import('../tests/selector-grammar.ts')
+  const cache = createCache({ key: 'css', stylisPlugins: [prefixer] })
+  const sheet = { insert() {} }
+  const chains: string[][] = []
+  const keys = new Set<string>()
+  for (const s of grammar.simpleSelectors()) for (const key of grammar.placements(s)) keys.add(key)
+  for (const key of grammar.nodeInArguments()) keys.add(key)
+  for (const key of keys) chains.push([key])
+  const steps = ['&:hover', ':hover', '::before', '& > p', '.dark &', '& + &', '&, ::after', ':not(&)', '& .b, & .c', '[data-x="a,b"] &']
+  for (const a of steps) for (const b of steps) chains.push([a, b])
+  for (const a of steps.slice(0, 5)) for (const b of steps) for (const c of steps.slice(0, 4)) chains.push([a, b, c])
+  const atRules = [...grammar.AT_RULES, '@media  (min-width:  1px)', '@media(min-width:1px)', '@media screen,print', '@supports not (display: grid)', '@media screen and (min-width: 1px) and (max-width: 2px)']
+  for (const at of atRules) {
+    chains.push([at])
+    for (const step of steps) chains.push([at, step], [step, at], [step, at, '&:focus'], [at, atRules[0], step])
+  }
+  for (const key of ['& > p', '.dark &', '&:hover, &:focus', ':is(&, .a) p', '& + &', '&  ~  .b', ':hover']) for (const ws of grammar.WHITESPACE) chains.push([ws(key)])
+  const out: [string[], string][] = []
+  for (const chain of chains) {
+    let css: Record<string, unknown> = { color: 'red' }
+    for (const key of [...chain].reverse()) css = { [key]: css }
+    out.push([chain, cache.insert('.N', serializeStyles([css], cache.registered), sheet, false) as string])
+  }
+  return out
 }
 
 async function styleNames(uiDir: string): Promise<[string, string][]> {
@@ -546,11 +583,13 @@ async function main() {
   writeFileSync(join(FIXTURE_DIR, 'defaults.json'), '[\n' + defaults.map(c => JSON.stringify(c)).join(',\n') + '\n]\n', 'utf8')
   const merges = await factoryMergeCases(uiDir, layout)
   writeFileSync(join(FIXTURE_DIR, 'factory-merge.json'), '[\n' + merges.map(c => JSON.stringify(c)).join(',\n') + '\n]\n', 'utf8')
+  const selectors = await selectorCases(uiDir)
+  writeFileSync(join(FIXTURE_DIR, 'selectors.json'), '[\n' + selectors.map(c => JSON.stringify(c)).join(',\n') + '\n]\n', 'utf8')
   const names = await styleNames(uiDir)
   writeFileSync(join(FIXTURE_DIR, 'style-names.json'), '[\n' + names.map(c => JSON.stringify(c)).join(',\n') + '\n]\n', 'utf8')
 
   console.log(
-    `Wrote ${host.length} host factories, ${layout.length} layout factories${skippedLayoutFactories.length ? ` (skipped: ${skippedLayoutFactories.join(', ')})` : ''}, ${merges.length} factory merges, ${unitless.length} unitless keys, ${overlap.properties.length} CSS properties (${overlap.shorthands.length} shorthands), ${prefixer.length} prefixer cases, ${names.length} style names`,
+    `Wrote ${host.length} host factories, ${layout.length} layout factories${skippedLayoutFactories.length ? ` (skipped: ${skippedLayoutFactories.join(', ')})` : ''}, ${merges.length} factory merges, ${unitless.length} unitless keys, ${overlap.properties.length} CSS properties (${overlap.shorthands.length} shorthands), ${prefixer.length} prefixer cases, ${selectors.length} selector chains, ${names.length} style names`,
   )
 }
 

@@ -543,10 +543,15 @@ was, and the runtime handles it as before.
   selector naming the node twice (`& + &`, `& &`) keeps the whole node on the
   runtime path, since it matches only nodes styled alike in full. So does one
   naming the node only inside `:not()`, `:is()`, `:where()` or their vendor
-  forms (`:not(&)`, `:is(&, .a)`), since it matches elements other than the
-  node. `:has(&)` and `&:not(.a)` are extracted.
+  forms (`html:not(&) p`, `.b:is(&, .a)`), since it matches elements other than
+  the node. `:has(&)` and `&:not(.a)` are extracted.
 - **Same output as the runtime.** Values are written the way Emotion writes them,
-  vendor prefixes included. A property is never split between a build-time rule
+  vendor prefixes included. Nested selectors and at-rules are composed the way
+  Emotion composes them (stylis's parser, then Emotion's `compat` plugin): a key
+  starting with a colon attaches to its parent (`":hover"` is `&:hover`, and
+  `":not(&)"` is `&:not(&)`), a list item without `&` is a descendant,
+  whitespace is dropped around combinators, and `::placeholder`,
+  `:read-only` and `:read-write` rules get Emotion's vendor copies. A property is never split between a build-time rule
   and a runtime one on the same node. Shapes whose result depends on declaration
   order stay on the runtime path: `padding` beside `paddingTop`, and one property
   under two pseudo-classes or two media queries. Which properties overlap comes

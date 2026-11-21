@@ -59,6 +59,7 @@ use crate::extract_tables::{
     is_host_factory, is_unitless, layout_factory,
 };
 use crate::keys::key_name_atom;
+use crate::selector::{self, NODE};
 use crate::style_name::{class_name, hash_styles};
 use crate::stylis;
 use crate::theme::{is_length_key, rewrite_theme_tokens_for};
@@ -792,9 +793,17 @@ impl Context {
         parts.join(&SEP.to_string())
     }
 
-    /// The rule for `class` holding `declarations`, wrapped in its at-rules.
+    /// The rule for `class` holding `declarations`, wrapped in its at-rules,
+    /// after the vendor copies Emotion's prefixer writes for it.
     fn rule(&self, class: &str, declarations: &str) -> String {
-        let mut text = format!(".{class}{}{{{declarations}}}", self.selector);
+        let selector = format!(".{class}{}", self.selector);
+        // A suffix starts with a colon, so stylis's `length` for the rule is
+        // never 0; the base context's selector names no prefixed pseudo.
+        let mut text: String = selector::prefixed(std::slice::from_ref(&selector), 1)
+            .iter()
+            .map(|copy| format!("{copy}{{{declarations}}}"))
+            .collect();
+        text.push_str(&format!("{selector}{{{declarations}}}"));
         for at_rule in self.at_rules.iter().rev() {
             text = format!("{at_rule}{{{text}}}");
         }
@@ -820,8 +829,8 @@ struct Block {
     /// Keys from the top of the merged css to the object holding it, and its own key.
     path: Vec<String>,
     key: String,
-    /// The selector with `&` standing for the node's class.
-    selector: String,
+    /// Its rule: the selectors, with [`NODE`] standing for the node's class.
+    scope: selector::Rule,
     at_rules: Vec<String>,
     declarations: Vec<(String, Route)>,
     children: Vec<Block>,
@@ -856,15 +865,24 @@ fn object_entries(obj: &ObjectLit) -> Option<Vec<(String, Expr)>> {
     Some(entries)
 }
 
-/// The suffix a simple pseudo selector key (`&:hover`, `&::before`,
-/// `&:not(:last-child)`) adds after the element's class, or `None` for any other
-/// selector.
-fn pseudo_suffix(key: &str) -> Option<String> {
-    let rest = key.strip_prefix('&')?;
-    if rest.is_empty() || !rest.starts_with(':') {
+/// The suffix after the node's class when a rule is written as atomic classes:
+/// one selector, the node's class followed only by pseudo-classes and
+/// pseudo-elements (`:hover`, `::before`, `:not(:last-child)`), from a key with
+/// no theme token. `None` for any other rule, which is written per node.
+fn atomic_suffix(scope: &selector::Rule, key: &str) -> Option<String> {
+    if key.contains("theme.") {
         return None;
     }
-    if rest.contains("::plac") || rest.contains(":read-") {
+    let [only] = scope.props.as_slice() else {
+        return None;
+    };
+    pseudo_suffix(only.strip_prefix(NODE)?)
+}
+
+/// `rest` when it is a run of simple pseudo selectors (`:hover`, `::before`,
+/// `:not(:last-child)`), or `None`.
+fn pseudo_suffix(rest: &str) -> Option<String> {
+    if !rest.starts_with(':') {
         return None;
     }
     let mut depth = 0i32;
@@ -878,7 +896,7 @@ fn pseudo_suffix(key: &str) -> Option<String> {
                 }
             }
             _ if depth > 0 => {
-                if matches!(ch, '{' | '}' | ';' | '&' | '\\' | '"' | '\'') {
+                if matches!(ch, '{' | '}' | ';' | '&' | '\\' | '"' | '\'' | NODE) {
                     return None;
                 }
             }
@@ -889,68 +907,19 @@ fn pseudo_suffix(key: &str) -> Option<String> {
     (depth == 0).then(|| rest.to_string())
 }
 
-/// An at-rule key the static path writes as it is: `@media`, `@supports` or
-/// `@container`, with no token and nothing that would break out of the rule.
-fn at_rule_text(key: &str) -> Option<String> {
-    let known = ["@media", "@supports", "@container"].iter().any(|k| {
+/// Whether the static path writes at-rule `key`: `@media`, `@supports` or
+/// `@container`, with no theme token in its prelude (the runtime resolves
+/// those). Its text is written as stylis writes it ([`selector::Rule::at_rule`]).
+fn writes_at_rule(key: &str) -> bool {
+    ["@media", "@supports", "@container"].iter().any(|k| {
         key.strip_prefix(k)
-            .is_some_and(|rest| rest.starts_with([' ', '(']))
-    });
-    if !known
-        || key.contains("theme.")
-        || key.contains(['{', '}', ';', '&', '\\'])
-        || key.contains("/*")
-    {
-        return None;
-    }
-    Some(key.split_whitespace().collect::<Vec<_>>().join(" "))
+            .is_some_and(|rest| rest.starts_with(|c: char| c == '(' || c.is_whitespace()))
+    }) && !key.contains("theme.")
 }
 
-/// A selector key valid inside a per-node rule: no braces, semicolons,
-/// backslashes or comments, and nothing the prefixer rewrites.
-fn arbitrary_selector(key: &str) -> Option<String> {
-    if key.contains(['{', '}', ';', '\\'])
-        || key.contains("/*")
-        || key.contains("::plac")
-        || key.contains(":read-")
-        || key.contains("theme.")
-    {
-        return None;
-    }
-    let trimmed = key.trim();
-    if trimmed.is_empty() {
-        return None;
-    }
-    Some(trimmed.to_string())
-}
-
-/// Top-level commas of a selector, outside parentheses and brackets.
-fn split_selector_list(selector: &str) -> Vec<String> {
-    let mut parts = Vec::new();
-    let mut depth = 0i32;
-    let mut current = String::new();
-    for ch in selector.chars() {
-        match ch {
-            '(' | '[' => depth += 1,
-            ')' | ']' => depth -= 1,
-            ',' if depth == 0 => {
-                parts.push(current.trim().to_string());
-                current.clear();
-                continue;
-            }
-            _ => {}
-        }
-        current.push(ch);
-    }
-    parts.push(current.trim().to_string());
-    parts
-}
-
-/// Whether any selector in the list names the node (`&`) more than once.
-fn names_node_twice(selector: &str) -> bool {
-    split_selector_list(selector)
-        .iter()
-        .any(|item| item.matches('&').count() > 1)
+/// Whether any of a rule's selectors names the node more than once.
+fn names_node_twice(props: &[String]) -> bool {
+    props.iter().any(|item| item.matches(NODE).count() > 1)
 }
 
 /// Functional pseudo-classes whose argument may match without the node: a
@@ -958,16 +927,23 @@ fn names_node_twice(selector: &str) -> bool {
 const NODE_OPTIONAL_PSEUDOS: &[&str] =
     &["not", "is", "where", "matches", "-webkit-any", "-moz-any"];
 
-/// Whether every selector in the list matches only where the node is rendered:
-/// each names `&` outside quotes and outside every [`NODE_OPTIONAL_PSEUDOS`]
-/// argument. `:not(&)` or `:is(&, .a)` match elements with no node anywhere.
-fn requires_node(selector: &str) -> bool {
-    split_selector_list(selector).iter().all(|item| {
+/// Whether every one of a rule's selectors matches only where the node is
+/// rendered: each names the node outside quotes and outside every
+/// [`NODE_OPTIONAL_PSEUDOS`] argument. `:not(&)` or `:is(&, .a)` match
+/// elements with no node anywhere.
+fn requires_node(props: &[String]) -> bool {
+    props.iter().all(|item| {
         // Per open parenthesis: whether it belongs to a node-optional pseudo.
         let mut optional: Vec<bool> = Vec::new();
         let mut name = String::new();
         let mut quote: Option<char> = None;
-        for ch in item.chars() {
+        let mut chars = item.chars();
+        while let Some(ch) = chars.next() {
+            if ch == '\\' {
+                chars.next();
+                name.clear();
+                continue;
+            }
             if let Some(q) = quote {
                 if ch == q {
                     quote = None;
@@ -985,29 +961,13 @@ fn requires_node(selector: &str) -> bool {
                     optional.pop();
                     name.clear();
                 }
-                '&' if !optional.iter().any(|o| *o) => return true,
+                NODE if !optional.iter().any(|o| *o) => return true,
                 c if c.is_ascii_alphanumeric() || c == '-' => name.push(c),
                 _ => name.clear(),
             }
         }
         false
     })
-}
-
-/// `child` nested under `parent`, as stylis composes them: `&` replaced, and a
-/// selector without one taken as a descendant.
-fn compose_selector(parent: &str, child: &str) -> String {
-    let mut out = Vec::new();
-    for p in split_selector_list(parent) {
-        for c in split_selector_list(child) {
-            out.push(if c.contains('&') {
-                c.replace('&', &p)
-            } else {
-                format!("{p} {c}")
-            });
-        }
-    }
-    out.join(",")
 }
 
 /// The merged css of one node.
@@ -1028,16 +988,23 @@ impl ModuleScope {
             keys: entries.iter().map(|(k, _)| k.clone()).collect(),
             base_values: HashMap::new(),
         };
-        self.collect_object(&entries, &Context::base(), &[], &mut model)?;
+        self.collect_object(
+            &entries,
+            &Context::base(),
+            &selector::Rule::node(),
+            &[],
+            &mut model,
+        )?;
         Some(model)
     }
 
-    /// Walks one object of the merged css in `context`. `None` when the node
-    /// cannot be extracted at all.
+    /// Walks one object of the merged css in `context`, whose rule is `scope`.
+    /// `None` when the node cannot be extracted at all.
     fn collect_object(
         &self,
         entries: &[(String, Expr)],
         context: &Context,
+        scope: &selector::Rule,
         path: &[String],
         model: &mut Model,
     ) -> Option<()> {
@@ -1050,37 +1017,40 @@ impl ModuleScope {
                 let Expr::Object(obj) = unwrap_transparent(value) else {
                     return None;
                 };
-                match at_rule_text(key) {
-                    Some(text) => {
-                        let inner = object_entries(obj)?;
-                        let mut child = context.clone();
-                        child.at_rules.push(text);
-                        self.collect_object(&inner, &child, &extend(path, key), model)?;
-                    }
-                    None => {
-                        // Left whole to the runtime; only its properties matter here.
-                        let parent = format!("&{}", context.selector);
-                        let mut block =
-                            self.runtime_at_rule(key, &parent, &context.at_rules, obj)?;
-                        block.path = path.to_vec();
-                        block.key = key.clone();
-                        model.blocks.push(block);
-                    }
+                let (text, inner_scope) = scope.at_rule(key)?;
+                if writes_at_rule(key) {
+                    let inner = object_entries(obj)?;
+                    let mut child = context.clone();
+                    child.at_rules.push(text);
+                    self.collect_object(&inner, &child, &inner_scope, &extend(path, key), model)?;
+                } else {
+                    // Left whole to the runtime; only its properties matter here.
+                    let mut block =
+                        self.runtime_at_rule(key, inner_scope, &context.at_rules, obj)?;
+                    block.path = path.to_vec();
+                    block.key = key.clone();
+                    model.blocks.push(block);
                 }
             } else if key.starts_with('&') || nested {
                 let Expr::Object(obj) = unwrap_transparent(value) else {
                     return None;
                 };
-                match pseudo_suffix(key) {
+                let child_scope = scope.nest(key)?;
+                match atomic_suffix(&child_scope, key) {
                     Some(suffix) if !context.selector.contains("::") => {
                         let inner = object_entries(obj)?;
                         let mut child = context.clone();
-                        child.selector.push_str(&suffix);
-                        self.collect_object(&inner, &child, &extend(path, key), model)?;
+                        child.selector = suffix;
+                        self.collect_object(
+                            &inner,
+                            &child,
+                            &child_scope,
+                            &extend(path, key),
+                            model,
+                        )?;
                     }
                     _ => {
-                        let parent = format!("&{}", context.selector);
-                        let mut block = self.block(key, &parent, &context.at_rules, obj)?;
+                        let mut block = self.block(key, child_scope, &context.at_rules, obj)?;
                         block.path = path.to_vec();
                         block.key = key.clone();
                         model.blocks.push(block);
@@ -1108,39 +1078,38 @@ impl ModuleScope {
         Some(())
     }
 
-    /// A per-node block for the selector `key` nested under `parent`. `None`
-    /// when the node must stay whole on the runtime path: what the block sets
-    /// cannot be known (an entry whose keys are unknowable, a nested selector or
-    /// at-rule whose value is not an object literal), or its selector names the
-    /// node twice or only where the node is optional ([`requires_node`]).
+    /// A per-node block for selector `key`, whose rule is `scope`. `None` when
+    /// the node must stay whole on the runtime path: what the block sets cannot
+    /// be known (an entry whose keys are unknowable, a nested selector or
+    /// at-rule whose value is not an object literal, a key Emotion's parse
+    /// would not keep inside the rule), or its selectors name the node twice or
+    /// only where the node is optional ([`requires_node`]).
     fn block(
         &self,
         key: &str,
-        parent: &str,
+        scope: selector::Rule,
         at_rules: &[String],
         obj: &ObjectLit,
     ) -> Option<Block> {
         let entries = object_entries(obj)?;
-        // `&` is the node's whole-style class to Emotion. A selector naming it
+        // The node's class is its whole style to Emotion. A selector naming it
         // twice (`& + &`, `& &`) matches only nodes styled alike in full, and one
         // naming it only where it is optional (`:not(&)`, `:is(&, .a)`) matches
         // nodes styled otherwise, or none rendered at all. Taking any entry out
         // of that class changes which elements match, and a static rule exists
         // before the node renders: the whole node stays on the runtime path.
-        let composed = compose_selector(parent, key.trim());
-        if names_node_twice(&composed) || !requires_node(&composed) {
+        if names_node_twice(&scope.props) || !requires_node(&scope.props) {
             return None;
         }
         let mut block = Block {
             path: Vec::new(),
             key: String::new(),
-            // Composed even when it cannot be written, so nested selectors are
-            // checked against the selector they really compose to.
-            selector: composed,
+            scope,
             at_rules: at_rules.to_vec(),
             declarations: Vec::new(),
             children: Vec::new(),
-            extractable: arbitrary_selector(key).is_some(),
+            // The runtime resolves theme tokens in keys.
+            extractable: !key.contains("theme."),
         };
         for (child_key, value) in &entries {
             let nested = matches!(unwrap_transparent(value), Expr::Object(_));
@@ -1148,13 +1117,13 @@ impl ModuleScope {
                 let Expr::Object(inner) = unwrap_transparent(value) else {
                     return None;
                 };
-                let child = match at_rule_text(child_key) {
-                    Some(text) => {
-                        let mut rules = at_rules.to_vec();
-                        rules.push(text);
-                        self.block("&", &block.selector, &rules, inner)?
-                    }
-                    None => self.runtime_at_rule(child_key, &block.selector, at_rules, inner)?,
+                let (text, inner_scope) = block.scope.at_rule(child_key)?;
+                let child = if writes_at_rule(child_key) {
+                    let mut rules = at_rules.to_vec();
+                    rules.push(text);
+                    self.block(child_key, inner_scope, &rules, inner)?
+                } else {
+                    self.runtime_at_rule(child_key, inner_scope, at_rules, inner)?
                 };
                 block.extractable &= child.extractable;
                 block.children.push(child);
@@ -1162,7 +1131,8 @@ impl ModuleScope {
                 let Expr::Object(inner) = unwrap_transparent(value) else {
                     return None;
                 };
-                let child = self.block(child_key, &block.selector, at_rules, inner)?;
+                let child_scope = block.scope.nest(child_key)?;
+                let child = self.block(child_key, child_scope, at_rules, inner)?;
                 block.extractable &= child.extractable;
                 block.children.push(child);
             } else {
@@ -1186,11 +1156,11 @@ impl ModuleScope {
     fn runtime_at_rule(
         &self,
         key: &str,
-        parent: &str,
+        scope: selector::Rule,
         at_rules: &[String],
         obj: &ObjectLit,
     ) -> Option<Block> {
-        let mut block = self.block("&", parent, at_rules, obj)?;
+        let mut block = self.block(key, scope, at_rules, obj)?;
         block.extractable = false;
         if is_keyframes(key) {
             block.declarations.clear();
@@ -1219,7 +1189,7 @@ impl Block {
     }
 
     /// The rules, Emotion's order: own declarations, then nested rules in
-    /// source order. `&` in the selector stands for the node's class.
+    /// source order. [`NODE`] in the selectors stands for the node's class.
     fn rules(&self, out: &mut String) -> Option<()> {
         let mut declarations = String::new();
         for (key, route) in &self.declarations {
@@ -1231,7 +1201,12 @@ impl Block {
             }
         }
         if !declarations.is_empty() {
-            let mut text = format!("{}{{{declarations}}}", self.selector);
+            let props = &self.scope.props;
+            let mut text: String = selector::prefixed(props, self.scope.length)
+                .iter()
+                .map(|copy| format!("{copy}{{{declarations}}}"))
+                .collect();
+            text.push_str(&format!("{}{{{declarations}}}", props.join(",")));
             for at_rule in self.at_rules.iter().rev() {
                 text = format!("{at_rule}{{{text}}}");
             }
@@ -1734,7 +1709,7 @@ impl ModuleScope {
         }
         if !per_node_text.is_empty() {
             let placeholder_class = class_name(&per_node_text);
-            let text = per_node_text.replace('&', &format!(".{placeholder_class}"));
+            let text = per_node_text.replace(NODE, &format!(".{placeholder_class}"));
             classes.push(placeholder_class.clone());
             module.add(Rule {
                 bucket: BUCKET_PER_NODE,
@@ -2196,44 +2171,57 @@ mod tests {
         }
     }
 
-    #[test]
-    fn a_selector_requires_the_node_only_outside_optional_pseudos() {
-        for yes in [
-            "&",
-            "& pre",
-            ".dark &",
-            "&.x",
-            "& + &",
-            ".a:has(&)",
-            "&:not(.a)",
-            "& a,& b",
-            ":not(.a) &",
-            ":is(.a, .b) & p",
-        ] {
-            assert!(requires_node(yes), "{yes}");
-        }
-        for no in [
-            ":not(&)",
-            ":is(&, .a)",
-            ":where(&, .a)",
-            "html:not(&) p",
-            ":where(:not(&))",
-            ":not(.a:has(&))",
-            ":NOT(&)",
-            "&, :not(&)",
-            "[x=\"&\"] p",
-        ] {
-            assert!(!requires_node(no), "{no}");
-        }
+    /// Selectors with `&` standing for the node's class.
+    fn props(items: &[&str]) -> Vec<String> {
+        items
+            .iter()
+            .map(|item| item.replace('&', &NODE.to_string()))
+            .collect()
     }
 
     #[test]
-    fn a_selector_naming_the_node_twice_is_found_per_list_item() {
-        assert!(names_node_twice("& + &"));
-        assert!(names_node_twice("&:hover ~ &"));
-        assert!(names_node_twice("a, & &"));
-        assert!(!names_node_twice("& + div"));
-        assert!(!names_node_twice("&, & + p"));
+    fn a_selector_requires_the_node_only_outside_optional_pseudos() {
+        for yes in [
+            &["&"][..],
+            &["& pre"],
+            &[".dark &"],
+            &["&.x"],
+            &["& + &"],
+            &[".a:has(&)"],
+            &["&:not(.a)"],
+            &["& a", "& b"],
+            &[":not(.a) &"],
+            &[":is(.a, .b) & p"],
+        ] {
+            assert!(requires_node(&props(yes)), "{yes:?}");
+        }
+        for no in [
+            &[":not(&)"][..],
+            &[":is(&, .a)"],
+            &[":where(&, .a)"],
+            &["html:not(&) p"],
+            &[":where(:not(&))"],
+            &[":not(.a:has(&))"],
+            &[":NOT(&)"],
+            &["&", ":not(&)"],
+            &["p"],
+            &["\\:is(&)"],
+        ] {
+            assert!(!requires_node(&props(no)), "{no:?}");
+        }
+        // A quoted node class is text.
+        assert!(!requires_node(&[format!("[x=\"{NODE}\"] p")]));
+        // An escaped quote does not open a string.
+        assert!(requires_node(&[format!("[x=\\\"] {NODE}")]));
+    }
+
+    #[test]
+    fn a_selector_naming_the_node_twice_is_found_per_selector() {
+        assert!(names_node_twice(&props(&["& + &"])));
+        assert!(names_node_twice(&props(&["&:hover ~ &"])));
+        assert!(names_node_twice(&props(&["a", "& &"])));
+        assert!(!names_node_twice(&props(&["& + div"])));
+        assert!(!names_node_twice(&props(&["&", "& + p"])));
     }
 
     #[test]
@@ -2292,26 +2280,27 @@ mod tests {
 
     #[test]
     fn only_simple_pseudo_selectors_are_atomic_contexts() {
-        assert_eq!(pseudo_suffix("&:hover").as_deref(), Some(":hover"));
-        assert_eq!(pseudo_suffix("&::before").as_deref(), Some("::before"));
+        let suffix = |key: &str| atomic_suffix(&selector::Rule::node().nest(key)?, key);
+        assert_eq!(suffix("&:hover").as_deref(), Some(":hover"));
+        assert_eq!(suffix(":hover").as_deref(), Some(":hover"));
+        assert_eq!(suffix("&::before").as_deref(), Some("::before"));
+        assert_eq!(suffix("&::placeholder").as_deref(), Some("::placeholder"));
         assert_eq!(
-            pseudo_suffix("&:not(:last-child)").as_deref(),
+            suffix("&:not(:last-child)").as_deref(),
             Some(":not(:last-child)")
         );
-        assert_eq!(
-            pseudo_suffix("&:hover::after").as_deref(),
-            Some(":hover::after")
-        );
+        assert_eq!(suffix("&:hover::after").as_deref(), Some(":hover::after"));
         for key in [
             "& pre",
+            ":hover p",
             "&:hover, &:focus",
-            "&::placeholder",
-            "&:read-only",
             "&.active",
             "&[open]",
+            "&:not(&)",
+            "&:hover:theme.x",
             "&",
         ] {
-            assert_eq!(pseudo_suffix(key), None, "{key}");
+            assert_eq!(suffix(key), None, "{key}");
         }
     }
 
@@ -2391,18 +2380,6 @@ mod tests {
                 .cloned()
                 .collect::<Vec<_>>()
                 .join("\n")
-        );
-    }
-
-    #[test]
-    fn selectors_compose_as_stylis_composes_them() {
-        assert_eq!(compose_selector("&", "& pre"), "& pre");
-        assert_eq!(compose_selector("&", ".dark &"), ".dark &");
-        assert_eq!(compose_selector("&", "pre, code"), "& pre,& code");
-        assert_eq!(compose_selector("&:hover", "& svg"), "&:hover svg");
-        assert_eq!(
-            compose_selector("& a,& b", "&:hover"),
-            "& a:hover,& b:hover"
         );
     }
 }
