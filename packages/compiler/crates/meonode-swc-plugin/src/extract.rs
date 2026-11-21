@@ -33,6 +33,11 @@
 //!   in two or more non-base contexts (`:hover` and `:focus`, two media
 //!   queries). Overlap is read from the CSS specifications' shorthand and
 //!   logical property tables (see [`overlaps`]).
+//! - A nested block left to the runtime (a selector with a runtime value, an
+//!   at-rule the static path does not write) keeps its order against the
+//!   element's rules only if they stay together: a static entry overlapping a
+//!   property the block sets moves to the runtime too. A block whose contents
+//!   cannot be read keeps the whole node on the runtime path.
 //! - `resolveDefaultStyle`'s defaults (`flex-shrink`, `min-height`,
 //!   `min-width`) read the whole style. When everything is extracted they are
 //!   computed here and written as classes; when anything is left, every entry
@@ -920,11 +925,23 @@ impl ModuleScope {
                 let Expr::Object(obj) = unwrap_transparent(value) else {
                     return None;
                 };
-                let inner = object_entries(obj)?;
-                let text = at_rule_text(key)?;
-                let mut child = context.clone();
-                child.at_rules.push(text);
-                self.collect_object(&inner, &child, &extend(path, key), model)?;
+                match at_rule_text(key) {
+                    Some(text) => {
+                        let inner = object_entries(obj)?;
+                        let mut child = context.clone();
+                        child.at_rules.push(text);
+                        self.collect_object(&inner, &child, &extend(path, key), model)?;
+                    }
+                    None => {
+                        // Left whole to the runtime; only its properties matter here.
+                        let parent = format!("&{}", context.selector);
+                        let mut block =
+                            self.runtime_at_rule(key, &parent, &context.at_rules, obj)?;
+                        block.path = path.to_vec();
+                        block.key = key.clone();
+                        model.blocks.push(block);
+                    }
+                }
             } else if key.starts_with('&') || nested {
                 let Expr::Object(obj) = unwrap_transparent(value) else {
                     return None;
@@ -938,7 +955,7 @@ impl ModuleScope {
                     }
                     _ => {
                         let parent = format!("&{}", context.selector);
-                        let mut block = self.block(key, &parent, &context.at_rules, obj);
+                        let mut block = self.block(key, &parent, &context.at_rules, obj)?;
                         block.path = path.to_vec();
                         block.key = key.clone();
                         model.blocks.push(block);
@@ -966,56 +983,93 @@ impl ModuleScope {
         Some(())
     }
 
-    /// A per-node block for the selector `key` nested under `parent`.
-    fn block(&self, key: &str, parent: &str, at_rules: &[String], obj: &ObjectLit) -> Block {
+    /// A per-node block for the selector `key` nested under `parent`. `None`
+    /// when what it sets cannot be known: an entry whose keys are unknowable,
+    /// or a nested selector or at-rule whose value is not an object literal.
+    fn block(
+        &self,
+        key: &str,
+        parent: &str,
+        at_rules: &[String],
+        obj: &ObjectLit,
+    ) -> Option<Block> {
+        let entries = object_entries(obj)?;
+        let selector = arbitrary_selector(key);
         let mut block = Block {
             path: Vec::new(),
             key: String::new(),
-            selector: String::new(),
+            selector: selector
+                .as_deref()
+                .map(|s| compose_selector(parent, s))
+                .unwrap_or_default(),
             at_rules: at_rules.to_vec(),
             declarations: Vec::new(),
             children: Vec::new(),
-            extractable: true,
+            extractable: selector.is_some(),
         };
-        let (Some(selector), Some(entries)) = (arbitrary_selector(key), object_entries(obj)) else {
-            block.extractable = false;
-            return block;
-        };
-        block.selector = compose_selector(parent, &selector);
         for (child_key, value) in &entries {
             let nested = matches!(unwrap_transparent(value), Expr::Object(_));
-            if RESERVED_STYLE_KEYS.contains(&child_key.as_str()) || child_key.contains("theme.") {
-                block.extractable = false;
-            } else if child_key.starts_with('@') {
-                match (at_rule_text(child_key), unwrap_transparent(value)) {
-                    (Some(text), Expr::Object(inner)) => {
+            if child_key.starts_with('@') {
+                let Expr::Object(inner) = unwrap_transparent(value) else {
+                    return None;
+                };
+                let child = match at_rule_text(child_key) {
+                    Some(text) => {
                         let mut rules = at_rules.to_vec();
                         rules.push(text);
-                        let child = self.block("&", &block.selector, &rules, inner);
-                        block.extractable &= child.extractable;
-                        block.children.push(child);
+                        self.block("&", &block.selector, &rules, inner)?
                     }
-                    _ => block.extractable = false,
-                }
+                    None => self.runtime_at_rule(child_key, &block.selector, at_rules, inner)?,
+                };
+                block.extractable &= child.extractable;
+                block.children.push(child);
             } else if child_key.starts_with('&') || nested {
-                match unwrap_transparent(value) {
-                    Expr::Object(inner) => {
-                        let child = self.block(child_key, &block.selector, at_rules, inner);
-                        block.extractable &= child.extractable;
-                        block.children.push(child);
-                    }
-                    _ => block.extractable = false,
-                }
+                let Expr::Object(inner) = unwrap_transparent(value) else {
+                    return None;
+                };
+                let child = self.block(child_key, &block.selector, at_rules, inner)?;
+                block.extractable &= child.extractable;
+                block.children.push(child);
             } else {
                 let route = checked(child_key, self.route(value, 0));
-                if !matches!(route, Route::Static(_) | Route::Omit) {
+                if RESERVED_STYLE_KEYS.contains(&child_key.as_str())
+                    || child_key.contains("theme.")
+                    || !matches!(route, Route::Static(_) | Route::Omit)
+                {
                     block.extractable = false;
                 }
                 block.declarations.push((child_key.clone(), route));
             }
         }
-        block
+        Some(block)
     }
+
+    /// An at-rule the static path does not write (`@layer`, `@keyframes`, a
+    /// token in its prelude), left whole to the runtime. It keeps what it
+    /// sets on the element, so those families stay on the runtime path too;
+    /// keyframes set nothing on it.
+    fn runtime_at_rule(
+        &self,
+        key: &str,
+        parent: &str,
+        at_rules: &[String],
+        obj: &ObjectLit,
+    ) -> Option<Block> {
+        let mut block = self.block("&", parent, at_rules, obj)?;
+        block.extractable = false;
+        if is_keyframes(key) {
+            block.declarations.clear();
+            block.children.clear();
+        }
+        Some(block)
+    }
+}
+
+/// `@keyframes` and its vendor forms: frames, not rules on the element.
+fn is_keyframes(key: &str) -> bool {
+    let name = unprefixed(key.strip_prefix('@').unwrap_or(key));
+    name.strip_prefix("keyframes")
+        .is_some_and(|rest| rest.is_empty() || rest.starts_with(char::is_whitespace))
 }
 
 impl Block {
@@ -1093,6 +1147,22 @@ fn settle(model: &mut Model) -> bool {
                         to_runtime.insert(j);
                     }
                 }
+            }
+        }
+
+        // A property a runtime block sets keeps its family on the runtime path:
+        // split from it, a static rule would lose its order against the block.
+        let mut runtime_block_properties = Vec::new();
+        for block in model.blocks.iter().filter(|b| !b.extractable) {
+            block.properties(&mut runtime_block_properties);
+        }
+        for (i, d) in decls.iter().enumerate() {
+            if d.route.is_static_path()
+                && runtime_block_properties
+                    .iter()
+                    .any(|p| overlaps(p, &d.property))
+            {
+                to_runtime.insert(i);
             }
         }
 
@@ -1848,6 +1918,20 @@ mod tests {
         for (a, b) in no {
             assert!(!overlaps(a, b), "{a} / {b}");
             assert!(!overlaps(b, a), "{b} / {a}");
+        }
+    }
+
+    #[test]
+    fn keyframes_are_recognized_in_every_form() {
+        for key in [
+            "@keyframes spin",
+            "@-webkit-keyframes spin",
+            "@keyframes\tspin",
+        ] {
+            assert!(is_keyframes(key), "{key}");
+        }
+        for key in ["@media (min-width: 1px)", "@keyframesx", "@layer keyframes"] {
+            assert!(!is_keyframes(key), "{key}");
         }
     }
 

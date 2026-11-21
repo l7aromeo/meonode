@@ -535,9 +535,12 @@ was, and the runtime handles it as before.
   `const` literals; a conditional whose branches are all of those; and a template
   literal or arithmetic, through a variable.
 - **Left to the runtime:** identifiers and member reads (they may hold a theme
-  function or nothing), calls, theme functions, fallback arrays, keyframes,
-  tokens in at-rule keys, spreads, component targets, and factories that bring
-  their own styles (`Row`, `Center`, `Absolute`, …).
+  function or nothing), calls, theme functions, fallback arrays, spreads,
+  component targets, and factories that bring their own styles (`Row`,
+  `Center`, `Absolute`, …). An at-rule other than `@media`, `@supports` or
+  `@container`, or one with a token in its key, stays on the runtime path with
+  its contents, and the rest of the node is still extracted. A property it sets
+  keeps its family on the runtime path too (`@keyframes` sets none).
 - **Same output as the runtime.** Values are written the way Emotion writes them,
   vendor prefixes included. A property is never split between a build-time rule
   and a runtime one on the same node. Shapes whose result depends on declaration
