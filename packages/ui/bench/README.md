@@ -134,7 +134,10 @@ NODE_ENV=production node --cpu-prof --cpu-prof-dir=prof bench/client-render.mjs
   build. So every sample starts from a collected heap, and the garbage a side
   makes inside a sample, with any collection during it, is still counted. The
   1-minute load average is read as each page starts; if one starts at 10 or
-  more (`BENCH_LOAD_MAX`), the report marks the run `valid: false`. The page is cross-origin
+  more (`BENCH_LOAD_MAX`), the report marks the run `valid: false`;
+  `BENCH_LOAD_WAIT=1` makes each page wait until the load is under the limit
+  instead, checking every 15 s, and the report counts the waits
+  (`load1.waits`). The page is cross-origin
   isolated, so `performance.now()` steps by 5 µs. `BENCH_DIST_B=<dist>` adds a
   second `@meonode/ui` build as `meoStyledB` and `meoClassNameB`, reported in
   `variantB` against the package's own build; `BENCH_DIST_B=dist` is an A/A

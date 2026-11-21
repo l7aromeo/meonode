@@ -45,7 +45,8 @@
 //   their time over the package's own build. Pointing it at `dist` itself
 //   gives an A/A check: two copies of one build, which must agree.
 // - `BENCH_LOAD_MAX`: the highest 1-minute load average a page may start at
-//   before the run is marked invalid (default 10).
+//   before the run is marked invalid (default 10). `BENCH_LOAD_WAIT=1` makes
+//   each page wait until the load is under it instead.
 // - `ROUNDS`, `PAGES`, `FLAT`, `NESTED`, `ROWS`, `COLD_PAGES`, `WARM_ROUNDS`:
 //   sample counts and sizes.
 import { execFileSync } from 'node:child_process'
@@ -340,6 +341,24 @@ function figures(pages, n, digits) {
 const LOAD_MAX = Number(process.env.BENCH_LOAD_MAX || 10)
 /** The 1-minute load average as each page started, in order. */
 const pageLoads = []
+const LOAD_WAIT = process.env.BENCH_LOAD_WAIT === '1'
+/** How long a page waits between two looks at the load, in ms. */
+const LOAD_POLL_MS = 15000
+/** Waits a page has made for the load to fall under {@link LOAD_MAX}. */
+let loadWaits = 0
+
+/**
+ * Records the load a page starts at, first waiting for it to fall under
+ * {@link LOAD_MAX} when asked to. The browser stays open while a page waits,
+ * idle and behind the app in front.
+ */
+async function startPage() {
+  while (LOAD_WAIT && loadavg()[0] >= LOAD_MAX) {
+    loadWaits++
+    await sleep(LOAD_POLL_MS)
+  }
+  pageLoads.push(+loadavg()[0].toFixed(2))
+}
 
 const round2 = value => +value.toFixed(2)
 const stats = values => (values.length ? { median: round2(median(values)), min: round2(Math.min(...values)), max: round2(Math.max(...values)) } : null)
@@ -433,7 +452,7 @@ try {
   for (const { shape, n } of SHAPES) {
     const pages = []
     for (let p = 0; p < PAGES; p++) {
-      pageLoads.push(+loadavg()[0].toFixed(2))
+      await startPage()
       const page = await openPage(browser)
       pageInfo ??= await page.evaluate(() => window.pageInfo())
       pages.push(await page.evaluate(options => window.runSides(options), { shape, n, rounds: ROUNDS }))
@@ -466,7 +485,7 @@ try {
   for (const { kind, n } of UPDATE_CASES) {
     const pages = []
     for (let p = 0; p < PAGES; p++) {
-      pageLoads.push(+loadavg()[0].toFixed(2))
+      await startPage()
       const page = await openPage(browser)
       pages.push(await page.evaluate(options => window.runUpdates(options), { kind, n, rounds: ROUNDS }))
       await page.close()
@@ -492,7 +511,7 @@ try {
     const pagesBySide = Object.fromEntries(appSides.map(side => [side, []]))
     for (let p = 0; p < COLD_PAGES; p++) {
       for (const side of p % 2 ? [...appSides].reverse() : appSides) {
-        pageLoads.push(+loadavg()[0].toFixed(2))
+        await startPage()
         const page = await openPage(browser)
         pagesBySide[side].push(await page.evaluate(options => window.runApp(options), { kind, side, rounds: WARM_ROUNDS }))
         await page.close()
@@ -514,7 +533,7 @@ await report('browser-comparison', {
     : {
         invalidBecause: `${pageLoads.filter(load => load >= LOAD_MAX).length} of ${pageLoads.length} pages started at a 1-minute load of ${LOAD_MAX} or more`,
       }),
-  load1: { start: +loadAtStart.toFixed(2), end: +loadavg()[0].toFixed(2), max: LOAD_MAX, pages: pageLoads },
+  load1: { start: +loadAtStart.toFixed(2), end: +loadavg()[0].toFixed(2), max: LOAD_MAX, pages: pageLoads, waits: loadWaits },
   crossOriginIsolated: pageInfo.crossOriginIsolated,
   gcBeforeSamples: pageInfo.gcBeforeSamples,
   timerResolutionMs: pageInfo.timerResolutionMs,
