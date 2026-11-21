@@ -17,7 +17,16 @@ import type {
 } from '@src/types/node.type.js'
 import { isClientReference, isForwardRef, isMemo, isReactClassComponent } from '@src/helper/react-is.helper.js'
 import { getCSSProps, getDOMProps, getElementTypeName, omitUndefined } from '@src/helper/common.helper.js'
-import { __DEBUG__, COMPILED_MARKER, COMPILER_SCHEMA_KEYS, LIST_MARKER, LOCATION_MARKER, SUPPORTED_COMPILER_SCHEMAS } from '@src/constant/common.const.js'
+import {
+  __DEBUG__,
+  COMPILED_MARKER,
+  COMPILER_SCHEMA_KEYS,
+  LIST_MARKER,
+  LOCATION_MARKER,
+  STATIC_CLASSES_MARKER,
+  STATIC_VARS_MARKER,
+  SUPPORTED_COMPILER_SCHEMAS,
+} from '@src/constant/common.const.js'
 import { BaseNode } from '@src/core.node.js'
 import { diagnosticsEnabled } from '@src/util/theme-diagnostics.util.js'
 import { checkCss, isMergeableCss } from '@src/util/css.util.js'
@@ -238,6 +247,8 @@ export class NodeUtil {
         // out to the element.
         propKey === LIST_MARKER ||
         propKey === LOCATION_MARKER ||
+        propKey === STATIC_CLASSES_MARKER ||
+        propKey === STATIC_VARS_MARKER ||
         NodeUtil.DESTRUCTURED_SPECIAL_KEYS.has(propKey)
       ) {
         continue
@@ -292,6 +303,12 @@ export class NodeUtil {
     if (generatedChildren) result[LIST_MARKER] = true
     const compiledLocation = schemaKeys.loc === undefined ? undefined : source[schemaKeys.loc]
     if (typeof compiledLocation === 'string') result[LOCATION_MARKER] = compiledLocation
+    // The classes and variables of the styles the compiler extracted. The render
+    // adds them to the element's own `className` and `style`.
+    const staticClasses = schemaKeys.classes === undefined ? undefined : source[schemaKeys.classes]
+    if (typeof staticClasses === 'string' && staticClasses !== '') result[STATIC_CLASSES_MARKER] = staticClasses
+    const staticVars = schemaKeys.vars === undefined ? undefined : source[schemaKeys.vars]
+    if (staticVars !== null && typeof staticVars === 'object') result[STATIC_VARS_MARKER] = staticVars
 
     return result as FinalNodeProps
   }

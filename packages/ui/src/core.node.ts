@@ -30,13 +30,15 @@ import { isFragment, isValidElementType, REACT_LAZY_TYPE } from '@src/helper/rea
 import { getComponentType, getElementTypeName, hasNoStyleTag, getGlobalState, omitUndefined } from '@src/helper/common.helper.js'
 import StyledRenderer, { ThemedRule, ThemeTokenCheck } from '@src/components/styled-renderer.client.js'
 import MeoMemo from '@src/components/meo-memo.client.js'
-import { isDevMode, LIST_MARKER, LOCATION_MARKER } from '@src/constant/common.const.js'
+import { isDevMode, LIST_MARKER, LOCATION_MARKER, STATIC_CLASSES_MARKER, STATIC_VARS_MARKER } from '@src/constant/common.const.js'
 import { checkCss, checkFactoryCss, isMergeableCss, markCombinedCssChecked } from '@src/util/css.util.js'
 import { NodeUtil } from '@src/util/node.util.js'
 import { IS_REACT_SERVER_LAYER } from '@src/util/react-layer.util.js'
 import { passesChildrenThrough } from '@src/util/children-pass-through.util.js'
 import { observeChildren } from '@src/util/generated-list.util.js'
 import { compileServerEmotionRule } from '@src/util/server-emotion.util.js'
+import { hasStaticCss, modulesOfClasses } from '@src/util/static-css.util.js'
+import { StaticStyles } from '@src/components/static-styles.js'
 import { replaceThemeTokensWithCssVars } from '@src/util/server-theme.util.js'
 import { collectThemeVarRefs, diagnosticsEnabled, getThemeVarIndex, reportThemeIssues, reportUnresolvedThemeKey } from '@src/util/theme-diagnostics.util.js'
 import { ThemeUtil } from '@src/util/theme.util.js'
@@ -123,6 +125,26 @@ function ruleElement(rule: { id: string; ownClassName: string; cssText: string }
     elements.set(rule.id, element)
   }
   return element
+}
+
+/** The key of a host's slot for the static css its render uses, among its carried rules. */
+const STATIC_STYLES_KEY = 'mn-static'
+
+/**
+ * Adds a compiled node's extracted styles to its element's props: the static
+ * classes before the element's own `className`, and the variables those rules
+ * read under the element's own `style`, which wins a conflict.
+ * @param props The element's props, a fresh object this render owns.
+ */
+function addStaticProps(props: Record<string, unknown>, classes: string | undefined, vars: Record<string, unknown> | undefined): void {
+  if (classes !== undefined) {
+    const own = props.className
+    props.className = typeof own === 'string' && own !== '' ? `${classes} ${own}` : classes
+  }
+  if (vars !== undefined) {
+    const own = props.style
+    props.style = own != null && typeof own === 'object' ? { ...vars, ...own } : vars
+  }
 }
 
 const RENDER_CONTEXT_POOL_KEY = Symbol.for('@meonode/ui/BaseNode/renderContextPool')
@@ -514,6 +536,25 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
     // `ThemedRule`s that render beside the element keyed here, inside one of
     // MeoNode's own providers, because no host in that provider can carry them.
     const besideRules = new Map<BaseNode, Map<string, ReactElement>>()
+    // The modules each rules map's static css needs, once static css is
+    // registered. A map holding any gets one `StaticStyles` slot, reserved ahead
+    // of its other rules: in the server layer those are hoisted at a precedence
+    // React must meet after the static ones.
+    const staticModules = hasStaticCss() ? new Map<Map<string, ReactElement>, string[]>() : undefined
+    const staticSlot = (rules: Map<string, ReactElement>): string[] => {
+      let modules = staticModules!.get(rules)
+      if (!modules) {
+        modules = []
+        staticModules!.set(rules, modules)
+        // Holds the map position until the carrier completes.
+        rules.set(STATIC_STYLES_KEY, null as unknown as ReactElement)
+      }
+      return modules
+    }
+    const finishStaticSlot = (rules: Map<string, ReactElement>): void => {
+      const modules = staticModules?.get(rules)
+      if (modules) rules.set(STATIC_STYLES_KEY, createElement(StaticStyles, { key: STATIC_STYLES_KEY, modules }))
+    }
 
     try {
       // Fast capacity check with exponential growth
@@ -567,12 +608,14 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
           const activeTheme = getActiveTheme(node.props, inheritedTheme)
           // The topmost host above each child that can carry its rules, and
           // whether the child sits in SVG or MathML, where none can. Only the
-          // server layer compiles rules, so elsewhere no child gets an anchor.
+          // server layer compiles rules, and only static css is carried
+          // elsewhere, so without either no child gets an anchor.
           const beginAs = (node.props as { as?: NodeElementType }).as
           const beginTarget = beginAs != null && isValidElementType(beginAs) ? beginAs : node.element
-          const childAnchor = IS_REACT_SERVER_LAYER
-            ? (anchor ?? (canAnchorRules(beginTarget, node.props as Record<string, unknown>, inForeignNamespace) ? node : null))
-            : null
+          const childAnchor =
+            IS_REACT_SERVER_LAYER || staticModules !== undefined
+              ? (anchor ?? (canAnchorRules(beginTarget, node.props as Record<string, unknown>, inForeignNamespace) ? node : null))
+              : null
           const childInForeignNamespace = inForeignNamespace || beginTarget === 'svg' || beginTarget === 'math'
           // The same, for a `ThemedRule`, which resolves against the theme where it
           // renders: the topmost host since the last component above, which may
@@ -639,6 +682,8 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
             as: asTarget,
             [LIST_MARKER]: generatedChildren,
             [LOCATION_MARKER]: callSiteLocation,
+            [STATIC_CLASSES_MARKER]: staticClasses,
+            [STATIC_VARS_MARKER]: staticVars,
             ...otherProps
           } = node.props
 
@@ -844,6 +889,23 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
             delete (elementProps as Record<string, unknown>).theme
           }
 
+          // Styles the compiler extracted reach the element as classes and
+          // variables on every path below. Their rules are carried by the topmost
+          // host above, for the server to send; see `StaticStyles`.
+          if (staticClasses !== undefined || staticVars !== undefined) {
+            addStaticProps(elementProps as Record<string, unknown>, staticClasses as string | undefined, staticVars as Record<string, unknown> | undefined)
+            if (staticClasses !== undefined && staticModules !== undefined) {
+              const carrier = anchor ?? (canAnchorRules(renderTarget, elementProps as Record<string, unknown>, inForeignNamespace) ? node : null)
+              let rules = carrier ? anchoredRules.get(carrier) : rootRules
+              if (!rules) {
+                rules = new Map<string, ReactElement>()
+                anchoredRules.set(carrier as BaseNode, rules)
+              }
+              const modules = staticSlot(rules)
+              if (NodeUtil.isServer) for (const moduleId of modulesOfClasses(staticClasses as string)) if (!modules.includes(moduleId)) modules.push(moduleId)
+            }
+          }
+
           let element: ReactElement<FinalNodeProps>
 
           // Handle fragments specially: create fragment element with key and children.
@@ -919,7 +981,10 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
                 const carrier = anchor ?? (canCarry ? node : null)
                 const rules = carrier ? (anchoredRules.get(carrier) ?? new Map<string, ReactElement>()) : rootRules
                 if (carrier) anchoredRules.set(carrier, rules)
-                if (rule.cssText) rules.set(rule.id, ruleElement(rule))
+                if (rule.cssText) {
+                  if (staticModules !== undefined) staticSlot(rules)
+                  rules.set(rule.id, ruleElement(rule))
+                }
                 // A server rule is hoisted by React wherever it renders, but
                 // `ThemedRule` and `ThemeTokenCheck` read the theme where they
                 // render, so they go to a host below the components above the
@@ -970,7 +1035,10 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
           // own children, so none of those shift and the element stays the one
           // element it would be without them.
           const carriedRules = anchoredRules.get(node)
-          if (carriedRules) element = cloneElement(element, undefined, ...elementChildren, [...carriedRules.values()])
+          if (carriedRules) {
+            finishStaticSlot(carriedRules)
+            element = cloneElement(element, undefined, ...elementChildren, [...carriedRules.values()])
+          }
           const rulesBeside = besideRules.get(node)
           if (rulesBeside) element = createElement(Fragment, { key: element.key }, element, [...rulesBeside.values()])
 
@@ -990,6 +1058,7 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
       // Get the final rendered element for the root node of this render cycle.
       const rootElement = renderedElements.get(this) as ReactElement<FinalNodeProps>
       if (rootRules.size === 0) return rootElement
+      finishStaticSlot(rootRules)
 
       // Rules whose consumer has no host above it in this render that could carry
       // them — a void, SVG or component element at the root, or under components

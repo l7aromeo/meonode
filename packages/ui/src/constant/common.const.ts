@@ -153,18 +153,53 @@ export const LIST_MARKER = '__meo$list'
 export const LOCATION_MARKER = '__meo$loc'
 
 /**
+ * Marker key holding the classes of a call site's styles the compiler extracted
+ * at build time, as one space-separated string. Their rules reach the page
+ * through {@link registerStaticCss}; the runtime only adds the classes to the
+ * element's own.
+ */
+export const STATIC_CLASSES_MARKER = '__meo$s'
+
+/**
+ * Marker key holding the CSS variables an extracted rule reads its runtime
+ * values from: `--mv-*` names to values the compiled call site computed with
+ * `toCssValue`. The runtime sets them on the element's `style`.
+ */
+export const STATIC_VARS_MARKER = '__meo$v'
+
+/**
  * Per-schema names of the compiled marker's contract keys. Indexed by the schema
  * version found in {@link COMPILED_MARKER}.
  */
-export const COMPILER_SCHEMA_KEYS: Readonly<Record<number, { css: string; dom: string; key: string; dyn: string; list?: string; loc?: string }>> = {
+export const COMPILER_SCHEMA_KEYS: Readonly<
+  Record<number, { css: string; dom: string; key: string; dyn: string; list?: string; loc?: string; classes?: string; vars?: string }>
+> = {
   // Schema 1 gets no `list` entry, and must not: its bucket names are unprefixed,
   // so a spread carrying a real prop of the same name would collide with it, the
   // same hazard that retired `d` (a valid SVG `<path>` attribute). A schema 1 call
   // site therefore never reports a missing key — it predates the contract.
   1: { css: 'c', dom: 'd', key: 'k', dyn: 'dyn' },
-  2: { css: '__meo$c', dom: '__meo$d', key: '__meo$k', dyn: '__meo$dyn', list: LIST_MARKER, loc: LOCATION_MARKER },
+  2: {
+    css: '__meo$c',
+    dom: '__meo$d',
+    key: '__meo$k',
+    dyn: '__meo$dyn',
+    list: LIST_MARKER,
+    loc: LOCATION_MARKER,
+    classes: STATIC_CLASSES_MARKER,
+    vars: STATIC_VARS_MARKER,
+  },
   // Schema 3 reuses schema 2's names. `css`/`dom`/`dyn` are never present on a
   // schema 3 call site, but naming them keeps the marker-stripping loop in
   // `_processCompiledProps` uniform across schemas.
-  3: { css: '__meo$c', dom: '__meo$d', key: '__meo$k', dyn: '__meo$dyn', list: LIST_MARKER, loc: LOCATION_MARKER },
+  3: {
+    css: '__meo$c',
+    dom: '__meo$d',
+    key: '__meo$k',
+    dyn: '__meo$dyn',
+    list: LIST_MARKER,
+    loc: LOCATION_MARKER,
+    classes: STATIC_CLASSES_MARKER,
+    vars: STATIC_VARS_MARKER,
+  },
 }

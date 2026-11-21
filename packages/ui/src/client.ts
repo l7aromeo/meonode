@@ -3,6 +3,11 @@ import '@src/util/server-layer-guard.js'
 import type { NodeElementType, NodeInstance } from '@src/types/node.type.js'
 import { createRoot } from 'react-dom/client'
 
+// Compiled output imports these from the main entry; they are here too so every
+// entry offers them, and both resolve to the one registry.
+export { registerStaticCss, type StaticCssRule } from '@src/util/static-css.util.js'
+export { toCssValue } from '@src/util/css-value.util.js'
+
 /**
  * Renders a Meonode instance into a DOM container.
  *

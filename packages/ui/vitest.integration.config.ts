@@ -33,6 +33,7 @@ export default defineConfig({
             './tests/rsc-theme-script.test.ts',
             './tests/rsc-theme-flicker.test.ts',
             './tests/rsc-streamed-styles.test.ts',
+            './tests/rsc-static-css.test.ts',
             './tests/rsc-mutated-styles.test.ts',
             './tests/build-output.test.ts',
             './tests/theme-length-browser.test.ts',

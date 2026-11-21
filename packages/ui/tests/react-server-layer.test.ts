@@ -150,3 +150,52 @@ describe('the runtime in the React Server Components layer', () => {
     expect(children.some(child => isValidElement(child) && child.type === nodeUtil.functionRenderer)).toBe(true)
   })
 })
+
+describe('static css in the React Server Components layer', () => {
+  const RED = 'mn-000000000000r'
+  const MEDIA = 'mn-000000000000m'
+
+  it('carries the static styles ahead of the runtime rules of the same host', async () => {
+    const registry = await import('@src/util/static-css.util.js')
+    const { StaticStyles } = await import('@src/components/static-styles.js')
+    registry.__resetStaticCss()
+    registry.registerStaticCss('rsc-page', [
+      [0, RED, `.${RED}{color:red;}`],
+      [2, MEDIA, `@media (min-width: 600px){.${MEDIA}{padding:9px;}}`],
+    ])
+    try {
+      // The node with only runtime css comes first, so its rule reaches the host before any static class does.
+      const root = main
+        .Div({
+          children: [
+            main.Div({ key: 'runtime', css: { margin: 3 } }),
+            main.Div({ __meo$: 2, __meo$s: RED, key: 'static' } as never),
+            main.Div({ __meo$: 2, __meo$s: MEDIA, __meo$c: { padding: 4 }, key: 'partial' } as never),
+          ],
+        })
+        .render() as ReactElement<{ children: unknown[] }>
+      const children = root.props.children
+      const slot = children[children.length - 1] as ReactElement<{ precedence?: string; modules?: string[] }>[]
+
+      expect(slot.map(element => (element.type === StaticStyles ? 'static' : element.props.precedence))).toEqual(['static', 'meonode', 'meonode'])
+      expect(slot[0].props.modules).toEqual(['rsc-page'])
+
+      const hoisted = (StaticStyles(slot[0].props as never) as ReactElement<{ children: ReactElement<{ href: string; precedence: string }>[] }>).props.children
+      expect(hoisted.map(element => [element.props.href, element.props.precedence])).toEqual([
+        ['mn-static-0', 'mn-static-0'],
+        ['mn-static-1', 'mn-static-1'],
+        ['mn-static-2', 'mn-static-2'],
+        ['mn-static-3', 'mn-static-3'],
+        ['mn-static-rsc-page-0', 'mn-static-0'],
+        ['mn-static-rsc-page-2', 'mn-static-2'],
+      ])
+
+      const [, plain, partial] = children as ReactElement<{ className?: string }>[]
+      expect(plain.type).toBe('div')
+      expect(plain.props.className).toBe(RED)
+      expect(partial.props.className).toMatch(new RegExp(`^${MEDIA} `))
+    } finally {
+      registry.__resetStaticCss()
+    }
+  })
+})

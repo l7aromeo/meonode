@@ -1,0 +1,193 @@
+// @vitest-environment jsdom
+//
+// A server-rendered document with compiled nodes, hydrated in the browser.
+//
+// The server pass runs with `NodeUtil.isServer` set, the one switch the runtime
+// reads to take its server branch. The browser pass starts from the registry as a
+// fresh page has it: empty, then filled by the compiled modules as they load,
+// before `hydrateRoot`.
+import { createElement, Fragment, Suspense, useId, type ReactNode } from 'react'
+import { act } from 'react'
+import { hydrateRoot } from 'react-dom/client'
+import { renderToString } from 'react-dom/server'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { Div, Span } from '@src/main.js'
+import { NodeUtil } from '@src/util/node.util.js'
+import { __resetStaticCss, registerStaticCss, STATIC_CSS_PREFIX } from '@src/util/static-css.util.js'
+
+;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+
+const RED = 'mn-000000000000r'
+const WIDE = 'mn-000000000000w'
+const MEDIA = 'mn-000000000000m'
+const LATE = 'mn-000000000000l'
+
+const RED_RULE = `.${RED}{color:red;}`
+const WIDE_RULE = `.${WIDE}{width:var(--mv-000000000000w);}`
+const MEDIA_RULE = `@media (min-width: 600px){.${MEDIA}{padding:9px;}}`
+const LATE_RULE = `.${LATE}{margin:1px;}`
+
+/** The two compiled modules: the page's, and one only a component inside a Suspense boundary uses. */
+const registerPage = () =>
+  registerStaticCss('page', [
+    [0, RED, RED_RULE],
+    [0, WIDE, WIDE_RULE],
+    [2, MEDIA, MEDIA_RULE],
+  ])
+const registerLate = () => registerStaticCss('late', [[0, LATE, LATE_RULE]])
+
+/** Reads an id the way a component library does, so a shift in the tree's shape shows. */
+function Labelled({ children }: { children?: ReactNode }) {
+  return createElement('label', { htmlFor: useId() }, children)
+}
+
+/** A component with its own render, so its static css is its own walk's. */
+const Late = () => Span('late', { __meo$: 2, __meo$s: LATE } as never).render()
+
+function App() {
+  return createElement(
+    'html',
+    null,
+    createElement('head', null, createElement('title', null, 't')),
+    createElement(
+      'body',
+      null,
+      Div({
+        __meo$: 2,
+        __meo$s: `${RED} ${WIDE}`,
+        __meo$v: { '--mv-000000000000w': '8px' },
+        __meo$d: { className: 'own', id: 'plain' },
+        children: [
+          createElement(Labelled, { key: 'l' }, 'a'),
+          Div({ __meo$: 2, __meo$s: MEDIA, __meo$c: { padding: 4 }, id: 'partial', children: 'b' } as never),
+        ],
+      } as never).render(),
+      createElement(Labelled, null, 'c'),
+      // A carrier whose last child is text: the server separates the text from the slot.
+      Div({ __meo$: 2, __meo$s: RED, id: 'text', children: 't' } as never).render(),
+      createElement(Suspense, { fallback: 'loading' }, createElement(Late)),
+    ),
+  )
+}
+
+const HYDRATION_MARKERS = [/did not match/i, /hydration failed/i, /server rendered/i, /text content does not match/i, /server html/i, /#418/]
+
+function serverRender(): string {
+  __resetStaticCss()
+  registerPage()
+  registerLate()
+  NodeUtil.isServer = true
+  try {
+    return renderToString(createElement(App))
+  } finally {
+    NodeUtil.isServer = false
+  }
+}
+
+/** Loads `html` as the page, registers the modules as the browser would, and hydrates. */
+async function hydrate(html: string, loadModules: () => void): Promise<string[]> {
+  document.open()
+  document.write(html)
+  document.close()
+  __resetStaticCss()
+  loadModules()
+  const messages: string[] = []
+  const errorSpy = vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => void messages.push(args.map(String).join(' ')))
+  try {
+    await act(async () => {
+      hydrateRoot(document, createElement(App), { onRecoverableError: error => void messages.push(String(error)) })
+    })
+  } finally {
+    errorSpy.mockRestore()
+  }
+  return messages.filter(message => HYDRATION_MARKERS.some(marker => marker.test(message)))
+}
+
+const precedenceGroups = (root: ParentNode) =>
+  [...root.querySelectorAll<HTMLStyleElement>('style[data-precedence]')].map(element => [
+    element.getAttribute('data-precedence'),
+    element.getAttribute('data-href'),
+    element.textContent,
+  ])
+
+afterEach(() => {
+  NodeUtil.isServer = false
+  vi.restoreAllMocks()
+})
+
+describe('a server-rendered document with static css', () => {
+  it('sends each module once, as hoisted styles in bucket order', async () => {
+    const html = serverRender()
+    const doc = new DOMParser().parseFromString(html, 'text/html')
+
+    expect(precedenceGroups(doc.head)).toEqual([
+      [`${STATIC_CSS_PREFIX}0`, `${STATIC_CSS_PREFIX}0 ${STATIC_CSS_PREFIX}page-0 ${STATIC_CSS_PREFIX}late-0`, RED_RULE + WIDE_RULE + LATE_RULE],
+      [`${STATIC_CSS_PREFIX}1`, `${STATIC_CSS_PREFIX}1`, ''],
+      [`${STATIC_CSS_PREFIX}2`, `${STATIC_CSS_PREFIX}2 ${STATIC_CSS_PREFIX}page-2`, MEDIA_RULE],
+      [`${STATIC_CSS_PREFIX}3`, `${STATIC_CSS_PREFIX}3`, ''],
+    ])
+    // Nothing static is left in the body. (Emotion writes its own there only on a
+    // server with no document, which this suite is not.)
+    expect([...doc.body.querySelectorAll('style')].filter(element => !element.hasAttribute('data-emotion'))).toEqual([])
+  })
+
+  it('renders the elements with their static classes and variables', async () => {
+    const doc = new DOMParser().parseFromString(serverRender(), 'text/html')
+
+    const plain = doc.getElementById('plain')!
+    expect(plain.className).toBe(`${RED} ${WIDE} own`)
+    expect(plain.getAttribute('style')).toBe('--mv-000000000000w:8px')
+    expect(doc.getElementById('partial')!.className).toMatch(new RegExp(`^${MEDIA} css-`))
+  })
+
+  it('hydrates with no mismatch, ids intact, and inserts nothing the server sent', async () => {
+    const html = serverRender()
+    const serverIds = [...new DOMParser().parseFromString(html, 'text/html').querySelectorAll('label')].map(label => label.htmlFor)
+    const errors = await hydrate(html, () => {
+      registerPage()
+      registerLate()
+    })
+
+    expect(errors).toEqual([])
+    expect([...document.querySelectorAll('label')].map(label => label.htmlFor)).toEqual(serverIds)
+    expect(document.querySelectorAll('style[data-meonode-static]')).toHaveLength(0)
+  })
+
+  it('inserts only a module the server did not send, in the bucket order', async () => {
+    const html = serverRender()
+    await hydrate(html, () => {
+      registerPage()
+      registerLate()
+      registerStaticCss('client-only', [[1, 'mn-000000000000c', '.mn-000000000000c:hover{color:blue;}']])
+    })
+
+    const order = [...document.head.querySelectorAll('style')].map(
+      element => element.getAttribute('data-precedence') ?? `own ${element.getAttribute('data-meonode-static')}`,
+    )
+    expect(order.slice(0, 8)).toEqual([
+      `${STATIC_CSS_PREFIX}0`,
+      'own 0',
+      `${STATIC_CSS_PREFIX}1`,
+      'own 1',
+      `${STATIC_CSS_PREFIX}2`,
+      'own 2',
+      `${STATIC_CSS_PREFIX}3`,
+      'own 3',
+    ])
+    const own = [...document.head.querySelectorAll<HTMLStyleElement>('style[data-meonode-static]')].map(element => element.sheet!.cssRules.length)
+    expect(own).toEqual([0, 1, 0, 0])
+  })
+})
+
+describe('a server render without static css', () => {
+  it('sends no static styles', () => {
+    __resetStaticCss()
+    NodeUtil.isServer = true
+    try {
+      const html = renderToString(createElement(Fragment, null, Div({ id: 'x', children: 'x' }).render()))
+      expect(html).toBe('<div id="x">x</div>')
+    } finally {
+      NodeUtil.isServer = false
+    }
+  })
+})
