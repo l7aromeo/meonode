@@ -321,7 +321,14 @@ export class NodeUtil {
     }
   }
 
-  public static processProps(rawProps: Partial<NodeProps> = {}): FinalNodeProps {
+  /**
+   * Classifies a node's raw props into the final props it renders with.
+   * @param rawProps The props the node was created with.
+   * @param keepChildShape Keeps a one-element `children` list a list, for a node
+   * standing for a built element, whose children reach React in its own shape.
+   * @returns The final props.
+   */
+  public static processProps(rawProps: Partial<NodeProps> = {}, keepChildShape = false): FinalNodeProps {
     // --- Compiled Marker Fast Path ---
     // Checked against `rawProps` *before* the rest destructure below, because that
     // destructure copies every remaining prop into a fresh object — a per-node
@@ -384,7 +391,7 @@ export class NodeUtil {
         [LIST_MARKER]: generatedChildren,
         [LOCATION_MARKER]: compiledLocation,
         nativeProps: omitUndefined(nativeProps),
-        children: NodeUtil._processChildren(children, disableEmotion, generatedChildren),
+        children: NodeUtil._processChildren(children, disableEmotion, generatedChildren || keepChildShape),
       })
     }
 
@@ -420,7 +427,7 @@ export class NodeUtil {
       : [{ ...cachedCssProps, ...nonCachedCssProps }, css]
 
     // --- Child Normalization ---
-    const normalizedChildren = NodeUtil._processChildren(children, disableEmotion, generatedChildren)
+    const normalizedChildren = NodeUtil._processChildren(children, disableEmotion, generatedChildren || keepChildShape)
 
     // --- Final Assembly ---
     return omitUndefined({
@@ -437,6 +444,17 @@ export class NodeUtil {
   }
 
   /**
+   * Whether `children` is left out: `null`, `undefined` or `false`, which React
+   * renders as nothing. A `0` or `''` is a child, which React renders and hands
+   * to a component as it is.
+   * @param children A node's `children`.
+   * @returns `true` when the node is given no children.
+   */
+  public static isNoChild(children: unknown): children is null | undefined | false {
+    return children === null || children === undefined || children === false
+  }
+
+  /**
    * Processes and normalizes children of the node.
    * Converts raw children (React elements, primitives, or other BaseNodes) into a consistent format.
    * Applies optimizations for single and multiple children scenarios.
@@ -446,7 +464,7 @@ export class NodeUtil {
    * @returns The processed children in normalized format.
    */
   private static _processChildren(children: Children, disableEmotion?: boolean, keepArray?: boolean): Children {
-    if (!children) return undefined
+    if (NodeUtil.isNoChild(children)) return undefined
     if (typeof children === 'function') return children
 
     // Fast path for non-array (single child). `Array.isArray` narrows to `any[]`,
@@ -466,9 +484,10 @@ export class NodeUtil {
       return NodeUtil._processNestedChildren(children, disableEmotion, new Set()) as Children
     }
 
-    // Fast path for single element array — except on a call site the compiler
-    // marked as generated, where the difference between `[x]` and `x` is the
-    // whole question. React reports an unkeyed one-element array and stays
+    // Fast path for single element array — except where the difference between
+    // `[x]` and `x` is the whole question: for a node standing for a built
+    // element, whose children reach React in the element's own shape, and on a
+    // call site the compiler marked as generated. React reports an unkeyed one-element array and stays
     // silent for a bare child, so collapsing here would decide that for it, and
     // in the wrong direction twice over: a `.map()` returning one row would go
     // unreported, and `children: row` — a variable holding a single node, which
@@ -592,8 +611,7 @@ export class NodeUtil {
    * @returns `true` when the element needs the walk.
    */
   private static _childrenNeedWalk(children: unknown, elements: ReactElement[], parents: number[], at: number): boolean {
-    // A falsy `children` is dropped and a function `children` is kept, both
-    // before any child is looked at, as `_processChildren` does.
+    // A falsy or function `children` holds nothing the walk renders.
     if (!children || typeof children === 'function') return false
     const queue = (value: unknown): boolean => {
       const need = NodeUtil._childNeed(value)
@@ -706,16 +724,12 @@ export class NodeUtil {
       // classification skips them. `children` is lifted back out, since it is a
       // node-level concern rather than a prop.
       const { children: elementChildren, ...finalProps } = node.props as Record<string, unknown>
-      return new BaseNode(
-        node.type as ElementType,
-        {
-          props: finalProps,
-          ...(elementChildren !== undefined ? { children: elementChildren as Children } : {}),
-          ...(node.key !== null && node.key !== undefined ? { key: node.key } : {}),
-          disableEmotion,
-        } as never,
-        undefined,
-      )
+      return BaseNode.fromElement(node, {
+        props: finalProps,
+        ...(elementChildren !== undefined ? { children: elementChildren as Children } : {}),
+        ...(node.key !== null && node.key !== undefined ? { key: node.key } : {}),
+        disableEmotion,
+      } as never)
     }
 
     // Handle component classes and memos.
