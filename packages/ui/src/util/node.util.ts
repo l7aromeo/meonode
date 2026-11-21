@@ -23,6 +23,8 @@ import {
   COMPILER_SCHEMA_KEYS,
   LIST_MARKER,
   LOCATION_MARKER,
+  STATIC_AFTER_SPREAD_MARKER,
+  STATIC_BEFORE_SPREAD_MARKER,
   STATIC_CLASSES_MARKER,
   STATIC_VARS_MARKER,
   SUPPORTED_COMPILER_SCHEMAS,
@@ -249,6 +251,8 @@ export class NodeUtil {
         propKey === LOCATION_MARKER ||
         propKey === STATIC_CLASSES_MARKER ||
         propKey === STATIC_VARS_MARKER ||
+        propKey === STATIC_BEFORE_SPREAD_MARKER ||
+        propKey === STATIC_AFTER_SPREAD_MARKER ||
         NodeUtil.DESTRUCTURED_SPECIAL_KEYS.has(propKey)
       ) {
         continue
@@ -268,9 +272,22 @@ export class NodeUtil {
     // object, never an alias of the compiler's bucket, so downstream consumers keep
     // the same ownership guarantees the legacy path gave them. A `css` that is not a
     // map is composed after the flat props instead; see `isSpreadableCss`.
-    const finalCssProps = NodeUtil.isSpreadableCss(css)
-      ? { ...passthroughCssProps, ...markerCssProps, ...css }
-      : [{ ...passthroughCssProps, ...markerCssProps }, css]
+    // A call site with one spread keeps its static entries' source either side of
+    // it. When the spread brings a CSS key, `css`, `as` or `theme`, a static class
+    // could be overridden by it, override it, or land on another element, so the
+    // node renders as the call site would uncompiled: the css is rebuilt in the
+    // authored order and the classes are dropped. Static and runtime entries of
+    // the call site never share a property family, so their relative order has no
+    // effect. With none of those keys, the classes stand.
+    const staticBefore = schemaKeys.before === undefined ? undefined : (source[schemaKeys.before] as Record<string, unknown> | undefined)
+    const staticAfter = schemaKeys.after === undefined ? undefined : (source[schemaKeys.after] as Record<string, unknown> | undefined)
+    const spreadOverrides =
+      (staticBefore !== undefined || staticAfter !== undefined) &&
+      ((passthroughCssProps !== undefined && Object.keys(passthroughCssProps).length > 0) || css !== undefined || 'as' in source || 'theme' in source)
+    const flatCssProps = spreadOverrides
+      ? { ...staticBefore, ...passthroughCssProps, ...markerCssProps, ...staticAfter }
+      : { ...passthroughCssProps, ...markerCssProps }
+    const finalCssProps = NodeUtil.isSpreadableCss(css) ? { ...flatCssProps, ...css } : [flatCssProps, css]
 
     if (__DEBUG__) {
       // A `c`/`d` bucket containing a special key (e.g. `ref`, `children`) would silently
@@ -305,9 +322,9 @@ export class NodeUtil {
     if (typeof compiledLocation === 'string') result[LOCATION_MARKER] = compiledLocation
     // The classes and variables of the styles the compiler extracted. The render
     // adds them to the element's own `className` and `style`.
-    const staticClasses = schemaKeys.classes === undefined ? undefined : source[schemaKeys.classes]
+    const staticClasses = schemaKeys.classes === undefined || spreadOverrides ? undefined : source[schemaKeys.classes]
     if (typeof staticClasses === 'string' && staticClasses !== '') result[STATIC_CLASSES_MARKER] = staticClasses
-    const staticVars = schemaKeys.vars === undefined ? undefined : source[schemaKeys.vars]
+    const staticVars = schemaKeys.vars === undefined || spreadOverrides ? undefined : source[schemaKeys.vars]
     if (staticVars !== null && typeof staticVars === 'object') result[STATIC_VARS_MARKER] = staticVars
 
     return result as FinalNodeProps

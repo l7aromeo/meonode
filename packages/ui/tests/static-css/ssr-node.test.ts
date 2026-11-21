@@ -59,6 +59,16 @@ describe('a server render with no document', () => {
     expect(html.match(/mn-static-page-0/g)).toHaveLength(1)
   })
 
+  it('sends the module for a spread site whose spread brings no CSS key, and not for one whose spread does', () => {
+    const site = (rest: object) => Div({ __meo$: 2, __meo$s: RED, __meo$a: { color: 'red' }, ...rest } as never)
+
+    expect(page(site({ id: 'x' }))).toContain('mn-static-page-0')
+    const overridden = page(site({ color: 'blue' }))
+    expect(overridden).not.toContain('mn-static-page-0')
+    expect(overridden).not.toContain(RED)
+    expect(overridden).toMatch(/color:red;/)
+  })
+
   it('sends nothing for a render without static classes', () => {
     expect(page(Div({ children: 'x' }))).toBe('<html><head></head><body><div>x</div></body></html>')
   })

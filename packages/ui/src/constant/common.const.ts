@@ -168,11 +168,23 @@ export const STATIC_CLASSES_MARKER = '__meo$s'
 export const STATIC_VARS_MARKER = '__meo$v'
 
 /**
+ * Marker keys of a call site with one spread: the source of the static entries
+ * written before it and after it. They are the css the node renders with when
+ * the spread brings a key that could override, or be overridden by, a static
+ * entry, as `{ ...before, ...spread, ...after }` would.
+ */
+export const STATIC_BEFORE_SPREAD_MARKER = '__meo$b'
+export const STATIC_AFTER_SPREAD_MARKER = '__meo$a'
+
+/**
  * Per-schema names of the compiled marker's contract keys. Indexed by the schema
  * version found in {@link COMPILED_MARKER}.
  */
 export const COMPILER_SCHEMA_KEYS: Readonly<
-  Record<number, { css: string; dom: string; key: string; dyn: string; list?: string; loc?: string; classes?: string; vars?: string }>
+  Record<
+    number,
+    { css: string; dom: string; key: string; dyn: string; list?: string; loc?: string; classes?: string; vars?: string; before?: string; after?: string }
+  >
 > = {
   // Schema 1 gets no `list` entry, and must not: its bucket names are unprefixed,
   // so a spread carrying a real prop of the same name would collide with it, the
@@ -188,6 +200,8 @@ export const COMPILER_SCHEMA_KEYS: Readonly<
     loc: LOCATION_MARKER,
     classes: STATIC_CLASSES_MARKER,
     vars: STATIC_VARS_MARKER,
+    before: STATIC_BEFORE_SPREAD_MARKER,
+    after: STATIC_AFTER_SPREAD_MARKER,
   },
   // Schema 3 reuses schema 2's names. `css`/`dom`/`dyn` are never present on a
   // schema 3 call site, but naming them keeps the marker-stripping loop in
@@ -201,5 +215,7 @@ export const COMPILER_SCHEMA_KEYS: Readonly<
     loc: LOCATION_MARKER,
     classes: STATIC_CLASSES_MARKER,
     vars: STATIC_VARS_MARKER,
+    before: STATIC_BEFORE_SPREAD_MARKER,
+    after: STATIC_AFTER_SPREAD_MARKER,
   },
 }
