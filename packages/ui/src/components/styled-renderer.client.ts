@@ -188,6 +188,11 @@ let browserRuleCache: EmotionCache | undefined
  * compiled rules is bounded; the name it memoizes under includes the class, so a
  * rule compiled for another class is never reused. In the browser Emotion keeps
  * no such memo, and one cache serves every rule.
+ *
+ * Emotion's development build also writes an empty rule for each parent selector
+ * in the browser, and not on the server, so there the two texts differ. That
+ * never reaches hydration: React adopts the style element the server sent by its
+ * href, without comparing its text.
  * @returns The rule text.
  */
 function compileRule(className: string, serialized: SerializedStyles): string {
