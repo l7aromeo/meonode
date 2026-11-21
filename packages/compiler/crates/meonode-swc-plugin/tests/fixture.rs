@@ -491,6 +491,11 @@ fn extract_self_reference() {
 }
 
 #[test]
+fn extract_optional_node() {
+    run_partition_with_config("extract_optional_node", extract_config());
+}
+
+#[test]
 fn extract_layout() {
     run_partition_with_config("extract_layout", extract_config());
 }

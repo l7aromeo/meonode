@@ -953,6 +953,47 @@ fn names_node_twice(selector: &str) -> bool {
         .any(|item| item.matches('&').count() > 1)
 }
 
+/// Functional pseudo-classes whose argument may match without the node: a
+/// negation, or a list in which another alternative can match on its own.
+const NODE_OPTIONAL_PSEUDOS: &[&str] =
+    &["not", "is", "where", "matches", "-webkit-any", "-moz-any"];
+
+/// Whether every selector in the list matches only where the node is rendered:
+/// each names `&` outside quotes and outside every [`NODE_OPTIONAL_PSEUDOS`]
+/// argument. `:not(&)` or `:is(&, .a)` match elements with no node anywhere.
+fn requires_node(selector: &str) -> bool {
+    split_selector_list(selector).iter().all(|item| {
+        // Per open parenthesis: whether it belongs to a node-optional pseudo.
+        let mut optional: Vec<bool> = Vec::new();
+        let mut name = String::new();
+        let mut quote: Option<char> = None;
+        for ch in item.chars() {
+            if let Some(q) = quote {
+                if ch == q {
+                    quote = None;
+                }
+                continue;
+            }
+            match ch {
+                '"' | '\'' => quote = Some(ch),
+                '(' => {
+                    let lower = name.to_ascii_lowercase();
+                    optional.push(NODE_OPTIONAL_PSEUDOS.contains(&lower.as_str()));
+                    name.clear();
+                }
+                ')' => {
+                    optional.pop();
+                    name.clear();
+                }
+                '&' if !optional.iter().any(|o| *o) => return true,
+                c if c.is_ascii_alphanumeric() || c == '-' => name.push(c),
+                _ => name.clear(),
+            }
+        }
+        false
+    })
+}
+
 /// `child` nested under `parent`, as stylis composes them: `&` replaced, and a
 /// selector without one taken as a descendant.
 fn compose_selector(parent: &str, child: &str) -> String {
@@ -1071,7 +1112,7 @@ impl ModuleScope {
     /// when the node must stay whole on the runtime path: what the block sets
     /// cannot be known (an entry whose keys are unknowable, a nested selector or
     /// at-rule whose value is not an object literal), or its selector names the
-    /// node twice.
+    /// node twice or only where the node is optional ([`requires_node`]).
     fn block(
         &self,
         key: &str,
@@ -1080,26 +1121,27 @@ impl ModuleScope {
         obj: &ObjectLit,
     ) -> Option<Block> {
         let entries = object_entries(obj)?;
-        let selector = arbitrary_selector(key);
+        // `&` is the node's whole-style class to Emotion. A selector naming it
+        // twice (`& + &`, `& &`) matches only nodes styled alike in full, and one
+        // naming it only where it is optional (`:not(&)`, `:is(&, .a)`) matches
+        // nodes styled otherwise, or none rendered at all. Taking any entry out
+        // of that class changes which elements match, and a static rule exists
+        // before the node renders: the whole node stays on the runtime path.
+        let composed = compose_selector(parent, key.trim());
+        if names_node_twice(&composed) || !requires_node(&composed) {
+            return None;
+        }
         let mut block = Block {
             path: Vec::new(),
             key: String::new(),
-            selector: selector
-                .as_deref()
-                .map(|s| compose_selector(parent, s))
-                .unwrap_or_default(),
+            // Composed even when it cannot be written, so nested selectors are
+            // checked against the selector they really compose to.
+            selector: composed,
             at_rules: at_rules.to_vec(),
             declarations: Vec::new(),
             children: Vec::new(),
-            extractable: selector.is_some(),
+            extractable: arbitrary_selector(key).is_some(),
         };
-        // `&` is the node's whole-style class to Emotion, so a selector naming it
-        // twice (`& + &`, `& &`) matches only nodes styled alike in full. Any
-        // entry taken out of that class, into a per-node or an atomic one,
-        // changes which nodes match: the whole node stays on the runtime path.
-        if names_node_twice(&block.selector) {
-            return None;
-        }
         for (child_key, value) in &entries {
             let nested = matches!(unwrap_transparent(value), Expr::Object(_));
             if child_key.starts_with('@') {
@@ -2151,6 +2193,37 @@ mod tests {
         }
         for key in ["@media (min-width: 1px)", "@keyframesx", "@layer keyframes"] {
             assert!(!is_keyframes(key), "{key}");
+        }
+    }
+
+    #[test]
+    fn a_selector_requires_the_node_only_outside_optional_pseudos() {
+        for yes in [
+            "&",
+            "& pre",
+            ".dark &",
+            "&.x",
+            "& + &",
+            ".a:has(&)",
+            "&:not(.a)",
+            "& a,& b",
+            ":not(.a) &",
+            ":is(.a, .b) & p",
+        ] {
+            assert!(requires_node(yes), "{yes}");
+        }
+        for no in [
+            ":not(&)",
+            ":is(&, .a)",
+            ":where(&, .a)",
+            "html:not(&) p",
+            ":where(:not(&))",
+            ":not(.a:has(&))",
+            ":NOT(&)",
+            "&, :not(&)",
+            "[x=\"&\"] p",
+        ] {
+            assert!(!requires_node(no), "{no}");
         }
     }
 

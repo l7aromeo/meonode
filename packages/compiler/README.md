@@ -541,7 +541,10 @@ was, and the runtime handles it as before.
   its contents, and the rest of the node is still extracted. A property it sets
   keeps its family on the runtime path too (`@keyframes` sets none). A
   selector naming the node twice (`& + &`, `& &`) keeps the whole node on the
-  runtime path, since it matches only nodes styled alike in full.
+  runtime path, since it matches only nodes styled alike in full. So does one
+  naming the node only inside `:not()`, `:is()`, `:where()` or their vendor
+  forms (`:not(&)`, `:is(&, .a)`), since it matches elements other than the
+  node. `:has(&)` and `&:not(.a)` are extracted.
 - **Same output as the runtime.** Values are written the way Emotion writes them,
   vendor prefixes included. A property is never split between a build-time rule
   and a runtime one on the same node. Shapes whose result depends on declaration
