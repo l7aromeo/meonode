@@ -540,7 +540,9 @@ was, and the runtime handles it as before.
   `Center`, `Absolute`, …). An at-rule other than `@media`, `@supports` or
   `@container`, or one with a token in its key, stays on the runtime path with
   its contents, and the rest of the node is still extracted. A property it sets
-  keeps its family on the runtime path too (`@keyframes` sets none).
+  keeps its family on the runtime path too (`@keyframes` sets none). A
+  selector naming the node twice (`& + &`, `& &`) keeps the whole node on the
+  runtime path, since it matches only nodes styled alike in full.
 - **Same output as the runtime.** Values are written the way Emotion writes them,
   vendor prefixes included. A property is never split between a build-time rule
   and a runtime one on the same node. Shapes whose result depends on declaration

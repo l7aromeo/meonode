@@ -38,6 +38,10 @@
 //!   element's rules only if they stay together: a static entry overlapping a
 //!   property the block sets moves to the runtime too. A block whose contents
 //!   cannot be read keeps the whole node on the runtime path.
+//! - Emotion's `&` is the node's whole-style class, so a selector naming it
+//!   twice (`& + &`) matches only nodes styled alike in full. Taking any entry
+//!   out of that class changes which nodes match, so such a node stays whole on
+//!   the runtime path.
 //! - `resolveDefaultStyle`'s defaults (`flex-shrink`, `min-height`,
 //!   `min-width`) read the whole style. When everything is extracted they are
 //!   computed here and written as classes; when anything is left, every entry
@@ -869,6 +873,13 @@ fn split_selector_list(selector: &str) -> Vec<String> {
     parts
 }
 
+/// Whether any selector in the list names the node (`&`) more than once.
+fn names_node_twice(selector: &str) -> bool {
+    split_selector_list(selector)
+        .iter()
+        .any(|item| item.matches('&').count() > 1)
+}
+
 /// `child` nested under `parent`, as stylis composes them: `&` replaced, and a
 /// selector without one taken as a descendant.
 fn compose_selector(parent: &str, child: &str) -> String {
@@ -984,8 +995,10 @@ impl ModuleScope {
     }
 
     /// A per-node block for the selector `key` nested under `parent`. `None`
-    /// when what it sets cannot be known: an entry whose keys are unknowable,
-    /// or a nested selector or at-rule whose value is not an object literal.
+    /// when the node must stay whole on the runtime path: what the block sets
+    /// cannot be known (an entry whose keys are unknowable, a nested selector or
+    /// at-rule whose value is not an object literal), or its selector names the
+    /// node twice.
     fn block(
         &self,
         key: &str,
@@ -1007,6 +1020,13 @@ impl ModuleScope {
             children: Vec::new(),
             extractable: selector.is_some(),
         };
+        // `&` is the node's whole-style class to Emotion, so a selector naming it
+        // twice (`& + &`, `& &`) matches only nodes styled alike in full. Any
+        // entry taken out of that class, into a per-node or an atomic one,
+        // changes which nodes match: the whole node stays on the runtime path.
+        if names_node_twice(&block.selector) {
+            return None;
+        }
         for (child_key, value) in &entries {
             let nested = matches!(unwrap_transparent(value), Expr::Object(_));
             if child_key.starts_with('@') {
@@ -1933,6 +1953,15 @@ mod tests {
         for key in ["@media (min-width: 1px)", "@keyframesx", "@layer keyframes"] {
             assert!(!is_keyframes(key), "{key}");
         }
+    }
+
+    #[test]
+    fn a_selector_naming_the_node_twice_is_found_per_list_item() {
+        assert!(names_node_twice("& + &"));
+        assert!(names_node_twice("&:hover ~ &"));
+        assert!(names_node_twice("a, & &"));
+        assert!(!names_node_twice("& + div"));
+        assert!(!names_node_twice("&, & + p"));
     }
 
     #[test]

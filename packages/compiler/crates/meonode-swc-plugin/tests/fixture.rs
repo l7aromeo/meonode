@@ -484,3 +484,8 @@ fn extract_overlap() {
 fn extract_at_rule_fallback() {
     run_partition_with_config("extract_at_rule_fallback", extract_config());
 }
+
+#[test]
+fn extract_self_reference() {
+    run_partition_with_config("extract_self_reference", extract_config());
+}
