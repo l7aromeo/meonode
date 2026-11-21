@@ -695,6 +695,37 @@ describe.each(['cc', 'plain'] as const)('a theme token in an at-rule condition o
     expect(await applied(path, 800)).toEqual(each(shapes(path), narrow))
   })
 
+  /** Each hoisted style's href, with the text of the element that holds it. */
+  const styleHrefs = (html: string) =>
+    [...html.matchAll(/<style[^>]*data-href="([^"]*)"[^>]*>([\s\S]*?)<\/style>/g)].flatMap(match => match[1].split(' ').map(href => [href, match[2]] as const))
+
+  // React adopts a hoisted `<style href precedence>` the server sent by its href
+  // and does not compare its text: hydration must report nothing and keep the
+  // server's one element for each rule. The client-component control renders no
+  // `ThemedRule`, so it has none to check.
+  it.each(PATHS.filter(path => !path.endsWith('/client')))(
+    'hydrates every themed rule with no error, each in the one style element the server sent (%s)',
+    async path => {
+      const served = await (await fetch(`http://localhost:${port(variant)}${path}`)).text()
+      const page = await browser!.newPage()
+      const errors: string[] = []
+      page.on('console', message => message.type() === 'error' && errors.push(message.text()))
+      page.on('pageerror', error => errors.push(error.message))
+      try {
+        await page.goto(`http://localhost:${port(variant)}${path}`, { waitUntil: 'networkidle' })
+        const hydrated = await page.content()
+        const before = styleHrefs(served)
+        const after = styleHrefs(hydrated)
+        expect(before.length).toBeGreaterThan(0)
+        expect(errors).toEqual([])
+        expect(new Set(after.map(([href]) => href)).size).toBe(after.length)
+        expect(new Map(after)).toEqual(new Map(before))
+      } finally {
+        await page.close()
+      }
+    },
+  )
+
   // With no theme a token has no value, so a rule keyed on one has nothing to
   // match and is left out, and the page still renders.
   it('leaves out a rule whose key holds a token when no theme is provided', async () => {
