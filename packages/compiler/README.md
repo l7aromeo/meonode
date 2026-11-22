@@ -579,8 +579,11 @@ insertion and its class are the ones the node would have uncompiled.
   `[factoryCss, callSiteCss]` rather than merge.
 - **Factories imported from another module.** Their initial props are not
   readable here, so a call of one is joined at run time: a direct call of an
-  imported identifier written with a capital, given no arguments or a props
-  object literal whose CSS props and `css` are literals, becomes
+  imported identifier written with a capital, in node position (a return, an
+  arrow's body, a `children` value, a children-first call's children, or what
+  `.render()` is called on or given, through parentheses, arrays,
+  conditionals and `&&`/`||`/`??`), given no arguments or a props object
+  literal whose CSS props and `css` are literals, becomes
   `__meoFactoryCall(X, __meoSiteN, ...args)`, its arguments as written. Each
   site is a module-level `{ at }` (the props' index among the arguments) with
   `r: 1` where the node is a carrier. The runtime checks that `X` is a
@@ -589,9 +592,10 @@ insertion and its class are the ones the node would have uncompiled.
   result as a compiled style is named; anything else it calls as written,
   `X(...args)`. Left as written: member calls, calls with a spread argument,
   identifiers the module renders as JSX elements, imports from any
-  `@meonode/` package (subpaths included) and from Next's font loaders
-  (`next/font/...`, `@next/font/...`, which Next compiles only as written at
-  module scope), props with a spread, a computed key, a style read
+  `@meonode/` package (subpaths included), calls anywhere else (a module-scope
+  constant such as a `next/font` loader's, which Next compiles only as
+  written, or another call's argument), props with a spread, a computed or
+  numeric key, a style read
   at run time, or `theme`, `as` or `disableEmotion`, and two leading object
   literals (either could be the props). A module that imports `@meonode/ui`
   only for types, or not at all, is left as written, so compiling it never

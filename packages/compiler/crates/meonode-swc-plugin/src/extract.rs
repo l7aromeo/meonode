@@ -55,13 +55,11 @@ use crate::serialize::{self, Js};
 use crate::style_name::hash_styles;
 use crate::theme::{is_length_key, rewrite_theme_tokens_for};
 
-/// Module prefixes that export no `createNode` factory, so a call of an import
-/// from one is never joined at run time, and stays as it is compiled today:
-/// `@meonode/mui`'s factories come from `createMuiNode`, and `@meonode/ui`'s
-/// subpaths export components. Next's font loaders (`next/font/google`, and
-/// `@next/font/...` before Next 13.2) are compiled by Next, which refuses a
-/// call it cannot find as written at module scope.
-const NON_CREATE_NODE_PREFIXES: &[&str] = &["@meonode/", "next/font/", "@next/font/"];
+/// The scope of packages that export no `createNode` factory, so a call of an
+/// import from one (subpaths included) is never joined at run time, and stays
+/// as it is compiled today: `@meonode/mui`'s factories come from
+/// `createMuiNode`, and `@meonode/ui`'s subpaths export components.
+const NON_CREATE_NODE_SCOPE: &str = "@meonode/";
 /// The module the runtime helpers are imported from.
 const UI_MODULE: &str = "@meonode/ui";
 const UI_MODULE_CLIENT: &str = "@meonode/ui/client";
@@ -228,10 +226,7 @@ impl ModuleScope {
         }
         let src = import.src.value.as_str().unwrap_or_default();
         if src != UI_MODULE && src != UI_MODULE_CLIENT {
-            if NON_CREATE_NODE_PREFIXES
-                .iter()
-                .any(|prefix| src.starts_with(prefix))
-            {
+            if src.starts_with(NON_CREATE_NODE_SCOPE) {
                 return;
             }
             for spec in &import.specifiers {

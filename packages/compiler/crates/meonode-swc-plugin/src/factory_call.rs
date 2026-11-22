@@ -14,8 +14,8 @@
 //! props and `css`) is made of literals, so it is the same on every render:
 //! the site stands for that style. Left as written: member calls, calls with a
 //! spread argument, identifiers the module renders as JSX elements (components),
-//! imports from `@meonode/` packages and Next's font loaders (see
-//! `NON_CREATE_NODE_PREFIXES` in [`crate::extract`]), props with a spread or a
+//! imports from `@meonode/` packages, calls not in node position (see
+//! [`Positions`]: a font loader's module-scope call, say), props with a spread or a
 //! computed key, and props holding `theme`, `as` or `disableEmotion`. A module
 //! that imports `@meonode/ui` only for types, or not at all, is left as
 //! written, so compiling it never adds the runtime to its imports.
@@ -24,12 +24,12 @@
 //! call's props are, which the runtime compares with the factory's own (`1` for
 //! `createChildrenFirstNode`), plus `r: 1` where the carrier pass marks the
 //! node a carrier (see [`crate::carrier`]), as it would a named node there.
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use swc_core::common::{DUMMY_SP, SyntaxContext};
 use swc_core::ecma::ast::*;
 use swc_core::ecma::atoms::Atom;
-use swc_core::ecma::visit::{VisitMut, VisitMutWith};
+use swc_core::ecma::visit::{Visit, VisitMut, VisitMutWith, VisitWith};
 
 use crate::css_props::is_css_prop;
 use crate::extract::ModuleScope;
@@ -41,6 +41,11 @@ pub const FACTORY_CALL_EXPORT: &str = "__meoFactoryCall";
 pub const FACTORY_CALL_LOCAL: &str = "__meoFactoryCall";
 /// The prefix of each site's module-level binding, followed by its index.
 pub const SITE_PREFIX: &str = "__meoSite";
+
+/// The key holding a node's children.
+const CHILDREN: &str = "children";
+/// The method that renders a node, and the root's that renders a tree.
+const RENDER: &str = "render";
 
 /// Props whose presence the runtime refuses to join over.
 const REFUSED_PROPS: &[&str] = &["theme", "as", "disableEmotion"];
@@ -86,16 +91,106 @@ pub fn rewrite(module: &mut Module, scope: &ModuleScope) -> FactorySites {
     if !scope.imports_runtime() {
         return FactorySites::default();
     }
+    let mut positions = Positions::default();
+    module.visit_with(&mut positions);
     let mut rewriter = Rewriter {
         scope,
+        positions: positions.0,
         sites: FactorySites::default(),
     };
     module.visit_mut_with(&mut rewriter);
     rewriter.sites
 }
 
+/// The spans of the calls in node position: where what the call returns is
+/// rendered, so the call builds a node. A return, an arrow's body, a
+/// `children` value, a children-first call's children, and what `.render()`
+/// is called on or given; through parentheses, arrays, conditionals and the
+/// logical operators' operands that can be the result. A call anywhere else
+/// (a constant, another call's argument) may be anything: a font loader Next
+/// compiles only as written, say, so it stays as written.
+#[derive(Default)]
+struct Positions(HashSet<(u32, u32)>);
+
+impl Positions {
+    fn mark(&mut self, expr: &Expr) {
+        match unwrap_transparent(expr) {
+            Expr::Call(call) => {
+                self.0.insert((call.span.lo.0, call.span.hi.0));
+            }
+            Expr::Cond(cond) => {
+                self.mark(&cond.cons);
+                self.mark(&cond.alt);
+            }
+            Expr::Bin(bin) => match bin.op {
+                BinaryOp::LogicalAnd => self.mark(&bin.right),
+                BinaryOp::LogicalOr | BinaryOp::NullishCoalescing => {
+                    self.mark(&bin.left);
+                    self.mark(&bin.right);
+                }
+                _ => {}
+            },
+            Expr::Array(array) => {
+                for elem in array.elems.iter().flatten() {
+                    self.mark(&elem.expr);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+impl Visit for Positions {
+    fn visit_return_stmt(&mut self, ret: &ReturnStmt) {
+        if let Some(arg) = &ret.arg {
+            self.mark(arg);
+        }
+        ret.visit_children_with(self);
+    }
+
+    fn visit_arrow_expr(&mut self, arrow: &ArrowExpr) {
+        if let ArrowFunctionBody::Expr(body) = &*arrow.body {
+            self.mark(body);
+        }
+        arrow.visit_children_with(self);
+    }
+
+    fn visit_key_value_prop(&mut self, kv: &KeyValueProp) {
+        if plain_key(&kv.key).is_some_and(|key| key.as_ref() == CHILDREN) {
+            self.mark(&kv.value);
+        }
+        kv.visit_children_with(self);
+    }
+
+    fn visit_call_expr(&mut self, call: &CallExpr) {
+        if let Callee::Expr(callee) = &call.callee {
+            match &**callee {
+                Expr::Member(member) if matches!(&member.prop, MemberProp::Ident(prop) if prop.sym.as_ref() == RENDER) =>
+                {
+                    self.mark(&member.obj);
+                    for arg in &call.args {
+                        self.mark(&arg.expr);
+                    }
+                }
+                // A children-first call (a capitalized callee given its props
+                // second): its first argument is its children.
+                Expr::Ident(id)
+                    if id.sym.starts_with(|c: char| c.is_ascii_uppercase())
+                        && props_position(&call.args) == Some(1) =>
+                {
+                    self.mark(&call.args[0].expr);
+                }
+                _ => {}
+            }
+        }
+        call.visit_children_with(self);
+    }
+}
+
 struct Rewriter<'a> {
     scope: &'a ModuleScope,
+    /// See [`Positions`].
+    positions: HashSet<(u32, u32)>,
     sites: FactorySites,
 }
 
@@ -110,6 +205,7 @@ impl VisitMut for Rewriter<'_> {
         };
         if !id.sym.starts_with(|c: char| c.is_ascii_uppercase())
             || !self.scope.is_imported_callee(&id.sym, id.ctxt)
+            || !self.positions.contains(&(call.span.lo.0, call.span.hi.0))
         {
             return;
         }
