@@ -1097,16 +1097,37 @@ pub fn transform_program(
     let mut key_only: HashMap<(u32, u32), (usize, ChildrenOrigin)> = HashMap::new();
     let mut synthesize: HashMap<(u32, u32), usize> = HashMap::new();
 
+    let ctx = SiteContext {
+        filename,
+        source_map,
+        emit_locations: config.call_site_locations,
+    };
     // Calls of imported factories first, written as `__meoFactoryCall(...)`, so
     // detection below sees them as the plain calls they become, and compiles
-    // the factory calls among their arguments as it does any.
+    // the factory calls among their arguments as it does any. One the compiler
+    // marks with extraction off keeps those marks (see `factory_call::rewrite`).
     let mut extract = if config.experimental_extract_css {
         ModuleScope::collect(program).map(|scope| (scope, ModuleExtraction::default()))
     } else {
         None
     };
-    if let (Some((scope, extraction)), Program::Module(module)) = (&mut extract, &mut *program) {
-        extraction.sites = crate::factory_call::rewrite(module, scope);
+    if let (Some((scope, extraction)), Program::Module(_)) = (&mut extract, &*program) {
+        let marked: HashMap<(u32, u32), ChildrenOrigin> = detect::detect(&*program, config)
+            .into_iter()
+            .filter_map(|d| match d.decision {
+                Decision::Compilable { .. } | Decision::KeyOnly { .. } => {
+                    Some(((d.span.lo.0, d.span.hi.0), d.children))
+                }
+                _ => None,
+            })
+            .collect();
+        let Program::Module(module) = &mut *program else {
+            unreachable!("matched as a module above");
+        };
+        extraction.sites =
+            crate::factory_call::rewrite(module, scope, &marked, &|props, span, children| {
+                stamp_call_site_key(props, &ctx, span, children)
+            });
     }
     let has_sites = extract
         .as_ref()
@@ -1133,11 +1154,7 @@ pub fn transform_program(
     }
 
     let mut rewriter = Rewriter {
-        ctx: SiteContext {
-            filename,
-            source_map,
-            emit_locations: config.call_site_locations,
-        },
+        ctx,
         compilable,
         key_only,
         synthesize,

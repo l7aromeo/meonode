@@ -579,6 +579,17 @@ fn extract_numeric_keys() {
 }
 
 #[test]
+fn extract_factory_call_factory_modules() {
+    run_partition_with_config(
+        "extract_factory_call_factory_modules",
+        CompileConfig {
+            factory_modules: vec!["./nodes".to_string()],
+            ..extract_config()
+        },
+    );
+}
+
+#[test]
 fn extract_factory_call_positions() {
     run_partition_with_config("extract_factory_call_positions", extract_config());
 }

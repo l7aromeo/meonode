@@ -26,12 +26,13 @@
 //! node a carrier (see [`crate::carrier`]), as it would a named node there.
 use std::collections::{HashMap, HashSet};
 
-use swc_core::common::{DUMMY_SP, SyntaxContext};
+use swc_core::common::{DUMMY_SP, Span, SyntaxContext};
 use swc_core::ecma::ast::*;
 use swc_core::ecma::atoms::Atom;
 use swc_core::ecma::visit::{Visit, VisitMut, VisitMutWith, VisitWith};
 
 use crate::css_props::is_css_prop;
+use crate::detect::ChildrenOrigin;
 use crate::extract::ModuleScope;
 use crate::keys::{is_special_key, plain_key};
 use crate::pass_through::unwrap_transparent;
@@ -87,7 +88,18 @@ pub fn site_name(index: usize) -> String {
 
 /// Rewrites every eligible call in `module`, returning their sites. None in a
 /// module that does not import `@meonode/ui` at run time.
-pub fn rewrite(module: &mut Module, scope: &ModuleScope) -> FactorySites {
+///
+/// `marked` holds the calls the compiler marks as factory calls with
+/// extraction off (`factoryModules` imports), by span. A rewritten one has its
+/// props stamped by `stamp` as a call site that is not partitioned, with the
+/// same marks (generated children's above all): whichever way the runtime
+/// makes the call, it gets the props it gets with extraction off.
+pub fn rewrite(
+    module: &mut Module,
+    scope: &ModuleScope,
+    marked: &HashMap<(u32, u32), ChildrenOrigin>,
+    stamp: &dyn Fn(&mut ObjectLit, Span, ChildrenOrigin),
+) -> FactorySites {
     if !scope.imports_runtime() {
         return FactorySites::default();
     }
@@ -96,6 +108,8 @@ pub fn rewrite(module: &mut Module, scope: &ModuleScope) -> FactorySites {
     let mut rewriter = Rewriter {
         scope,
         positions: positions.0,
+        marked,
+        stamp,
         sites: FactorySites::default(),
     };
     module.visit_mut_with(&mut rewriter);
@@ -191,6 +205,9 @@ struct Rewriter<'a> {
     scope: &'a ModuleScope,
     /// See [`Positions`].
     positions: HashSet<(u32, u32)>,
+    /// See [`rewrite`].
+    marked: &'a HashMap<(u32, u32), ChildrenOrigin>,
+    stamp: &'a dyn Fn(&mut ObjectLit, Span, ChildrenOrigin),
     sites: FactorySites,
 }
 
@@ -213,6 +230,12 @@ impl VisitMut for Rewriter<'_> {
             return;
         };
         let callee = Expr::Ident(id.clone());
+        if let Some(&children) = self.marked.get(&(call.span.lo.0, call.span.hi.0))
+            && let Some(arg) = call.args.get_mut(at)
+            && let Expr::Object(props) = unwrap_parens_mut(&mut arg.expr)
+        {
+            (self.stamp)(props, call.span, children);
+        }
         let index = self.sites.sites.len();
         self.sites.sites.push(FactorySite { at, carrier: false });
         self.sites
@@ -293,6 +316,14 @@ fn static_style(props: &ObjectLit) -> bool {
         // A shorthand's value is an identifier read, which may change.
         !style || value.is_some_and(literal)
     })
+}
+
+/// `expr` without its parentheses.
+fn unwrap_parens_mut(mut expr: &mut Expr) -> &mut Expr {
+    while let Expr::Paren(paren) = expr {
+        expr = &mut paren.expr;
+    }
+    expr
 }
 
 /// A literal: a string, a number, a boolean, `null`, `undefined`, a template

@@ -590,7 +590,10 @@ insertion and its class are the ones the node would have uncompiled.
   `createNode` or `createChildrenFirstNode` factory taking its props at `at`,
   and joins its initial props with the call's style once per site, naming the
   result as a compiled style is named; anything else it calls as written,
-  `X(...args)`. Left as written: member calls, calls with a spread argument,
+  `X(...args)`. A call of a `factoryModules` import keeps the marks it has
+  with the option off (`__meo$: 3`, `__meo$k`, `__meo$list` for generated
+  children, `__meo$loc`), so either way it is made with the props it is made
+  with today. Left as written: member calls, calls with a spread argument,
   identifiers the module renders as JSX elements, imports from any
   `@meonode/` package (subpaths included), calls anywhere else (a module-scope
   constant such as a `next/font` loader's, which Next compiles only as

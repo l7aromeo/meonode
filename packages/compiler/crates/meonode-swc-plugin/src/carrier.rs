@@ -713,13 +713,18 @@ impl Visit for Shared<'_> {
 }
 
 /// Adds the mark to the carriers' compiled props, and takes the slots out of
-/// every compiled call site's: they are this pass's input only.
-struct Marker<'a>(&'a HashSet<Site>);
+/// every compiled call site's: they are this pass's input only. A call of an
+/// imported factory carries its mark on its site instead: its props are the
+/// ones it is made with if the runtime does not join it, which carry none.
+struct Marker<'a> {
+    carriers: &'a HashSet<Site>,
+    sites: &'a FactorySites,
+}
 
 impl VisitMut for Marker<'_> {
     fn visit_mut_call_expr(&mut self, call: &mut CallExpr) {
         call.visit_mut_children_with(self);
-        let carrier = self.0.contains(&site_of(call));
+        let carrier = self.carriers.contains(&site_of(call)) && self.sites.site_of(call).is_none();
         for arg in &mut call.args {
             let Expr::Object(obj) = &mut *arg.expr else {
                 continue;
@@ -770,7 +775,10 @@ pub fn mark(module: &mut Module, scope: &ModuleScope, sites: &mut FactorySites) 
         sites,
         carriers: &mut carriers,
     });
-    module.visit_mut_with(&mut Marker(&carriers));
+    module.visit_mut_with(&mut Marker {
+        carriers: &carriers,
+        sites,
+    });
     // A call of an imported factory carries its mark on its site, which the
     // runtime copies onto the node it builds.
     for (span, &index) in &sites.by_span {
