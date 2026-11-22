@@ -266,7 +266,8 @@ function placementOf(sheet: EmotionSheetPlacement | undefined, container: Node):
  * The static sheets of a cache's container, placed for that cache.
  *
  * In the document head of a page the server rendered, the server's styles for
- * the buckets first move to where the cache's rules are, and each bucket's sheet
+ * the buckets first move to where the cache's rules are, from the head or, for a
+ * page rendered as a fragment, from the body, as Emotion moves its own, and each bucket's sheet
  * goes right after the server's styles of that bucket, so the server's rules and
  * the browser's keep one bucket order. Otherwise the five go together right before
  * the cache's first tag, or, while it has none, where it will put it; then, for a
@@ -287,9 +288,11 @@ function targetFor(sheet: EmotionSheetPlacement | undefined): StaticTarget {
   if (known && known.placedFor === sheet) return known
   const ownerDocument = (container.ownerDocument ?? (container as Document)) as Document
   const head = ownerDocument.head
+  // Wherever React left them, as `adoptedClasses` reads them: in the head, or in
+  // the body for a page rendered as a fragment, where React cannot hoist.
   const serverGroups =
     container === head
-      ? Array.from({ length: STATIC_CSS_BUCKETS }, (_, bucket) => head.querySelectorAll(`style[data-precedence="${staticPrecedence(bucket)}"]`))
+      ? Array.from({ length: STATIC_CSS_BUCKETS }, (_, bucket) => ownerDocument.querySelectorAll(`style[data-precedence="${staticPrecedence(bucket)}"]`))
       : undefined
   const afterServer = serverGroups?.some(group => group.length > 0) ?? false
   // Before MeoNode's runtime rules wherever they come first: the cache's, or
@@ -339,7 +342,12 @@ function earlier(a: Node | null, b: Node | null): Node | null {
  * The page's own stylesheets can come between the two in the server's head, and
  * a cache that prepends moves its server styles to the head's start on
  * hydration, so without this a tie between a static rule and the page's would
- * go the other way from the same rule in Emotion's sheet.
+ * go the other way from the same rule in Emotion's sheet. A page rendered as a
+ * fragment has them in the body, where React leaves the styles it cannot hoist
+ * and from where Emotion moves its own into the head, after the page's stylesheets
+ * or ahead of them; left there, a static rule would win a tie against a runtime
+ * rule inserted after it, and lose one against the page's stylesheet ahead of
+ * a cache that prepends.
  */
 function placeServerGroups(groups: readonly NodeListOf<Element>[], container: Node, before: Node | null): void {
   const own = new Set<Node>(groups.flatMap(group => [...group]))
