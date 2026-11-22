@@ -110,6 +110,11 @@ interface StaticCssState {
   targets: Map<Node, StaticTarget>
   /** Classes the server already sent with this page, read at the first insertion in the browser and as streamed boundaries bring more. */
   adopted: Set<string> | undefined
+  /** The last of the server's styles of each bucket read so far, which a style streamed later for that bucket follows. */
+  serverTails: (Element | undefined)[]
+  /** The head's styles, and how many there were at the last full read, for a bucket with no server style yet. */
+  headStyles: HTMLCollectionOf<HTMLStyleElement> | undefined
+  headStyleCount: number
   /** The `insertionPoint` set on each cache sheet here, to tell it from one the app set. */
   ownInsertionPoints: WeakMap<object, Element>
 }
@@ -122,6 +127,9 @@ const state = getGlobalState(Symbol.for('@meonode/ui/staticCss'), (): StaticCssS
   lists: new Map(),
   targets: new Map(),
   adopted: undefined,
+  serverTails: [],
+  headStyles: undefined,
+  headStyleCount: 0,
   ownInsertionPoints: new WeakMap(),
 }))
 
@@ -231,39 +239,58 @@ export function registeredClassesOf(classes: string): readonly string[] {
 
 /**
  * The classes the server sent with this page, from the `data-href` of the styles
- * React hoisted. Read at the first insertion in the browser, during the page's
- * first commit; a boundary streamed later brings its own, which
- * {@link sentLater} finds.
+ * React hoisted. Read whole at the first insertion in the browser, during the
+ * page's first commit; a boundary streamed later brings its own, which
+ * {@link adoptStreamed} reads as they arrive.
  */
 function adoptedClasses(): Set<string> {
   if (state.adopted) return state.adopted
-  const adopted = new Set<string>()
-  for (const element of document.querySelectorAll<HTMLStyleElement>(`style[data-precedence^="${STATIC_CSS_PREFIX}"]`)) {
-    for (const href of (element.getAttribute('data-href') ?? '').split(' ')) {
-      // A seed's href is the prefix and a bucket alone; a class's is the prefix and the class.
-      const className = href.slice(STATIC_CSS_PREFIX.length)
-      if (href.startsWith(STATIC_CSS_PREFIX) && state.classes.has(className)) adopted.add(className)
-    }
-  }
-  state.adopted = adopted
-  return adopted
+  state.adopted = new Set<string>()
+  for (const element of document.querySelectorAll<HTMLStyleElement>(`style[data-precedence^="${STATIC_CSS_PREFIX}"]`)) adoptStyle(element)
+  state.headStyles = document.head.getElementsByTagName('style')
+  state.headStyleCount = state.headStyles.length
+  return state.adopted
 }
 
 /**
- * Whether the server sent `className` in a style that arrived after the first
- * read: a Suspense boundary streamed later carries its hoistables in its own
- * chunk, which React's streaming runtime puts beside the styles of the same
- * precedence, in the head once the first insertion moved those there, or at its
- * start with none. The boundary hydrates after that, so its classes are found
- * there by the time its nodes insert them.
- * @param head The document head.
- * @param className A class not inserted in the head's sheets yet.
- * @returns Whether it is on the page, now among the adopted classes if so.
+ * Adds the classes of one of the server's static styles to the adopted ones,
+ * and makes it the last read of its bucket. Every class it names counts, a
+ * module that registers it later included.
  */
-function sentLater(head: HTMLHeadElement, className: string): boolean {
-  if (head.querySelector(`style[data-precedence^="${STATIC_CSS_PREFIX}"][data-href~="${staticHref(className)}"]`) === null) return false
-  state.adopted!.add(className)
-  return true
+function adoptStyle(element: Element): void {
+  for (const href of (element.getAttribute('data-href') ?? '').split(' ')) {
+    // A seed's href is the prefix and a bucket alone, which names no class.
+    if (href.startsWith(STATIC_CSS_PREFIX)) state.adopted!.add(href.slice(STATIC_CSS_PREFIX.length))
+  }
+  const bucket = Number(element.getAttribute('data-precedence')!.slice(STATIC_CSS_PREFIX.length))
+  if (bucket >= 0 && bucket < STATIC_CSS_BUCKETS) state.serverTails[bucket] = element
+}
+
+/**
+ * Reads the static styles of Suspense boundaries the server streamed since the
+ * last read. React's streaming runtime puts each right after the last style of
+ * its precedence, so for a bucket the server already sent styles for, a new one
+ * is the next sibling of the last read: five checks per insertion. A bucket the
+ * server sent none for gets its first after the page's last hoisted style of any
+ * precedence, so for one of those the head is read again, only when its count of
+ * styles has changed. A boundary hydrates after its styles are in, so its
+ * classes are adopted by the time its nodes insert them.
+ */
+function adoptStreamed(): void {
+  let unanchored = false
+  for (let bucket = 0; bucket < STATIC_CSS_BUCKETS; bucket++) {
+    const tail = state.serverTails[bucket]
+    if (tail === undefined) {
+      unanchored = true
+      continue
+    }
+    const precedence = staticPrecedence(bucket)
+    for (let next = tail.nextElementSibling; next !== null && next.getAttribute('data-precedence') === precedence; next = next.nextElementSibling)
+      adoptStyle(next)
+  }
+  if (!unanchored || state.headStyles!.length === state.headStyleCount) return
+  state.headStyleCount = state.headStyles!.length
+  for (const element of document.head.querySelectorAll<HTMLStyleElement>(`style[data-precedence^="${STATIC_CSS_PREFIX}"]`)) adoptStyle(element)
 }
 
 /**
@@ -398,10 +425,10 @@ export function insertStaticClasses(sheet: EmotionSheetPlacement | undefined, cl
   const container = sheet?.container ?? document.head
   if (container !== document.head) return insertInto(target, classNames)
   const adopted = adoptedClasses()
-  const head = document.head
+  adoptStreamed()
   insertInto(
     target,
-    classNames.filter(className => !adopted.has(className) && (target.inserted.has(className) || !sentLater(head, className))),
+    classNames.filter(className => !adopted.has(className)),
   )
 }
 
@@ -533,6 +560,9 @@ export function __resetStaticCss(): void {
   state.lists.clear()
   state.targets.clear()
   state.adopted = undefined
+  state.serverTails = []
+  state.headStyles = undefined
+  state.headStyleCount = 0
   state.ownInsertionPoints = new WeakMap()
 }
 
