@@ -40,6 +40,7 @@ import {
   STATIC_CLASSES_MARKER,
   STATIC_NAME_MARKER,
   STATIC_RUN_PROP,
+  STATIC_SLOTS_MARKER,
   STATIC_STYLE_PROP,
   STATIC_VARS_MARKER,
 } from '@src/constant/common.const.js'
@@ -187,6 +188,91 @@ function addStaticProps(props: Record<string, unknown>, classes: string | undefi
 }
 
 const RENDER_CONTEXT_POOL_KEY = Symbol.for('@meonode/ui/BaseNode/renderContextPool')
+
+/**
+ * A slot's position among a host's written children: an index into the array,
+ * a path into nested array literals, or the empty path for the children as a whole.
+ */
+type SlotPath = number | readonly number[]
+
+/** The prefix of a slot leaf's key, which no key a user writes is likely to share. */
+const SLOT_KEY_PREFIX = '__meo$slot:'
+
+/** A slot's position as a string: its indices joined by `.`, the empty path `''`. */
+const slotKey = (path: SlotPath): string => (typeof path === 'number' ? String(path) : path.join('.'))
+
+/** A host's slots, by key, and the keys of the arrays that hold one. */
+interface SlotSet {
+  keys: ReadonlySet<string>
+  within: ReadonlySet<string>
+}
+
+/** The slot set for a host's marker. */
+function slotSetOf(paths: readonly SlotPath[]): SlotSet {
+  const keys = new Set<string>()
+  const within = new Set<string>()
+  for (const path of paths) {
+    keys.add(slotKey(path))
+    if (typeof path !== 'number') for (let length = 1; length < path.length; length++) within.add(path.slice(0, length).join('.'))
+  }
+  return { keys, within }
+}
+
+/** Where the walk reaches a slot: right before the position it is at, after everything before it. */
+interface SlotMark {
+  slotOf: BaseNode
+  key: string
+}
+
+const isSlotMark = (value: unknown): value is SlotMark => typeof value === 'object' && value !== null && 'slotOf' in value
+
+/**
+ * A host's children in the order the walk begins them, as {@link collectNodeChildren}
+ * gives them, with a mark right before each slot's position, so the walk reaches
+ * each slot after every node before it began and before any after it does.
+ * @param parent The host.
+ * @param children Its children, an array or one child.
+ * @param slots Its slots.
+ * @returns The children and the marks.
+ */
+function collectWithSlots(parent: BaseNode, children: unknown, slots: SlotSet): unknown[] {
+  const out: unknown[] = []
+  if (slots.keys.has('')) out.push({ slotOf: parent, key: '' } satisfies SlotMark)
+  const seen = new WeakSet<object>()
+  const walk = (list: readonly unknown[], prefix: string) => {
+    if (seen.has(list)) return
+    seen.add(list)
+    for (let i = 0; i < list.length; i++) {
+      const key = prefix === '' ? String(i) : `${prefix}.${i}`
+      if (slots.keys.has(key)) out.push({ slotOf: parent, key } satisfies SlotMark)
+      const child = list[i]
+      if (Array.isArray(child)) walk(child, key)
+      else out.push(child)
+    }
+  }
+  walk(Array.isArray(children) ? children : [children], '')
+  return out
+}
+
+/**
+ * A host's resolved children with each slot's leaf, or `null`, right before its
+ * position, nested arrays copied where one holds a slot.
+ * @param list The resolved children, or a nested array of them.
+ * @param slots The host's slots.
+ * @param prefix The key of `list`'s position; `''` for the children themselves.
+ * @param leafAt The leaf for a slot.
+ * @returns The children with the slots in place.
+ */
+function placeSlots(list: readonly ReactNode[], slots: SlotSet, prefix: string, leafAt: (key: string) => ReactNode): ReactNode[] {
+  const out: ReactNode[] = []
+  for (let i = 0; i < list.length; i++) {
+    const key = prefix === '' ? String(i) : `${prefix}.${i}`
+    if (slots.keys.has(key)) out.push(leafAt(key))
+    const child = list[i]
+    out.push(Array.isArray(child) && slots.within.has(key) ? placeSlots(child, slots, key, leafAt) : child)
+  }
+  return out
+}
 
 /**
  * Every `BaseNode` reachable in a children array, including inside nested arrays.
@@ -635,6 +721,8 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
     const namedRuns = namedEnabled ? new Map<BaseNode, NamedStyle[]>() : undefined
     /** What each carrier's `StaticStyles` inserts, once its subtree is in. */
     const namedTail = namedEnabled ? new Map<Map<string, ReactElement>, NamedStyle[]>() : undefined
+    /** The runs a host's slots render, by slot key. */
+    const slotRuns = new Map<BaseNode, Map<string, NamedStyle[]>>()
     /** The run since the last rule, and the carrier of its nodes. */
     let pendingNamed: NamedStyle[] = []
     let pendingCarrier: BaseNode | null = null
@@ -704,6 +792,18 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
         const currentWork = workStack[stackPointer - 1]
         if (!currentWork) {
           stackPointer--
+          continue
+        }
+        // A slot: the run that began before it is the leaf's there.
+        const slot = (currentWork as { slot?: string }).slot
+        if (slot !== undefined) {
+          stackPointer--
+          if (pendingNamed.length > 0) {
+            let runs = slotRuns.get(currentWork.node)
+            if (!runs) slotRuns.set(currentWork.node, (runs = new Map()))
+            runs.set(slot, pendingNamed)
+            pendingNamed = []
+          }
           continue
         }
         const {
@@ -801,12 +901,18 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
             // other child, so they are collected here — a nested array skipped at
             // this phase would never reach `renderedElements`, and the complete
             // phase below would then fail to look it up rather than rendering it.
-            const pending = collectNodeChildren(childArray)
+            // With slots, the walk reaches each where it is among them.
+            const slotPaths = typeof children === 'function' ? undefined : (node.props[STATIC_SLOTS_MARKER] as readonly SlotPath[] | undefined)
+            const pending = slotPaths ? collectWithSlots(node, children, slotSetOf(slotPaths)) : collectNodeChildren(childArray)
 
             ensureCapacity(stackPointer + pending.length)
 
             for (let i = pending.length - 1; i >= 0; i--) {
               const child = pending[i]
+              if (isSlotMark(child)) {
+                workStack[stackPointer++] = { node, isProcessed: true, slot: child.key } as unknown as (typeof workStack)[number]
+                continue
+              }
               if (!NodeUtil.isNodeInstance(child)) continue
 
               // Fiber-backed memoization: hand the subtree to React instead of
@@ -856,6 +962,7 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
             [STATIC_CLASSES_MARKER]: staticClasses,
             [STATIC_VARS_MARKER]: staticVars,
             [STATIC_NAME_MARKER]: staticName,
+            [STATIC_SLOTS_MARKER]: slotMarker,
             ...otherProps
           } = node.props
 
@@ -928,6 +1035,20 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
             }
           }
 
+          // Each slot's leaf, or `null` while it holds no run, so the children keep
+          // their positions whether one renders or not. The slot of the children as
+          // a whole goes ahead of them as an argument of its own, so a generated
+          // list stays the one list React key-checks.
+          const slots =
+            slotMarker !== undefined && hostChildren === childrenInProps && builtFrom === undefined ? slotSetOf(slotMarker as readonly SlotPath[]) : undefined
+          const runsHere = slots ? slotRuns.get(node) : undefined
+          const leafAt = (slotKeyOf: string): ReactNode => {
+            const run = runsHere?.get(slotKeyOf)
+            return run ? createElement(StaticStyles, { key: `${SLOT_KEY_PREFIX}${slotKeyOf}`, styles: run }) : null
+          }
+          if (slots && finalChildren.length > 0) finalChildren = placeSlots(finalChildren, slots, '', leafAt)
+          const wholeSlot = slots?.keys.has('') ? [leafAt('')] : undefined
+
           // How the children reach `createElement` is what decides whether React
           // asks for keys. Passing them as separate arguments is React's signal
           // that a human wrote the siblings out, so it marks them validated and
@@ -967,7 +1088,8 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
           const childArguments = generatedChildren && Array.isArray(childrenInProps) && finalChildren.length > 0 ? [finalChildren] : finalChildren
           // A built element's children reach React in the element's own shape: a
           // list as one argument, which React key-checks as it would the element's.
-          const elementChildren = builtFrom !== undefined && Array.isArray(childrenInProps) ? [finalChildren] : childArguments
+          const elementChildren =
+            builtFrom !== undefined && Array.isArray(childrenInProps) ? [finalChildren] : wholeSlot ? [...wholeSlot, ...childArguments] : childArguments
 
           // React's report says a key is missing; it cannot say where. Every
           // element in the tree is created inside this one `.render()` call, so

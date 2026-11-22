@@ -185,6 +185,17 @@ export const STATIC_VARS_MARKER = '__meo$v'
 export const STATIC_NAME_MARKER = '__meo$n'
 
 /**
+ * Marker key holding the child positions of a host call site where a component
+ * may render, which the compiler listed: a number is an index into the written
+ * children array, an array is a path into nested array literals, and the empty
+ * path is the children as a whole. A leaf renders before each one, holding the
+ * named styles that began before it, as Emotion would have them in by then;
+ * the slot is always there, `null` while it holds none, so the children keep
+ * their positions.
+ */
+export const STATIC_SLOTS_MARKER = '__meo$p'
+
+/**
  * The prop of a `StyledRenderer` holding the run of named styles of its render
  * that began after the previous rule: it inserts them ahead of its own rule.
  */
@@ -230,6 +241,7 @@ export const COMPILER_SCHEMA_KEYS: Readonly<
       classes?: string
       vars?: string
       name?: string
+      slots?: string
       before?: string
       after?: string
     }
@@ -250,6 +262,7 @@ export const COMPILER_SCHEMA_KEYS: Readonly<
     classes: STATIC_CLASSES_MARKER,
     vars: STATIC_VARS_MARKER,
     name: STATIC_NAME_MARKER,
+    slots: STATIC_SLOTS_MARKER,
     before: STATIC_BEFORE_SPREAD_MARKER,
     after: STATIC_AFTER_SPREAD_MARKER,
   },
@@ -266,6 +279,7 @@ export const COMPILER_SCHEMA_KEYS: Readonly<
     classes: STATIC_CLASSES_MARKER,
     vars: STATIC_VARS_MARKER,
     name: STATIC_NAME_MARKER,
+    slots: STATIC_SLOTS_MARKER,
     before: STATIC_BEFORE_SPREAD_MARKER,
     after: STATIC_AFTER_SPREAD_MARKER,
   },

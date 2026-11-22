@@ -26,14 +26,18 @@ function compile(css: Css): { name: string; styles: string } {
   return { name: serialized.name, styles: serialized.styles }
 }
 
-type Style = (css: Css, isStatic?: boolean) => Record<string, unknown>
-const runtimeStyle: Style = css => ({ css })
-const compiledStyle: Style = (css, isStatic = true) => {
-  if (!isStatic) return { css }
-  const { name, styles } = compile(css)
-  registerStaticCss(`m-${name}`, [[name, styles]])
-  return { __meo$: 2, __meo$n: name }
-}
+/** Props giving a node `css`, and with `slots` the positions the compiler marks among a host's children. */
+type Style = ((css: Css, isStatic?: boolean) => Record<string, unknown>) & { slots: (...paths: (number | number[])[]) => Record<string, unknown> }
+const runtimeStyle: Style = Object.assign((css: Css) => ({ css }), { slots: () => ({}) })
+const compiledStyle: Style = Object.assign(
+  (css: Css, isStatic = true) => {
+    if (!isStatic) return { css }
+    const { name, styles } = compile(css)
+    registerStaticCss(`m-${name}`, [[name, styles]])
+    return { __meo$: 2, __meo$n: name }
+  },
+  { slots: (...paths: (number | number[])[]) => ({ __meo$: 2, __meo$p: paths }) },
+)
 
 const STYLE_ELEMENT = /<style data-emotion="([^"]*)"[^>]*>(.*?)<\/style>/g
 
@@ -83,6 +87,18 @@ const CASES: Record<string, (style: Style) => NodeInstance> = {
   'a parent and child written twice, the parent’s & > * against the child’s own colour': style => {
     const pair = (key: number) => Div({ key, ...style({ '& > *': RED }), children: Span('c', style(BLUE, false)) })
     return Div({ children: [pair(1), pair(2)] })
+  },
+  'a parent’s & .child against a component child’s own .wrapper &, the child’s position marked': style => {
+    const Child = () => Span('c', { className: 'child', ...style({ '.wrapper &': BLUE }) }).render() as ReactElement
+    return Div({ className: 'wrapper', ...style({ '& .child': RED }), ...style.slots(0), children: Node(Child) })
+  },
+  'a sibling’s & + .item against a component inside a nested array, its path marked': style => {
+    const Item = () => Div({ className: 'item', ...style({ '.wrapper &': BLUE }) }).render() as ReactElement
+    return Div({
+      className: 'wrapper',
+      ...style.slots([1, 1]),
+      children: [Span('a', { key: 'a', ...style({ order: 1 }) }), [Span('s', { key: 's', ...style({ '& + .item': RED }) }), Node(Item, { key: 'i' })]],
+    })
   },
   'two nodes of one style': style =>
     Div({ children: [Div({ key: 1, ...style(BLUE) }), Div({ key: 2, ...style(RED, false) }), Div({ key: 3, ...style(BLUE) })] }),

@@ -28,15 +28,22 @@ function compile(css: Css): { name: string; styles: string } {
   return { name: serialized.name, styles: serialized.styles }
 }
 
-/** Props giving a node `css`: on the runtime path, or as the compiler emits a static node. */
-type Style = (css: Css, isStatic?: boolean) => Record<string, unknown>
-const runtimeStyle: Style = css => ({ css })
-const compiledStyle: Style = (css, isStatic = true) => {
-  if (!isStatic) return { css }
-  const { name, styles } = compile(css)
-  registerStaticCss(`m-${name}`, [[name, styles]])
-  return { __meo$: 2, __meo$n: name }
-}
+/**
+ * Props giving a node `css`: on the runtime path, or as the compiler emits a
+ * static node. `slots` gives a host the positions the compiler marks among its
+ * children, where a component may render; the runtime path has none.
+ */
+type Style = ((css: Css, isStatic?: boolean) => Record<string, unknown>) & { slots: (...paths: (number | number[])[]) => Record<string, unknown> }
+const runtimeStyle: Style = Object.assign((css: Css) => ({ css }), { slots: () => ({}) })
+const compiledStyle: Style = Object.assign(
+  (css: Css, isStatic = true) => {
+    if (!isStatic) return { css }
+    const { name, styles } = compile(css)
+    registerStaticCss(`m-${name}`, [[name, styles]])
+    return { __meo$: 2, __meo$n: name }
+  },
+  { slots: (...paths: (number | number[])[]) => ({ __meo$: 2, __meo$p: paths }) },
+)
 
 /** What a case does with a render: one render, or several commits. */
 type Steps = (render: (tree: (style: Style) => NodeInstance) => void) => void
@@ -122,6 +129,37 @@ const CASES: Record<string, Steps> = {
     })
     act(() => wrap())
   },
+  'a parent’s & .child against a component child’s own .wrapper &, the child’s position marked': once(style => {
+    const Child = () => Span('c', { 'data-n': 'c', className: 'child', ...style({ '.wrapper &': BLUE }) }).render() as ReactElement
+    return Div({ 'data-n': 'p', className: 'wrapper', ...style({ '& .child': RED }), ...style.slots(0), children: Node(Child) })
+  }),
+  'a sibling’s & + .item against a component sibling’s own rule, its position marked': once(style => {
+    const Item = () => Div({ 'data-n': 'i', className: 'item', ...style({ '.wrapper &': BLUE }) }).render() as ReactElement
+    return Div({
+      className: 'wrapper',
+      ...style.slots(1),
+      children: [Span('s', { key: 's', 'data-n': 's', ...style({ '& + .item': RED }) }), Node(Item, { key: 'i' })],
+    })
+  }),
+  'a component inside a nested array, its path marked': once(style => {
+    const Item = () => Div({ 'data-n': 'i', className: 'item', ...style({ '.wrapper &': BLUE }) }).render() as ReactElement
+    return Div({
+      className: 'wrapper',
+      ...style.slots([1, 1]),
+      children: [
+        Span('a', { key: 'a', ...style({ order: 1 }) }),
+        [Span('s', { key: 's', 'data-n': 's', ...style({ '& + .item': RED }) }), Node(Item, { key: 'i' })],
+      ],
+    })
+  }),
+  'a component that renders a built element child, its position marked': once(style => {
+    const Item = () => Div({ 'data-n': 'i', className: 'item', ...style({ '.wrapper &': BLUE }) }).render() as ReactElement
+    return Div({
+      className: 'wrapper',
+      ...style.slots(1),
+      children: [Span('s', { key: 's', 'data-n': 's', ...style({ '& + .item': RED }) }), createElement(Item, { key: 'i' })],
+    })
+  }),
   // A runtime node whose target is a component registers its class in the
   // browser; the component hands it to a static node, whose style takes it in.
   'a registered class handed to a static node': once(style => {
@@ -131,9 +169,10 @@ const CASES: Record<string, Steps> = {
 }
 
 /**
- * Cases where a static node's rule and a component's own are in one run: the
- * leaf before a component boundary is not built yet, so the run goes in after
- * the component's rules, where Emotion puts it before them.
+ * Cases where a static node's rule and a component's own are in one run, and
+ * the call site marks no slot before the component, as one the compiler did not
+ * compile: the run goes in after the component's rules, where Emotion puts it
+ * before them.
  */
 const BEFORE_A_COMPONENT: Record<string, Steps> = {
   'a parent’s & .child against a component child’s own .wrapper &': once(style => {
@@ -161,14 +200,34 @@ describe('compiled nodes carrying their style’s name go into Emotion’s sheet
   })
 })
 
-describe('before a component boundary, until its leaf is built', () => {
-  // Pinned so the change is seen when the leaf lands: the classes match, the
-  // order of the two rules does not.
+describe('before a component at a position with no slot', () => {
+  // Pinned: the classes match, the order of the two rules does not.
   it.each(Object.entries(BEFORE_A_COMPONENT))('%s', (_, steps) => {
     const expected = run(steps, runtimeStyle)
     const compiled = run(steps, compiledStyle)
     expect(compiled.classes).toEqual(expected.classes)
     expect([...compiled.rules].sort()).toEqual([...expected.rules].sort())
     expect(compiled.rules).not.toEqual(expected.rules)
+  })
+})
+
+// A cache that prepends puts its rules at the start of the head, ahead of the
+// page's own stylesheet, which then wins a tie. Compiled nodes go in through the
+// same cache, so with no runtime rule on the page their rules go there too.
+describe('under a cache that prepends, with the page’s stylesheet first in the head', () => {
+  it('puts the compiled rules where it puts its own, ahead of the page’s', () => {
+    const run = (style: Style) => {
+      document.head.innerHTML = '<style data-page>.card{padding:0}</style>'
+      document.body.innerHTML = ''
+      __resetStaticCss()
+      const cache = createCache({ key: 'css', prepend: true })
+      const root = createRoot(document.body.appendChild(document.createElement('div')))
+      roots.push(root)
+      act(() => root.render(createElement(CacheProvider, { value: cache }, Div({ className: 'card', ...style({ padding: 16 }) }).render() as ReactElement)))
+      return [...document.head.querySelectorAll('style')].map(element => (element.hasAttribute('data-page') ? 'page' : (element.textContent ?? '')))
+    }
+    const expected = run(runtimeStyle)
+    expect(expected.indexOf('page')).toBe(expected.length - 1)
+    expect(run(compiledStyle)).toEqual(expected)
   })
 })

@@ -28,6 +28,7 @@ import {
   STATIC_BEFORE_SPREAD_MARKER,
   STATIC_CLASSES_MARKER,
   STATIC_NAME_MARKER,
+  STATIC_SLOTS_MARKER,
   STATIC_VARS_MARKER,
   SUPPORTED_COMPILER_SCHEMAS,
 } from '@src/constant/common.const.js'
@@ -255,6 +256,7 @@ export class NodeUtil {
         propKey === STATIC_CLASSES_MARKER ||
         propKey === STATIC_VARS_MARKER ||
         propKey === STATIC_NAME_MARKER ||
+        propKey === STATIC_SLOTS_MARKER ||
         propKey === STATIC_BEFORE_SPREAD_MARKER ||
         propKey === STATIC_AFTER_SPREAD_MARKER ||
         NodeUtil.DESTRUCTURED_SPECIAL_KEYS.has(propKey)
@@ -333,6 +335,9 @@ export class NodeUtil {
     // The name of the call site's whole style, which the compiler serialized.
     const staticName = schemaKeys.name === undefined || spreadOverrides ? undefined : source[schemaKeys.name]
     if (typeof staticName === 'string' && staticName !== '') result[STATIC_NAME_MARKER] = staticName
+    // Where a component may render among the written children, for the leaves before them.
+    const slots = schemaKeys.slots === undefined ? undefined : source[schemaKeys.slots]
+    if (Array.isArray(slots) && slots.length > 0) result[STATIC_SLOTS_MARKER] = slots
 
     return result as FinalNodeProps
   }
