@@ -13,6 +13,9 @@
       ],
       "nextjs-registry": [
         "./dist/types/nextjs-registry/index.d.cts"
+      ],
+      "factory-call": [
+        "./dist/types/factory-call/index.d.cts"
       ]
     }
   },
@@ -75,6 +78,26 @@
       "require": {
         "types": "./dist/types/nextjs-registry/index.d.cts",
         "default": "./dist/cjs/nextjs-registry/index.cjs"
+      }
+    },
+    "./factory-call": {
+      "react-server": {
+        "import": {
+          "types": "./dist/types/factory-call/index.d.ts",
+          "default": "./dist/rsc/esm/factory-call/index.js"
+        },
+        "require": {
+          "types": "./dist/types/factory-call/index.d.cts",
+          "default": "./dist/rsc/cjs/factory-call/index.cjs"
+        }
+      },
+      "import": {
+        "types": "./dist/types/factory-call/index.d.ts",
+        "default": "./dist/esm/factory-call/index.js"
+      },
+      "require": {
+        "types": "./dist/types/factory-call/index.d.cts",
+        "default": "./dist/cjs/factory-call/index.cjs"
       }
     }
   },

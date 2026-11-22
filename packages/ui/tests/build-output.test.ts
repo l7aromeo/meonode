@@ -296,6 +296,7 @@ describe('build output: the server build and the default build', () => {
     { specifier: '@meonode/ui', file: 'main' },
     { specifier: '@meonode/ui/client', file: 'client' },
     { specifier: '@meonode/ui/nextjs-registry', file: 'nextjs-registry/index' },
+    { specifier: '@meonode/ui/factory-call', file: 'factory-call/index' },
   ]
 
   it.each(SUBPATHS)('resolves $specifier to the server build under `react-server` and to the default build otherwise', ({ specifier, file }) => {
@@ -435,5 +436,71 @@ describe('build output: webpack against a React without Activity', () => {
   it('builds the package entry', async () => {
     const errors = await bundle('package-entry', `import { Activity, Div } from '@meonode/ui'\nconsole.log(Activity, Div)\n`, stubReact('Activity'))
     expect(errors).toEqual([])
+  })
+})
+
+/**
+ * `@meonode/ui/factory-call` is what compiled output imports to call a factory
+ * from another module. A module the compiler rewrites, such as a route handler
+ * calling a factory, must load nothing more for it: the entry imports nothing,
+ * and reads the brands core gives the factories it makes, from whichever copy.
+ */
+describe('build output: the factory-call entry', () => {
+  const ENTRY_FILES = [
+    'dist/esm/factory-call/index.js',
+    'dist/cjs/factory-call/index.cjs',
+    'dist/rsc/esm/factory-call/index.js',
+    'dist/rsc/cjs/factory-call/index.cjs',
+  ]
+
+  it.each(ENTRY_FILES)('%s imports and requires nothing', file => {
+    const code = readFileSync(path.join(ROOT, file), 'utf8')
+    expect(code).toContain('__meoFactoryCall')
+    expect(code.match(/\bimport\s*(?:[\w{*]|['"])|\bimport\(|\brequire\(/g)).toBeNull()
+  })
+
+  it.each([false, true])('loads only itself from the CommonJS build (react-server: %s)', reactServer => {
+    const loaded = JSON.parse(
+      execFileSync(
+        process.execPath,
+        [
+          ...(reactServer ? ['--conditions=react-server'] : []),
+          '-e',
+          `const { __meoFactoryCall } = require('@meonode/ui/factory-call')
+           const plain = (props, extra) => ({ props, extra })
+           const called = __meoFactoryCall(plain, { at: 0 }, { a: 1 }, 2)
+           console.log(JSON.stringify({ called, modules: Object.keys(require.cache).map(file => require('node:path').relative(${JSON.stringify(ROOT)}, file)) }))`,
+        ],
+        { cwd: ROOT, encoding: 'utf8', stdio: 'pipe' },
+      ),
+    )
+    expect(loaded).toEqual({
+      called: { props: { a: 1 }, extra: 2 },
+      modules: [reactServer ? 'dist/rsc/cjs/factory-call/index.cjs' : 'dist/cjs/factory-call/index.cjs'],
+    })
+  })
+
+  /** The preload that loads `'use client'` modules as client references, as a bundler's server layer does. */
+  const CLIENT_REFERENCES = path.join(ROOT, 'tests/react-server-client-references.mjs')
+
+  it.each([
+    { build: 'default', format: 'esm' },
+    { build: 'default', format: 'cjs' },
+    { build: 'server', format: 'esm' },
+    { build: 'server', format: 'cjs' },
+  ] as const)('joins a call of a factory core made, in the $build $format build', ({ build, format }) => {
+    const load = (specifier: string) => (format === 'esm' ? `await import(${JSON.stringify(specifier)})` : `require(${JSON.stringify(specifier)})`)
+    const code = `
+      const ui = ${load('@meonode/ui')}
+      const leaf = ${load('@meonode/ui/factory-call')}
+      const Box = ui.createNode('div', { padding: 8 })
+      const node = leaf.__meoFactoryCall(Box, { at: 0 }, { margin: 4, children: 'x' })
+      console.log(JSON.stringify({ named: typeof node.props.__meo$n, reexported: ui.__meoFactoryCall === leaf.__meoFactoryCall }))`
+    const args = [
+      ...(build === 'server' ? ['--conditions=react-server', '--import', CLIENT_REFERENCES] : []),
+      ...(format === 'esm' ? ['--input-type=module', '-e', code] : ['-e', `(async () => {${code}})()`]),
+    ]
+    const result = JSON.parse(execFileSync(process.execPath, args, { cwd: ROOT, encoding: 'utf8', stdio: 'pipe' }).trim().split('\n').at(-1)!)
+    expect(result).toEqual({ named: 'string', reexported: true })
   })
 })

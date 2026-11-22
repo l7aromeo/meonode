@@ -21,6 +21,8 @@ const input = {
   main: 'src/main.ts',
   client: 'src/client.ts',
   'nextjs-registry/index': 'src/nextjs-registry/index.ts',
+  // Imports nothing, so compiled output can call an imported factory through it without loading core.
+  'factory-call/index': 'src/factory-call/index.ts',
 }
 
 /**

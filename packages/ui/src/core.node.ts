@@ -64,6 +64,7 @@ import { hasNamedStyles, registerNamedText, staticStylesOf } from '@src/util/sta
 import { nameStyles } from '@src/util/style-name.util.js'
 import CSSPropertySet from '@src/constant/css-properties.const.js'
 import { serializeStyles } from '@emotion/serialize'
+import { factoryBrands, type FactoryCallSite } from '@src/factory-call/index.js'
 import { namedClass, type NamedStyle } from '@src/util/named-style.util.js'
 import type { EmotionCache } from '@emotion/cache'
 import { readEmotionCache } from '@src/util/emotion-cache.util.js'
@@ -1696,25 +1697,19 @@ function factoryProps(initialProps: Record<string, unknown> | undefined, props: 
   return combineFactoryProps(initialProps, props)
 }
 
-/** What `__meoFactoryCall` reads of a factory: its element, its initial props, and which argument holds a call's props. */
-interface FactoryBrand {
+/** What a factory's join reads of it: its element, its initial props, and which argument holds a call's props. */
+interface FactoryShape {
   element: NodeElementType
   initialProps: Record<string, unknown> | undefined
   propsAt: 0 | 1
 }
 
-/** Every factory `createNode` and `createChildrenFirstNode` made, by its callable. */
-const factoryBrands = new WeakMap<object, FactoryBrand>()
-
 /**
- * A call site of an imported factory, as the compiler hoists it to its module's
- * top level: `at` is the argument it found the call's props in, and `r` marks a
- * site the compiler's carrier rule gives a carrier, as it would a named node
- * there. Only these and the object's identity are read.
+ * Brands a factory `createNode` or `createChildrenFirstNode` made, in the
+ * registry `@meonode/ui/factory-call` reads, with the join for its calls.
  */
-export interface FactoryCallSite {
-  readonly at: number
-  readonly r?: 1
+function brandFactory(factory: (...args: never[]) => unknown, shape: FactoryShape): void {
+  factoryBrands.set(factory, { join: (callee, site, args) => joinFactoryCall(shape, callee, site, args) })
 }
 
 /**
@@ -1800,43 +1795,41 @@ function joinStyle(merged: Record<string, unknown>, own: string | undefined): Jo
 }
 
 /**
- * Calls an imported factory for a call site the compiler could not merge, since
- * the factory's initial props are in another module: `__meoFactoryCall(Panel,
- * site, ...args)` stands for `Panel(...args)`. The call site's style can't vary
- * between renders, so its first call joins it with the factory's initial
- * props, and every call renders a named node under that style, its other props
- * merged as the factory merges them. Anything else is called as written: a
- * callee no `createNode` made, a site whose `at` is not the argument the
- * factory reads its props from, props that are not an object literal's, a
- * `theme` or `disableEmotion` in the call's or the factory's props, and a style
- * {@link joinStyle} keeps on the runtime path. In development, a call whose own
- * style is not its site's first call's is reported once and called as written.
- * @param callee The binding the call site calls.
+ * A call of a factory this core made, through `__meoFactoryCall`: a call site
+ * the compiler could not merge, since the factory's initial props are in
+ * another module. The call site's style can't vary between renders, so its
+ * first call joins it with the factory's initial props, and every call renders
+ * a named node under that style, its other props merged as the factory merges
+ * them. Anything else is called as written: a site whose `at` is not the
+ * argument the factory reads its props from, props that are not an object
+ * literal's, a `theme` or `disableEmotion` in the call's or the factory's props,
+ * and a style {@link joinStyle} keeps on the runtime path. In development, a
+ * call whose own style is not its site's first call's is reported once and
+ * called as written.
+ * @param brand The factory's shape.
+ * @param factory The factory.
  * @param site The call site, hoisted by the compiler.
  * @param args The call's arguments, as written.
- * @returns What `callee(...args)` returns, with the style named.
+ * @returns What `factory(...args)` returns, with the style named.
  */
-export function __meoFactoryCall(callee: unknown, site: FactoryCallSite, ...args: unknown[]): unknown {
-  const brand = typeof callee === 'function' ? factoryBrands.get(callee) : undefined
+function joinFactoryCall(brand: FactoryShape, factory: (...args: never[]) => unknown, site: FactoryCallSite, args: unknown[]): unknown {
   const props = args[site.at]
   if (
-    brand === undefined ||
     site.at !== brand.propsAt ||
     !isPlainObject(props) ||
     'theme' in props ||
     'disableEmotion' in props ||
     (brand.initialProps !== undefined && ('theme' in brand.initialProps || 'disableEmotion' in brand.initialProps))
   ) {
-    return (callee as (...called: unknown[]) => unknown)(...args)
+    return factory(...(args as never[]))
   }
-  const factory = callee as (...called: unknown[]) => unknown
   let joined = joinedStyles.get(site)
   if (joined === undefined || joined.factory !== factory) {
     joined = { factory, style: joinStyle(mergeFactoryProps(brand.initialProps, props), initialPropsFingerprint(stylePartOf(props))) }
     joinedStyles.set(site, joined)
   }
   const style = joined.style
-  if (style === null) return factory(...args)
+  if (style === null) return factory(...(args as never[]))
   if (isDevMode() && initialPropsFingerprint(stylePartOf(props)) !== style.own) {
     if (!reportedSites.has(site)) {
       reportedSites.add(site)
@@ -1844,7 +1837,7 @@ export function __meoFactoryCall(callee: unknown, site: FactoryCallSite, ...args
         `[MeoNode] A call of the '${getElementTypeName(brand.element)}' factory compiled as static has a style other than its first call's, so it renders on the runtime path. The compiler marked a call whose style varies.`,
       )
     }
-    return factory(...args)
+    return factory(...(args as never[]))
   }
   // Held again if the registry was cleared since the join.
   if (staticStylesOf(style.name) === undefined) registerNamedText(style.name, style.styles)
@@ -1890,7 +1883,7 @@ export function createNode<AdditionalInitialProps, E extends NodeElementType, Ex
     return node
   }
   Instance.element = element
-  factoryBrands.set(Instance, { element, initialProps: initialProps as Record<string, unknown> | undefined, propsAt: 0 })
+  brandFactory(Instance, { element, initialProps: initialProps as Record<string, unknown> | undefined, propsAt: 0 })
   return Instance as any
 }
 
@@ -1930,6 +1923,6 @@ export function createChildrenFirstNode<AdditionalInitialProps, E extends NodeEl
   }
   Instance.element = element
   childrenFirstFactories.add(Instance)
-  factoryBrands.set(Instance, { element, initialProps: initialProps as Record<string, unknown> | undefined, propsAt: 1 })
+  brandFactory(Instance, { element, initialProps: initialProps as Record<string, unknown> | undefined, propsAt: 1 })
   return Instance as any
 }
