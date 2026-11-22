@@ -230,6 +230,11 @@ function slotSetOf(paths: readonly SlotPath[]): SlotSet {
   return { keys, within }
 }
 
+/** The slot set for slot keys, as {@link slotKey} writes them. */
+function slotSetOfKeys(keys: Iterable<string>): SlotSet {
+  return slotSetOf([...keys].map(key => (key === '' ? [] : key.split('.').map(Number))))
+}
+
 /** Where the walk reaches a slot: right before the position it is at, after everything before it. */
 interface SlotMark {
   slotOf: BaseNode
@@ -264,6 +269,71 @@ function collectWithSlots(parent: BaseNode, children: unknown, slots: SlotSet): 
   }
   walk(Array.isArray(children) ? children : [children], '')
   return out
+}
+
+/**
+ * Whether `target` is a component that renders its children where it chooses,
+ * after rules of its own: what a run since the last rule may not cross. MeoNode's
+ * own providers render their children as given, so they are not.
+ */
+const cutsRuleOrder = (target: unknown): boolean => mayChangeTheme(target) && !passesChildrenThrough(target)
+
+/** What a node renders: its `as` target where that is valid, else its element. */
+const renderTargetOf = (node: BaseNode): unknown => {
+  const as = (node.props as { as?: unknown }).as
+  return as != null && isValidElementType(as) ? as : node.element
+}
+
+/**
+ * Whether a child the walk does not enter, an element or what it holds, may
+ * render a component: a `Component(...)` call's element, a styled node's, a lazy
+ * reference, or a host element over one.
+ */
+function mayRenderComponent(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(mayRenderComponent)
+  if (NodeUtil.isNodeInstance(value)) return cutsRuleOrder(renderTargetOf(value)) || mayRenderComponent(value.props.children)
+  if (isValidElement(value)) return cutsRuleOrder(value.type) || mayRenderComponent((value.props as { children?: unknown }).children)
+  return typeof value === 'object' && value !== null && (value as { $$typeof?: unknown }).$$typeof === REACT_LAZY_TYPE
+}
+
+/** Whether a host's child is where a run must stop: one rendering a component, entered by the walk or not. */
+const cutsAt = (child: unknown): boolean =>
+  NodeUtil.isNodeInstance(child) ? cutsRuleOrder(renderTargetOf(child)) : typeof child === 'object' && child !== null && mayRenderComponent(child)
+
+/**
+ * `slots` with a slot right before every child that renders a component, as the
+ * compiler marks each it can see, so a run never crosses one the compiler could
+ * not see, such as one in a spread list.
+ * @param children The host's children, an array or one child.
+ * @param slots The slots the compiler marked, if any.
+ * @returns `slots` when every such child already has one, else a new set.
+ */
+function withComponentSlots(children: unknown, slots: SlotSet | undefined): SlotSet | undefined {
+  let keys: Set<string> | undefined
+  let within: Set<string> | undefined
+  // The slot of the children as a whole is right before a sole child.
+  if (!Array.isArray(children) && slots?.keys.has('')) return slots
+  const seen = new WeakSet<object>()
+  const walk = (list: readonly unknown[], prefix: string) => {
+    if (seen.has(list)) return
+    seen.add(list)
+    for (let i = 0; i < list.length; i++) {
+      const child = list[i]
+      const key = prefix === '' ? String(i) : `${prefix}.${i}`
+      if (Array.isArray(child)) walk(child, key)
+      else if (!slots?.keys.has(key) && cutsAt(child)) {
+        keys ??= new Set(slots?.keys)
+        keys.add(key)
+        if (prefix !== '') {
+          within ??= new Set(slots?.within)
+          const path = key.split('.')
+          for (let length = 1; length < path.length; length++) within.add(path.slice(0, length).join('.'))
+        }
+      }
+    }
+  }
+  walk(Array.isArray(children) ? children : [children], '')
+  return keys === undefined ? slots : { keys, within: within ?? slots?.within ?? new Set() }
 }
 
 /**
@@ -1014,8 +1084,11 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
             // this phase would never reach `renderedElements`, and the complete
             // phase below would then fail to look it up rather than rendering it.
             // With slots, the walk reaches each where it is among them.
+            // With named styles, every child that renders a component is a slot too.
             const slotPaths = typeof children === 'function' ? undefined : (node.props[STATIC_SLOTS_MARKER] as readonly SlotPath[] | undefined)
-            const pending = slotPaths ? collectWithSlots(node, children, slotSetOf(slotPaths)) : collectNodeChildren(childArray)
+            const marked = slotPaths ? slotSetOf(slotPaths) : undefined
+            const slots = namedEnabled && typeof children !== 'function' && node._builtFrom === undefined ? withComponentSlots(children, marked) : marked
+            const pending = slots ? collectWithSlots(node, children, slots) : collectNodeChildren(childArray)
 
             ensureCapacity(stackPointer + pending.length)
 
@@ -1097,6 +1170,13 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
           if (asTarget != null && isValidElementType(asTarget)) {
             renderTarget = asTarget
           }
+          // A component may insert rules of its own after its children's: the run
+          // since the last rule goes in after that rule, and what follows the
+          // component is no longer next to it.
+          if (namedEnabled && cutsRuleOrder(renderTarget)) {
+            runAfterLastRule()
+            lastRuleNode = null
+          }
           // A node in a prop is a supported pattern — a component can take one and
           // put it in its own `children`, where the walk resolves it (see
           // `tests/props-attributes.test.ts`). So this cannot be a general check.
@@ -1156,9 +1236,12 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
           // runtime node or carrier before it to follow; otherwise the children are
           // as written. The slot of the children as a whole goes ahead of them as an
           // argument of its own, so a generated list stays the one list React key-checks.
+          // A child rendering a component the compiler did not mark has a slot only once a run is there.
+          const runsHere = hostChildren === childrenInProps && builtFrom === undefined ? slotRuns.get(node) : undefined
           const slots =
-            slotMarker !== undefined && hostChildren === childrenInProps && builtFrom === undefined ? slotSetOf(slotMarker as readonly SlotPath[]) : undefined
-          const runsHere = slots ? slotRuns.get(node) : undefined
+            runsHere === undefined
+              ? undefined
+              : slotSetOfKeys([...(slotMarker !== undefined ? (slotMarker as readonly SlotPath[]).map(slotKey) : []), ...runsHere.keys()])
           const leafAt = (slotKeyOf: string): ReactNode => {
             const run = runsHere?.get(slotKeyOf)
             return run && namedPending(run) ? createElement(StaticStyles, { key: `${SLOT_KEY_PREFIX}${slotKeyOf}`, styles: run }) : null

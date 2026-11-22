@@ -156,13 +156,25 @@ describe('a named node’s token check, under a carrier', () => {
         }),
       false,
     ],
+    // Inside a component the stretch begins again, at a carrier of its own.
     'a token a provider inside a component defines': [
-      (style, carrier) => Div({ ...carrier({ display: 'grid' }), children: Node(InnerTheme, { children: Span('y', style({ color: 'theme.accent' })) }) }),
+      (style, carrier) =>
+        Div({
+          ...carrier({ display: 'grid' }),
+          children: Node(InnerTheme, {
+            children: [Span('x', { key: 'x', ...carrier({ order: 1 }) }), Span('y', { key: 'y', ...style({ color: 'theme.accent' }) })],
+          }),
+        }),
       false,
     ],
     'a missing token under a component with its own provider': [
       (style, carrier) =>
-        Div({ ...carrier({ display: 'grid' }), children: Node(InnerTheme, { children: Span('y', style({ color: 'theme.primary.missing' })) }) }),
+        Div({
+          ...carrier({ display: 'grid' }),
+          children: Node(InnerTheme, {
+            children: [Span('x', { key: 'x', ...carrier({ order: 1 }) }), Span('y', { key: 'y', ...style({ color: 'theme.primary.missing' }) })],
+          }),
+        }),
       true,
     ],
   }

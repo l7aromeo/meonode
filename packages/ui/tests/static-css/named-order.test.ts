@@ -206,8 +206,8 @@ const CASES: Record<string, Steps> = {
 /**
  * Cases where a static node's rule and a component's own are in one run, and
  * the call site marks no slot before the component, as one the compiler did not
- * compile: the run goes in after the component's rules, where Emotion puts it
- * before them.
+ * compile: the walk cuts at the component all the same, so the run goes in
+ * ahead of the component's rules, where Emotion puts it, from a leaf it reports.
  */
 const BEFORE_A_COMPONENT: Record<string, Steps> = {
   'a parent’s & .child against a component child’s own .wrapper &': once(style => {
@@ -241,13 +241,15 @@ describe('compiled nodes carrying their style’s name go into Emotion’s sheet
 })
 
 describe('before a component at a position with no slot', () => {
-  // Pinned: the classes match, the order of the two rules does not.
   it.each(Object.entries(BEFORE_A_COMPONENT))('%s', (_, steps) => {
     const expected = run(steps, runtimeStyle)
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
     const compiled = run(steps, compiledStyle)
+    errors.mockRestore()
     expect(compiled.classes).toEqual(expected.classes)
-    expect([...compiled.rules].sort()).toEqual([...expected.rules].sort())
-    expect(compiled.rules).not.toEqual(expected.rules)
+    expect(compiled.rules).toEqual(expected.rules)
+    // Reported: the parent's run, at the slot the walk made, and the component's own, unmarked too.
+    expect(compiled.uncarried.length).toBe(process.env.NODE_ENV === 'production' ? 0 : 2)
   })
 })
 

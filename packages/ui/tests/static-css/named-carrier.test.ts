@@ -456,19 +456,20 @@ describe('a Component element written twice in one host', () => {
 // children, so what `.render()` returns differs, and development says so.
 describe('named nodes with no carrier marked', () => {
   // The tie row of a component after a spread, with the static node after it
-  // left unmarked: no cut at the component, so its run goes in after the runtime
-  // node before it, ahead of the component's rule, and the tie flips.
-  it('let a run cross a component after a spread, where the walk has no cut', () => {
+  // left unmarked: the walk cuts at the component the compiler could not see,
+  // so the run goes in at the end of its carrier, after the component's rule,
+  // and is reported as having no carrier.
+  it('keep a run after a component the compiler could not see, after its rule', () => {
     const tree = TIES['a static node after a component after a spread, against the component’s own rule']
     const unmarked: Style = (css, options) => compiledStyle(css, options?.carrier && css['.wrapper:has(&) .item'] ? {} : options)
     const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
     const expected = once(tree, runtimeStyle)
     const compiled = once(tree, unmarked)
+    const reports = errors.mock.calls.filter(call => String(call[0]).includes('have no carrier')).length
     errors.mockRestore()
-    const item = (rules: string[]) => rules.findIndex(rule => rule.includes('.wrapper:has(.t)'))
-    const after = (rules: string[]) => rules.findIndex(rule => rule.includes(':has(.css-'))
-    expect(item(expected.rules)).toBeLessThan(after(expected.rules))
-    expect(item(compiled.rules)).toBeGreaterThan(after(compiled.rules))
+    expect(compiled.classes).toEqual(expected.classes)
+    expect(compiled.rules).toEqual(expected.rules)
+    expect(reports).toBe(process.env.NODE_ENV === 'production' ? 0 : 1)
   })
 
   it('keep the runtime twin’s rules, and are reported once per style', () => {
