@@ -571,6 +571,11 @@ was, and the runtime handles it as before.
   `@webref/css`), so `border` beside `borderRadius` is extracted, while `border`
   beside `borderColor`, or `marginBottom` beside `marginInline`, is not.
 
+- **Reserved names.** Class names `mn-` followed by 13 base-36 digits, and
+  custom properties `--mv-` followed by 13 base-36 digits, are reserved for
+  extracted rules and the variables they read; don't use names of that shape in
+  your own css or class names.
+
 - **Layout factories.** A layout factory's initial props (`display: 'flex'`,
   `flexDirection: 'row'`, …) are merged in front of the call site's, as
   `createNode` merges them, and extracted with them. The call site then carries
