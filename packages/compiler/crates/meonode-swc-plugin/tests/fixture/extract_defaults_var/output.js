@@ -1,4 +1,4 @@
-import { registerStaticCss as __meoCss } from "@meonode/ui";
+import { registerStaticCss as __meoCss, registerStaticTemplate as __meoTpl, toCssValue as __meoVal } from "@meonode/ui";
 import { Div } from "@meonode/ui";
 __meoCss("11gsu77lp4hgd", [
     [
@@ -10,15 +10,17 @@ __meoCss("11gsu77lp4hgd", [
         "min-height:0;min-width:0;"
     ]
 ]);
+__meoTpl("120r56z1xvwql", [
+    "flex-shrink:0;min-height:",
+    ";min-width:0;"
+]);
 Div({
     __meo$: 2,
-    __meo$c: {
-        minHeight: `${keyword}`
-    },
-    __meo$k: "m3v0lspayi47y",
-    __meo$dyn: [
-        "minHeight"
-    ]
+    __meo$t: [
+        "120r56z1xvwql",
+        __meoVal("minHeight", `${keyword}`)
+    ],
+    __meo$k: "m3v0lspayi47y"
 });
 Div({
     __meo$: 2,

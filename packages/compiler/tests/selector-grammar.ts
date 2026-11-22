@@ -398,8 +398,8 @@ export function prefixedDeclarations(): [string, string][] {
 
 /** The run-time props each case renders with, so every value takes each branch. */
 export const PROPS = [
-  { color: 'purple', on: true, n: 3 },
-  { color: 'teal', on: false, n: 5 },
+  { color: 'purple', on: true, n: 3, tone: 'primary', size: 'md', wrap: 'wrap', big: 3n },
+  { color: 'teal', on: false, n: 5, tone: 'flex', size: 'lg', wrap: 'nowrap', big: 5n },
 ] as const
 
 /** A nested css object, as source. */

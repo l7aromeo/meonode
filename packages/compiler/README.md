@@ -515,8 +515,9 @@ has rather than with its size.
 
 ### `experimental_extractCss` — styles written at build time (experimental)
 
-A prototype, needing a `@meonode/ui` that reads `__meo$n` and exports
-`registerStaticCss`. The name and the output may change before it ships.
+A prototype, needing a `@meonode/ui` that reads `__meo$n` and `__meo$t` and
+exports `registerStaticCss`, `registerStaticTemplate` and `toCssValue`. The
+names and the output may change before it ships.
 
 ```js
 experimental: {
@@ -538,11 +539,19 @@ insertion and its class are the ones the node would have uncompiled.
   `const` literals, at any depth of `css`; a conditional over those, which gets
   one name per combination of its branches (at most 16 per node), chosen at the
   call site by the same conditional.
-- **Left to the runtime, whole:** a node with any value known only at runtime
-  (identifiers, member reads, calls, theme functions, template literals and
-  arithmetic), fallback arrays, spreads, a theme token in a key, a key Emotion
-  reads as serialized styles or keyframes (`styles`, `anim`), and component
-  targets. Such a node renders exactly as it does today.
+- **Known only at the call site, but a string or a number:** a template literal,
+  or arithmetic (`+` included), over identifiers, member reads and literals. The text around such values is a template, registered once per
+  module through `registerStaticTemplate`; the call site carries the template's
+  id and each value as `toCssValue` writes it (`__meo$t`), and the runtime joins
+  the two and names the result as it names any serialized styles. Such a value
+  in a key `resolveDefaultStyle` reads (`display`, `flex`, `flexDirection`,
+  `flexFlow`, `flexWrap`, `overflow*`) or in `animation`/`animationName` leaves
+  the node to the runtime.
+- **Left to the runtime, whole:** a node with any other value known only at
+  runtime (a bare identifier or member read, which may be nullish or a theme
+  function, calls, theme functions), fallback arrays, spreads, a theme token in
+  a key, a key Emotion reads as serialized styles or keyframes (`styles`,
+  `anim`), and component targets. Such a node renders exactly as it does today.
 - **Same text as the runtime.** Every selector, at-rule and value is written as
   Emotion serializes it, so any shape Emotion takes is extracted, `& + &` and
   `:not(&)` included: the class is Emotion's own class.
@@ -574,7 +583,8 @@ requirements](#runtime-version-requirements) rather than emitted.
 | `__meo$dyn` | Names of bucketed props (from `__meo$c` or `__meo$d`) whose value isn't a plain literal — i.e. props the runtime still needs to treat as reactive/dynamic, in first-occurrence source order (omitted if empty). |
 | `__meo$list` | Present, as `1`, only when this call site's `children` expression was *generated* rather than written out or passed through from the caller. Absent otherwise — there is no `0`. |
 | `__meo$n` | The runtime's name for the call site's whole style, with `experimental_extractCss`: a string, or a conditional choosing between names (omitted when the node stays on the runtime path). |
-| `__meo$i` | On a layout factory's call site with `__meo$n`: the fingerprint of the initial props merged into it, `key:value;` per prop in key order. A runtime whose factory has the same fingerprint skips its own merge. |
+| `__meo$t` | In place of `__meo$n`, when the style holds values only the call site knows: `[templateId, ...valueTexts]`, or a conditional choosing between such arrays. The template's chunks, one more than its values, are registered under its id; joined with the values in order they are the serialized styles. |
+| `__meo$i` | On a layout factory's call site with `__meo$n` or `__meo$t`: the fingerprint of the initial props merged into it, `key:value;` per prop in key order. A runtime whose factory has the same fingerprint skips its own merge. |
 | `__meo$loc` | `file:line:column` of a call site carrying `__meo$list`, emitted only when [`callSiteLocations`](#callsitelocations--where-a-generated-list-was-written) is enabled. |
 
 Forward-compat policy: the runtime checks `__meo$` against the schema

@@ -19,8 +19,21 @@
 //!
 //! A value is known when it is a literal, a token string or a same-file
 //! `const` literal, at any depth; a conditional over known values gives one
-//! name per combination, up to [`SWITCH_COMBINATIONS`]. A node holding
-//! anything else stays whole on the runtime path, as it renders today.
+//! name per combination, up to [`SWITCH_COMBINATIONS`].
+//!
+//! A value that is provably a string or a number (a template literal,
+//! or arithmetic, `+` included, over pure reads) is a hole in
+//! a template: the text around it is registered once per module, and the call
+//! site carries the value as `processStyleValue` writes it. The runtime joins
+//! the two and names the result as it names any serialized styles:
+//!
+//! ```text
+//! __meoTpl('<template id>', ['flex-shrink:0;…;width:', ';'])
+//! Div({ __meo$: 2, __meo$t: ['<template id>', __meoVal('width', w * 2)], … })
+//! ```
+//!
+//! A node holding anything else stays whole on the runtime path, as it
+//! renders today.
 
 use std::collections::{HashMap, HashSet};
 
@@ -43,13 +56,18 @@ const UI_MODULE_CLIENT: &str = "@meonode/ui/client";
 /// Local names of the imported helpers.
 pub const REGISTER_LOCAL: &str = "__meoCss";
 pub const VALUE_LOCAL: &str = "__meoVal";
+pub const TEMPLATE_LOCAL: &str = "__meoTpl";
 const REGISTER_EXPORT: &str = "registerStaticCss";
 const VALUE_EXPORT: &str = "toCssValue";
-/// Marker keys the call site carries.
-pub const CLASSES_KEY: &str = "__meo$s";
+const TEMPLATE_EXPORT: &str = "registerStaticTemplate";
 /// The call site's class name: the runtime's own name for its styles.
 pub const NAME_KEY: &str = "__meo$n";
-pub const VARIABLES_KEY: &str = "__meo$v";
+/// The call site's template: its id, then each hole's value text.
+pub const TEMPLATE_KEY: &str = "__meo$t";
+/// Marks hole `n` in serialized text while it is split into chunks. Private-use
+/// characters, so a node whose own text holds one stays on the runtime path.
+const HOLE_OPEN: char = '\u{E000}';
+const HOLE_CLOSE: char = '\u{E001}';
 /// On a layout factory's call site whose initial props were merged here: their
 /// fingerprint, which tells a runtime with the same initial props to skip its
 /// own merge.
@@ -74,13 +92,22 @@ pub struct Rule {
     pub text: String,
 }
 
-/// What one module contributes: its rules, in first-use order, and which
-/// helpers its call sites use.
+/// One template for the module's registration calls.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Template {
+    /// Hash of the chunks.
+    pub id: String,
+    /// The serialized text around the holes: one more chunk than holes.
+    pub chunks: Vec<String>,
+}
+
+/// What one module contributes: its rules and templates, in first-use order.
 #[derive(Debug, Default)]
 pub struct ModuleExtraction {
     rules: Vec<Rule>,
     seen: HashSet<String>,
-    uses_value: bool,
+    templates: Vec<Template>,
+    seen_templates: HashSet<String>,
 }
 
 impl ModuleExtraction {
@@ -90,8 +117,14 @@ impl ModuleExtraction {
         }
     }
 
+    fn add_template(&mut self, template: Template) {
+        if self.seen_templates.insert(template.id.clone()) {
+            self.templates.push(template);
+        }
+    }
+
     pub fn is_empty(&self) -> bool {
-        self.rules.is_empty() && !self.uses_value
+        self.rules.is_empty() && self.templates.is_empty()
     }
 }
 
@@ -130,8 +163,9 @@ impl ModuleScope {
                 _ => {}
             }
         }
-        scope.name_taken =
-            module_mentions(module, REGISTER_LOCAL) || module_mentions(module, VALUE_LOCAL);
+        scope.name_taken = [REGISTER_LOCAL, VALUE_LOCAL, TEMPLATE_LOCAL]
+            .iter()
+            .any(|name| module_mentions(module, name));
         if scope.name_taken {
             return None;
         }
@@ -531,7 +565,7 @@ fn flex_shrink_of(flex: &Value) -> Option<f64> {
 
 /// What a call site's rewrite adds and removes.
 pub struct SiteExtraction {
-    /// The `__meo$s` and, when any VAR, `__meo$v` props.
+    /// The `__meo$n` or `__meo$t` prop, and `__meo$i` on a layout factory.
     pub props: Vec<PropOrSpread>,
     /// Top-level keys taken out of `__meo$c` and `css`.
     pub removed_top_keys: HashSet<String>,
@@ -539,6 +573,32 @@ pub struct SiteExtraction {
 
 fn str_expr(text: &str) -> Expr {
     Expr::Lit(Lit::Str(Str::from(Atom::from(text))))
+}
+
+/// `__meoVal('<key>', <value>)`: the value text `processStyleValue` writes for
+/// `value` under `key`, at render.
+fn value_call(key: &str, value: &Expr) -> Expr {
+    call_expr(VALUE_LOCAL, vec![str_expr(key), value.clone()])
+}
+
+/// `<callee>(<args>)`.
+fn call_expr(callee: &str, args: Vec<Expr>) -> Expr {
+    Expr::Call(CallExpr {
+        span: DUMMY_SP,
+        ctxt: SyntaxContext::empty(),
+        callee: Callee::Expr(Box::new(Expr::Ident(Ident::new_no_ctxt(
+            Atom::from(callee),
+            DUMMY_SP,
+        )))),
+        args: args
+            .into_iter()
+            .map(|expr| ExprOrSpread {
+                spread: None,
+                expr: Box::new(expr),
+            })
+            .collect(),
+        type_args: None,
+    })
 }
 
 impl ModuleScope {
@@ -591,25 +651,20 @@ impl ModuleScope {
             call_props.push(("css".to_string(), value));
         }
         let initial = factory.initial_entries();
-        let mut entries = combine_factory_props(&initial, &call_props);
-        let css = entries
+        let mut flat = combine_factory_props(&initial, &call_props);
+        let css = flat
             .iter()
             .position(|(key, _)| key == "css")
-            .map(|at| entries.remove(at).1);
+            .map(|at| flat.remove(at).1);
+        let mut css_entries = Vec::new();
         if let Some(value) = css {
             match unwrap_transparent(&value) {
                 Expr::Object(obj) => {
                     for spread in obj.props.iter().filter_map(|p| p.as_spread()) {
                         explain::classify("css spread", &spread.expr);
                     }
-                    for (key, value) in object_entries(obj)
-                        .or_else(|| explain::bail("css with a spread or computed key"))?
-                    {
-                        match entries.iter_mut().find(|(k, _)| *k == key) {
-                            Some(slot) => slot.1 = value,
-                            None => entries.push((key, value)),
-                        }
-                    }
+                    css_entries = object_entries(obj)
+                        .or_else(|| explain::bail("css with a spread or computed key"))?;
                 }
                 Expr::Lit(Lit::Bool(Bool { value: false, .. }) | Lit::Null(_)) => {}
                 Expr::Ident(id) if id.sym.as_ref() == "undefined" => {}
@@ -619,57 +674,109 @@ impl ModuleScope {
                 }
             }
         }
-        if entries.is_empty() {
+        if flat.is_empty() && css_entries.is_empty() {
             return explain::bail("no style entries");
         }
 
-        // The object `renderOwnClass` serializes, one per SWITCH combination.
-        // Every entry is looked at, so the reason recorder sees each value left
-        // to the runtime, not only the first.
-        let mut tree = Vec::new();
+        // The object `renderOwnClass` serializes, one per SWITCH combination:
+        // the flat props in `processProps`' order, then `css` over them. Every
+        // entry is looked at, so the reason recorder sees each value left to
+        // the runtime, not only the first.
+        let mut flat_tree = Vec::new();
+        let mut css_tree = Vec::new();
         let mut known = true;
-        for (key, value) in &entries {
+        for (key, value) in &flat {
             match self.entry(key, value, 0) {
-                Some(entry) => tree.push((key.clone(), entry)),
+                Some(entry) => flat_tree.push((key.clone(), entry)),
+                None => known = false,
+            }
+        }
+        for (key, value) in &css_entries {
+            match self.entry(key, value, 0) {
+                Some(entry) => css_tree.push((key.clone(), entry)),
                 None => known = false,
             }
         }
         if !known {
             return None;
         }
-        // One name per combination of choices, stopping past the cap.
-        let mut named: Vec<Rule> = Vec::new();
+        // One name, or one template, per combination of choices, stopping past
+        // the cap. Every combination holds the same holes, since a SWITCH
+        // branch is always a known value.
+        let mut leaves = Vec::new();
+        flatten(&flat_tree, &mut Vec::new(), &mut leaves);
+        let flat_leaves = leaves.len();
+        flatten(&css_tree, &mut Vec::new(), &mut leaves);
+        let has_holes = leaves.iter().any(|(_, leaf)| matches!(leaf, Leaf::Var(_)));
+        let mut rules: Vec<Rule> = Vec::new();
+        let mut templates: Vec<Template> = Vec::new();
+        let mut combinations = 0;
         let mut over_cap = false;
-        let name_expr = name_expr(&tree, &mut |chosen| {
-            if named.len() == SWITCH_COMBINATIONS {
+        let site_expr = name_expr(&leaves, flat_leaves, &mut |chosen| {
+            if combinations == SWITCH_COMBINATIONS {
                 over_cap = true;
                 return None;
             }
+            combinations += 1;
             let styles = styles_text(chosen)?;
-            let name = serialize::style_name(&styles);
-            named.push(Rule {
-                class: name.clone(),
-                text: styles,
-            });
-            Some(name)
+            if !has_holes {
+                let name = serialize::style_name(&styles);
+                rules.push(Rule {
+                    class: name.clone(),
+                    text: styles,
+                });
+                return Some(str_expr(&name));
+            }
+            let (chunks, holes) = split_holes(&styles)
+                .or_else(|| explain::bail("a hole marker the text does not close"))?;
+            let id = hash_styles(&chunks.join(&SEP.to_string()));
+            let mut elems = vec![Some(ExprOrSpread {
+                spread: None,
+                expr: Box::new(str_expr(&id)),
+            })];
+            for index in holes {
+                let (path, Leaf::Var(value)) = leaves.get(index)? else {
+                    return None;
+                };
+                elems.push(Some(ExprOrSpread {
+                    spread: None,
+                    expr: Box::new(value_call(path.last()?, value)),
+                }));
+            }
+            templates.push(Template { id, chunks });
+            Some(Expr::Array(ArrayLit {
+                span: DUMMY_SP,
+                elems,
+            }))
         });
         if over_cap {
             return explain::bail("more SWITCH combinations than the cap");
         }
-        let name_expr = name_expr?;
-        for rule in named {
+        let site_expr = site_expr?;
+        for rule in rules {
             module.add(rule);
         }
+        for template in templates {
+            module.add_template(template);
+        }
 
-        // Every style entry is in the name: none is left for the runtime.
-        let top: HashSet<String> = entries.iter().map(|(key, _)| key.clone()).collect();
+        // Every style entry is in the name or the template: none is left for
+        // the runtime.
+        let top: HashSet<String> = flat
+            .iter()
+            .chain(css_entries.iter())
+            .map(|(key, _)| key.clone())
+            .collect();
         c_props.clear();
         if let Some(index) = css_index {
             special_props.remove(index);
         }
         let mut props = vec![PropOrSpread::Prop(Box::new(Prop::KeyValue(KeyValueProp {
-            key: PropName::Ident(IdentName::new(Atom::from(NAME_KEY), DUMMY_SP)),
-            value: Box::new(name_expr),
+            key: PropName::Ident(IdentName::new(
+                Atom::from(if has_holes { TEMPLATE_KEY } else { NAME_KEY }),
+                DUMMY_SP,
+            )),
+            value: Box::new(site_expr),
         })))];
         if let Factory::Layout { fingerprint, .. } = factory {
             props.push(PropOrSpread::Prop(Box::new(Prop::KeyValue(KeyValueProp {
@@ -695,11 +802,55 @@ enum Entry {
     Object(Vec<(String, Entry)>),
 }
 
-/// A value, or a choice between values made by an expression at the call site.
+/// A value, a choice between values made by an expression at the call site,
+/// or a value only the call site knows, provably a string or a number.
 #[derive(Debug, Clone)]
 enum Leaf {
     Known(Js),
     Switch(Box<Expr>, Box<Leaf>, Box<Leaf>),
+    Var(Box<Expr>),
+}
+
+/// Top-level keys `resolveDefaultStyle` reads to compute `flexShrink`. A hole
+/// there would change text outside itself, so such a node stays on the runtime
+/// path.
+const DEFAULT_READ_KEYS: &[&str] = &[
+    "flex",
+    "display",
+    "overflow",
+    "overflowX",
+    "overflowY",
+    "flexFlow",
+    "flexWrap",
+    "flexDirection",
+];
+
+/// Keys whose value Emotion reads for more than its text: keyframes in
+/// `animation` and `animationName`. A `label` hole needs nothing here, since
+/// the runtime reads the name's label suffix from the joined text.
+const VALUE_READ_KEYS: &[&str] = &["animation", "animationName"];
+
+/// Whether `expr` is a string or a number whatever its pure reads hold: a
+/// template literal, `+` (string concatenation or a numeric sum), or other
+/// arithmetic. A BigInt result is written as its digits, as Emotion writes it.
+fn is_string_or_number(expr: &Expr) -> bool {
+    if !is_pure_read(expr) {
+        return false;
+    }
+    match unwrap_transparent(expr) {
+        Expr::Tpl(_) => true,
+        Expr::Unary(u) => matches!(u.op, UnaryOp::Minus | UnaryOp::Plus),
+        Expr::Bin(b) => matches!(
+            b.op,
+            BinaryOp::Add
+                | BinaryOp::Sub
+                | BinaryOp::Mul
+                | BinaryOp::Div
+                | BinaryOp::Mod
+                | BinaryOp::Exp
+        ),
+        _ => false,
+    }
 }
 
 impl ModuleScope {
@@ -708,6 +859,9 @@ impl ModuleScope {
     fn entry(&self, key: &str, value: &Expr, depth: u8) -> Option<Entry> {
         if key.contains("theme.") {
             return explain::bail("a theme token in a key");
+        }
+        if key.contains([HOLE_OPEN, HOLE_CLOSE]) {
+            return explain::bail("a key holding a hole marker");
         }
         if matches!(key, "styles" | "anim") {
             return explain::bail("a key Emotion reads as serialized styles or keyframes");
@@ -731,11 +885,20 @@ impl ModuleScope {
             }
             return known.then_some(Entry::Object(out));
         }
-        let leaf = self.leaf(value, 0).or_else(|| {
-            explain::classify("value", value);
-            explain::bail("a value left to the runtime")
-        })?;
-        Some(Entry::Value(leaf))
+        if let Some(leaf) = self.leaf(value, 0) {
+            return Some(Entry::Value(leaf));
+        }
+        if is_string_or_number(value) {
+            if depth == 0 && DEFAULT_READ_KEYS.contains(&key) {
+                return explain::bail("a value only the call site knows in a key the defaults read");
+            }
+            if VALUE_READ_KEYS.contains(&key) {
+                return explain::bail("a value only the call site knows in a key Emotion reads");
+            }
+            return Some(Entry::Value(Leaf::Var(Box::new(value.clone()))));
+        }
+        explain::classify("value", value);
+        explain::bail("a value left to the runtime")
     }
 
     /// A value known at build time, or a SWITCH over such values.
@@ -744,12 +907,12 @@ impl ModuleScope {
             return None;
         }
         Some(Leaf::Known(match unwrap_transparent(expr) {
-            Expr::Lit(Lit::Str(s)) => Js::Str(s.value.as_str()?.to_string()),
+            Expr::Lit(Lit::Str(s)) => Js::Str(known_text(s.value.as_str()?)?),
             Expr::Lit(Lit::Num(n)) => Js::Num(n.value),
             Expr::Lit(Lit::Bool(b)) => Js::Bool(b.value),
             Expr::Lit(Lit::Null(_)) => Js::Null,
             Expr::Tpl(tpl) if tpl.exprs.is_empty() => {
-                Js::Str(tpl.quasis.first()?.cooked.as_ref()?.as_str()?.to_string())
+                Js::Str(known_text(tpl.quasis.first()?.cooked.as_ref()?.as_str()?)?)
             }
             Expr::Unary(UnaryExpr {
                 op: UnaryOp::Minus,
@@ -786,19 +949,100 @@ impl ModuleScope {
     }
 }
 
-/// Names one fully chosen css object, or `None` to stop.
-type NameOf<'a> = dyn FnMut(&[(String, Js)]) -> Option<String> + 'a;
+/// The call site's value for one fully chosen css object, or `None` to stop.
+type NameOf<'a> = dyn FnMut(&[(String, Js)]) -> Option<Expr> + 'a;
 
 /// SWITCH tests already decided on the way to a combination, with their branch.
 type Decided = Vec<(Box<Expr>, bool)>;
 
-/// The class-name expression for `tree`: each SWITCH becomes a conditional
-/// choosing between the names of the objects its branches give. `name_of`
-/// names one fully chosen object.
-fn name_expr(tree: &[(String, Entry)], name_of: &mut NameOf<'_>) -> Option<Expr> {
-    let mut leaves = Vec::new();
-    flatten(tree, &mut Vec::new(), &mut leaves);
-    choose(&leaves, &mut Vec::new(), &mut Vec::new(), name_of)
+/// The call site's expression for `leaves`: each SWITCH becomes a conditional
+/// choosing between the values `name_of` gives the objects its branches make.
+/// Each VAR leaf is the marker of its hole, numbered by its index in `leaves`.
+/// The first `flat` leaves are the flat props, the rest `css`.
+fn name_expr(
+    leaves: &[(Vec<String>, Leaf)],
+    flat: usize,
+    name_of: &mut NameOf<'_>,
+) -> Option<Expr> {
+    choose(leaves, flat, &mut Vec::new(), &mut Vec::new(), name_of)
+}
+
+/// Whether `expr` is a string whatever its pure reads hold: a template
+/// literal, or `+` with a string on one side.
+fn is_string(expr: &Expr) -> bool {
+    let is_string_literal =
+        |e: &Expr| matches!(unwrap_transparent(e), Expr::Lit(Lit::Str(_)) | Expr::Tpl(_));
+    match unwrap_transparent(expr) {
+        Expr::Tpl(_) => true,
+        Expr::Bin(b) if b.op == BinaryOp::Add => {
+            is_string_literal(&b.left) || is_string_literal(&b.right)
+        }
+        _ => false,
+    }
+}
+
+/// Whether `processProps` writes `value` among a node's first flat props: a
+/// string, number or boolean, or a hole, which holds a string there.
+fn is_primitive(value: &Js) -> bool {
+    matches!(value, Js::Str(_) | Js::Num(_) | Js::Bool(_))
+}
+
+/// Whether every arithmetic hole among the flat props `obj` keeps its place if
+/// it holds a BigInt, which `processProps` writes after the primitives: each
+/// such hole has only certain primitives before it and only non-primitives
+/// after it. A template literal or a concatenation with a string is a string.
+fn bigint_cannot_move(obj: &[(String, Js)], flat_leaves: &[(Vec<String>, Leaf)]) -> bool {
+    let arithmetic = |key: &str| {
+        flat_leaves.iter().any(|(path, leaf)| {
+            matches!(leaf, Leaf::Var(var) if !is_string(var)) && path.len() == 1 && path[0] == key
+        })
+    };
+    obj.iter().enumerate().all(|(at, (key, _))| {
+        !arithmetic(key)
+            || (obj[..at].iter().all(|(k, v)| is_primitive(v) && !arithmetic(k))
+                && obj[at + 1..].iter().all(|(_, v)| !is_primitive(v)))
+    })
+}
+
+/// `flat` as `processProps` orders a node's flat style props, with `css`
+/// spread over it.
+fn style_object(flat: Vec<(String, Js)>, css: Vec<(String, Js)>) -> Vec<(String, Js)> {
+    let (mut obj, others): (Vec<_>, Vec<_>) = flat.into_iter().partition(|(_, v)| is_primitive(v));
+    obj.extend(others);
+    for (key, value) in css {
+        serialize::assign(&mut obj, &key, value);
+    }
+    obj
+}
+
+/// The marker standing for hole `index` in serialized text.
+fn hole_marker(index: usize) -> String {
+    format!("{HOLE_OPEN}{index}{HOLE_CLOSE}")
+}
+
+/// A known string as text, or `None` when it holds a hole marker.
+fn known_text(text: &str) -> Option<String> {
+    (!text.contains([HOLE_OPEN, HOLE_CLOSE])).then(|| text.to_string())
+}
+
+/// Serialized text with hole markers as the chunks around them and the hole
+/// indices, in text order. `None` when a marker is malformed.
+fn split_holes(text: &str) -> Option<(Vec<String>, Vec<usize>)> {
+    let mut chunks = Vec::new();
+    let mut holes = Vec::new();
+    let mut rest = text;
+    while let Some(open) = rest.find(HOLE_OPEN) {
+        chunks.push(rest[..open].to_string());
+        let after = &rest[open + HOLE_OPEN.len_utf8()..];
+        let close = after.find(HOLE_CLOSE)?;
+        holes.push(after[..close].parse().ok()?);
+        rest = &after[close + HOLE_CLOSE.len_utf8()..];
+    }
+    if rest.contains(HOLE_CLOSE) {
+        return None;
+    }
+    chunks.push(rest.to_string());
+    Some((chunks, holes))
 }
 
 /// Each leaf of `tree` with its key path, in JavaScript's key order. An empty
@@ -822,20 +1066,32 @@ fn flatten(tree: &[(String, Entry)], path: &mut Vec<String>, out: &mut Vec<(Vec<
 /// the same, takes the same branch: a pure read gives one value per render.
 fn choose(
     leaves: &[(Vec<String>, Leaf)],
+    flat: usize,
     chosen: &mut Vec<Js>,
     decided: &mut Decided,
     name_of: &mut NameOf<'_>,
 ) -> Option<Expr> {
     let Some((_, leaf)) = leaves.get(chosen.len()) else {
-        let mut obj = Vec::new();
-        for ((path, _), value) in leaves.iter().zip(chosen.iter()) {
-            set_path(&mut obj, path, value.clone());
+        let mut flat_obj = Vec::new();
+        let mut css_obj = Vec::new();
+        for (index, ((path, _), value)) in leaves.iter().zip(chosen.iter()).enumerate() {
+            let obj = if index < flat { &mut flat_obj } else { &mut css_obj };
+            set_path(obj, path, value.clone());
         }
-        return Some(str_expr(&name_of(&obj)?));
+        if !bigint_cannot_move(&flat_obj, &leaves[..flat]) {
+            return explain::bail("arithmetic in a flat style prop whose place a BigInt result would change");
+        }
+        return name_of(&style_object(flat_obj, css_obj));
     };
+    if let Leaf::Var(_) = leaf {
+        chosen.push(Js::Str(hole_marker(chosen.len())));
+        let out = choose(leaves, flat, chosen, decided, name_of);
+        chosen.pop();
+        return out;
+    }
     leaf_expr(leaf, decided, &mut |js, decided| {
         chosen.push(js);
-        let out = choose(leaves, chosen, decided, name_of);
+        let out = choose(leaves, flat, chosen, decided, name_of);
         chosen.pop();
         out
     })
@@ -871,6 +1127,8 @@ fn leaf_expr(
 ) -> Option<Expr> {
     match leaf {
         Leaf::Known(js) => then(js.clone(), decided),
+        // `leaf` gives SWITCH branches known values only.
+        Leaf::Var(_) => None,
         Leaf::Switch(test, cons, alt) => {
             if let Some((_, value)) = decided.iter().find(|(t, _)| t.eq_ignore_span(test)) {
                 return leaf_expr(if *value { cons } else { alt }, decided, then);
@@ -929,7 +1187,8 @@ pub fn emit_module(module: &mut Module, extraction: &ModuleExtraction) {
     if !extraction.rules.is_empty() {
         specifiers.push(named_import(REGISTER_EXPORT, REGISTER_LOCAL));
     }
-    if extraction.uses_value {
+    if !extraction.templates.is_empty() {
+        specifiers.push(named_import(TEMPLATE_EXPORT, TEMPLATE_LOCAL));
         specifiers.push(named_import(VALUE_EXPORT, VALUE_LOCAL));
     }
     let import = ModuleItem::ModuleDecl(ModuleDecl::Import(ImportDecl {
@@ -971,34 +1230,41 @@ pub fn emit_module(module: &mut Module, extraction: &ModuleExtraction) {
                 })
             })
             .collect();
-        items.push(ModuleItem::Stmt(Stmt::Expr(ExprStmt {
-            span: DUMMY_SP,
-            expr: Box::new(Expr::Call(CallExpr {
-                span: DUMMY_SP,
-                ctxt: SyntaxContext::empty(),
-                callee: Callee::Expr(Box::new(Expr::Ident(Ident::new_no_ctxt(
-                    Atom::from(REGISTER_LOCAL),
-                    DUMMY_SP,
-                )))),
-                args: vec![
-                    ExprOrSpread {
-                        spread: None,
-                        expr: Box::new(str_expr(&module_id)),
-                    },
-                    ExprOrSpread {
-                        spread: None,
-                        expr: Box::new(Expr::Array(ArrayLit {
-                            span: DUMMY_SP,
-                            elems: rules,
-                        })),
-                    },
-                ],
-                type_args: None,
-            })),
-        })));
+        items.push(call_stmt(
+            REGISTER_LOCAL,
+            vec![
+                str_expr(&module_id),
+                Expr::Array(ArrayLit {
+                    span: DUMMY_SP,
+                    elems: rules,
+                }),
+            ],
+        ));
+    }
+    for template in &extraction.templates {
+        let chunks = template
+            .chunks
+            .iter()
+            .map(|chunk| {
+                Some(ExprOrSpread {
+                    spread: None,
+                    expr: Box::new(str_expr(chunk)),
+                })
+            })
+            .collect();
+        items.push(call_stmt(
+            TEMPLATE_LOCAL,
+            vec![
+                str_expr(&template.id),
+                Expr::Array(ArrayLit {
+                    span: DUMMY_SP,
+                    elems: chunks,
+                }),
+            ],
+        ));
     }
 
-    // After the last import, so the call runs before any code below it.
+    // After the last import, so the calls run before any code below them.
     let at = module
         .body
         .iter()
@@ -1009,6 +1275,14 @@ pub fn emit_module(module: &mut Module, extraction: &ModuleExtraction) {
     for (offset, item) in items.into_iter().enumerate() {
         module.body.insert(at + 1 + offset, item);
     }
+}
+
+/// `<callee>(<args>);` as a module item.
+fn call_stmt(callee: &str, args: Vec<Expr>) -> ModuleItem {
+    ModuleItem::Stmt(Stmt::Expr(ExprStmt {
+        span: DUMMY_SP,
+        expr: Box::new(call_expr(callee, args)),
+    }))
 }
 
 fn named_import(exported: &str, local: &str) -> ImportSpecifier {
