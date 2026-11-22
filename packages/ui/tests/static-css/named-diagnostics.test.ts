@@ -95,6 +95,8 @@ const QUIET: Record<string, (style: (css: Css) => Record<string, unknown>) => No
 }
 
 const runtime = (css: Css) => ({ css })
+/** A named node the compiler marks as the first of its stretch, a carrier. */
+const carried = (css: Css) => ({ ...named(css), __meo$r: 1 })
 
 describe('a token the theme in scope does not define, on a named node', () => {
   it.each(Object.entries(WARNS))('warns as uncompiled for %s', async (_, [tree, withProvider]) => {
@@ -112,22 +114,55 @@ describe('a token the theme in scope does not define, on a named node', () => {
     await new Promise(resolve => setTimeout(resolve, 50))
     expect(warnings.filter(text => text.includes('--meonode-theme-'))).toEqual([])
   })
+})
 
-  it('stays quiet in a server render, as uncompiled', () => {
-    const render = (style: (css: Css) => Record<string, unknown>) => {
-      __resetThemeDiagnostics()
-      warnings = []
-      NodeUtil.isServer = true
-      try {
-        renderToString(
-          inRender(() => ThemeProvider({ ...asThemeProps(theme as never), children: Div(style({ color: 'theme.primary.missing' })) }).render() as ReactElement),
-        )
-      } finally {
-        NodeUtil.isServer = false
-      }
-      return warnings.filter(text => text.includes('--meonode-theme-'))
+// On the server the walk checks a named node in its own theme scope, which a
+// ThemeProvider node in the walk or a provider around it defines, so a missing
+// token warns there as uncompiled. Under a component that may provide another
+// theme, the check waits for commit, which only the browser has.
+describe('a named node’s token check in a server render', () => {
+  /** The token warnings a server render of `make`'s element gives, from a fresh record. */
+  const serverWarnings = (make: () => ReactElement): string[] => {
+    __resetThemeDiagnostics()
+    warnings = []
+    NodeUtil.isServer = true
+    try {
+      renderToString(inRender(make))
+    } finally {
+      NodeUtil.isServer = false
     }
-    expect(render(named)).toEqual(render(runtime))
+    return warnings.filter(text => text.includes('--meonode-theme-'))
+  }
+  const SCOPES: Record<string, (style: (css: Css) => Record<string, unknown>) => ReactElement> = {
+    'under a ThemeProvider node in the walk': style =>
+      ThemeProvider({ ...asThemeProps(theme as never), children: Div(style({ color: 'theme.primary.missing' })) }).render() as ReactElement,
+    'under a provider around the walk': style =>
+      ThemeProvider({
+        ...asThemeProps(theme as never),
+        children: Node(() => Div(style({ color: 'theme.primary.missing' })).render() as ReactElement),
+      }).render() as ReactElement,
+  }
+  it.each(Object.entries(SCOPES))('warns as uncompiled for a missing token in scope, %s', (_, tree) => {
+    const expected = serverWarnings(() => tree(runtime))
+    expect(expected.length).toBeGreaterThan(0)
+    expect(serverWarnings(() => tree(named))).toEqual(expected)
+  })
+
+  // Inside the component the stretch begins at a carrier, whose `StyledRenderer`
+  // checks its own tokens; the named node after it is the walk's to check.
+  it('stays quiet under a component with its own provider, leaving the check to the browser', () => {
+    const tree = (style: (css: Css) => Record<string, unknown>, carrier: (css: Css) => Record<string, unknown>) => () =>
+      ThemeProvider({
+        ...asThemeProps(theme as never),
+        children: Div({
+          children: Node(InnerTheme, {
+            children: [Span('x', { key: 'x', ...carrier({ order: 1 }) }), Span('y', { key: 'y', ...style({ color: 'theme.primary.missing' }) })],
+          }),
+        }),
+      }).render() as ReactElement
+    // Uncompiled, `StyledRenderer` warns where it renders, inside the component.
+    expect(serverWarnings(tree(runtime, runtime)).length).toBeGreaterThan(0)
+    expect(serverWarnings(tree(named, carried))).toEqual([])
   })
 })
 
@@ -135,7 +170,6 @@ describe('a token the theme in scope does not define, on a named node', () => {
 // tokens are checked by the walk, the carrier's by `StyledRenderer`. Neither adds
 // anything to what `.render()` returns.
 describe('a named node’s token check, under a carrier', () => {
-  const carried = (css: Css) => ({ ...named(css), __meo$r: 1 })
   const TREES: Record<
     string,
     [tree: (style: (css: Css) => Record<string, unknown>, carrier: (css: Css) => Record<string, unknown>) => NodeInstance, warns: boolean]
