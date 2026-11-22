@@ -3,8 +3,8 @@
 // The development warning for a theme token the theme in scope does not
 // define, for a compiled node that carries its whole style's name. Uncompiled,
 // `StyledRenderer` reports such a token where it renders. Compiled, the element
-// renders plain, so the walk checks the style's text: where its carrier's
-// `StaticStyles` renders when they share a theme scope, and on the element once
+// renders plain, so the walk checks the style's text, with nothing added to
+// the render: in render, in the walk's own theme scope, and on the element once
 // committed when a component between them may provide another theme. Each case
 // compares the warnings with those of the same call site uncompiled.
 import { serializeStyles } from '@emotion/serialize'
@@ -20,6 +20,7 @@ import { nameStyles } from '@src/util/style-name.util.js'
 import { __resetStaticCss, registerStaticCss } from '@src/util/static-css.util.js'
 import { __resetThemeDiagnostics } from '@src/util/theme-diagnostics.util.js'
 import { asThemeProps } from '../_theme-props.js'
+import { withRenderShapes } from './_render-shapes.js'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -96,15 +97,20 @@ const QUIET: Record<string, (style: (css: Css) => Record<string, unknown>) => No
 const runtime = (css: Css) => ({ css })
 
 describe('a token the theme in scope does not define, on a named node', () => {
-  it.each(Object.entries(WARNS))('warns as uncompiled for %s', (_, [tree, withProvider]) => {
+  it.each(Object.entries(WARNS))('warns as uncompiled for %s', async (_, [tree, withProvider]) => {
     const expected = tokenWarnings(() => tree(runtime), withProvider)
     expect(expected.length).toBeGreaterThan(0)
-    expect(tokenWarnings(() => tree(named), withProvider)).toEqual(expected)
+    tokenWarnings(() => tree(named), withProvider)
+    // A check after commit reports on a later task.
+    await new Promise(resolve => setTimeout(resolve, 50))
+    expect(warnings.filter(text => text.includes('--meonode-theme-'))).toEqual(expected)
   })
 
-  it.each(Object.entries(QUIET))('stays quiet as uncompiled for %s', (_, tree) => {
+  it.each(Object.entries(QUIET))('stays quiet as uncompiled for %s', async (_, tree) => {
     expect(tokenWarnings(() => tree(runtime))).toEqual([])
-    expect(tokenWarnings(() => tree(named))).toEqual([])
+    tokenWarnings(() => tree(named))
+    await new Promise(resolve => setTimeout(resolve, 50))
+    expect(warnings.filter(text => text.includes('--meonode-theme-'))).toEqual([])
   })
 
   it('stays quiet in a server render, as uncompiled', () => {
@@ -122,5 +128,52 @@ describe('a token the theme in scope does not define, on a named node', () => {
       return warnings.filter(text => text.includes('--meonode-theme-'))
     }
     expect(render(named)).toEqual(render(runtime))
+  })
+})
+
+// A named node under a carrier, as the compiler marks the first of a run: its
+// tokens are checked by the walk, the carrier's by `StyledRenderer`. Neither adds
+// anything to what `.render()` returns.
+describe('a named node’s token check, under a carrier', () => {
+  const carried = (css: Css) => ({ ...named(css), __meo$r: 1 })
+  const TREES: Record<
+    string,
+    [tree: (style: (css: Css) => Record<string, unknown>, carrier: (css: Css) => Record<string, unknown>) => NodeInstance, warns: boolean]
+  > = {
+    'a missing token in the walk’s theme scope': [
+      (style, carrier) => Div({ ...carrier({ display: 'grid' }), children: Span('y', style({ color: 'theme.primary.missing' })) }),
+      true,
+    ],
+    'a defined token in the walk’s theme scope': [
+      (style, carrier) => Div({ ...carrier({ display: 'grid' }), children: Span('y', style({ color: 'theme.primary' })) }),
+      false,
+    ],
+    'a token a ThemeProvider node in the walk defines': [
+      (style, carrier) =>
+        Div({
+          ...carrier({ display: 'grid' }),
+          children: ThemeProvider({ ...asThemeProps(inner as never), children: Span('y', style({ color: 'theme.accent' })) }),
+        }),
+      false,
+    ],
+    'a token a provider inside a component defines': [
+      (style, carrier) => Div({ ...carrier({ display: 'grid' }), children: Node(InnerTheme, { children: Span('y', style({ color: 'theme.accent' })) }) }),
+      false,
+    ],
+    'a missing token under a component with its own provider': [
+      (style, carrier) =>
+        Div({ ...carrier({ display: 'grid' }), children: Node(InnerTheme, { children: Span('y', style({ color: 'theme.primary.missing' })) }) }),
+      true,
+    ],
+  }
+  it.each(Object.entries(TREES))('warns as uncompiled and adds nothing to the render, for %s', async (_, [tree, warns]) => {
+    const run = (style: (css: Css) => Record<string, unknown>, carrier: (css: Css) => Record<string, unknown>) =>
+      withRenderShapes(() => ({ warnings: tokenWarnings(() => tree(style, carrier)) }))
+    const expected = run(runtime, runtime)
+    expect(expected.warnings.length > 0).toBe(warns)
+    const compiled = run(named, carried)
+    // A check after commit reports on a later task.
+    await new Promise(resolve => setTimeout(resolve, 50))
+    expect({ ...compiled, warnings: warnings.filter(text => text.includes('--meonode-theme-')) }).toEqual(expected)
   })
 })

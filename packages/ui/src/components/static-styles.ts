@@ -1,8 +1,15 @@
 import type { ReactElement } from 'react'
-import { staticHoistables, type StaticStylesProps } from '@src/components/static-hoistables.js'
+import { staticHoistables, type StaticStylesProps, type StaticThemeCandidate } from '@src/components/static-hoistables.js'
+import type { ThemeVarIndex, ThemeVarRef } from '@src/util/theme-diagnostics.util.js'
 
 export type { StaticStylesProps, StaticThemeCandidate, StaticThemeCheck } from '@src/components/static-hoistables.js'
 export { __resetStaticStyles } from '@src/components/static-hoistables.js'
+
+/** In the server build, which has no context to read: the walk checks nothing in render. */
+export const checkThemeRefsInScope = (_refs: readonly ThemeVarRef[], _own: ThemeVarIndex | undefined): boolean => false
+
+/** In the server build, which commits nothing: no check after commit. */
+export const checkCandidatesAfterCommit = (_candidates: readonly StaticThemeCandidate[]): void => {}
 
 /**
  * The static css a render uses, in the server build: React hoistable styles,

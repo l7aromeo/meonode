@@ -60,7 +60,13 @@ import type { EmotionCache } from '@emotion/cache'
 import type { SerializedStyles } from '@emotion/serialize'
 import { readEmotionCache } from '@src/util/emotion-cache.util.js'
 import { createServerCssCache } from '@src/util/server-css-cache.util.js'
-import { StaticStyles, type StaticThemeCandidate, type StaticThemeCheck } from '@src/components/static-styles.js'
+import {
+  checkCandidatesAfterCommit,
+  checkThemeRefsInScope,
+  StaticStyles,
+  type StaticThemeCandidate,
+  type StaticThemeCheck,
+} from '@src/components/static-styles.js'
 import { replaceThemeTokensWithCssVars } from '@src/util/server-theme.util.js'
 import {
   addThemeVarRef,
@@ -830,6 +836,8 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
     // `StaticStyles` of each rules map; see there. Production builds none of this.
     const staticChecks =
       (staticModules !== undefined || namedEnabled) && diagnosticsEnabled() ? new Map<Map<string, ReactElement>, StaticThemeCheck[]>() : undefined
+    /** Named nodes' theme variables to check once committed, from no `StaticStyles`. */
+    let namedCandidates: StaticThemeCandidate[] | undefined
     // Checked after commit, which only a development build's `StaticStyles` does, and only in the browser.
     const staticCandidates =
       staticChecks !== undefined && isDevMode() && !NodeUtil.isServer && !IS_REACT_SERVER_LAYER
@@ -1362,27 +1370,15 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
             }
           }
 
-          // A named node's theme variables, checked as a static class's are: where
-          // its carrier's `StaticStyles` renders when they share a theme scope, and
-          // otherwise on the element once it is committed.
+          // A named node's theme variables, checked with nothing added to the render:
+          // in the walk's own theme scope, here, against the providers above its
+          // component and those the walk passed; under a component the walk cannot
+          // see into, or outside any component's render, on the element once it is
+          // committed, in the browser.
           if (ownNamedClass !== undefined && staticChecks !== undefined) {
             const refs = collectNamedThemeVarRefs(namedText ?? '')
-            if (refs.length > 0) {
-              const carrier = anchor ?? (canAnchorRules(renderTarget, elementProps as Record<string, unknown>, inForeignNamespace) ? node : null)
-              const rules = rulesOfCarrier(carrier)
-              if (carrier !== null ? !opaqueBelowAnchor : !opaqueAbove) {
-                const checks = staticChecks.get(rules) ?? []
-                staticChecks.set(rules, checks)
-                checks.push(themeOwn ? { refs, own: themeOwn } : { refs })
-              } else if (staticCandidates !== undefined) {
-                const candidates = staticCandidates.get(rules) ?? []
-                staticCandidates.set(rules, candidates)
-                candidates.push({ classes: ownNamedClass, refs, valueRefs: [] })
-              }
-              // Holds the map position for its `StaticStyles` until the carrier completes.
-              if ((staticChecks.has(rules) || staticCandidates?.has(rules)) && !rules.has(STATIC_STYLES_KEY))
-                rules.set(STATIC_STYLES_KEY, null as unknown as ReactElement)
-            }
+            if (refs.length > 0 && (opaqueAbove || !checkThemeRefsInScope(refs, themeOwn)) && staticCandidates !== undefined)
+              (namedCandidates ??= []).push({ classes: ownNamedClass, refs, valueRefs: [] })
           }
 
           let element: ReactElement<FinalNodeProps>
@@ -1610,6 +1606,7 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
         pendingCarrier = null
         flushNamed()
       }
+      if (namedCandidates !== undefined) checkCandidatesAfterCommit(namedCandidates)
       if (rootRules.size === 0) return rootElement
       finishStaticSlot(rootRules)
 

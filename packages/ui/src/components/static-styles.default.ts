@@ -2,16 +2,39 @@ import { type ReactElement, use, useEffect, useInsertionEffect } from 'react'
 import { __unsafe_useEmotionCache as useEmotionCache } from '@emotion/react'
 import { insertStyles } from '@emotion/utils'
 import { isDevMode } from '@src/constant/common.const.js'
-import { ThemeContext } from '@src/components/theme-provider.client.js'
+import { ThemeContext, type ThemeContextState } from '@src/components/theme-provider.client.js'
 import { staticHoistables, type StaticStylesProps } from '@src/components/static-hoistables.js'
 import { NodeUtil } from '@src/util/node.util.js'
 import { serverStyleElement, standInServerCache } from '@src/util/named-style.util.js'
 import { type EmotionSheetPlacement, insertStaticClasses } from '@src/util/static-css.util.js'
 import { candidatesKey, checkCandidates } from '@src/util/static-theme-check.util.js'
-import { reportThemeVarRefs, unionThemeVarIndexes } from '@src/util/theme-diagnostics.util.js'
+import { reportThemeVarRefs, type ThemeVarIndex, type ThemeVarRef, unionThemeVarIndexes } from '@src/util/theme-diagnostics.util.js'
 
 export type { StaticStylesProps, StaticThemeCandidate, StaticThemeCheck } from '@src/components/static-hoistables.js'
 export { __resetStaticStyles } from '@src/components/static-hoistables.js'
+export { checkCandidatesAfterCommit } from '@src/util/static-theme-check.util.js'
+
+/**
+ * Checks, in development, theme variables a node in the walk's own theme scope
+ * reads, against the providers above the component the walk renders in and
+ * `own`, those of the providers the walk passed on the way to the node: what a
+ * `StaticStyles` at its topmost host would check, with nothing added to the render.
+ * On the server and in the browser alike.
+ * @param refs The variables.
+ * @param own The providers' between, if any.
+ * @returns `false` outside a component's render, where `use` cannot read them.
+ */
+export function checkThemeRefsInScope(refs: readonly ThemeVarRef[], own: ThemeVarIndex | undefined): boolean {
+  let context: ThemeContextState | null
+  try {
+    context = use(ThemeContext)
+  } catch {
+    return false
+  }
+  const outer = context ? context.definedVars() : null
+  reportThemeVarRefs(refs, own ? unionThemeVarIndexes(outer, own) : outer)
+  return true
+}
 
 /**
  * The static css a render uses, in the default build, the one the server's

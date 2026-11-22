@@ -90,6 +90,16 @@ const UNMARKED_CASES: Record<string, Tree> = {
 
 /** Cases with carriers in place of slots and the trailing leaf: the host and the first named node after each component. */
 const CARRIER_CASES: Record<string, Tree> = {
+  // In development a named node's theme tokens are checked with nothing added
+  // to the render, so the ids below it are the runtime twin's.
+  'a named node reading a theme token, before a component with an id': (ui, react, style) => {
+    const Id = () => ui.Span('id', { 'data-id': react.useId(), ...style.carrier(BLUE) }).render() as import('react').ReactElement
+    return ui.Div({
+      ...style.carrier({ display: 'grid' }),
+      ...style.slots(1),
+      children: [ui.Span('t', { key: 't', ...style({ color: 'var(--meonode-theme-primary-missing)' }) }), ui.Node(Id, { key: 'i' })],
+    })
+  },
   'statics before components with ids, carried': (ui, react, style) => {
     const Id = () => ui.Span('id', { 'data-id': react.useId(), ...style.carrier({ order: 9 }) }).render() as import('react').ReactElement
     return ui.Div({
