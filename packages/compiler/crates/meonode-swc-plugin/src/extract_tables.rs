@@ -153,17 +153,17 @@ pub type InitialProps = &'static [(&'static str, InitialValue)];
 /// call site's.
 #[rustfmt::skip]
 pub static LAYOUT_FACTORIES: &[(&str, &str, InitialProps)] = &[
-    ("Absolute", "position:absolute;", &[("position", InitialValue::Str("absolute"))]),
-    ("Center", "alignItems:center;display:flex;flexDirection:column;justifyContent:center;", &[("display", InitialValue::Str("flex")), ("flexDirection", InitialValue::Str("column")), ("alignItems", InitialValue::Str("center")), ("justifyContent", InitialValue::Str("center"))]),
-    ("Column", "display:flex;flexDirection:column;", &[("display", InitialValue::Str("flex")), ("flexDirection", InitialValue::Str("column"))]),
-    ("Fixed", "position:fixed;", &[("position", InitialValue::Str("fixed"))]),
-    ("Grid", "display:grid;", &[("display", InitialValue::Str("grid"))]),
-    ("Main", "display:flex;flexDirection:column;", &[("display", InitialValue::Str("flex")), ("flexDirection", InitialValue::Str("column"))]),
-    ("Relative", "position:relative;", &[("position", InitialValue::Str("relative"))]),
-    ("Root", "display:flex;flexDirection:column;minHeight:100dvh;minWidth:100dvw;", &[("display", InitialValue::Str("flex")), ("flexDirection", InitialValue::Str("column")), ("minHeight", InitialValue::Str("100dvh")), ("minWidth", InitialValue::Str("100dvw"))]),
-    ("Row", "display:flex;flexDirection:row;", &[("display", InitialValue::Str("flex")), ("flexDirection", InitialValue::Str("row"))]),
-    ("Static", "position:static;", &[("position", InitialValue::Str("static"))]),
-    ("Sticky", "position:sticky;", &[("position", InitialValue::Str("sticky"))]),
+    ("Absolute", "{k8:positions8:absolute}", &[("position", InitialValue::Str("absolute"))]),
+    ("Center", "{k7:displays4:flexk13:flexDirections6:columnk10:alignItemss6:centerk14:justifyContents6:center}", &[("display", InitialValue::Str("flex")), ("flexDirection", InitialValue::Str("column")), ("alignItems", InitialValue::Str("center")), ("justifyContent", InitialValue::Str("center"))]),
+    ("Column", "{k7:displays4:flexk13:flexDirections6:column}", &[("display", InitialValue::Str("flex")), ("flexDirection", InitialValue::Str("column"))]),
+    ("Fixed", "{k8:positions5:fixed}", &[("position", InitialValue::Str("fixed"))]),
+    ("Grid", "{k7:displays4:grid}", &[("display", InitialValue::Str("grid"))]),
+    ("Main", "{k7:displays4:flexk13:flexDirections6:column}", &[("display", InitialValue::Str("flex")), ("flexDirection", InitialValue::Str("column"))]),
+    ("Relative", "{k8:positions8:relative}", &[("position", InitialValue::Str("relative"))]),
+    ("Root", "{k7:displays4:flexk13:flexDirections6:columnk9:minHeights6:100dvhk8:minWidths6:100dvw}", &[("display", InitialValue::Str("flex")), ("flexDirection", InitialValue::Str("column")), ("minHeight", InitialValue::Str("100dvh")), ("minWidth", InitialValue::Str("100dvw"))]),
+    ("Row", "{k7:displays4:flexk13:flexDirections3:row}", &[("display", InitialValue::Str("flex")), ("flexDirection", InitialValue::Str("row"))]),
+    ("Static", "{k8:positions6:static}", &[("position", InitialValue::Str("static"))]),
+    ("Sticky", "{k8:positions6:sticky}", &[("position", InitialValue::Str("sticky"))]),
 ];
 
 /// `@emotion/unitless`'s keys: properties Emotion writes a number to as it is.

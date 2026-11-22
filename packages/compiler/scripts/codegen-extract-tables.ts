@@ -288,15 +288,21 @@ function nodeProps(factory: Factory, childrenFirst: boolean, props: Record<strin
 
 /**
  * The fingerprint the runtime compares on a call site whose initial props the
- * compiler merged: `key:value;` per entry, keys in code-unit order, strings as
- * written and numbers as `String(n)` writes them. Checked against the ui's own
- * `initialPropsFingerprint` wherever the ui exports it.
+ * compiler merged, as the ui's `initialPropsFingerprint` writes it: a map of
+ * `k<len>:<key>` and its value per entry, in JavaScript's key order, a string as
+ * `s<len>:<text>` and a number as `n<String(n)>;`, lengths in UTF-16 code units.
+ * The compiler's Rust writes the same text (`fingerprint.rs`), and the ui's own
+ * function is checked against this one wherever the ui exports it.
  */
 function fingerprint(entries: [string, string | number][]): string {
-  return [...entries]
-    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-    .map(([key, value]) => `${key}:${String(value)};`)
-    .join('')
+  const ordered = Object.keys(Object.fromEntries(entries))
+  const values = new Map(entries)
+  return `{${ordered
+    .map(key => {
+      const value = values.get(key)!
+      return `k${key.length}:${key}${typeof value === 'string' ? `s${value.length}:${value}` : `n${String(value)};`}`
+    })
+    .join('')}}`
 }
 
 /** Factories with initial props the compiler does not merge, for the log. */
@@ -304,8 +310,8 @@ const skippedLayoutFactories: string[] = []
 
 /**
  * The layout factories, by name. Merged only when every initial prop is a flat
- * entry with a string or finite number value, none of them `css`, and no key or
- * value holds `:` or `;`, so the fingerprint reads one way.
+ * entry with a string or finite number value, none of them `css`: the values the
+ * table's `InitialValue` holds.
  */
 async function layoutFactories(uiDir: string, host: Set<string>): Promise<LayoutFactory[]> {
   const html = (await import(join(uiDir, 'src/components/html.node.ts'))) as Record<string, unknown>
@@ -326,8 +332,7 @@ async function layoutFactories(uiDir: string, host: Set<string>): Promise<Layout
     const flat = entries.every(
       ([key, value]) =>
         key !== 'css' &&
-        (typeof value === 'string' || (typeof value === 'number' && Number.isFinite(value))) &&
-        !/[:;]/.test(key + String(value)),
+        (typeof value === 'string' || (typeof value === 'number' && Number.isFinite(value))),
     )
     if (childrenFirst || !flat) {
       skippedLayoutFactories.push(name)

@@ -147,7 +147,7 @@ Row({
     __meo$: 2,
     __meo$n: "2clwfawpu9xmz",
     __meo$r: 1,
-    __meo$i: "display:flex;flexDirection:row;",
+    __meo$i: "{k7:displays4:flexk13:flexDirections3:row}",
     __meo$k: "m14wsbo5ei4ta0",
     children: [
         Node(Card, {

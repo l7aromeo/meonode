@@ -62,6 +62,9 @@ pub mod config;
 // drive the real detection pass directly.
 pub mod detect;
 
+// The fingerprint of a factory's initial props, as the runtime writes it.
+mod fingerprint;
+
 // Tables extraction reads from @meonode/ui and Emotion (see
 // scripts/codegen-extract-tables.ts).
 mod extract_tables;

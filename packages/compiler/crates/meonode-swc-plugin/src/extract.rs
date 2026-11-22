@@ -45,6 +45,7 @@ use crate::explain;
 use crate::extract_tables::{
     InitialProps, InitialValue, is_host_factory, is_unitless, layout_factory,
 };
+use crate::fingerprint;
 use crate::keys::key_name_atom;
 use crate::serialize::{self, Js};
 use crate::style_name::hash_styles;
@@ -202,14 +203,12 @@ impl ModuleScope {
                 self.node_factories.insert(key);
             } else if is_host_factory(imported.as_ref()) {
                 self.host_factories.insert(key);
-            } else if let Some((fingerprint, initial)) = layout_factory(imported.as_ref()) {
-                self.layout_factories.insert(
-                    key,
-                    Factory::Layout {
-                        fingerprint,
-                        initial,
-                    },
-                );
+            } else if let Some((_, initial)) = layout_factory(imported.as_ref()) {
+                let factory = Factory::Layout { initial };
+                // A call is merged here only when the runtime can tell it was.
+                if factory.fingerprint().is_some() {
+                    self.layout_factories.insert(key, factory);
+                }
             }
         }
     }
@@ -522,10 +521,7 @@ pub enum Factory {
     Host,
     /// Declared with flat initial props, which `createNode` merges in front of
     /// the call site's.
-    Layout {
-        fingerprint: &'static str,
-        initial: InitialProps,
-    },
+    Layout { initial: InitialProps },
 }
 
 impl Factory {
@@ -536,6 +532,29 @@ impl Factory {
                 .iter()
                 .map(|(key, value)| (key.to_string(), initial_expr(*value)))
                 .collect(),
+        }
+    }
+}
+
+impl Factory {
+    /// The fingerprint of the initial props merged into a call site, which the
+    /// call carries in `__meo$i`; `None` for a host factory, which merges none.
+    fn fingerprint(&self) -> Option<String> {
+        match self {
+            Factory::Host => None,
+            Factory::Layout { initial } => {
+                let entries: Vec<(String, fingerprint::Value)> = initial
+                    .iter()
+                    .map(|(key, value)| {
+                        let value = match value {
+                            InitialValue::Str(text) => fingerprint::Value::Str(text.to_string()),
+                            InitialValue::Num(n) => fingerprint::Value::Num(*n),
+                        };
+                        (key.to_string(), value)
+                    })
+                    .collect();
+                fingerprint::fingerprint(&entries)
+            }
         }
     }
 }
@@ -1027,10 +1046,10 @@ impl ModuleScope {
             )),
             value: Box::new(site_expr),
         })))];
-        if let Factory::Layout { fingerprint, .. } = factory {
+        if let Some(fingerprint) = factory.fingerprint() {
             props.push(PropOrSpread::Prop(Box::new(Prop::KeyValue(KeyValueProp {
                 key: PropName::Ident(IdentName::new(Atom::from(INITIAL_KEY), DUMMY_SP)),
-                value: Box::new(str_expr(fingerprint)),
+                value: Box::new(str_expr(&fingerprint)),
             }))));
         }
         Some(SiteExtraction {
@@ -1628,12 +1647,9 @@ mod tests {
         assert!(!cases.is_empty());
         let mut factories = HashSet::new();
         for (name, props, expected) in &cases {
-            let (fingerprint, initial) = layout_factory(name).expect("a layout factory");
+            let (_, initial) = layout_factory(name).expect("a layout factory");
             factories.insert(name.clone());
-            let factory = Factory::Layout {
-                fingerprint,
-                initial,
-            };
+            let factory = Factory::Layout { initial };
             let combined = combine_factory_props(&factory.initial_entries(), &json_entries(props));
             let expected = json_entries(expected);
             let keys = |entries: &[(String, Expr)]| -> Vec<String> {
