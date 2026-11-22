@@ -49,8 +49,9 @@ const extractCss = process.env.MEONODE_EXTRACT_CSS === '1'
 /**
  * The package's own entries, as the suites import them, and the specifiers an
  * app imports them by. The plugin extracts css only from factories imported by
- * those specifiers, so the suites' imports are rewritten to them before it runs,
- * and they resolve back to the same sources.
+ * those specifiers, so with extraction on the suites' imports are rewritten to
+ * them before it runs, and they resolve back to the same sources. With it off,
+ * the suites compile through `factoryModules`, as they always have.
  */
 const PACKAGE_ENTRIES = [
   { source: '@src/main.js', specifier: '@meonode/ui', file: 'src/main.ts' },
@@ -75,10 +76,12 @@ function meonodeCompilerPlugin(): Plugin {
       // Cheap prefilter: only files that actually construct nodes can compile.
       if (!code.includes('@meonode/ui') && !code.includes('@src/main.js')) return null
 
-      const source = code.replace(ENTRY_IMPORT, (_, from: string, quote: string, entry: string) => {
-        const { specifier } = PACKAGE_ENTRIES.find(candidate => candidate.source === entry)!
-        return `${from}${quote}${specifier}${quote}`
-      })
+      const source = !extractCss
+        ? code
+        : code.replace(ENTRY_IMPORT, (_, from: string, quote: string, entry: string) => {
+            const { specifier } = PACKAGE_ENTRIES.find(candidate => candidate.source === entry)!
+            return `${from}${quote}${specifier}${quote}`
+          })
       const { transform } = await import('@swc/core')
       const result = await transform(source, {
         filename: id,
