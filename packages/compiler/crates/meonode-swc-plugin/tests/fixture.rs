@@ -23,7 +23,7 @@ use meonode_swc_plugin::config::CompileConfig;
 use meonode_swc_plugin::{detect, partition};
 use swc_core::common::Mark;
 use swc_core::ecma::ast::{Pass, Program};
-use swc_core::ecma::parser::{EsSyntax, Syntax};
+use swc_core::ecma::parser::{EsSyntax, Syntax, TsSyntax};
 use swc_core::ecma::transforms::base::resolver;
 use swc_core::ecma::transforms::testing::{FixtureTestConfig, Tester, test_fixture};
 
@@ -119,7 +119,7 @@ fn run_partition(case: &str) {
 /// Like [`run_partition`], but with a caller-supplied [`CompileConfig`] — for
 /// the config-driven `factoryModules` fixtures.
 fn run_partition_with_config(case: &str, config: CompileConfig) {
-    run_partition_with_syntax(case, config, EsSyntax::default());
+    run_partition_with_syntax(case, config, Syntax::Es(EsSyntax::default()));
 }
 
 /// Like [`run_partition_with_config`], with JSX parsed.
@@ -127,19 +127,23 @@ fn run_partition_with_jsx(case: &str, config: CompileConfig) {
     run_partition_with_syntax(
         case,
         config,
-        EsSyntax {
+        Syntax::Es(EsSyntax {
             jsx: true,
             ..EsSyntax::default()
-        },
+        }),
     );
 }
 
-fn run_partition_with_syntax(case: &str, config: CompileConfig, syntax: EsSyntax) {
+fn run_partition_with_ts(case: &str, config: CompileConfig) {
+    run_partition_with_syntax(case, config, Syntax::Typescript(TsSyntax::default()));
+}
+
+fn run_partition_with_syntax(case: &str, config: CompileConfig, syntax: Syntax) {
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixture")
         .join(case);
     test_fixture(
-        Syntax::Es(syntax),
+        syntax,
         &|_t| {
             (
                 resolver(Mark::new(), Mark::new(), false),
@@ -567,4 +571,14 @@ fn extract_local_factory() {
 #[test]
 fn extract_factory_call() {
     run_partition_with_jsx("extract_factory_call", extract_config());
+}
+
+#[test]
+fn extract_factory_call_without_runtime() {
+    run_partition_with_ts("extract_factory_call_without_runtime", extract_config());
+}
+
+#[test]
+fn extract_factory_call_types_after_runtime() {
+    run_partition_with_ts("extract_factory_call_types_after_runtime", extract_config());
 }

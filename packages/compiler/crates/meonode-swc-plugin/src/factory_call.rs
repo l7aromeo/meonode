@@ -16,7 +16,9 @@
 //! spread argument, identifiers the module renders as JSX elements (components),
 //! imports from `@meonode/` packages and Next's font loaders (see
 //! `NON_CREATE_NODE_PREFIXES` in [`crate::extract`]), props with a spread or a
-//! computed key, and props holding `theme`, `as` or `disableEmotion`.
+//! computed key, and props holding `theme`, `as` or `disableEmotion`. A module
+//! that imports `@meonode/ui` only for types, or not at all, is left as
+//! written, so compiling it never adds the runtime to its imports.
 //!
 //! Each site is a module-level object, `{ at }`: the index of the argument the
 //! call's props are, which the runtime compares with the factory's own (`1` for
@@ -78,8 +80,12 @@ pub fn site_name(index: usize) -> String {
     format!("{SITE_PREFIX}{index}")
 }
 
-/// Rewrites every eligible call in `module`, returning their sites.
+/// Rewrites every eligible call in `module`, returning their sites. None in a
+/// module that does not import `@meonode/ui` at run time.
 pub fn rewrite(module: &mut Module, scope: &ModuleScope) -> FactorySites {
+    if !scope.imports_runtime() {
+        return FactorySites::default();
+    }
     let mut rewriter = Rewriter {
         scope,
         sites: FactorySites::default(),

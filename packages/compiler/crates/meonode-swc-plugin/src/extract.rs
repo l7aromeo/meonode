@@ -168,6 +168,10 @@ pub struct ModuleScope {
     /// as JSX elements anywhere in the module: what a call of an imported
     /// factory may be (see [`crate::factory_call`]).
     imported_callees: HashSet<(Atom, SyntaxContext)>,
+    /// Whether the module imports `@meonode/ui` at run time, a binding that is
+    /// not only a type: calls of imported factories are joined only then, so
+    /// compiling a module never adds the runtime to one that did not load it.
+    imports_runtime: bool,
     /// Whether the module already uses one of the helper names.
     name_taken: bool,
 }
@@ -241,6 +245,10 @@ impl ModuleScope {
             }
             return;
         }
+        self.imports_runtime |= import
+            .specifiers
+            .iter()
+            .any(|spec| !matches!(spec, ImportSpecifier::Named(named) if named.is_type_only));
         for spec in &import.specifiers {
             let ImportSpecifier::Named(named) = spec else {
                 continue;
@@ -377,6 +385,10 @@ impl ModuleScope {
     }
 
     /// Whether the binding `sym` in `ctxt` is one a call of an imported factory may be.
+    pub fn imports_runtime(&self) -> bool {
+        self.imports_runtime
+    }
+
     pub fn is_imported_callee(&self, sym: &Atom, ctxt: SyntaxContext) -> bool {
         self.imported_callees.contains(&(sym.clone(), ctxt))
     }

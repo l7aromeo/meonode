@@ -593,7 +593,9 @@ insertion and its class are the ones the node would have uncompiled.
   (`next/font/...`, `@next/font/...`, which Next compiles only as written at
   module scope), props with a spread, a computed key, a style read
   at run time, or `theme`, `as` or `disableEmotion`, and two leading object
-  literals (either could be the props). The carrier marks are those of both
+  literals (either could be the props). A module that imports `@meonode/ui`
+  only for types, or not at all, is left as written, so compiling it never
+  adds the runtime to its imports. The carrier marks are those of both
   readings of such a call, a named node and a component, since only the
   runtime knows which it is.
 
