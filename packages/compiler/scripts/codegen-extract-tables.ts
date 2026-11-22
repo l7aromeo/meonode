@@ -197,6 +197,12 @@ async function selectorCases(uiDir: string): Promise<[string[], string][]> {
   // Parentheses after no colon, and an escaped comma, which compat splits
   // only in rules it composes again.
   for (const key of ['p(&)', 'a\\,b, c', '.a\\,b &']) chains.push([key], [':hover', key], ['&:hover', key])
+  // Empty list items, an escape whose space is followed by more whitespace,
+  // and quotes outside brackets and parentheses.
+  for (const key of [',a', 'a,,b', '&,', '.\\31  a', '.\\31   a', '.\\31  ,a', '.\\31 a', '& "a, b"', "& 'a&b'"]) chains.push([key], ['&:hover', key])
+  // A parent rule holding `$` patterns, which stylis's String.prototype.replace
+  // reads when it puts the parent in place of `&`.
+  for (const parent of ["&[title='$']", '&[title="$&"]', '&[title="$$"]', '&[title="$`"]', '&[title="$1"]']) chains.push([parent, '.x &'], [parent, '&:focus'])
   const out: [string[], string][] = []
   for (const chain of chains) {
     let css: Record<string, unknown> = { color: 'red' }

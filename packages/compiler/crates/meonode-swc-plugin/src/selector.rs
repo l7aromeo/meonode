@@ -311,8 +311,10 @@ impl<'a> Tokenizer<'a> {
                 break;
             }
         }
+        // stylis reads the caret before `next()` takes a following space.
+        let end = self.position;
         let extra = usize::from(count < 6 && self.peek() == 32 && self.next() == 32);
-        self.slice(index, self.position + extra)
+        self.slice(index, end + extra)
     }
 
     /// `identifier(index)`: the run from `index` up to the next token character.
