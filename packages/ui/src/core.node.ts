@@ -1141,8 +1141,17 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
           const childArguments = generatedChildren && Array.isArray(childrenInProps) && finalChildren.length > 0 ? [finalChildren] : finalChildren
           // A built element's children reach React in the element's own shape: a
           // list as one argument, which React key-checks as it would the element's.
+          // Beside a list passed as one argument, the slot would make it a nested
+          // list, one more fiber; it goes in the list instead, keyed, as its first
+          // member, so every member keeps its place relative to the others.
           const elementChildren =
-            builtFrom !== undefined && Array.isArray(childrenInProps) ? [finalChildren] : wholeSlot ? [...wholeSlot, ...childArguments] : childArguments
+            builtFrom !== undefined && Array.isArray(childrenInProps)
+              ? [finalChildren]
+              : wholeSlot
+                ? childArguments !== finalChildren
+                  ? [[...wholeSlot, ...finalChildren]]
+                  : [...wholeSlot, ...childArguments]
+                : childArguments
 
           // React's report says a key is missing; it cannot say where. Every
           // element in the tree is created inside this one `.render()` call, so
@@ -1499,9 +1508,14 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
           const carriedRules = anchoredRules.get(node)
           if (carriedRules) {
             finishStaticSlot(carriedRules)
+            // Children passed as one list take static css as members of that list,
+            // keyed, after their own: beside it, they would make it a nested list.
+            const listArgument = elementChildren.length === 1 && Array.isArray(elementChildren[0]) ? (elementChildren[0] as ReactNode[]) : undefined
             element =
-              staticModules?.has(carriedRules) || namedTail?.has(carriedRules)
-                ? cloneElement(element, undefined, ...elementChildren, ...carriedRules.values())
+              staticModules?.has(carriedRules) || namedTail?.has(carriedRules) || staticChecks?.has(carriedRules) || staticCandidates?.has(carriedRules)
+                ? listArgument
+                  ? cloneElement(element, undefined, [...listArgument, ...carriedRules.values()])
+                  : cloneElement(element, undefined, ...elementChildren, ...carriedRules.values())
                 : cloneElement(element, undefined, ...elementChildren, [...carriedRules.values()])
           }
           const rulesBeside = besideRules.get(node)

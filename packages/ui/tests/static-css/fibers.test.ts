@@ -147,6 +147,21 @@ describe('named styles', () => {
     })
   })
 
+  // A generated list reaches React as one list argument. Anything beside it
+  // would make it a nested list, wrapped in a fiber of its own.
+  it.each([
+    ['alone', {}],
+    ['with a slot before it as a whole', { __meo$p: [[]] }],
+  ])('add no fiber to a generated list of children, %s', (_, slots) => {
+    const fibers = census(
+      inComponent(() =>
+        Div({ __meo$: 2, __meo$list: true, ...slots, children: Array.from({ length: CHILDREN }, (_, index) => Div({ key: String(index), ...named(index) } as never)) } as never),
+      ),
+    )
+    expect(fibers.again).toEqual({ App: 1, 'host:div': CHILDREN + 1 })
+    expect(fibers.mount['tag 7']).toBeUndefined()
+  })
+
   it('cost nothing at an idle slot', () => {
     const Card = () => Div(named(0) as never).render() as ReactElement
     const idle = census(
