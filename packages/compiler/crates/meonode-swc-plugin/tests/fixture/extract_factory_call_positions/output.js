@@ -1,4 +1,4 @@
-import { __meoFactoryCall } from "@meonode/ui";
+import { __meoFactoryCall } from "@meonode/ui/factory-call";
 import { Div } from "@meonode/ui";
 import { Card, Title } from "./nodes";
 import { Inter } from "next/font/google";

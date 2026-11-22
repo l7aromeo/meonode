@@ -600,9 +600,10 @@ insertion and its class are the ones the node would have uncompiled.
   written, or another call's argument), props with a spread, a computed or
   numeric key, a style read
   at run time, or `theme`, `as` or `disableEmotion`, and two leading object
-  literals (either could be the props). A module that imports `@meonode/ui`
-  only for types, or not at all, is left as written, so compiling it never
-  adds the runtime to its imports. The carrier marks are those of both
+  literals (either could be the props). The helper is imported from
+  `@meonode/ui/factory-call`, which imports nothing, so a module that loads no
+  other part of `@meonode/ui` (a route handler, say) gains no React or
+  Emotion. The carrier marks are those of both
   readings of such a call, a named node and a component, since only the
   runtime knows which it is.
 
@@ -629,7 +630,7 @@ requirements](#runtime-version-requirements) rather than emitted.
 | `__meo$t` | In place of `__meo$n`, when the style holds values only the call site knows: `[templateId, ...valueTexts]`, or a conditional choosing between such arrays. The template's chunks, one more than its values, are registered under its id; joined with the values in order they are the serialized styles. |
 | `__meo$r` | With `experimental_extractCss`, `1` on a named call site (`__meo$n` or `__meo$t`) that renders as a carrier: through `StyledRenderer`, which inserts the run of named styles that begins at it where it renders, so no element is added to the children. The runtime makes a named node with no runtime node or carrier before it, since the walk's start or a component, a carrier; the mark goes on every node that may be one under some combination of the walk's conditions, and on every named node whose position another call site may take on another render (an arm of a conditional, an operand of `&&`, `\|\|` or `??`, an item of a spread, a `.map()` or a child that may be absent, and every child after one, and every named node below one of those, unless it or a node above it there has a `key`), so a node's element type is the same on every render. A memoized node (a host call given `deps`) counts as a component before and after it, since the runtime cuts before it and the browser renders it in a walk of its own; Suspense, SuspenseList and Activity are components. |
 | `__meo$i` | On a layout or same-module factory's call site with `__meo$n` or `__meo$t`: the fingerprint of the initial props merged into it, as the runtime's `initialPropsFingerprint` writes it: entries in JavaScript's key order (not sorted), each key and string length-prefixed in UTF-16 code units (`{k7:displays4:flexk13:flexDirections3:row}` for `Row`). A runtime whose factory has the same fingerprint skips its own merge. |
-| `__meoFactoryCall(X, site, ...args)` | A call of an imported factory, joined at run time (see above). `site` is a module-level `{ at, r? }`: the index of the props among `args`, and `r: 1` where the node built is a carrier. |
+| `__meoFactoryCall(X, site, ...args)` | A call of an imported factory, joined at run time (see above), imported from `@meonode/ui/factory-call`. `site` is a module-level `{ at, r? }`: the index of the props among `args`, and `r: 1` where the node built is a carrier. |
 | `__meo$loc` | `file:line:column` of a call site carrying `__meo$list`, emitted only when [`callSiteLocations`](#callsitelocations--where-a-generated-list-was-written) is enabled. |
 
 Forward-compat policy: the runtime checks `__meo$` against the schema

@@ -1,5 +1,5 @@
-// A module that imports @meonode/ui only for types: compiling it adds no import
-// of the runtime, so its calls stay as written.
+// A module that imports @meonode/ui only for types: its calls are joined all the
+// same, through @meonode/ui/factory-call, which imports nothing.
 import type { NodeElement } from "@meonode/ui";
 import { type Theme } from "@meonode/ui";
 import { Box, Row } from "meo-canvas";

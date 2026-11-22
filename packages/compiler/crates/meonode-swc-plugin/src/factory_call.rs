@@ -16,9 +16,9 @@
 //! spread argument, identifiers the module renders as JSX elements (components),
 //! imports from `@meonode/` packages, calls not in node position (see
 //! [`Positions`]: a font loader's module-scope call, say), props with a spread or a
-//! computed key, and props holding `theme`, `as` or `disableEmotion`. A module
-//! that imports `@meonode/ui` only for types, or not at all, is left as
-//! written, so compiling it never adds the runtime to its imports.
+//! computed key, and props holding `theme`, `as` or `disableEmotion`. The
+//! helper comes from `@meonode/ui/factory-call`, which imports nothing, so a
+//! module that loads no other part of the runtime gains no React or Emotion.
 //!
 //! Each site is a module-level object, `{ at }`: the index of the argument the
 //! call's props are, which the runtime compares with the factory's own (`1` for
@@ -40,6 +40,9 @@ use crate::pass_through::unwrap_transparent;
 /// The runtime's export, and its local name in compiled output.
 pub const FACTORY_CALL_EXPORT: &str = "__meoFactoryCall";
 pub const FACTORY_CALL_LOCAL: &str = "__meoFactoryCall";
+/// The subpath it is imported from: a module that imports nothing, so a module
+/// that loads no other part of `@meonode/ui` gains no React or Emotion.
+pub const FACTORY_CALL_MODULE: &str = "@meonode/ui/factory-call";
 /// The prefix of each site's module-level binding, followed by its index.
 pub const SITE_PREFIX: &str = "__meoSite";
 
@@ -86,8 +89,7 @@ pub fn site_name(index: usize) -> String {
     format!("{SITE_PREFIX}{index}")
 }
 
-/// Rewrites every eligible call in `module`, returning their sites. None in a
-/// module that does not import `@meonode/ui` at run time.
+/// Rewrites every eligible call in `module`, returning their sites.
 ///
 /// `marked` holds the calls the compiler marks as factory calls with
 /// extraction off (`factoryModules` imports), by span. A rewritten one has its
@@ -100,9 +102,6 @@ pub fn rewrite(
     marked: &HashMap<(u32, u32), ChildrenOrigin>,
     stamp: &dyn Fn(&mut ObjectLit, Span, ChildrenOrigin),
 ) -> FactorySites {
-    if !scope.imports_runtime() {
-        return FactorySites::default();
-    }
     let mut positions = Positions::default();
     module.visit_with(&mut positions);
     let mut rewriter = Rewriter {

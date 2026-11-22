@@ -598,8 +598,3 @@ fn extract_factory_call_positions() {
 fn extract_factory_call_without_runtime() {
     run_partition_with_ts("extract_factory_call_without_runtime", extract_config());
 }
-
-#[test]
-fn extract_factory_call_types_after_runtime() {
-    run_partition_with_ts("extract_factory_call_types_after_runtime", extract_config());
-}

@@ -47,7 +47,8 @@ use crate::extract_tables::{
     InitialProps, InitialValue, is_host_factory, is_unitless, layout_factory,
 };
 use crate::factory_call::{
-    FACTORY_CALL_EXPORT, FACTORY_CALL_LOCAL, FactorySites, SITE_PREFIX, site_name,
+    FACTORY_CALL_EXPORT, FACTORY_CALL_LOCAL, FACTORY_CALL_MODULE, FactorySites, SITE_PREFIX,
+    site_name,
 };
 use crate::fingerprint;
 use crate::keys::{is_special_key, key_name_atom, plain_key};
@@ -166,10 +167,6 @@ pub struct ModuleScope {
     /// as JSX elements anywhere in the module: what a call of an imported
     /// factory may be (see [`crate::factory_call`]).
     imported_callees: HashSet<(Atom, SyntaxContext)>,
-    /// Whether the module imports `@meonode/ui` at run time, a binding that is
-    /// not only a type: calls of imported factories are joined only then, so
-    /// compiling a module never adds the runtime to one that did not load it.
-    imports_runtime: bool,
     /// Whether the module already uses one of the helper names.
     name_taken: bool,
 }
@@ -240,10 +237,6 @@ impl ModuleScope {
             }
             return;
         }
-        self.imports_runtime |= import
-            .specifiers
-            .iter()
-            .any(|spec| !matches!(spec, ImportSpecifier::Named(named) if named.is_type_only));
         for spec in &import.specifiers {
             let ImportSpecifier::Named(named) = spec else {
                 continue;
@@ -380,10 +373,6 @@ impl ModuleScope {
     }
 
     /// Whether the binding `sym` in `ctxt` is one a call of an imported factory may be.
-    pub fn imports_runtime(&self) -> bool {
-        self.imports_runtime
-    }
-
     pub fn is_imported_callee(&self, sym: &Atom, ctxt: SyntaxContext) -> bool {
         self.imported_callees.contains(&(sym.clone(), ctxt))
     }
@@ -1870,19 +1859,28 @@ pub fn emit_module(module: &mut Module, extraction: &ModuleExtraction) {
         specifiers.push(named_import(TEMPLATE_EXPORT, TEMPLATE_LOCAL));
         specifiers.push(named_import(VALUE_EXPORT, VALUE_LOCAL));
     }
-    if !extraction.sites.is_empty() {
-        specifiers.push(named_import(FACTORY_CALL_EXPORT, FACTORY_CALL_LOCAL));
+    let import = |specifiers, src: &str| {
+        ModuleItem::ModuleDecl(ModuleDecl::Import(ImportDecl {
+            span: DUMMY_SP,
+            specifiers,
+            src: Box::new(Str::from(Atom::from(src))),
+            type_only: false,
+            with: None,
+            phase: ImportPhase::Evaluation,
+        }))
+    };
+    let mut items = Vec::new();
+    if !specifiers.is_empty() {
+        items.push(import(specifiers, UI_MODULE));
     }
-    let import = ModuleItem::ModuleDecl(ModuleDecl::Import(ImportDecl {
-        span: DUMMY_SP,
-        specifiers,
-        src: Box::new(Str::from(Atom::from(UI_MODULE))),
-        type_only: false,
-        with: None,
-        phase: ImportPhase::Evaluation,
-    }));
-
-    let mut items = vec![import];
+    // From a subpath that imports nothing, so a module that loads no other
+    // part of the runtime loads no more than that.
+    if !extraction.sites.is_empty() {
+        items.push(import(
+            vec![named_import(FACTORY_CALL_EXPORT, FACTORY_CALL_LOCAL)],
+            FACTORY_CALL_MODULE,
+        ));
+    }
     if !extraction.rules.is_empty() {
         let list: String = extraction
             .rules
