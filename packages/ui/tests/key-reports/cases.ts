@@ -16,6 +16,13 @@ const MISSING_SAME_OWNER = 'missing key'
 /** MeoNode's report of an unkeyed list whose length changed between renders. */
 const GENERATED = 'generated list'
 
+/**
+ * The report for a generated list of unkeyed rows. A compiled call site carries
+ * the compiler's list marker, so React's own check reports it and the runtime
+ * stays silent; uncompiled, the runtime reports it.
+ */
+const UNKEYED_GENERATED = process.env.MEONODE_COMPILED === '1' ? MISSING_SAME_OWNER : GENERATED
+
 const kindOf = (message: string): string | undefined => {
   if (message.includes('unique "key" prop')) return message.includes('It was passed a child from Author.') ? MISSING : MISSING_SAME_OWNER
   if (message.includes('[MeoNode] A `children` list without keys came from one call site')) return GENERATED
@@ -41,7 +48,7 @@ const cases: Record<string, { tree: () => ReactNode; reports: string[]; seenVali
   single: { tree: () => Node(TAG, { children: Span('a').render() }).render(), reports: [] },
   componentSingle: { tree: () => Node(Pass, { children: Span('a', { id: 'x' }).render() }).render(), reports: [], seenValidated: 1 },
   componentArray: { tree: () => Node(Pass, { children: [Span('a').render(), Span('b').render()] }).render(), reports: [], seenValidated: [1, 1] },
-  generated: { tree: () => Node(TAG, { children: Array.from({ length: rows }, (_, i) => Span(`r${i}`).render()) }).render(), reports: [GENERATED] },
+  generated: { tree: () => Node(TAG, { children: Array.from({ length: rows }, (_, i) => Span(`r${i}`).render()) }).render(), reports: [UNKEYED_GENERATED] },
   generatedNested: { tree: () => Node(TAG, { children: ['h', Array.from({ length: rows }, (_, i) => Span(`r${i}`).render())] }).render(), reports: [MISSING] },
   // React reports nothing for this tree built with `createElement`: the call that
   // takes the element as a written-out child marks it, and a node's factory call
@@ -129,14 +136,14 @@ const cases: Record<string, { tree: () => ReactNode; reports: string[]; seenVali
   },
   styledGenerated: {
     tree: () => Node(TAG, { children: Array.from({ length: rows }, (_, i) => Span(`r${i}`, { margin: 3 }).render()) }).render(),
-    reports: [GENERATED],
+    reports: [UNKEYED_GENERATED],
   },
   reusedGenerated: {
     tree: () => {
       const list = Array.from({ length: rows }, (_, i) => Span(`r${i}`).render())
       return Node('div', { children: [Node('p', { children: list[0] }), Node(TAG, { children: list })] }).render()
     },
-    reports: [GENERATED],
+    reports: [UNKEYED_GENERATED],
   },
   // React reports nothing for this tree built with `createElement`: the call that
   // takes the element as a written-out child marks it, and a node's factory call

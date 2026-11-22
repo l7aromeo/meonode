@@ -159,6 +159,11 @@ describe('the list marker beside a compiled schema', () => {
 // cases because `createChildrenFirstNode` merges as `{ ...initialProps, ...props,
 // children }`: the marker comes in through the spread and the children are
 // appended last, so the two reach `processProps` by different routes.
+/** A children-first wrapper that hands on the children it was given. */
+function Heading({ tag, children }: { tag: string; children: unknown[] }) {
+  return H1(children as never, { as: tag } as never).render()
+}
+
 describe('the list marker on a children-first call', () => {
   it('is read when the props argument was written by the author', () => {
     const reported = reportsMissingKey(({ tag, rows }) =>
@@ -174,8 +179,10 @@ describe('the list marker on a children-first call', () => {
     expect(reported).toBe(true)
   })
 
+  // A wrapper handing on the `children` it was given: the compiler leaves that
+  // call site unmarked, since the children were written at the wrapper's caller.
   it('stays silent on an unmarked children-first call', () => {
-    const reported = reportsMissingKey(({ tag, rows }) => H1(rows() as never, { as: tag } as never).render())
+    const reported = reportsMissingKey(({ tag, rows }) => Heading({ tag, children: rows() }))
     expect(reported).toBe(false)
   })
 
