@@ -456,6 +456,11 @@ fn extract_per_node() {
 }
 
 #[test]
+fn extract_reaching() {
+    run_partition_with_config("extract_reaching", extract_config());
+}
+
+#[test]
 fn extract_not_host() {
     run_partition_with_config("extract_not_host", extract_config());
 }
@@ -488,4 +493,34 @@ fn extract_at_rule_fallback() {
 #[test]
 fn extract_self_reference() {
     run_partition_with_config("extract_self_reference", extract_config());
+}
+
+#[test]
+fn extract_optional_node() {
+    run_partition_with_config("extract_optional_node", extract_config());
+}
+
+#[test]
+fn extract_empty_block() {
+    run_partition_with_config("extract_empty_block", extract_config());
+}
+
+#[test]
+fn extract_layer() {
+    run_partition_with_config("extract_layer", extract_config());
+}
+
+#[test]
+fn extract_multi_context() {
+    run_partition_with_config("extract_multi_context", extract_config());
+}
+
+#[test]
+fn extract_block_values() {
+    run_partition_with_config("extract_block_values", extract_config());
+}
+
+#[test]
+fn extract_layout() {
+    run_partition_with_config("extract_layout", extract_config());
 }

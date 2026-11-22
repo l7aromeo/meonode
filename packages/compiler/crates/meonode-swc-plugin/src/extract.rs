@@ -54,10 +54,13 @@ use swc_core::common::{DUMMY_SP, SyntaxContext};
 use swc_core::ecma::ast::*;
 use swc_core::ecma::atoms::Atom;
 
+use crate::explain;
 use crate::extract_tables::{
-    CSS_ALIASES, CSS_LOGICAL, CSS_PROPERTIES, CSS_SHORTHANDS, is_host_factory, is_unitless,
+    CSS_ALIASES, CSS_LOGICAL, CSS_PROPERTIES, CSS_SHORTHANDS, InitialProps, InitialValue,
+    is_host_factory, is_unitless, layout_factory,
 };
 use crate::keys::key_name_atom;
+use crate::selector::{self, NODE};
 use crate::style_name::{class_name, hash_styles};
 use crate::stylis;
 use crate::theme::{is_length_key, rewrite_theme_tokens_for};
@@ -73,19 +76,28 @@ const VALUE_EXPORT: &str = "toCssValue";
 /// Marker keys the call site carries.
 pub const CLASSES_KEY: &str = "__meo$s";
 pub const VARIABLES_KEY: &str = "__meo$v";
+/// On a layout factory's call site whose initial props were merged here: their
+/// fingerprint, which tells a runtime with the same initial props to skip its
+/// own merge.
+pub const INITIAL_KEY: &str = "__meo$i";
 /// Prefix of the custom properties VAR values travel in.
 const VARIABLE_PREFIX: &str = "--mv-";
 
-/// Rule buckets, in the order the runtime keeps them across modules.
-const BUCKET_BASE: u8 = 0;
-const BUCKET_PSEUDO: u8 = 1;
-const BUCKET_AT_RULE: u8 = 2;
-const BUCKET_PER_NODE: u8 = 3;
+/// Rule buckets, in the order the runtime keeps them across modules. Emotion
+/// orders a node's rules by when it first renders, so an element's own rules
+/// come after those of the elements rendered before it and before those of
+/// the elements rendered after it. Per-node rules styling elements rendered
+/// after the node (`& p`, `& + .x`) therefore come first, and those styling
+/// the node or an element rendered before it (`.dark &`, `.x:has(&)`) last.
+const BUCKET_REACHING: u8 = 0;
+const BUCKET_BASE: u8 = 1;
+const BUCKET_PSEUDO: u8 = 2;
+const BUCKET_AT_RULE: u8 = 3;
+const BUCKET_PER_NODE: u8 = 4;
 
 /// Separator between the parts of a hashed context, as the contract names it.
 const SEP: char = '\u{0}';
 
-/// Keys `resolveDefaultStyle` reads or writes.
 /// The keys whose values `resolveDefaultStyle` reads. For the others in
 /// [`DEFAULT_KEYS`] only their presence counts: a key the author wrote, with any
 /// value, replaces the default.
@@ -100,6 +112,7 @@ const DEFAULT_READ_KEYS: &[&str] = &[
     "flex",
 ];
 
+/// Keys `resolveDefaultStyle` reads or writes.
 const DEFAULT_KEYS: &[&str] = &[
     "display",
     "overflow",
@@ -160,6 +173,8 @@ impl ModuleExtraction {
 pub struct ModuleScope {
     /// Local bindings of host factories imported from `@meonode/ui`.
     host_factories: HashSet<(Atom, SyntaxContext)>,
+    /// Local bindings of layout factories imported from `@meonode/ui`.
+    layout_factories: HashMap<(Atom, SyntaxContext), Factory>,
     /// Local bindings of `Node`.
     node_factories: HashSet<(Atom, SyntaxContext)>,
     /// Top-level `const NAME = <literal>` bindings.
@@ -221,6 +236,14 @@ impl ModuleScope {
                 self.node_factories.insert(key);
             } else if is_host_factory(imported.as_ref()) {
                 self.host_factories.insert(key);
+            } else if let Some((fingerprint, initial)) = layout_factory(imported.as_ref()) {
+                self.layout_factories.insert(
+                    key,
+                    Factory::Layout {
+                        fingerprint,
+                        initial,
+                    },
+                );
             }
         }
     }
@@ -253,28 +276,86 @@ impl ModuleScope {
         }
     }
 
-    /// Whether `call` renders a plain host element: an imported host factory,
-    /// or `Node` with a tag string.
-    pub fn is_host_call(&self, call: &CallExpr) -> bool {
+    /// The factory `call` renders a host element through, when its styles can
+    /// be extracted: an imported host or layout factory, or `Node` with a tag
+    /// string.
+    pub fn extractable_factory(&self, call: &CallExpr) -> Option<Factory> {
         let Callee::Expr(callee) = &call.callee else {
-            return false;
+            return None;
         };
         let Expr::Ident(id) = &**callee else {
-            return false;
+            return None;
         };
         let key = (id.sym.clone(), id.ctxt);
         if self.host_factories.contains(&key) {
-            return true;
+            return Some(Factory::Host);
+        }
+        if let Some(factory) = self.layout_factories.get(&key) {
+            return Some(*factory);
         }
         if self.node_factories.contains(&key) {
-            return call.args.first().is_some_and(|arg| {
+            let tag = call.args.first().is_some_and(|arg| {
                 arg.spread.is_none()
                     && matches!(unwrap_transparent(&arg.expr), Expr::Lit(Lit::Str(s))
                         if s.value.as_str().is_some_and(|tag| tag.starts_with(|c: char| c.is_ascii_lowercase())))
             });
+            return tag.then_some(Factory::Host);
         }
-        false
+        None
     }
+}
+
+/// A factory whose call sites can be extracted.
+#[derive(Debug, Clone, Copy)]
+pub enum Factory {
+    /// Declared with nothing but its tag.
+    Host,
+    /// Declared with flat initial props, which `createNode` merges in front of
+    /// the call site's.
+    Layout {
+        fingerprint: &'static str,
+        initial: InitialProps,
+    },
+}
+
+impl Factory {
+    fn initial_entries(&self) -> Vec<(String, Expr)> {
+        match self {
+            Factory::Host => Vec::new(),
+            Factory::Layout { initial, .. } => initial
+                .iter()
+                .map(|(key, value)| (key.to_string(), initial_expr(*value)))
+                .collect(),
+        }
+    }
+}
+
+fn initial_expr(value: InitialValue) -> Expr {
+    match value {
+        InitialValue::Str(s) => str_expr(s),
+        InitialValue::Num(n) => Expr::Lit(Lit::Num(Number {
+            span: DUMMY_SP,
+            value: n,
+            raw: None,
+        })),
+    }
+}
+
+/// `combineFactoryProps(initial, props)` for initial props without a `css`
+/// (the only ones [`Factory::Layout`] holds): `{ ...initial, ...props }`, each
+/// key where it first appears, holding its last value.
+fn combine_factory_props(
+    initial: &[(String, Expr)],
+    props: &[(String, Expr)],
+) -> Vec<(String, Expr)> {
+    let mut combined = initial.to_vec();
+    for (key, value) in props {
+        match combined.iter_mut().find(|(k, _)| k == key) {
+            Some(slot) => slot.1 = value.clone(),
+            None => combined.push((key.clone(), value.clone())),
+        }
+    }
+    combined
 }
 
 /// Whether any identifier in `module` is spelled `name`.
@@ -700,6 +781,12 @@ impl Context {
         self.at_rules.is_empty() && self.selector.is_empty()
     }
 
+    /// What the context's selector adds to the node class's specificity, or
+    /// `None` when [`suffix_specificity`] cannot tell.
+    fn specificity(&self) -> Option<Specificity> {
+        suffix_specificity(&self.selector)
+    }
+
     fn bucket(&self) -> u8 {
         if !self.at_rules.is_empty() {
             BUCKET_AT_RULE
@@ -719,9 +806,17 @@ impl Context {
         parts.join(&SEP.to_string())
     }
 
-    /// The rule for `class` holding `declarations`, wrapped in its at-rules.
+    /// The rule for `class` holding `declarations`, wrapped in its at-rules,
+    /// after the vendor copies Emotion's prefixer writes for it.
     fn rule(&self, class: &str, declarations: &str) -> String {
-        let mut text = format!(".{class}{}{{{declarations}}}", self.selector);
+        let selector = format!(".{class}{}", self.selector);
+        // A suffix starts with a colon, so stylis's `length` for the rule is
+        // never 0; the base context's selector names no prefixed pseudo.
+        let mut text: String = selector::prefixed(std::slice::from_ref(&selector), 1)
+            .iter()
+            .map(|copy| format!("{copy}{{{declarations}}}"))
+            .collect();
+        text.push_str(&format!("{selector}{{{declarations}}}"));
         for at_rule in self.at_rules.iter().rev() {
             text = format!("{at_rule}{{{text}}}");
         }
@@ -735,6 +830,10 @@ struct Declaration {
     context: Context,
     /// Keys from the top of the merged css to the object holding it.
     path: Vec<String>,
+    /// Where Emotion writes its rule: the holding object's place in a
+    /// pre-order walk of the merged css. stylis writes an object's own
+    /// declarations as one rule, then its nested objects in source order.
+    rule: usize,
     key: String,
     property: String,
     route: Route,
@@ -747,8 +846,8 @@ struct Block {
     /// Keys from the top of the merged css to the object holding it, and its own key.
     path: Vec<String>,
     key: String,
-    /// The selector with `&` standing for the node's class.
-    selector: String,
+    /// Its rule: the selectors, with [`NODE`] standing for the node's class.
+    scope: selector::Rule,
     at_rules: Vec<String>,
     declarations: Vec<(String, Route)>,
     children: Vec<Block>,
@@ -783,15 +882,24 @@ fn object_entries(obj: &ObjectLit) -> Option<Vec<(String, Expr)>> {
     Some(entries)
 }
 
-/// The suffix a simple pseudo selector key (`&:hover`, `&::before`,
-/// `&:not(:last-child)`) adds after the element's class, or `None` for any other
-/// selector.
-fn pseudo_suffix(key: &str) -> Option<String> {
-    let rest = key.strip_prefix('&')?;
-    if rest.is_empty() || !rest.starts_with(':') {
+/// The suffix after the node's class when a rule is written as atomic classes:
+/// one selector, the node's class followed only by pseudo-classes and
+/// pseudo-elements (`:hover`, `::before`, `:not(:last-child)`), from a key with
+/// no theme token. `None` for any other rule, which is written per node.
+fn atomic_suffix(scope: &selector::Rule, key: &str) -> Option<String> {
+    if key.contains("theme.") {
         return None;
     }
-    if rest.contains("::plac") || rest.contains(":read-") {
+    let [only] = scope.props.as_slice() else {
+        return None;
+    };
+    pseudo_suffix(only.strip_prefix(NODE)?)
+}
+
+/// `rest` when it is a run of simple pseudo selectors (`:hover`, `::before`,
+/// `:not(:last-child)`), or `None`.
+fn pseudo_suffix(rest: &str) -> Option<String> {
+    if !rest.starts_with(':') {
         return None;
     }
     let mut depth = 0i32;
@@ -805,7 +913,7 @@ fn pseudo_suffix(key: &str) -> Option<String> {
                 }
             }
             _ if depth > 0 => {
-                if matches!(ch, '{' | '}' | ';' | '&' | '\\' | '"' | '\'') {
+                if matches!(ch, '{' | '}' | ';' | '&' | '\\' | '"' | '\'' | NODE) {
                     return None;
                 }
             }
@@ -816,84 +924,227 @@ fn pseudo_suffix(key: &str) -> Option<String> {
     (depth == 0).then(|| rest.to_string())
 }
 
-/// An at-rule key the static path writes as it is: `@media`, `@supports` or
-/// `@container`, with no token and nothing that would break out of the rule.
-fn at_rule_text(key: &str) -> Option<String> {
-    let known = ["@media", "@supports", "@container"].iter().any(|k| {
-        key.strip_prefix(k)
-            .is_some_and(|rest| rest.starts_with([' ', '(']))
-    });
-    if !known
-        || key.contains("theme.")
-        || key.contains(['{', '}', ';', '&', '\\'])
-        || key.contains("/*")
-    {
-        return None;
-    }
-    Some(key.split_whitespace().collect::<Vec<_>>().join(" "))
+/// A selector's specificity: ids, then classes, attributes and
+/// pseudo-classes, then types and pseudo-elements (Selectors 4).
+type Specificity = [u32; 3];
+
+/// Pseudo-elements also written with one colon.
+const LEGACY_PSEUDO_ELEMENTS: &[&str] = &["before", "after", "first-line", "first-letter"];
+
+/// Functional pseudo-classes taking a selector list, which count as their most
+/// specific argument.
+const LIST_PSEUDOS: &[&str] = &["is", "not", "has", "matches"];
+
+/// Functional pseudo-classes taking no selector, which count as one pseudo-class.
+const VALUE_PSEUDOS: &[&str] = &[
+    "nth-child",
+    "nth-last-child",
+    "nth-of-type",
+    "nth-last-of-type",
+    "lang",
+    "dir",
+    "state",
+];
+
+fn add(x: Specificity, y: Specificity) -> Specificity {
+    [x[0] + y[0], x[1] + y[1], x[2] + y[2]]
 }
 
-/// A selector key valid inside a per-node rule: no braces, semicolons,
-/// backslashes or comments, and nothing the prefixer rewrites.
-fn arbitrary_selector(key: &str) -> Option<String> {
-    if key.contains(['{', '}', ';', '\\'])
-        || key.contains("/*")
-        || key.contains("::plac")
-        || key.contains(":read-")
-        || key.contains("theme.")
-    {
-        return None;
+/// The specificity of a run of pseudo selectors ([`pseudo_suffix`]), or `None`
+/// for a form it does not know: a functional pseudo-element, a vendor
+/// pseudo-class with an argument, `:nth-child(… of S)`.
+fn suffix_specificity(suffix: &str) -> Option<Specificity> {
+    let mut total = [0, 0, 0];
+    let mut rest = suffix;
+    while !rest.is_empty() {
+        let colons = rest.len() - rest.trim_start_matches(':').len();
+        rest = &rest[colons..];
+        let end = rest.find([':', '(']).unwrap_or(rest.len());
+        let name = rest[..end].to_ascii_lowercase();
+        rest = &rest[end..];
+        let argument = if rest.starts_with('(') {
+            let close = matching_paren(rest)?;
+            let inner = &rest[1..close];
+            rest = &rest[close + 1..];
+            Some(inner)
+        } else {
+            None
+        };
+        if name.is_empty() {
+            return None;
+        }
+        let own = match (colons, argument) {
+            (2, None) => [0, 0, 1],
+            (1, None) if LEGACY_PSEUDO_ELEMENTS.contains(&name.as_str()) => [0, 0, 1],
+            (1, None) => [0, 1, 0],
+            (1, Some(_)) if name == "where" => [0, 0, 0],
+            (1, Some(list)) if LIST_PSEUDOS.contains(&name.as_str()) => list_specificity(list)?,
+            (1, Some(argument))
+                if VALUE_PSEUDOS.contains(&name.as_str())
+                    && !argument.split_ascii_whitespace().any(|w| w == "of") =>
+            {
+                [0, 1, 0]
+            }
+            _ => return None,
+        };
+        total = add(total, own);
     }
-    let trimmed = key.trim();
-    if trimmed.is_empty() {
-        return None;
-    }
-    Some(trimmed.to_string())
+    Some(total)
 }
 
-/// Top-level commas of a selector, outside parentheses and brackets.
-fn split_selector_list(selector: &str) -> Vec<String> {
-    let mut parts = Vec::new();
-    let mut depth = 0i32;
-    let mut current = String::new();
-    for ch in selector.chars() {
+/// The index of the parenthesis closing the one `text` starts with.
+fn matching_paren(text: &str) -> Option<usize> {
+    let mut depth = 0;
+    for (i, ch) in text.char_indices() {
+        match ch {
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(i);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// The most specific item of a selector list, each item a complex selector of
+/// type, universal, class, id, attribute and pseudo selectors.
+fn list_specificity(list: &str) -> Option<Specificity> {
+    let mut best: Option<Specificity> = None;
+    let mut depth = 0;
+    let mut start = 0;
+    let mut items = Vec::new();
+    for (i, ch) in list.char_indices() {
         match ch {
             '(' | '[' => depth += 1,
             ')' | ']' => depth -= 1,
             ',' if depth == 0 => {
-                parts.push(current.trim().to_string());
-                current.clear();
-                continue;
+                items.push(&list[start..i]);
+                start = i + 1;
             }
             _ => {}
         }
-        current.push(ch);
     }
-    parts.push(current.trim().to_string());
-    parts
+    items.push(&list[start..]);
+    for item in items {
+        let s = complex_specificity(item.trim())?;
+        best = Some(best.map_or(s, |b| b.max(s)));
+    }
+    best
 }
 
-/// Whether any selector in the list names the node (`&`) more than once.
-fn names_node_twice(selector: &str) -> bool {
-    split_selector_list(selector)
-        .iter()
-        .any(|item| item.matches('&').count() > 1)
-}
-
-/// `child` nested under `parent`, as stylis composes them: `&` replaced, and a
-/// selector without one taken as a descendant.
-fn compose_selector(parent: &str, child: &str) -> String {
-    let mut out = Vec::new();
-    for p in split_selector_list(parent) {
-        for c in split_selector_list(child) {
-            out.push(if c.contains('&') {
-                c.replace('&', &p)
-            } else {
-                format!("{p} {c}")
-            });
+/// One complex selector's specificity, or `None` for a form it does not know.
+fn complex_specificity(item: &str) -> Option<Specificity> {
+    if item.is_empty() {
+        return None;
+    }
+    let mut total = [0, 0, 0];
+    let mut rest = item;
+    while let Some(ch) = rest.chars().next() {
+        let ident_end = |text: &str| {
+            text.find(|c: char| !(c.is_ascii_alphanumeric() || c == '-' || c == '_'))
+                .unwrap_or(text.len())
+        };
+        match ch {
+            ' ' | '>' | '+' | '~' => rest = &rest[1..],
+            '*' => rest = &rest[1..],
+            '.' | '#' => {
+                let end = 1 + ident_end(&rest[1..]);
+                if end == 1 {
+                    return None;
+                }
+                total = add(total, if ch == '#' { [1, 0, 0] } else { [0, 1, 0] });
+                rest = &rest[end..];
+            }
+            '[' => {
+                let close = rest.find(']')?;
+                total = add(total, [0, 1, 0]);
+                rest = &rest[close + 1..];
+            }
+            ':' => {
+                let colons = rest.len() - rest.trim_start_matches(':').len();
+                let mut end = colons + ident_end(&rest[colons..]);
+                if rest[end..].starts_with('(') {
+                    end += matching_paren(&rest[end..])? + 1;
+                }
+                total = add(total, suffix_specificity(&rest[..end])?);
+                rest = &rest[end..];
+            }
+            c if c.is_ascii_alphabetic() => {
+                let end = ident_end(rest);
+                total = add(total, [0, 0, 1]);
+                rest = &rest[end..];
+            }
+            _ => return None,
         }
     }
-    out.join(",")
+    Some(total)
+}
+
+/// Whether the static path writes at-rule `key`: `@media`, `@supports` or
+/// `@container`, with no theme token in its prelude (the runtime resolves
+/// those). Its text is written as stylis writes it ([`selector::Rule::at_rule`]).
+fn writes_at_rule(key: &str) -> bool {
+    ["@media", "@supports", "@container"].iter().any(|k| {
+        key.strip_prefix(k)
+            .is_some_and(|rest| rest.starts_with(|c: char| c == '(' || c.is_whitespace()))
+    }) && !key.contains("theme.")
+}
+
+/// Whether any of a rule's selectors names the node more than once.
+fn names_node_twice(props: &[String]) -> bool {
+    props.iter().any(|item| item.matches(NODE).count() > 1)
+}
+
+/// Functional pseudo-classes whose argument may match without the node: a
+/// negation, or a list in which another alternative can match on its own.
+const NODE_OPTIONAL_PSEUDOS: &[&str] =
+    &["not", "is", "where", "matches", "-webkit-any", "-moz-any"];
+
+/// Whether every one of a rule's selectors matches only where the node is
+/// rendered: each names the node outside quotes and outside every
+/// [`NODE_OPTIONAL_PSEUDOS`] argument. `:not(&)` or `:is(&, .a)` match
+/// elements with no node anywhere.
+fn requires_node(props: &[String]) -> bool {
+    props.iter().all(|item| {
+        // Per open parenthesis: whether it belongs to a node-optional pseudo.
+        let mut optional: Vec<bool> = Vec::new();
+        let mut name = String::new();
+        let mut quote: Option<char> = None;
+        let mut chars = item.chars();
+        while let Some(ch) = chars.next() {
+            if ch == '\\' {
+                chars.next();
+                name.clear();
+                continue;
+            }
+            if let Some(q) = quote {
+                if ch == q {
+                    quote = None;
+                }
+                continue;
+            }
+            match ch {
+                '"' | '\'' => quote = Some(ch),
+                '(' => {
+                    let lower = name.to_ascii_lowercase();
+                    optional.push(NODE_OPTIONAL_PSEUDOS.contains(&lower.as_str()));
+                    name.clear();
+                }
+                ')' => {
+                    optional.pop();
+                    name.clear();
+                }
+                NODE if !optional.iter().any(|o| *o) => return true,
+                c if c.is_ascii_alphanumeric() || c == '-' => name.push(c),
+                _ => name.clear(),
+            }
+        }
+        false
+    })
 }
 
 /// The merged css of one node.
@@ -904,6 +1155,11 @@ struct Model {
     keys: Vec<String>,
     /// Final base values of the keys [`DEFAULT_READ_KEYS`] names.
     base_values: HashMap<String, Route>,
+    /// Nested selector and at-rule objects with no entries, as path and key:
+    /// they write nothing, and are dropped from the runtime's css with the rest.
+    empty: Vec<(Vec<String>, String)>,
+    /// Objects walked so far, numbering each declaration's rule.
+    rules: usize,
 }
 
 impl ModuleScope {
@@ -913,60 +1169,90 @@ impl ModuleScope {
             blocks: Vec::new(),
             keys: entries.iter().map(|(k, _)| k.clone()).collect(),
             base_values: HashMap::new(),
+            empty: Vec::new(),
+            rules: 0,
         };
-        self.collect_object(&entries, &Context::base(), &[], &mut model)?;
+        self.collect_object(
+            &entries,
+            &Context::base(),
+            &selector::Rule::node(),
+            &[],
+            &mut model,
+        )?;
         Some(model)
     }
 
-    /// Walks one object of the merged css in `context`. `None` when the node
-    /// cannot be extracted at all.
+    /// Walks one object of the merged css in `context`, whose rule is `scope`.
+    /// `None` when the node cannot be extracted at all.
     fn collect_object(
         &self,
         entries: &[(String, Expr)],
         context: &Context,
+        scope: &selector::Rule,
         path: &[String],
         model: &mut Model,
     ) -> Option<()> {
+        let rule = model.rules;
+        model.rules += 1;
         for (key, value) in entries {
             if RESERVED_STYLE_KEYS.contains(&key.as_str()) {
-                return None;
+                return explain::bail("a reserved style key");
             }
             let nested = matches!(unwrap_transparent(value), Expr::Object(_));
             if key.starts_with('@') {
                 let Expr::Object(obj) = unwrap_transparent(value) else {
-                    return None;
+                    return explain::bail(
+                        "a nested selector or at-rule whose value is not an object literal",
+                    );
                 };
-                match at_rule_text(key) {
-                    Some(text) => {
-                        let inner = object_entries(obj)?;
-                        let mut child = context.clone();
-                        child.at_rules.push(text);
-                        self.collect_object(&inner, &child, &extend(path, key), model)?;
+                let (text, inner_scope) = scope.at_rule(key).or_else(|| {
+                    explain::bail("an at-rule key Emotion's parse does not keep inside the rule")
+                })?;
+                if writes_at_rule(key) {
+                    let inner = object_entries(obj)
+                        .or_else(|| explain::bail("an object with a spread or computed key"))?;
+                    if inner.is_empty() {
+                        model.empty.push((path.to_vec(), key.clone()));
                     }
-                    None => {
-                        // Left whole to the runtime; only its properties matter here.
-                        let parent = format!("&{}", context.selector);
-                        let mut block =
-                            self.runtime_at_rule(key, &parent, &context.at_rules, obj)?;
-                        block.path = path.to_vec();
-                        block.key = key.clone();
-                        model.blocks.push(block);
-                    }
+                    let mut child = context.clone();
+                    child.at_rules.push(text);
+                    self.collect_object(&inner, &child, &inner_scope, &extend(path, key), model)?;
+                } else {
+                    // Left whole to the runtime; only its properties matter here.
+                    let mut block =
+                        self.runtime_at_rule(key, inner_scope, &context.at_rules, obj)?;
+                    block.path = path.to_vec();
+                    block.key = key.clone();
+                    model.blocks.push(block);
                 }
             } else if key.starts_with('&') || nested {
                 let Expr::Object(obj) = unwrap_transparent(value) else {
-                    return None;
+                    return explain::bail(
+                        "a nested selector or at-rule whose value is not an object literal",
+                    );
                 };
-                match pseudo_suffix(key) {
+                let child_scope = scope.nest(key).or_else(|| {
+                    explain::bail("a selector key Emotion's parse does not keep inside the rule")
+                })?;
+                match atomic_suffix(&child_scope, key) {
                     Some(suffix) if !context.selector.contains("::") => {
-                        let inner = object_entries(obj)?;
+                        let inner = object_entries(obj)
+                            .or_else(|| explain::bail("an object with a spread or computed key"))?;
+                        if inner.is_empty() {
+                            model.empty.push((path.to_vec(), key.clone()));
+                        }
                         let mut child = context.clone();
-                        child.selector.push_str(&suffix);
-                        self.collect_object(&inner, &child, &extend(path, key), model)?;
+                        child.selector = suffix;
+                        self.collect_object(
+                            &inner,
+                            &child,
+                            &child_scope,
+                            &extend(path, key),
+                            model,
+                        )?;
                     }
                     _ => {
-                        let parent = format!("&{}", context.selector);
-                        let mut block = self.block(key, &parent, &context.at_rules, obj)?;
+                        let mut block = self.block(key, child_scope, &context.at_rules, obj)?;
                         block.path = path.to_vec();
                         block.key = key.clone();
                         model.blocks.push(block);
@@ -974,17 +1260,23 @@ impl ModuleScope {
                 }
             } else {
                 let route = checked(key, self.route(value, 0));
+                if matches!(route, Route::Runtime) {
+                    explain::note("a value left to the runtime");
+                    explain::classify("value", value);
+                }
                 if context.is_base() && DEFAULT_READ_KEYS.contains(&key.as_str()) {
                     model.base_values.insert(key.clone(), route.clone());
                 }
                 if key.contains("theme.")
                     || key.starts_with(|c: char| !c.is_ascii_alphabetic() && c != '-')
                 {
-                    return None;
+                    explain::detail(|| format!("key={key}"));
+                    return explain::bail("a theme token or a non-property in a key");
                 }
                 model.declarations.push(Declaration {
                     context: context.clone(),
                     path: path.to_vec(),
+                    rule,
                     key: key.clone(),
                     property: property_name(key),
                     route,
@@ -994,72 +1286,114 @@ impl ModuleScope {
         Some(())
     }
 
-    /// A per-node block for the selector `key` nested under `parent`. `None`
-    /// when the node must stay whole on the runtime path: what the block sets
-    /// cannot be known (an entry whose keys are unknowable, a nested selector or
-    /// at-rule whose value is not an object literal), or its selector names the
-    /// node twice.
+    /// A per-node block for selector `key`, whose rule is `scope`. `None` when
+    /// the node must stay whole on the runtime path: what the block sets cannot
+    /// be known (an entry whose keys are unknowable, a nested selector or
+    /// at-rule whose value is not an object literal, a key Emotion's parse
+    /// would not keep inside the rule), or its selectors name the node twice or
+    /// only where the node is optional ([`requires_node`]).
     fn block(
         &self,
         key: &str,
-        parent: &str,
+        scope: selector::Rule,
         at_rules: &[String],
         obj: &ObjectLit,
     ) -> Option<Block> {
-        let entries = object_entries(obj)?;
-        let selector = arbitrary_selector(key);
+        let entries = object_entries(obj)
+            .or_else(|| explain::bail("an object with a spread or computed key"))?;
+        // The node's class is its whole style to Emotion. A selector naming it
+        // twice (`& + &`, `& &`) matches only nodes styled alike in full, and one
+        // naming it only where it is optional (`:not(&)`, `:is(&, .a)`) matches
+        // nodes styled otherwise, or none rendered at all. Taking any entry out
+        // of that class changes which elements match, and a static rule exists
+        // before the node renders: the whole node stays on the runtime path.
+        if names_node_twice(&scope.props) {
+            return explain::bail("a selector naming the node twice");
+        }
+        if !requires_node(&scope.props) {
+            return explain::bail("a selector naming the node only inside :not, :is or :where");
+        }
         let mut block = Block {
             path: Vec::new(),
             key: String::new(),
-            selector: selector
-                .as_deref()
-                .map(|s| compose_selector(parent, s))
-                .unwrap_or_default(),
+            scope,
             at_rules: at_rules.to_vec(),
             declarations: Vec::new(),
             children: Vec::new(),
-            extractable: selector.is_some(),
+            // The runtime resolves theme tokens in keys.
+            extractable: !key.contains("theme.") || {
+                explain::note("a theme token in a selector or at-rule key");
+                explain::detail(|| format!("key={key}"));
+                false
+            },
         };
-        // `&` is the node's whole-style class to Emotion, so a selector naming it
-        // twice (`& + &`, `& &`) matches only nodes styled alike in full. Any
-        // entry taken out of that class, into a per-node or an atomic one,
-        // changes which nodes match: the whole node stays on the runtime path.
-        if names_node_twice(&block.selector) {
-            return None;
-        }
         for (child_key, value) in &entries {
             let nested = matches!(unwrap_transparent(value), Expr::Object(_));
             if child_key.starts_with('@') {
                 let Expr::Object(inner) = unwrap_transparent(value) else {
-                    return None;
+                    return explain::bail(
+                        "a nested selector or at-rule whose value is not an object literal",
+                    );
                 };
-                let child = match at_rule_text(child_key) {
-                    Some(text) => {
-                        let mut rules = at_rules.to_vec();
-                        rules.push(text);
-                        self.block("&", &block.selector, &rules, inner)?
-                    }
-                    None => self.runtime_at_rule(child_key, &block.selector, at_rules, inner)?,
+                let (text, inner_scope) = block.scope.at_rule(child_key).or_else(|| {
+                    explain::bail("an at-rule key Emotion's parse does not keep inside the rule")
+                })?;
+                let child = if writes_at_rule(child_key) {
+                    let mut rules = at_rules.to_vec();
+                    rules.push(text);
+                    self.block(child_key, inner_scope, &rules, inner)?
+                } else {
+                    self.runtime_at_rule(child_key, inner_scope, at_rules, inner)?
                 };
                 block.extractable &= child.extractable;
                 block.children.push(child);
             } else if child_key.starts_with('&') || nested {
                 let Expr::Object(inner) = unwrap_transparent(value) else {
-                    return None;
+                    return explain::bail(
+                        "a nested selector or at-rule whose value is not an object literal",
+                    );
                 };
-                let child = self.block(child_key, &block.selector, at_rules, inner)?;
+                let child_scope = block.scope.nest(child_key).or_else(|| {
+                    explain::bail("a selector key Emotion's parse does not keep inside the rule")
+                })?;
+                let child = self.block(child_key, child_scope, at_rules, inner)?;
                 block.extractable &= child.extractable;
                 block.children.push(child);
             } else {
                 let route = checked(child_key, self.route(value, 0));
+                let writable = match &route {
+                    Route::Static(_) | Route::Omit => true,
+                    // Read on the element that sets it: on another one, the
+                    // nearest ancestor's value would win where Emotion's later
+                    // rule does.
+                    Route::Var(_) | Route::Switch(..) => {
+                        styles_node(&block.scope.props)
+                            && block_variable(child_key, &route).is_some()
+                    }
+                    Route::Runtime => false,
+                };
                 if RESERVED_STYLE_KEYS.contains(&child_key.as_str())
                     || child_key.contains("theme.")
-                    || !matches!(route, Route::Static(_) | Route::Omit)
+                    || !writable
                 {
+                    if matches!(route, Route::Runtime) {
+                        explain::classify("value", value);
+                    }
+                    explain::note(match route {
+                        Route::Runtime => "a block holding a value left to the runtime",
+                        Route::Var(_) | Route::Switch(..) => {
+                            "a block holding a run-time value it cannot write as a variable"
+                        }
+                        _ => "a block holding a reserved or theme-token key",
+                    });
                     block.extractable = false;
                 }
                 block.declarations.push((child_key.clone(), route));
             }
+        }
+        if !block.declarations.is_empty() && rule_bucket(&block.scope.props).is_none() {
+            explain::note("a selector list styling elements rendered on both sides of the node");
+            block.extractable = false;
         }
         Some(block)
     }
@@ -1071,11 +1405,12 @@ impl ModuleScope {
     fn runtime_at_rule(
         &self,
         key: &str,
-        parent: &str,
+        scope: selector::Rule,
         at_rules: &[String],
         obj: &ObjectLit,
     ) -> Option<Block> {
-        let mut block = self.block("&", parent, at_rules, obj)?;
+        let mut block = self.block(key, scope, at_rules, obj)?;
+        explain::note("an at-rule other than @media, @supports or @container");
         block.extractable = false;
         if is_keyframes(key) {
             block.declarations.clear();
@@ -1093,37 +1428,111 @@ fn is_keyframes(key: &str) -> bool {
 }
 
 impl Block {
-    /// Every property set inside, for overlap with the element's own rules.
-    fn properties(&self, out: &mut Vec<String>) {
-        for (key, _) in &self.declarations {
-            out.push(property_name(key));
+    /// Records each rule of this block whose selectors don't style the node
+    /// itself, for the accounting run: `reach=<selectors>;props=<own
+    /// properties>;extracted=<bool>`.
+    #[cfg(test)]
+    fn explain_reaching(&self, extracted: bool) {
+        let extracted = extracted && self.extractable;
+        if !styles_node(&self.scope.props) && !self.declarations.is_empty() {
+            let props: Vec<String> = self
+                .declarations
+                .iter()
+                .map(|(k, _)| property_name(k))
+                .collect();
+            explain::detail(|| {
+                format!(
+                    "reach={}{};props={};extracted={extracted}",
+                    self.at_rules
+                        .iter()
+                        .map(|a| format!("{a} > "))
+                        .collect::<String>(),
+                    self.scope.props.join(", ").replace(NODE, "&"),
+                    props.join(",")
+                )
+            });
         }
         for child in &self.children {
-            child.properties(out);
+            child.explain_reaching(extracted);
+        }
+    }
+
+    /// Every property set inside by a rule that may style the node, for
+    /// overlap with the node's own rules. A rule styling only other elements
+    /// never competes with them.
+    fn node_properties(&self, out: &mut Vec<String>) {
+        if self
+            .scope
+            .props
+            .iter()
+            .any(|item| matches!(reach(item), Reach::Node | Reach::Unknown))
+        {
+            for (key, _) in &self.declarations {
+                out.push(property_name(key));
+            }
+        }
+        for child in &self.children {
+            child.node_properties(out);
         }
     }
 
     /// The rules, Emotion's order: own declarations, then nested rules in
-    /// source order. `&` in the selector stands for the node's class.
-    fn rules(&self, out: &mut String) -> Option<()> {
+    /// source order, each into the text of its bucket ([`rule_bucket`]):
+    /// `reaching` for [`BUCKET_REACHING`], `own` for [`BUCKET_PER_NODE`].
+    /// [`NODE`] in the selectors stands for the node's class.
+    fn rules(
+        &self,
+        reaching: &mut String,
+        own: &mut String,
+        variables: &mut Vec<Variable>,
+    ) -> Option<()> {
         let mut declarations = String::new();
         for (key, route) in &self.declarations {
-            if let Route::Static(value) = route {
-                declarations.push_str(&stylis::declarations(
-                    &property_name(key),
-                    &value_text(key, value)?,
-                )?);
+            let property = property_name(key);
+            match route {
+                Route::Static(value) => {
+                    declarations
+                        .push_str(&stylis::declarations(&property, &value_text(key, value)?)?);
+                }
+                Route::Var(_) | Route::Switch(..) => {
+                    let name = format!(
+                        "{VARIABLE_PREFIX}{}",
+                        hash_styles(&format!(
+                            "{}{SEP}{}{SEP}{property}",
+                            self.at_rules.join(&SEP.to_string()),
+                            self.scope.props.join(",")
+                        ))
+                    );
+                    declarations
+                        .push_str(&stylis::declarations(&property, &format!("var({name})"))?);
+                    variables.push(Variable {
+                        name,
+                        key: key.clone(),
+                        value: block_variable(key, route)?,
+                    });
+                }
+                Route::Omit | Route::Runtime => {}
             }
         }
         if !declarations.is_empty() {
-            let mut text = format!("{}{{{declarations}}}", self.selector);
+            let props = &self.scope.props;
+            let mut text: String = selector::prefixed(props, self.scope.length)
+                .iter()
+                .map(|copy| format!("{copy}{{{declarations}}}"))
+                .collect();
+            text.push_str(&format!("{}{{{declarations}}}", props.join(",")));
             for at_rule in self.at_rules.iter().rev() {
                 text = format!("{at_rule}{{{text}}}");
             }
+            let out = if rule_bucket(props)? == BUCKET_REACHING {
+                &mut *reaching
+            } else {
+                &mut *own
+            };
             out.push_str(&text);
         }
         for child in &self.children {
-            child.rules(out)?;
+            child.rules(reaching, own, variables)?;
         }
         Some(())
     }
@@ -1131,6 +1540,22 @@ impl Block {
 
 // ---------------------------------------------------------------------------
 // Deciding what is extracted
+
+/// Whether two declarations in different nested contexts keep Emotion's
+/// winner as atomic rules, whose order is their buckets' and, within one
+/// bucket, wherever each rule was first inserted. Different specificities
+/// decide alike in both; equal ones are decided by order, which atomic rules
+/// keep only when the node's own rule order is already the buckets' order.
+/// An unknown specificity counts as equal.
+fn kept_in_order(a: &Declaration, b: &Declaration) -> bool {
+    if let (Some(x), Some(y)) = (a.context.specificity(), b.context.specificity())
+        && x != y
+    {
+        return true;
+    }
+    let (first, second) = if a.rule < b.rule { (a, b) } else { (b, a) };
+    first.context.bucket() < second.context.bucket()
+}
 
 /// Moves declarations to the runtime path until every rule in the module docs
 /// holds. Returns whether anything is left on the runtime path.
@@ -1143,6 +1568,7 @@ fn settle(model: &mut Model) -> bool {
         // Prefixed VAR values: the prefixer's output depends on the value.
         for (i, d) in decls.iter().enumerate() {
             if matches!(d.route, Route::Var(_)) && stylis::is_prefixed_property(&d.property) {
+                explain::note("a run-time value of a property the prefixer rewrites by value");
                 to_runtime.insert(i);
             }
         }
@@ -1157,12 +1583,18 @@ fn settle(model: &mut Model) -> bool {
                 }
                 if !b.route.is_static_path() && !matches!(b.route, Route::Omit) {
                     // Rule: never split a property between the two paths.
+                    explain::note("a property also set on the runtime path");
                     to_runtime.insert(i);
                 } else if b.route.is_static_path() {
                     let same_context = a.context == b.context;
                     let both_nested = !a.context.is_base() && !b.context.is_base();
-                    if same_context || both_nested {
+                    if same_context || (both_nested && !kept_in_order(a, b)) {
                         // Order-dependent: atomic rules cannot keep it.
+                        explain::note(if same_context {
+                            "overlapping properties in one context"
+                        } else {
+                            "one property in two nested contexts"
+                        });
                         to_runtime.insert(i);
                         to_runtime.insert(j);
                     }
@@ -1174,7 +1606,7 @@ fn settle(model: &mut Model) -> bool {
         // split from it, a static rule would lose its order against the block.
         let mut runtime_block_properties = Vec::new();
         for block in model.blocks.iter().filter(|b| !b.extractable) {
-            block.properties(&mut runtime_block_properties);
+            block.node_properties(&mut runtime_block_properties);
         }
         for (i, d) in decls.iter().enumerate() {
             if d.route.is_static_path()
@@ -1182,6 +1614,7 @@ fn settle(model: &mut Model) -> bool {
                     .iter()
                     .any(|p| overlaps(p, &d.property))
             {
+                explain::note("a property a runtime block sets");
                 to_runtime.insert(i);
             }
         }
@@ -1199,7 +1632,7 @@ fn settle(model: &mut Model) -> bool {
                 continue;
             }
             let mut properties = Vec::new();
-            block.properties(&mut properties);
+            block.node_properties(&mut properties);
             let clashes = properties
                 .iter()
                 .any(|p| pseudo_properties.iter().any(|q| overlaps(p, q)))
@@ -1211,6 +1644,11 @@ fn settle(model: &mut Model) -> bool {
                     })
                 });
             if clashes || any_block_runtime {
+                explain::note(if clashes {
+                    "a block sharing a property with the element's pseudo rules"
+                } else {
+                    "a block beside another block on the runtime path"
+                });
                 block.extractable = false;
                 changed = true;
             }
@@ -1417,6 +1855,228 @@ pub struct SiteExtraction {
     pub removed_top_keys: HashSet<String>,
 }
 
+/// A CSS variable a block's rule reads, and the value the call site sets it to.
+struct Variable {
+    name: String,
+    key: String,
+    value: Box<Expr>,
+}
+
+/// `"--mv-…": __meoVal(key, value)`: a variable the call site sets, written
+/// as the runtime writes `key`'s value.
+fn variable_prop(name: &str, key: &str, value: Box<Expr>) -> PropOrSpread {
+    PropOrSpread::Prop(Box::new(Prop::KeyValue(KeyValueProp {
+        key: PropName::Str(Str::from(Atom::from(name))),
+        value: Box::new(Expr::Call(CallExpr {
+            span: DUMMY_SP,
+            ctxt: SyntaxContext::empty(),
+            callee: Callee::Expr(Box::new(Expr::Ident(Ident::new_no_ctxt(
+                Atom::from(VALUE_LOCAL),
+                DUMMY_SP,
+            )))),
+            args: vec![
+                ExprOrSpread {
+                    spread: None,
+                    expr: Box::new(str_expr(key)),
+                },
+                ExprOrSpread {
+                    spread: None,
+                    expr: value,
+                },
+            ],
+            type_args: None,
+        })),
+    })))
+}
+
+/// The run-time value a block declaration writes as a CSS variable: a VAR
+/// value, or a SWITCH whose every branch is a value. `None` for a branch that
+/// leaves the property unset (an unset variable computes to `unset`, while
+/// Emotion's missing declaration lets a lower rule apply), and for a property
+/// the prefixer rewrites by value.
+fn block_variable(key: &str, route: &Route) -> Option<Box<Expr>> {
+    fn chosen(route: &Route) -> Option<Expr> {
+        match route {
+            Route::Static(Value::Str(s)) => Some(str_expr(s)),
+            Route::Static(Value::Num(n)) => Some(Expr::Lit(Lit::Num(Number {
+                span: DUMMY_SP,
+                value: *n,
+                raw: None,
+            }))),
+            Route::Switch(test, cons, alt) => Some(Expr::Cond(CondExpr {
+                span: DUMMY_SP,
+                test: test.clone(),
+                cons: Box::new(chosen(cons)?),
+                alt: Box::new(chosen(alt)?),
+            })),
+            _ => None,
+        }
+    }
+    if stylis::is_prefixed_property(&property_name(key)) {
+        return None;
+    }
+    match route {
+        Route::Var(expr) => Some(expr.clone()),
+        Route::Switch(..) => chosen(route).map(|e| Box::new(paren(e))),
+        _ => None,
+    }
+}
+
+/// [`styles_node`], for the reason recorder's accounting run.
+#[cfg(test)]
+pub(crate) fn styles_node_for_accounting(props: &[String]) -> bool {
+    styles_node(props)
+}
+
+/// Whether each of a rule's selectors styles the node itself: its last
+/// compound names the node outside any parentheses (`&:hover`, `.dark &`),
+/// not a descendant, sibling or ancestor of it (`& p`, `.a:has(&)`).
+fn styles_node(props: &[String]) -> bool {
+    props.iter().all(|item| {
+        let mut depth = 0i32;
+        let mut quote: Option<char> = None;
+        let mut subject_names_node = false;
+        let mut chars = item.chars().peekable();
+        while let Some(ch) = chars.next() {
+            if let Some(q) = quote {
+                if ch == '\\' {
+                    chars.next();
+                } else if ch == q {
+                    quote = None;
+                }
+                continue;
+            }
+            match ch {
+                '\\' => {
+                    chars.next();
+                }
+                '"' | '\'' => quote = Some(ch),
+                '(' | '[' => depth += 1,
+                ')' | ']' => depth -= 1,
+                ' ' | '>' | '+' | '~' | '|' if depth == 0 => {
+                    // `|` alone is a namespace separator; `||` is a combinator.
+                    if ch != '|' || chars.peek() == Some(&'|') {
+                        subject_names_node = false;
+                    }
+                }
+                NODE if depth == 0 => subject_names_node = true,
+                _ => {}
+            }
+        }
+        subject_names_node
+    })
+}
+
+/// Where the element a selector styles renders, relative to the node, in
+/// React's render order: the order Emotion inserts their rules in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Reach {
+    /// The node itself (`&:hover`, `.dark &`).
+    Node,
+    /// A descendant or a later sibling, or a descendant of one (`& p`, `& + .x`).
+    Later,
+    /// An ancestor or an earlier sibling (`.x:has(&)`, `.x:has(+ &)`).
+    Earlier,
+    /// Either side (`.x:has(&) p`), or a relation not followed here
+    /// (`:nth-child(1 of &)`, `:host(&)`).
+    Unknown,
+}
+
+/// Where a selector list item reaches; see [`Reach`]. The item names the node
+/// once (twice-named selectors never get here).
+fn reach(item: &str) -> Reach {
+    // Per open parenthesis: whether it is `:has(`.
+    let mut parens: Vec<bool> = Vec::new();
+    let mut brackets = 0u32;
+    let mut name = String::new();
+    let mut quote: Option<char> = None;
+    // The node's compound: whether it is inside `:has()` only.
+    let mut node: Option<bool> = None;
+    // Whether a top-level combinator follows the node, and a compound follows that.
+    let mut separated = false;
+    let mut beyond = false;
+    let mut chars = item.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if let Some(q) = quote {
+            if ch == '\\' {
+                chars.next();
+            } else if ch == q {
+                quote = None;
+            }
+            continue;
+        }
+        let top = parens.is_empty() && brackets == 0;
+        match ch {
+            ' ' | '>' | '+' | '~' if top => {
+                separated |= node.is_some();
+                name.clear();
+            }
+            // `||` is a combinator; `|` alone a namespace separator.
+            '|' if top && chars.peek() == Some(&'|') => {
+                chars.next();
+                separated |= node.is_some();
+                name.clear();
+            }
+            NODE => {
+                node = Some(if top {
+                    false
+                } else if brackets == 0 && parens.iter().all(|has| *has) {
+                    true
+                } else {
+                    return Reach::Unknown;
+                });
+            }
+            _ => {
+                beyond |= separated;
+                match ch {
+                    '\\' => {
+                        chars.next();
+                        name.clear();
+                    }
+                    '"' | '\'' => quote = Some(ch),
+                    '[' => brackets += 1,
+                    ']' => brackets = brackets.saturating_sub(1),
+                    '(' => {
+                        parens.push(name.eq_ignore_ascii_case("has"));
+                        name.clear();
+                    }
+                    ')' => {
+                        parens.pop();
+                        name.clear();
+                    }
+                    c if c.is_alphanumeric() || c == '-' || c == '_' => name.push(c),
+                    _ => name.clear(),
+                }
+            }
+        }
+    }
+    match (node, beyond) {
+        (Some(false), false) => Reach::Node,
+        (Some(false), true) => Reach::Later,
+        (Some(true), false) => Reach::Earlier,
+        _ => Reach::Unknown,
+    }
+}
+
+/// The bucket a per-node rule goes in, from where each of its selectors
+/// reaches: [`BUCKET_REACHING`] when every one styles an element rendered
+/// after the node, [`BUCKET_PER_NODE`] when every one styles the node or an
+/// element rendered before it. `None` when the list mixes the two or one is
+/// [`Reach::Unknown`]: no bucket keeps both orders.
+fn rule_bucket(props: &[String]) -> Option<u8> {
+    let reaches: Vec<Reach> = props.iter().map(|item| reach(item)).collect();
+    if reaches.iter().all(|r| *r == Reach::Later) {
+        Some(BUCKET_REACHING)
+    } else if reaches
+        .iter()
+        .all(|r| matches!(r, Reach::Node | Reach::Earlier))
+    {
+        Some(BUCKET_PER_NODE)
+    } else {
+        None
+    }
+}
+
 fn str_expr(text: &str) -> Expr {
     Expr::Lit(Lit::Str(Str::from(Atom::from(text))))
 }
@@ -1467,6 +2127,7 @@ impl ModuleScope {
     /// when nothing is extracted.
     pub fn extract_site(
         &self,
+        factory: Factory,
         c_props: &mut Vec<PropOrSpread>,
         special_props: &mut Vec<PropOrSpread>,
         d_props: &[PropOrSpread],
@@ -1474,38 +2135,55 @@ impl ModuleScope {
     ) -> Option<SiteExtraction> {
         for prop in special_props.iter().chain(d_props.iter()) {
             let PropOrSpread::Prop(prop) = prop else {
-                return None;
+                return explain::bail("a spread among the props");
             };
             let name = match &**prop {
                 Prop::KeyValue(kv) => key_name_atom(&kv.key).to_string(),
                 Prop::Shorthand(id) => id.sym.to_string(),
-                _ => return None,
+                _ => return explain::bail("a prop that is not key: value"),
             };
             if BLOCKING_PROPS.contains(&name.as_str()) {
-                return None;
+                return explain::bail("a prop that blocks extraction");
             }
         }
 
-        // `{ ...c, ...css }`, as `_processCompiledProps` merges them.
-        let mut entries = object_entries(&ObjectLit {
+        // The factory's initial props merged in front of the call site's, as
+        // `createNode` merges them, then `{ ...flat, ...css }`, as
+        // `_processCompiledProps` merges those.
+        let mut call_props = object_entries(&ObjectLit {
             span: DUMMY_SP,
             props: c_props.clone(),
-        })?;
+        })
+        .or_else(|| explain::bail("props with a spread or computed key"))?;
         let css_index = special_props
             .iter()
             .position(|p| prop_key(p).as_deref() == Some("css"));
         if let Some(index) = css_index {
             let PropOrSpread::Prop(prop) = &special_props[index] else {
-                return None;
+                return explain::bail("a css prop that is not key: value");
             };
             let value = match &**prop {
                 Prop::KeyValue(kv) => (*kv.value).clone(),
                 Prop::Shorthand(id) => Expr::Ident(id.clone()),
-                _ => return None,
+                _ => return explain::bail("a css prop that is not key: value"),
             };
+            call_props.push(("css".to_string(), value));
+        }
+        let initial = factory.initial_entries();
+        let mut entries = combine_factory_props(&initial, &call_props);
+        let css = entries
+            .iter()
+            .position(|(key, _)| key == "css")
+            .map(|at| entries.remove(at).1);
+        if let Some(value) = css {
             match unwrap_transparent(&value) {
                 Expr::Object(obj) => {
-                    for (key, value) in object_entries(obj)? {
+                    for spread in obj.props.iter().filter_map(|p| p.as_spread()) {
+                        explain::classify("css spread", &spread.expr);
+                    }
+                    for (key, value) in object_entries(obj)
+                        .or_else(|| explain::bail("css with a spread or computed key"))?
+                    {
                         match entries.iter_mut().find(|(k, _)| *k == key) {
                             Some(slot) => slot.1 = value,
                             None => entries.push((key, value)),
@@ -1514,15 +2192,25 @@ impl ModuleScope {
                 }
                 Expr::Lit(Lit::Bool(Bool { value: false, .. }) | Lit::Null(_)) => {}
                 Expr::Ident(id) if id.sym.as_ref() == "undefined" => {}
-                _ => return None,
+                other => {
+                    explain::classify("css", other);
+                    return explain::bail("css that is not an object literal");
+                }
             }
         }
         if entries.is_empty() {
-            return None;
+            return explain::bail("no style entries");
         }
 
         let mut model = self.model(entries)?;
         let partial = settle(&mut model);
+        if partial {
+            explain::note(explain::PARTIAL);
+        }
+        #[cfg(test)]
+        for block in &model.blocks {
+            block.explain_reaching(true);
+        }
 
         let mut classes: Vec<String> = Vec::new();
         let mut switches: Vec<Expr> = Vec::new();
@@ -1573,52 +2261,47 @@ impl ModuleScope {
                     classes.push(rule.class.clone());
                     module.add(rule);
                     module.uses_value = true;
-                    variables.push(PropOrSpread::Prop(Box::new(Prop::KeyValue(KeyValueProp {
-                        key: PropName::Str(Str::from(Atom::from(variable.as_str()))),
-                        value: Box::new(Expr::Call(CallExpr {
-                            span: DUMMY_SP,
-                            ctxt: SyntaxContext::empty(),
-                            callee: Callee::Expr(Box::new(Expr::Ident(Ident::new_no_ctxt(
-                                Atom::from(VALUE_LOCAL),
-                                DUMMY_SP,
-                            )))),
-                            args: vec![
-                                ExprOrSpread {
-                                    spread: None,
-                                    expr: Box::new(str_expr(&d.key)),
-                                },
-                                ExprOrSpread {
-                                    spread: None,
-                                    expr: expr.clone(),
-                                },
-                            ],
-                            type_args: None,
-                        })),
-                    }))));
+                    variables.push(variable_prop(&variable, &d.key, expr.clone()));
                     extracted.push(i);
                 }
                 Route::Runtime => {}
             }
         }
 
-        let mut per_node_text = String::new();
+        let mut reaching_text = String::new();
+        let mut own_text = String::new();
+        let mut block_variables = Vec::new();
         for block in model.blocks.iter().filter(|b| b.extractable) {
-            block.rules(&mut per_node_text)?;
+            block.rules(&mut reaching_text, &mut own_text, &mut block_variables)?;
         }
-        if !per_node_text.is_empty() {
+        for variable in block_variables {
+            module.uses_value = true;
+            variables.push(variable_prop(&variable.name, &variable.key, variable.value));
+        }
+        // One class per bucket: the registry keeps a class in one bucket.
+        for (bucket, per_node_text) in [
+            (BUCKET_REACHING, reaching_text),
+            (BUCKET_PER_NODE, own_text),
+        ] {
+            if per_node_text.is_empty() {
+                continue;
+            }
             let placeholder_class = class_name(&per_node_text);
-            let text = per_node_text.replace('&', &format!(".{placeholder_class}"));
+            let text = per_node_text.replace(NODE, &format!(".{placeholder_class}"));
             classes.push(placeholder_class.clone());
             module.add(Rule {
-                bucket: BUCKET_PER_NODE,
+                bucket,
                 class: placeholder_class,
                 text,
             });
         }
 
         if !partial {
-            for (key, value) in defaults(&model)? {
-                let text = value_text(key, &value)?;
+            for (key, value) in defaults(&model)
+                .or_else(|| explain::bail("default declarations not known at build time"))?
+            {
+                let text = value_text(key, &value)
+                    .or_else(|| explain::bail("a default value stylis's parse is not followed"))?;
                 let rule = atomic_rule(&Context::base(), &property_name(key), &text)?;
                 classes.push(rule.class.clone());
                 module.add(rule);
@@ -1626,7 +2309,7 @@ impl ModuleScope {
         }
 
         if classes.is_empty() && switches.is_empty() {
-            return None;
+            return explain::bail("nothing extracted");
         }
 
         // Remove what was extracted from `__meo$c` and `css`.
@@ -1638,8 +2321,26 @@ impl ModuleScope {
         for block in model.blocks.iter().filter(|b| b.extractable) {
             plan.remove(&block.path, &block.key);
         }
+        for (path, key) in &model.empty {
+            plan.visit(path, key);
+        }
         let top: HashSet<String> = plan.top.clone();
         c_props.retain(|p| prop_key(p).is_none_or(|k| !top.contains(&k)));
+        // A marked call site skips the runtime's merge, so an initial entry
+        // left to the runtime is written here, ahead of the call site's own:
+        // the key keeps its first place and a later one its value, as
+        // `{ ...initial, ...props }` has them.
+        let kept_initial: Vec<PropOrSpread> = initial
+            .iter()
+            .filter(|(key, _)| !top.contains(key))
+            .map(|(key, value)| {
+                PropOrSpread::Prop(Box::new(Prop::KeyValue(KeyValueProp {
+                    key: PropName::Ident(IdentName::new(Atom::from(key.as_str()), DUMMY_SP)),
+                    value: Box::new(value.clone()),
+                })))
+            })
+            .collect();
+        c_props.splice(0..0, kept_initial);
         if let Some(index) = css_index {
             let mut drop_css = false;
             if let PropOrSpread::Prop(prop) = &mut special_props[index]
@@ -1667,6 +2368,12 @@ impl ModuleScope {
             key: PropName::Ident(IdentName::new(Atom::from(CLASSES_KEY), DUMMY_SP)),
             value: Box::new(class_expr),
         })))];
+        if let Factory::Layout { fingerprint, .. } = factory {
+            props.push(PropOrSpread::Prop(Box::new(Prop::KeyValue(KeyValueProp {
+                key: PropName::Ident(IdentName::new(Atom::from(INITIAL_KEY), DUMMY_SP)),
+                value: Box::new(str_expr(fingerprint)),
+            }))));
+        }
         if !variables.is_empty() {
             props.push(PropOrSpread::Prop(Box::new(Prop::KeyValue(KeyValueProp {
                 key: PropName::Ident(IdentName::new(Atom::from(VARIABLES_KEY), DUMMY_SP)),
@@ -1719,6 +2426,20 @@ impl Plan {
                 .entry(head.clone())
                 .or_default()
                 .remove(rest, key),
+        }
+    }
+
+    /// Visits nested object `key` at `path`, so it is dropped when left empty.
+    fn visit(&mut self, path: &[String], key: &str) {
+        match path.split_first() {
+            None => {
+                self.nested.entry(key.to_string()).or_default();
+            }
+            Some((head, rest)) => self
+                .nested
+                .entry(head.clone())
+                .or_default()
+                .visit(rest, key),
         }
     }
 
@@ -1941,6 +2662,99 @@ mod tests {
         }
     }
 
+    /// `createNode`'s merge of each layout factory's initial props with sample
+    /// call-site props, written by `scripts/codegen-extract-tables.ts`.
+    const FACTORY_MERGES: &str = include_str!("../tests/fixture/extract/factory-merge.json");
+
+    fn json_expr(value: &serde_json::Value) -> Expr {
+        use serde_json::Value as J;
+        match value {
+            J::Null => Expr::Lit(Lit::Null(Null { span: DUMMY_SP })),
+            J::Bool(b) => Expr::Lit(Lit::Bool(Bool {
+                span: DUMMY_SP,
+                value: *b,
+            })),
+            J::Number(n) => initial_expr(InitialValue::Num(n.as_f64().expect("finite"))),
+            J::String(text) => str_expr(text),
+            J::Array(items) => Expr::Array(ArrayLit {
+                span: DUMMY_SP,
+                elems: items
+                    .iter()
+                    .map(|item| {
+                        Some(ExprOrSpread {
+                            spread: None,
+                            expr: Box::new(json_expr(item)),
+                        })
+                    })
+                    .collect(),
+            }),
+            J::Object(map) if map.get("$undefined") == Some(&J::Bool(true)) => {
+                Expr::Ident(Ident::new_no_ctxt(Atom::from("undefined"), DUMMY_SP))
+            }
+            J::Object(map) => Expr::Object(ObjectLit {
+                span: DUMMY_SP,
+                props: map
+                    .iter()
+                    .map(|(k, v)| {
+                        PropOrSpread::Prop(Box::new(Prop::KeyValue(KeyValueProp {
+                            key: PropName::Str(Str::from(Atom::from(k.as_str()))),
+                            value: Box::new(json_expr(v)),
+                        })))
+                    })
+                    .collect(),
+            }),
+        }
+    }
+
+    fn json_entries(value: &serde_json::Value) -> Vec<(String, Expr)> {
+        value
+            .as_array()
+            .map(|entries| {
+                entries
+                    .iter()
+                    .map(|entry| {
+                        let pair = entry.as_array().expect("an entry is [key, value]");
+                        (
+                            pair[0].as_str().expect("key").to_string(),
+                            json_expr(&pair[1]),
+                        )
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    #[test]
+    fn layout_factory_merge_matches_create_node() {
+        use swc_core::common::EqIgnoreSpan;
+        let cases: Vec<(String, serde_json::Value, serde_json::Value)> =
+            serde_json::from_str(FACTORY_MERGES).expect("fixture parses");
+        assert!(!cases.is_empty());
+        let mut factories = HashSet::new();
+        for (name, props, expected) in &cases {
+            let (fingerprint, initial) = layout_factory(name).expect("a layout factory");
+            factories.insert(name.clone());
+            let factory = Factory::Layout {
+                fingerprint,
+                initial,
+            };
+            let combined = combine_factory_props(&factory.initial_entries(), &json_entries(props));
+            let expected = json_entries(expected);
+            let keys = |entries: &[(String, Expr)]| -> Vec<String> {
+                entries.iter().map(|(k, _)| k.clone()).collect()
+            };
+            assert_eq!(keys(&combined), keys(&expected), "{name} {props}");
+            for ((key, got), (_, want)) in combined.iter().zip(&expected) {
+                assert!(got.eq_ignore_span(want), "{name} {props}: {key}");
+            }
+        }
+        // Every factory in the table, each against every sample.
+        assert_eq!(
+            factories.len(),
+            crate::extract_tables::LAYOUT_FACTORIES.len()
+        );
+    }
+
     #[test]
     fn keyframes_are_recognized_in_every_form() {
         for key in [
@@ -1955,13 +2769,202 @@ mod tests {
         }
     }
 
+    /// Selectors with `&` standing for the node's class.
+    fn props(items: &[&str]) -> Vec<String> {
+        items
+            .iter()
+            .map(|item| item.replace('&', &NODE.to_string()))
+            .collect()
+    }
+
     #[test]
-    fn a_selector_naming_the_node_twice_is_found_per_list_item() {
-        assert!(names_node_twice("& + &"));
-        assert!(names_node_twice("&:hover ~ &"));
-        assert!(names_node_twice("a, & &"));
-        assert!(!names_node_twice("& + div"));
-        assert!(!names_node_twice("&, & + p"));
+    fn a_selector_requires_the_node_only_outside_optional_pseudos() {
+        for yes in [
+            &["&"][..],
+            &["& pre"],
+            &[".dark &"],
+            &["&.x"],
+            &["& + &"],
+            &[".a:has(&)"],
+            &["&:not(.a)"],
+            &["& a", "& b"],
+            &[":not(.a) &"],
+            &[":is(.a, .b) & p"],
+        ] {
+            assert!(requires_node(&props(yes)), "{yes:?}");
+        }
+        for no in [
+            &[":not(&)"][..],
+            &[":is(&, .a)"],
+            &[":where(&, .a)"],
+            &["html:not(&) p"],
+            &[":where(:not(&))"],
+            &[":not(.a:has(&))"],
+            &[":NOT(&)"],
+            &["&", ":not(&)"],
+            &["p"],
+            &["\\:is(&)"],
+        ] {
+            assert!(!requires_node(&props(no)), "{no:?}");
+        }
+        // A quoted node class is text.
+        assert!(!requires_node(&[format!("[x=\"{NODE}\"] p")]));
+        // An escaped quote does not open a string.
+        assert!(requires_node(&[format!("[x=\\\"] {NODE}")]));
+    }
+
+    #[test]
+    fn computes_the_specificity_a_pseudo_suffix_adds() {
+        // Expected values from @bramus/specificity on `.N` plus the suffix,
+        // less the node class.
+        for (suffix, expected) in [
+            ("", [0, 0, 0]),
+            (":hover", [0, 1, 0]),
+            ("::before", [0, 0, 1]),
+            (":before", [0, 0, 1]),
+            (":after", [0, 0, 1]),
+            (":first-line", [0, 0, 1]),
+            (":first-letter", [0, 0, 1]),
+            ("::placeholder", [0, 0, 1]),
+            (":hover:focus", [0, 2, 0]),
+            (":hover::before", [0, 1, 1]),
+            (":where(.x)", [0, 0, 0]),
+            (":where(#a, .b)", [0, 0, 0]),
+            (":is(#a, .b)", [1, 0, 0]),
+            (":not(.a)", [0, 1, 0]),
+            (":not(.a, #b)", [1, 0, 0]),
+            (":not(:last-child)", [0, 1, 0]),
+            (":not(p)", [0, 0, 1]),
+            (":not(*)", [0, 0, 0]),
+            (":has(> img)", [0, 0, 1]),
+            (":has(+ .a)", [0, 1, 0]),
+            (":is(.a .b, p)", [0, 2, 0]),
+            (":is([data-x])", [0, 1, 0]),
+            (":nth-child(2n+1)", [0, 1, 0]),
+            (":nth-last-of-type(2)", [0, 1, 0]),
+            (":lang(en)", [0, 1, 0]),
+            (":dir(rtl)", [0, 1, 0]),
+            (":state(checked)", [0, 1, 0]),
+            (":not(:hover:focus)", [0, 2, 0]),
+            (":is(:where(.a), .b)", [0, 1, 0]),
+            (":not(.a):hover", [0, 2, 0]),
+            (":focus-visible", [0, 1, 0]),
+            (":is(#a)", [1, 0, 0]),
+            (":matches(.a)", [0, 1, 0]),
+        ] {
+            assert_eq!(suffix_specificity(suffix), Some(expected), "{suffix}");
+        }
+        for unknown in [
+            "::part(label)",
+            "::slotted(span)",
+            ":nth-child(2 of .a)",
+            ":-webkit-any(.a)",
+            ":host(.a)",
+            ":is()",
+            ":::x",
+        ] {
+            assert_eq!(suffix_specificity(unknown), None, "{unknown}");
+        }
+    }
+
+    #[test]
+    fn a_selector_styles_the_node_when_its_last_compound_names_it() {
+        for yes in [
+            &["&"][..],
+            &["&:hover"],
+            &[".dark &"],
+            &["&::before"],
+            &["a > &.x"],
+            &["& a", "&"][1..],
+            &["svg|rect&"],
+        ] {
+            assert!(styles_node(&props(yes)), "{yes:?}");
+        }
+        for no in [
+            &["& p"][..],
+            &["& > p"],
+            &["& + .b"],
+            &["& ~ .b"],
+            &["& || td"],
+            &[".a:has(&)"],
+            &[".a:not(&)"],
+            &["&", "& p"],
+            &["[x=\"&\"] p"],
+        ] {
+            assert!(!styles_node(&props(no)), "{no:?}");
+        }
+    }
+
+    #[test]
+    fn a_selector_reaches_elements_on_one_side_of_the_node() {
+        let cases: &[(&str, Reach)] = &[
+            ("&", Reach::Node),
+            ("&:hover", Reach::Node),
+            (".dark &", Reach::Node),
+            ("&::before", Reach::Node),
+            ("a > &.x", Reach::Node),
+            (".a:has(.b) &", Reach::Node),
+            ("svg|rect&", Reach::Node),
+            ("& p", Reach::Later),
+            ("& > *", Reach::Later),
+            ("&>li>a", Reach::Later),
+            ("& + .x", Reach::Later),
+            ("& ~ .x", Reach::Later),
+            ("& || td", Reach::Later),
+            ("&||td", Reach::Later),
+            ("&[a ~= b]", Reach::Node),
+            (".dark &[ data-x ]", Reach::Node),
+            (".a & .b", Reach::Later),
+            ("& .x ~ .y", Reach::Later),
+            ("& :has(> [data-sheet])", Reach::Later),
+            ("& [a~=\"b c\"]", Reach::Later),
+            ("& ::before", Reach::Later),
+            ("& svg|rect", Reach::Later),
+            (".x:has(&)", Reach::Earlier),
+            (".x:has(> &)", Reach::Earlier),
+            (".x:has(+ &)", Reach::Earlier),
+            (".x:has(~ .y &)", Reach::Earlier),
+            ("p .x:HAS(&)", Reach::Earlier),
+            (".x:has(:hover > &)", Reach::Earlier),
+            (".x:has(&) p", Reach::Unknown),
+            (".x:has(+ &) + *", Reach::Unknown),
+            (".x:nth-child(1 of &)", Reach::Unknown),
+            (":host(&)", Reach::Unknown),
+            ("p", Reach::Unknown),
+        ];
+        for (item, want) in cases {
+            assert_eq!(
+                reach(&item.replace('&', &NODE.to_string())),
+                *want,
+                "{item}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_rule_takes_the_bucket_of_where_its_selectors_reach() {
+        assert_eq!(
+            rule_bucket(&props(&["& p", "& + .x"])),
+            Some(BUCKET_REACHING)
+        );
+        assert_eq!(rule_bucket(&props(&["&:hover"])), Some(BUCKET_PER_NODE));
+        assert_eq!(rule_bucket(&props(&[".x:has(&)"])), Some(BUCKET_PER_NODE));
+        assert_eq!(
+            rule_bucket(&props(&["&", ".x:has(&)"])),
+            Some(BUCKET_PER_NODE)
+        );
+        assert_eq!(rule_bucket(&props(&["&", "& p"])), None);
+        assert_eq!(rule_bucket(&props(&["& p", ".x:has(&)"])), None);
+        assert_eq!(rule_bucket(&props(&[".x:has(&) p"])), None);
+    }
+
+    #[test]
+    fn a_selector_naming_the_node_twice_is_found_per_selector() {
+        assert!(names_node_twice(&props(&["& + &"])));
+        assert!(names_node_twice(&props(&["&:hover ~ &"])));
+        assert!(names_node_twice(&props(&["a", "& &"])));
+        assert!(!names_node_twice(&props(&["& + div"])));
+        assert!(!names_node_twice(&props(&["&", "& + p"])));
     }
 
     #[test]
@@ -2020,26 +3023,27 @@ mod tests {
 
     #[test]
     fn only_simple_pseudo_selectors_are_atomic_contexts() {
-        assert_eq!(pseudo_suffix("&:hover").as_deref(), Some(":hover"));
-        assert_eq!(pseudo_suffix("&::before").as_deref(), Some("::before"));
+        let suffix = |key: &str| atomic_suffix(&selector::Rule::node().nest(key)?, key);
+        assert_eq!(suffix("&:hover").as_deref(), Some(":hover"));
+        assert_eq!(suffix(":hover").as_deref(), Some(":hover"));
+        assert_eq!(suffix("&::before").as_deref(), Some("::before"));
+        assert_eq!(suffix("&::placeholder").as_deref(), Some("::placeholder"));
         assert_eq!(
-            pseudo_suffix("&:not(:last-child)").as_deref(),
+            suffix("&:not(:last-child)").as_deref(),
             Some(":not(:last-child)")
         );
-        assert_eq!(
-            pseudo_suffix("&:hover::after").as_deref(),
-            Some(":hover::after")
-        );
+        assert_eq!(suffix("&:hover::after").as_deref(), Some(":hover::after"));
         for key in [
             "& pre",
+            ":hover p",
             "&:hover, &:focus",
-            "&::placeholder",
-            "&:read-only",
             "&.active",
             "&[open]",
+            "&:not(&)",
+            "&:hover:theme.x",
             "&",
         ] {
-            assert_eq!(pseudo_suffix(key), None, "{key}");
+            assert_eq!(suffix(key), None, "{key}");
         }
     }
 
@@ -2079,6 +3083,8 @@ mod tests {
                 blocks: Vec::new(),
                 keys: Vec::new(),
                 base_values: HashMap::new(),
+                empty: Vec::new(),
+                rules: 0,
             };
             for (key, value) in input {
                 model.keys.push(key.clone());
@@ -2119,18 +3125,6 @@ mod tests {
                 .cloned()
                 .collect::<Vec<_>>()
                 .join("\n")
-        );
-    }
-
-    #[test]
-    fn selectors_compose_as_stylis_composes_them() {
-        assert_eq!(compose_selector("&", "& pre"), "& pre");
-        assert_eq!(compose_selector("&", ".dark &"), ".dark &");
-        assert_eq!(compose_selector("&", "pre, code"), "& pre,& code");
-        assert_eq!(compose_selector("&:hover", "& svg"), "&:hover svg");
-        assert_eq!(
-            compose_selector("& a,& b", "&:hover"),
-            "& a:hover,& b:hover"
         );
     }
 }

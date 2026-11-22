@@ -45,7 +45,8 @@ use crate::css_props::is_css_prop;
 use crate::detect::{self, ChildrenOrigin, Decision};
 use crate::effect::is_inline_function;
 use crate::effect::is_static_literal;
-use crate::extract::{ModuleExtraction, ModuleScope, emit_module};
+use crate::explain;
+use crate::extract::{Factory, ModuleExtraction, ModuleScope, emit_module};
 use crate::keys::{is_special_key, is_stable_key_visible_special, key_name_atom};
 use crate::theme::{is_length_key, is_selector_or_at_rule, rewrite_theme_tokens_for};
 
@@ -695,10 +696,17 @@ fn rewrite_object(
     ctx: &SiteContext<'_>,
     span: Span,
     children: ChildrenOrigin,
-    extract: Option<(&ModuleScope, &mut ModuleExtraction)>,
+    extract: Option<(&ModuleScope, Factory, &mut ModuleExtraction)>,
 ) {
     let filename = ctx.filename;
     let old_props = mem::take(&mut obj.props);
+    // What the spreads are, for the reason recorder's accounting run.
+    #[cfg(test)]
+    let spreads: Vec<Expr> = old_props
+        .iter()
+        .filter_map(|p| p.as_spread())
+        .map(|s| (*s.expr).clone())
+        .collect();
     let has_spread = old_props
         .iter()
         .any(|p| matches!(p, PropOrSpread::Spread(_)));
@@ -806,10 +814,27 @@ fn rewrite_object(
     // Build-time CSS for what can be proved; the rest stays where it is. Never
     // with a spread, whose keys are unknown here.
     let mut extracted_props = Vec::new();
-    if !has_spread
-        && let Some((scope, module)) = extract
-        && let Some(site) = scope.extract_site(&mut c_props, &mut special_props, &d_props, module)
-    {
+    let attempted = extract.is_some();
+    if attempted {
+        explain::begin(span.lo.0);
+        if has_spread {
+            explain::note("a spread among the call's props");
+            #[cfg(test)]
+            for spread in &spreads {
+                explain::classify("spread", spread);
+            }
+        }
+    }
+    let site = match extract {
+        Some((scope, factory, module)) if !has_spread => {
+            scope.extract_site(factory, &mut c_props, &mut special_props, &d_props, module)
+        }
+        _ => None,
+    };
+    if attempted {
+        explain::finish(site.is_some());
+    }
+    if let Some(site) = site {
         let remaining: std::collections::HashSet<String> = c_props
             .iter()
             .chain(d_props.iter())
@@ -935,11 +960,13 @@ impl VisitMut for Rewriter<'_> {
                 None => return,
             },
         };
-        let host = partition
-            && self
-                .extract
+        let factory = if partition {
+            self.extract
                 .as_ref()
-                .is_some_and(|(scope, _)| scope.is_host_call(call));
+                .and_then(|(scope, _)| scope.extractable_factory(call))
+        } else {
+            None
+        };
         let Some(arg) = call.args.get_mut(props_arg_idx) else {
             return;
         };
@@ -948,7 +975,7 @@ impl VisitMut for Rewriter<'_> {
         };
         if partition {
             let extract = match &mut self.extract {
-                Some((scope, module)) if host => Some((&*scope, module)),
+                Some((scope, module)) => factory.map(|factory| (&*scope, factory, module)),
                 _ => None,
             };
             rewrite_object(obj, &self.ctx, span, children, extract);

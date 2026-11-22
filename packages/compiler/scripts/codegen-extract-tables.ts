@@ -5,11 +5,14 @@
  *
  * Emits crates/meonode-swc-plugin/src/extract_tables.rs:
  * - `HOST_FACTORIES`: the @meonode/ui factories (and their aliases) declared
- *   as a bare `createNode('tag')` / `createChildrenFirstNode('tag')`. A factory
- *   declared with initial props (`Row`, `Center`, `Absolute`, …) merges styles
- *   the call site cannot see, so its call sites are never extracted.
+ *   as a bare `createNode('tag')` / `createChildrenFirstNode('tag')`.
  * - `UNITLESS`: `@emotion/unitless`'s keys, which decide where Emotion appends
  *   `px` to a number.
+ * - `LAYOUT_FACTORIES`: the @meonode/ui factories declared with initial props
+ *   (`Row`, `Center`, `Absolute`, …), with those props and their fingerprint,
+ *   read by calling the factory: its node's props are
+ *   \`combineFactoryProps(initial, undefined)\`. A factory whose initial props
+ *   are not flat strings and numbers is left out.
  * - `CSS_PROPERTIES`, `CSS_ALIASES`, `CSS_SHORTHANDS`, `CSS_LOGICAL`: which
  *   properties set which, from `@webref/css` (the property definitions
  *   extracted from the CSS specifications). Two declarations on one element
@@ -24,7 +27,12 @@
  * - tests/fixture/extract/defaults.json: `ThemeUtil.resolveDefaultStyle` on
  *   combinations of the values it decides on;
  * - tests/fixture/extract/style-names.json: `hashStyles` from
- *   `src/util/style-name.util.ts` on sample texts.
+ *   `src/util/style-name.util.ts` on sample texts;
+ * - tests/fixture/extract/factory-merge.json: the props \`createNode\` builds a
+ *   node with, for every layout factory against sample call-site props;
+ * - tests/fixture/extract/selectors.json: the rules Emotion writes (through
+ *   the runtime's cache plugins) for one declaration under chains of nested
+ *   selector and at-rule keys from \`tests/selector-grammar.ts\`.
  *
  * Usage:
  *   bun run scripts/codegen-extract-tables.ts
@@ -161,6 +169,49 @@ async function prefixerCases(uiDir: string): Promise<[string, number, string][]>
   return cases
 }
 
+/**
+ * Chains of nested keys from the selector grammar, and the rules Emotion writes
+ * for `color:red` at the end of each, under the class `.N`.
+ */
+async function selectorCases(uiDir: string): Promise<[string[], string][]> {
+  const { prefixer } = await import(join(uiDir, 'src/util/emotion-prefixer.util.ts'))
+  const { default: createCache } = await import(join(uiDir, 'node_modules/@emotion/cache/dist/emotion-cache.cjs.js')).catch(() => import('@emotion/cache'))
+  const { serializeStyles } = await import(join(uiDir, 'node_modules/@emotion/serialize/dist/emotion-serialize.cjs.js')).catch(() => import('@emotion/serialize'))
+  const grammar = await import('../tests/selector-grammar')
+  const cache = createCache({ key: 'css', stylisPlugins: [prefixer] })
+  const sheet = { insert() {} }
+  const chains: string[][] = []
+  const keys = new Set<string>()
+  for (const s of grammar.simpleSelectors()) for (const key of grammar.placements(s)) keys.add(key)
+  for (const key of grammar.nodeInArguments()) keys.add(key)
+  for (const key of keys) chains.push([key])
+  const steps = ['&:hover', ':hover', '::before', '& > p', '.dark &', '& + &', '&, ::after', ':not(&)', '& .b, & .c', '[data-x="a,b"] &']
+  for (const a of steps) for (const b of steps) chains.push([a, b])
+  for (const a of steps.slice(0, 5)) for (const b of steps) for (const c of steps.slice(0, 4)) chains.push([a, b, c])
+  const atRules = [...grammar.AT_RULES, '@media  (min-width:  1px)', '@media(min-width:1px)', '@media screen,print', '@supports not (display: grid)', '@media screen and (min-width: 1px) and (max-width: 2px)']
+  for (const at of atRules) {
+    chains.push([at])
+    for (const step of steps) chains.push([at, step], [step, at], [step, at, '&:focus'], [at, atRules[0], step])
+  }
+  for (const key of ['& > p', '.dark &', '&:hover, &:focus', ':is(&, .a) p', '& + &', '&  ~  .b', ':hover']) for (const ws of grammar.WHITESPACE) chains.push([ws(key)])
+  // Parentheses after no colon, and an escaped comma, which compat splits
+  // only in rules it composes again.
+  for (const key of ['p(&)', 'a\\,b, c', '.a\\,b &']) chains.push([key], [':hover', key], ['&:hover', key])
+  // Empty list items, an escape whose space is followed by more whitespace,
+  // and quotes outside brackets and parentheses.
+  for (const key of [',a', 'a,,b', '&,', '.\\31  a', '.\\31   a', '.\\31  ,a', '.\\31 a', '& "a, b"', "& 'a&b'"]) chains.push([key], ['&:hover', key])
+  // A parent rule holding `$` patterns, which stylis's String.prototype.replace
+  // reads when it puts the parent in place of `&`.
+  for (const parent of ["&[title='$']", '&[title="$&"]', '&[title="$$"]', '&[title="$`"]', '&[title="$1"]']) chains.push([parent, '.x &'], [parent, '&:focus'])
+  const out: [string[], string][] = []
+  for (const chain of chains) {
+    let css: Record<string, unknown> = { color: 'red' }
+    for (const key of [...chain].reverse()) css = { [key]: css }
+    out.push([chain, cache.insert('.N', serializeStyles([css], cache.registered), sheet, false) as string])
+  }
+  return out
+}
+
 async function styleNames(uiDir: string): Promise<[string, string][]> {
   const { hashStyles } = await import(join(uiDir, 'src/util/style-name.util.ts'))
   return STYLE_NAME_SAMPLES.map(text => [text, hashStyles(text)])
@@ -211,6 +262,128 @@ async function unitlessKeys(uiDir: string): Promise<string[]> {
   const mod = await import(join(uiDir, 'node_modules/@emotion/unitless/dist/emotion-unitless.esm.js')).catch(() => import('@emotion/unitless'))
   const table = (mod.default ?? mod) as Record<string, number>
   return sortedAscii(Object.keys(table).filter(key => table[key] === 1))
+}
+
+/** A value written into a JSON fixture; `undefined`, which JSON cannot hold, as a marker object. */
+const UNDEFINED_MARKER = { $undefined: true }
+
+function toFixtureJson(value: unknown): unknown {
+  if (value === undefined) return UNDEFINED_MARKER
+  if (Array.isArray(value)) return value.map(toFixtureJson)
+  if (value !== null && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, toFixtureJson(v)]))
+  }
+  return value
+}
+
+type Factory = ((...args: unknown[]) => { rawProps: Record<string, unknown> }) & { element: unknown }
+
+/** A layout factory's initial props, as `[key, value]` in the order it declares them, and their fingerprint. */
+interface LayoutFactory {
+  name: string
+  entries: [string, string | number][]
+  fingerprint: string
+}
+
+/** A factory's node props for `props`, without the `children` a children-first factory adds. */
+function nodeProps(factory: Factory, childrenFirst: boolean, props: Record<string, unknown> | undefined): Record<string, unknown> {
+  const { children: _children, ...rest } = (childrenFirst ? factory(undefined, props) : factory(props)).rawProps
+  return rest
+}
+
+/**
+ * The fingerprint the runtime compares on a call site whose initial props the
+ * compiler merged: `key:value;` per entry, keys in code-unit order, strings as
+ * written and numbers as `String(n)` writes them. Checked against the ui's own
+ * `initialPropsFingerprint` wherever the ui exports it.
+ */
+function fingerprint(entries: [string, string | number][]): string {
+  return [...entries]
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([key, value]) => `${key}:${String(value)};`)
+    .join('')
+}
+
+/** Factories with initial props the compiler does not merge, for the log. */
+const skippedLayoutFactories: string[] = []
+
+/**
+ * The layout factories, by name. Merged only when every initial prop is a flat
+ * entry with a string or finite number value, none of them `css`, and no key or
+ * value holds `:` or `;`, so the fingerprint reads one way.
+ */
+async function layoutFactories(uiDir: string, host: Set<string>): Promise<LayoutFactory[]> {
+  const html = (await import(join(uiDir, 'src/components/html.node.ts'))) as Record<string, unknown>
+  // The runtime's own fingerprint decides, where the ui has one: a factory it
+  // gives none never skips the merge, so it is not merged here either.
+  const core = (await import(join(uiDir, 'src/core.node.ts'))) as {
+    initialPropsFingerprint?: (initial: Record<string, unknown>) => string | undefined
+  }
+  const source = readFileSync(join(uiDir, 'src/components/html.node.ts'), 'utf8')
+  const out: LayoutFactory[] = []
+  for (const name of sortedAscii(Object.keys(html))) {
+    const factory = html[name] as Factory
+    if (typeof factory !== 'function' || !('element' in factory) || host.has(name)) continue
+    const childrenFirst = new RegExp(`^export const ${name} = createChildrenFirstNode\\(`, 'm').test(source)
+    const initial = nodeProps(factory, childrenFirst, undefined)
+    const entries = Object.entries(initial)
+    if (entries.length === 0) continue
+    const flat = entries.every(
+      ([key, value]) =>
+        key !== 'css' &&
+        (typeof value === 'string' || (typeof value === 'number' && Number.isFinite(value))) &&
+        !/[:;]/.test(key + String(value)),
+    )
+    if (childrenFirst || !flat) {
+      skippedLayoutFactories.push(name)
+      continue
+    }
+    const typed = entries as [string, string | number][]
+    const local = fingerprint(typed)
+    const runtime = core.initialPropsFingerprint?.(initial) ?? (core.initialPropsFingerprint ? undefined : local)
+    if (runtime === undefined) {
+      skippedLayoutFactories.push(name)
+      continue
+    }
+    if (runtime !== local) throw new Error(`${name}: the runtime fingerprints its initial props as ${JSON.stringify(runtime)}, not ${JSON.stringify(local)}.`)
+    out.push({ name, entries: typed, fingerprint: runtime })
+  }
+  return out
+}
+
+/** Call-site props each layout factory is merged with in the fixture. */
+const FACTORY_CALL_SAMPLES: (Record<string, unknown> | undefined)[] = [
+  undefined,
+  {},
+  { padding: 8 },
+  { display: 'grid' },
+  { display: undefined },
+  { flexDirection: 'row', display: 'block', gap: 4 },
+  { position: 'relative', top: 0 },
+  { minHeight: 40, minWidth: undefined },
+  { alignItems: 'start', justifyContent: undefined, color: 'red' },
+  { css: { color: 'red' } },
+  { css: { display: 'grid', '&:hover': { color: 'blue' } } },
+  { css: false },
+  { css: null },
+  { css: undefined },
+  { css: { '&:hover': { background: 'red', color: undefined } }, padding: 2 },
+  { css: ['a{}'] },
+  { css: 'color: red;' },
+]
+
+/** `[factory, call-site props, the node's props]` per layout factory and sample, from `createNode` itself. */
+async function factoryMergeCases(uiDir: string, layout: LayoutFactory[]): Promise<[string, unknown, unknown][]> {
+  const html = (await import(join(uiDir, 'src/components/html.node.ts'))) as Record<string, unknown>
+  const cases: [string, unknown, unknown][] = []
+  for (const { name } of layout) {
+    for (const props of FACTORY_CALL_SAMPLES) {
+      // Entry lists, not objects: the order is what is checked.
+      const toEntries = (o: Record<string, unknown> | undefined) => (o === undefined ? null : Object.entries(o).map(([k, v]) => [k, toFixtureJson(v)]))
+      cases.push([name, toEntries(props), toEntries(nodeProps(html[name] as Factory, false, props))])
+    }
+  }
+  return cases
 }
 
 /** A logical longhand names a flow-relative side, axis or corner. */
@@ -281,7 +454,7 @@ async function overlapTables(): Promise<OverlapTables> {
   return { properties, aliases, shorthands, logical }
 }
 
-function renderRust(host: string[], unitless: string[], overlap: OverlapTables): string {
+function renderRust(host: string[], unitless: string[], layout: LayoutFactory[], overlap: OverlapTables): string {
   const list = (names: string[]) => names.map(name => `    ${JSON.stringify(name)},`).join('\n')
   return `// @generated by scripts/codegen-extract-tables.ts — do not edit.
 // Sources: @meonode/ui src/components/html.node.ts, @emotion/unitless,
@@ -292,10 +465,29 @@ function renderRust(host: string[], unitless: string[], overlap: OverlapTables):
 // tables are written one entry per line and marked \`rustfmt::skip\`, so the
 // generated text is what \`cargo fmt\` keeps.
 
-/// @meonode/ui factories (and aliases of them) declared with nothing but a tag,
-/// whose call sites can be extracted: no initial props merge in at runtime.
+/// @meonode/ui factories (and aliases of them) declared with nothing but a tag:
+/// no initial props merge in at runtime.
 pub static HOST_FACTORIES: &[&str] = &[
 ${list(host)}
+];
+
+/// A layout factory's initial value.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum InitialValue {
+    Str(&'static str),
+    Num(f64),
+}
+
+/// A layout factory's initial props, in declaration order.
+pub type InitialProps = &'static [(&'static str, InitialValue)];
+
+/// @meonode/ui factories declared with initial props: the name, the
+/// fingerprint the runtime compares before it skips its own merge, and the
+/// props in declaration order, as \`createNode\` merges them in front of a
+/// call site's.
+#[rustfmt::skip]
+pub static LAYOUT_FACTORIES: &[(&str, &str, InitialProps)] = &[
+${layout.map(({ name, fingerprint, entries }) => `    (${JSON.stringify(name)}, ${JSON.stringify(fingerprint)}, &[${entries.map(([k, v]) => `(${JSON.stringify(k)}, InitialValue::${typeof v === 'number' ? `Num(${Number.isInteger(v) ? v.toFixed(1) : String(v)})` : `Str(${JSON.stringify(v)})`})`).join(', ')}]),`).join('\n')}
 ];
 
 /// \`@emotion/unitless\`'s keys: properties Emotion writes a number to as it is.
@@ -331,6 +523,14 @@ pub static CSS_LOGICAL: &[(&str, (&str, bool))] = &[
 ${overlap.logical.map(([a, g, l]) => `    (${JSON.stringify(a)}, (${JSON.stringify(g)}, ${l})),`).join('\n')}
 ];
 
+/// The fingerprint and initial props of the layout factory \`name\`.
+pub fn layout_factory(name: &str) -> Option<(&'static str, InitialProps)> {
+    LAYOUT_FACTORIES
+        .binary_search_by(|(key, _, _)| (*key).cmp(name))
+        .ok()
+        .map(|at| (LAYOUT_FACTORIES[at].1, LAYOUT_FACTORIES[at].2))
+}
+
 /// Whether \`name\` is an extractable host factory.
 pub fn is_host_factory(name: &str) -> bool {
     HOST_FACTORIES.binary_search(&name).is_ok()
@@ -349,6 +549,7 @@ mod tests {
     fn tables_are_sorted() {
         assert!(HOST_FACTORIES.windows(2).all(|w| w[0] < w[1]));
         assert!(UNITLESS.windows(2).all(|w| w[0] < w[1]));
+        assert!(LAYOUT_FACTORIES.windows(2).all(|w| w[0].0 < w[1].0));
         assert!(CSS_PROPERTIES.windows(2).all(|w| w[0] < w[1]));
         assert!(CSS_ALIASES.windows(2).all(|w| w[0].0 < w[1].0));
         assert!(CSS_SHORTHANDS.windows(2).all(|w| w[0].0 < w[1].0));
@@ -380,19 +581,24 @@ async function main() {
   const host = hostFactories(uiDir)
   const unitless = await unitlessKeys(uiDir)
   const overlap = await overlapTables()
+  const layout = await layoutFactories(uiDir, new Set(host))
   mkdirSync(dirname(OUT_PATH), { recursive: true })
-  writeFileSync(OUT_PATH, renderRust(host, unitless, overlap), 'utf8')
+  writeFileSync(OUT_PATH, renderRust(host, unitless, layout, overlap), 'utf8')
 
   mkdirSync(FIXTURE_DIR, { recursive: true })
   const prefixer = await prefixerCases(uiDir)
   writeFileSync(join(FIXTURE_DIR, 'prefixer.json'), '[\n' + prefixer.map(c => JSON.stringify(c)).join(',\n') + '\n]\n', 'utf8')
   const defaults = await defaultCases(uiDir)
   writeFileSync(join(FIXTURE_DIR, 'defaults.json'), '[\n' + defaults.map(c => JSON.stringify(c)).join(',\n') + '\n]\n', 'utf8')
+  const merges = await factoryMergeCases(uiDir, layout)
+  writeFileSync(join(FIXTURE_DIR, 'factory-merge.json'), '[\n' + merges.map(c => JSON.stringify(c)).join(',\n') + '\n]\n', 'utf8')
+  const selectors = await selectorCases(uiDir)
+  writeFileSync(join(FIXTURE_DIR, 'selectors.json'), '[\n' + selectors.map(c => JSON.stringify(c)).join(',\n') + '\n]\n', 'utf8')
   const names = await styleNames(uiDir)
   writeFileSync(join(FIXTURE_DIR, 'style-names.json'), '[\n' + names.map(c => JSON.stringify(c)).join(',\n') + '\n]\n', 'utf8')
 
   console.log(
-    `Wrote ${host.length} host factories, ${unitless.length} unitless keys, ${overlap.properties.length} CSS properties (${overlap.shorthands.length} shorthands), ${prefixer.length} prefixer cases, ${names.length} style names`,
+    `Wrote ${host.length} host factories, ${layout.length} layout factories${skippedLayoutFactories.length ? ` (skipped: ${skippedLayoutFactories.join(', ')})` : ''}, ${merges.length} factory merges, ${unitless.length} unitless keys, ${overlap.properties.length} CSS properties (${overlap.shorthands.length} shorthands), ${prefixer.length} prefixer cases, ${selectors.length} selector chains, ${names.length} style names`,
   )
 }
 

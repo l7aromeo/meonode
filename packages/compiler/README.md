@@ -524,33 +524,64 @@ experimental: {
 }
 ```
 
-For a call site of a plain host factory (`Div`, `Span`, …, or `Node('section', …)`),
-every style entry the compiler can prove is written as a CSS rule when the module
-is built. The call site then carries class names (`__meo$s`) and, for values only
+For a call site of a plain host factory (`Div`, `Span`, …, or `Node('section', …)`)
+or a layout factory (`Row`, `Column`, `Center`, `Absolute`, …), every style entry
+the compiler can prove is written as a CSS rule when the module is built. The call site then carries class names (`__meo$s`) and, for values only
 known at runtime, CSS variables (`__meo$v`). Each module registers its rules once
 through `registerStaticCss`. Anything the compiler cannot prove stays where it
 was, and the runtime handles it as before.
 
 - **Written at build time:** literals, `theme.*` token strings and same-file
   `const` literals; a conditional whose branches are all of those; and a template
-  literal or arithmetic, through a variable.
+  literal or arithmetic, through a variable. Inside a nested selector whose
+  rule styles the node itself (`.dark &`, `&:where(.x)`), a template literal, an
+  arithmetic value, or a conditional whose every branch is a value is written
+  through a variable too. Under a selector reaching another element (`& p`), or
+  with a branch that sets nothing, it stays on the runtime path: the variable
+  would come from the nearest ancestor setting it, or compute to `unset`, where
+  Emotion's rule order or a lower rule decides.
 - **Left to the runtime:** identifiers and member reads (they may hold a theme
-  function or nothing), calls, theme functions, fallback arrays, spreads,
-  component targets, and factories that bring their own styles (`Row`,
-  `Center`, `Absolute`, …). An at-rule other than `@media`, `@supports` or
+  function or nothing), calls, theme functions, fallback arrays, spreads, and
+  component targets. An at-rule other than `@media`, `@supports` or
   `@container`, or one with a token in its key, stays on the runtime path with
   its contents, and the rest of the node is still extracted. A property it sets
   keeps its family on the runtime path too (`@keyframes` sets none). A
   selector naming the node twice (`& + &`, `& &`) keeps the whole node on the
-  runtime path, since it matches only nodes styled alike in full.
+  runtime path, since it matches only nodes styled alike in full. So does one
+  naming the node only inside `:not()`, `:is()`, `:where()` or their vendor
+  forms (`html:not(&) p`, `.b:is(&, .a)`), since it matches elements other than
+  the node. `:has(&)` and `&:not(.a)` are extracted.
 - **Same output as the runtime.** Values are written the way Emotion writes them,
-  vendor prefixes included. A property is never split between a build-time rule
+  vendor prefixes included. Nested selectors and at-rules are composed the way
+  Emotion composes them (stylis's parser, then Emotion's `compat` plugin): a key
+  starting with a colon attaches to its parent (`":hover"` is `&:hover`, and
+  `":not(&)"` is `&:not(&)`), a list item without `&` is a descendant,
+  whitespace is dropped around combinators, and `::placeholder`,
+  `:read-only` and `:read-write` rules get Emotion's vendor copies. A property is never split between a build-time rule
   and a runtime one on the same node. Shapes whose result depends on declaration
   order stay on the runtime path: `padding` beside `paddingTop`, and one property
-  under two pseudo-classes or two media queries. Which properties overlap comes
+  under two pseudo-classes or two media queries of equal specificity.
+  Build-time rules are ordered base, then pseudo-classes and pseudo-elements,
+  then at-rules, so one property under `&:hover` and then under `@media` is
+  extracted when that is the order Emotion writes the node's rules in (an
+  object's own declarations first, then its nested objects), and kept on the
+  runtime path in the opposite order. `&:hover` beside `&:hover:focus` is
+  extracted in either order, since specificity decides. Which properties overlap comes
   from the CSS specifications' shorthand and logical property tables (through
   `@webref/css`), so `border` beside `borderRadius` is extracted, while `border`
   beside `borderColor`, or `marginBottom` beside `marginInline`, is not.
+
+- **Reserved names.** Class names `mn-` followed by 13 base-36 digits, and
+  custom properties `--mv-` followed by 13 base-36 digits, are reserved for
+  extracted rules and the variables they read; don't use names of that shape in
+  your own css or class names.
+
+- **Layout factories.** A layout factory's initial props (`display: 'flex'`,
+  `flexDirection: 'row'`, …) are merged in front of the call site's, as
+  `createNode` merges them, and extracted with them. The call site then carries
+  `__meo$i`, a fingerprint of those initial props; a `@meonode/ui` whose factory
+  has the same initial props uses the call site's props as given instead of
+  merging again, so the element renders plain.
 
 Off by default. With the option off, the output is exactly what it is without
 this option.
@@ -571,6 +602,9 @@ requirements](#runtime-version-requirements) rather than emitted.
 | `__meo$k` | Deterministic call-site key (`m` + base36 FNV-1a64 hash of `filename:span`), used by the runtime to key the generated class name without re-hashing the prop signature. |
 | `__meo$dyn` | Names of bucketed props (from `__meo$c` or `__meo$d`) whose value isn't a plain literal — i.e. props the runtime still needs to treat as reactive/dynamic, in first-occurrence source order (omitted if empty). |
 | `__meo$list` | Present, as `1`, only when this call site's `children` expression was *generated* rather than written out or passed through from the caller. Absent otherwise — there is no `0`. |
+| `__meo$s` | Class names of the call site's build-time rules, with `experimental_extractCss` (omitted when nothing was extracted). |
+| `__meo$v` | CSS variables the build-time rules read, keyed by name, for values only known at runtime (omitted if none). |
+| `__meo$i` | On a layout factory's call site with `__meo$s`: the fingerprint of the initial props merged into it, `key:value;` per prop in key order. A runtime whose factory has the same fingerprint skips its own merge. |
 | `__meo$loc` | `file:line:column` of a call site carrying `__meo$list`, emitted only when [`callSiteLocations`](#callsitelocations--where-a-generated-list-was-written) is enabled. |
 
 Forward-compat policy: the runtime checks `__meo$` against the schema

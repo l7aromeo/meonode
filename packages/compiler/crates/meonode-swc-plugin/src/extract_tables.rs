@@ -7,8 +7,8 @@
 // tables are written one entry per line and marked `rustfmt::skip`, so the
 // generated text is what `cargo fmt` keeps.
 
-/// @meonode/ui factories (and aliases of them) declared with nothing but a tag,
-/// whose call sites can be extracted: no initial props merge in at runtime.
+/// @meonode/ui factories (and aliases of them) declared with nothing but a tag:
+/// no initial props merge in at runtime.
 pub static HOST_FACTORIES: &[&str] = &[
     "A",
     "Abbr",
@@ -138,6 +138,35 @@ pub static HOST_FACTORIES: &[&str] = &[
     "Var",
     "Video",
     "Wbr",
+];
+
+/// A layout factory's initial value.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum InitialValue {
+    Str(&'static str),
+    Num(f64),
+}
+
+/// A layout factory's initial props, in declaration order.
+pub type InitialProps = &'static [(&'static str, InitialValue)];
+
+/// @meonode/ui factories declared with initial props: the name, the
+/// fingerprint the runtime compares before it skips its own merge, and the
+/// props in declaration order, as `createNode` merges them in front of a
+/// call site's.
+#[rustfmt::skip]
+pub static LAYOUT_FACTORIES: &[(&str, &str, InitialProps)] = &[
+    ("Absolute", "position:absolute;", &[("position", InitialValue::Str("absolute"))]),
+    ("Center", "alignItems:center;display:flex;flexDirection:column;justifyContent:center;", &[("display", InitialValue::Str("flex")), ("flexDirection", InitialValue::Str("column")), ("alignItems", InitialValue::Str("center")), ("justifyContent", InitialValue::Str("center"))]),
+    ("Column", "display:flex;flexDirection:column;", &[("display", InitialValue::Str("flex")), ("flexDirection", InitialValue::Str("column"))]),
+    ("Fixed", "position:fixed;", &[("position", InitialValue::Str("fixed"))]),
+    ("Grid", "display:grid;", &[("display", InitialValue::Str("grid"))]),
+    ("Main", "display:flex;flexDirection:column;", &[("display", InitialValue::Str("flex")), ("flexDirection", InitialValue::Str("column"))]),
+    ("Relative", "position:relative;", &[("position", InitialValue::Str("relative"))]),
+    ("Root", "display:flex;flexDirection:column;minHeight:100dvh;minWidth:100dvw;", &[("display", InitialValue::Str("flex")), ("flexDirection", InitialValue::Str("column")), ("minHeight", InitialValue::Str("100dvh")), ("minWidth", InitialValue::Str("100dvw"))]),
+    ("Row", "display:flex;flexDirection:row;", &[("display", InitialValue::Str("flex")), ("flexDirection", InitialValue::Str("row"))]),
+    ("Static", "position:static;", &[("position", InitialValue::Str("static"))]),
+    ("Sticky", "position:sticky;", &[("position", InitialValue::Str("sticky"))]),
 ];
 
 /// `@emotion/unitless`'s keys: properties Emotion writes a number to as it is.
@@ -1401,6 +1430,14 @@ pub static CSS_LOGICAL: &[(&str, (&str, bool))] = &[
     ("width", ("size", false)),
 ];
 
+/// The fingerprint and initial props of the layout factory `name`.
+pub fn layout_factory(name: &str) -> Option<(&'static str, InitialProps)> {
+    LAYOUT_FACTORIES
+        .binary_search_by(|(key, _, _)| (*key).cmp(name))
+        .ok()
+        .map(|at| (LAYOUT_FACTORIES[at].1, LAYOUT_FACTORIES[at].2))
+}
+
 /// Whether `name` is an extractable host factory.
 pub fn is_host_factory(name: &str) -> bool {
     HOST_FACTORIES.binary_search(&name).is_ok()
@@ -1419,6 +1456,7 @@ mod tests {
     fn tables_are_sorted() {
         assert!(HOST_FACTORIES.windows(2).all(|w| w[0] < w[1]));
         assert!(UNITLESS.windows(2).all(|w| w[0] < w[1]));
+        assert!(LAYOUT_FACTORIES.windows(2).all(|w| w[0].0 < w[1].0));
         assert!(CSS_PROPERTIES.windows(2).all(|w| w[0] < w[1]));
         assert!(CSS_ALIASES.windows(2).all(|w| w[0].0 < w[1].0));
         assert!(CSS_SHORTHANDS.windows(2).all(|w| w[0].0 < w[1].0));

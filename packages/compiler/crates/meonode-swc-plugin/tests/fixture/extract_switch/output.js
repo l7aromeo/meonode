@@ -1,28 +1,28 @@
 import { registerStaticCss as __meoCss } from "@meonode/ui";
 import { Div } from "@meonode/ui";
-__meoCss("2yo62dlhxm8jj", [
+__meoCss("2o270at6mj5gr", [
     [
-        0,
+        1,
         "mn-38omq5rsyxko1",
         ".mn-38omq5rsyxko1{color:red;}"
     ],
     [
-        0,
+        1,
         "mn-2wyt5wpqgj7a5",
         ".mn-2wyt5wpqgj7a5{color:blue;}"
     ],
     [
-        0,
+        1,
         "mn-1pfx8isu7jp2j",
         ".mn-1pfx8isu7jp2j{font-weight:700;}"
     ],
     [
-        0,
+        1,
         "mn-2niu4v1iq5ld8",
         ".mn-2niu4v1iq5ld8{text-align:left;}"
     ],
     [
-        0,
+        1,
         "mn-24cmlnxhscfpu",
         ".mn-24cmlnxhscfpu{text-align:right;}"
     ]
