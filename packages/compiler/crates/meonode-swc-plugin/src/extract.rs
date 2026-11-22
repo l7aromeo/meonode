@@ -1256,6 +1256,7 @@ impl ModuleScope {
                 let route = checked(key, self.route(value, 0));
                 if matches!(route, Route::Runtime) {
                     explain::note("a value left to the runtime");
+                    explain::classify("value", value);
                 }
                 if context.is_base() && DEFAULT_READ_KEYS.contains(&key.as_str()) {
                     model.base_values.insert(key.clone(), route.clone());
@@ -1263,6 +1264,7 @@ impl ModuleScope {
                 if key.contains("theme.")
                     || key.starts_with(|c: char| !c.is_ascii_alphabetic() && c != '-')
                 {
+                    explain::detail(format!("key={key}"));
                     return explain::bail("a theme token or a non-property in a key");
                 }
                 model.declarations.push(Declaration {
@@ -1315,6 +1317,7 @@ impl ModuleScope {
             // The runtime resolves theme tokens in keys.
             extractable: !key.contains("theme.") || {
                 explain::note("a theme token in a selector or at-rule key");
+                explain::detail(format!("key={key}"));
                 false
             },
         };
@@ -1367,6 +1370,9 @@ impl ModuleScope {
                     || child_key.contains("theme.")
                     || !writable
                 {
+                    if matches!(route, Route::Runtime) {
+                        explain::classify("value", value);
+                    }
                     explain::note(match route {
                         Route::Runtime => "a block holding a value left to the runtime",
                         Route::Var(_) | Route::Switch(..) => {
@@ -1996,6 +2002,9 @@ impl ModuleScope {
         if let Some(value) = css {
             match unwrap_transparent(&value) {
                 Expr::Object(obj) => {
+                    for spread in obj.props.iter().filter_map(|p| p.as_spread()) {
+                        explain::classify("css spread", &spread.expr);
+                    }
                     for (key, value) in object_entries(obj)
                         .or_else(|| explain::bail("css with a spread or computed key"))?
                     {
@@ -2007,7 +2016,10 @@ impl ModuleScope {
                 }
                 Expr::Lit(Lit::Bool(Bool { value: false, .. }) | Lit::Null(_)) => {}
                 Expr::Ident(id) if id.sym.as_ref() == "undefined" => {}
-                _ => return explain::bail("css that is not an object literal"),
+                other => {
+                    explain::classify("css", other);
+                    return explain::bail("css that is not an object literal");
+                }
             }
         }
         if entries.is_empty() {
