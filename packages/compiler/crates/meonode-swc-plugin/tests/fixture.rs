@@ -542,3 +542,8 @@ fn extract_block_values() {
 fn extract_layout() {
     run_partition_with_config("extract_layout", extract_config());
 }
+
+#[test]
+fn extract_local_factory() {
+    run_partition_with_config("extract_local_factory", extract_config());
+}

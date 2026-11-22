@@ -83,6 +83,12 @@ fn utf16_len(text: &str) -> usize {
 /// such keys first, in numeric order.
 const MAX_ARRAY_INDEX: u64 = 4_294_967_294;
 
+/// Whether JavaScript treats `key` as an array index, listing it ahead of the
+/// other keys of an object.
+pub fn is_array_index(key: &str) -> bool {
+    array_index(key).is_some()
+}
+
 /// The key's array index, when JavaScript treats the key as one.
 fn array_index(key: &str) -> Option<u64> {
     if key.is_empty()

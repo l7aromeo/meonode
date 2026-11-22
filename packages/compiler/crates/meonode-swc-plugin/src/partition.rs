@@ -691,6 +691,43 @@ fn rewrite_theme_tokens_in_css_prop(special_props: &mut [PropOrSpread]) {
     }
 }
 
+/// Rewrites the theme tokens in a factory's initial props as a call's own props
+/// are rewritten: every flat value as a bucket entry, `css` as the css prop.
+pub(crate) fn rewrite_theme_tokens_in_entries(entries: &mut [(String, Expr)]) {
+    let to_prop = |(key, value): &(String, Expr)| {
+        PropOrSpread::Prop(Box::new(Prop::KeyValue(KeyValueProp {
+            key: PropName::Str(Str::from(Atom::from(key.as_str()))),
+            value: Box::new(value.clone()),
+        })))
+    };
+    let mut flat: Vec<PropOrSpread> = entries
+        .iter()
+        .filter(|(k, _)| k != "css")
+        .map(to_prop)
+        .collect();
+    let mut css: Vec<PropOrSpread> = entries
+        .iter()
+        .filter(|(k, _)| k == "css")
+        .map(to_prop)
+        .collect();
+    rewrite_theme_tokens_in_buckets([&mut flat, &mut Vec::new()]);
+    rewrite_theme_tokens_in_css_prop(&mut css);
+    let mut rewritten = flat.into_iter().chain(css).filter_map(|prop| match prop {
+        PropOrSpread::Prop(prop) => match *prop {
+            Prop::KeyValue(kv) => Some(*kv.value),
+            _ => None,
+        },
+        PropOrSpread::Spread(_) => None,
+    });
+    // `flat` then `css`, in that order: read the values back the same way.
+    let (non_css, css_slots): (Vec<_>, Vec<_>) = entries.iter_mut().partition(|(k, _)| k != "css");
+    for slot in non_css.into_iter().chain(css_slots) {
+        if let Some(value) = rewritten.next() {
+            slot.1 = value;
+        }
+    }
+}
+
 fn rewrite_object(
     obj: &mut ObjectLit,
     ctx: &SiteContext<'_>,
@@ -826,9 +863,13 @@ fn rewrite_object(
         }
     }
     let site = match extract {
-        Some((scope, factory, module)) if !has_spread => {
-            scope.extract_site(factory, &mut c_props, &mut special_props, &d_props, module)
-        }
+        Some((scope, factory, module)) if !has_spread => scope.extract_site(
+            factory,
+            &mut c_props,
+            &mut special_props,
+            &mut d_props,
+            module,
+        ),
         _ => None,
     };
     if attempted {

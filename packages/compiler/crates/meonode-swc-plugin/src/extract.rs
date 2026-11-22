@@ -41,12 +41,13 @@ use swc_core::common::{DUMMY_SP, EqIgnoreSpan, SyntaxContext};
 use swc_core::ecma::ast::*;
 use swc_core::ecma::atoms::Atom;
 
+use crate::css_props::is_css_prop;
 use crate::explain;
 use crate::extract_tables::{
     InitialProps, InitialValue, is_host_factory, is_unitless, layout_factory,
 };
 use crate::fingerprint;
-use crate::keys::key_name_atom;
+use crate::keys::{is_special_key, key_name_atom};
 use crate::serialize::{self, Js};
 use crate::style_name::hash_styles;
 use crate::theme::{is_length_key, rewrite_theme_tokens_for};
@@ -145,6 +146,12 @@ pub struct ModuleScope {
     node_factories: HashSet<(Atom, SyntaxContext)>,
     /// Top-level `const NAME = <literal>` bindings.
     consts: HashMap<(Atom, SyntaxContext), Expr>,
+    /// Local bindings of `createNode` (`false`) and `createChildrenFirstNode` (`true`).
+    creators: HashMap<(Atom, SyntaxContext), bool>,
+    /// Factories this module declares with literal initial props.
+    local_defs: Vec<LocalFactory>,
+    /// Their bindings, to their index in `local_defs`.
+    local_factories: HashMap<(Atom, SyntaxContext), usize>,
     /// Whether the module already uses one of the helper names.
     name_taken: bool,
 }
@@ -158,14 +165,22 @@ impl ModuleScope {
             return None;
         };
         let mut scope = ModuleScope::default();
+        // Imports first: a declaration may come before the import it uses.
+        for item in &module.body {
+            if let ModuleItem::ModuleDecl(ModuleDecl::Import(import)) = item {
+                scope.collect_import(import);
+            }
+        }
         for item in &module.body {
             match item {
-                ModuleItem::ModuleDecl(ModuleDecl::Import(import)) => scope.collect_import(import),
-                ModuleItem::Stmt(Stmt::Decl(Decl::Var(var))) => scope.collect_consts(var),
-                ModuleItem::ModuleDecl(ModuleDecl::ExportDecl(ExportDecl {
+                ModuleItem::Stmt(Stmt::Decl(Decl::Var(var)))
+                | ModuleItem::ModuleDecl(ModuleDecl::ExportDecl(ExportDecl {
                     decl: Decl::Var(var),
                     ..
-                })) => scope.collect_consts(var),
+                })) => {
+                    scope.collect_consts(var);
+                    scope.collect_local_factories(var);
+                }
                 _ => {}
             }
         }
@@ -203,11 +218,16 @@ impl ModuleScope {
                 self.node_factories.insert(key);
             } else if is_host_factory(imported.as_ref()) {
                 self.host_factories.insert(key);
+            } else if imported.as_ref() == CREATE_NODE
+                || imported.as_ref() == CREATE_CHILDREN_FIRST_NODE
+            {
+                self.creators
+                    .insert(key, imported.as_ref() == CREATE_CHILDREN_FIRST_NODE);
             } else if let Some((_, initial)) = layout_factory(imported.as_ref()) {
-                let factory = Factory::Layout { initial };
                 // A call is merged here only when the runtime can tell it was.
-                if factory.fingerprint().is_some() {
-                    self.layout_factories.insert(key, factory);
+                if layout_fingerprint(initial).is_some() {
+                    self.layout_factories
+                        .insert(key, Factory::Layout { initial });
                 }
             }
         }
@@ -241,6 +261,105 @@ impl ModuleScope {
         }
     }
 
+    /// Reads `const X = createNode('tag', { … })` declarations. A factory with
+    /// no initial props is a host factory: the runtime merges nothing into its
+    /// calls. One whose initial props are not all literals, or hold a key the
+    /// merge here does not reproduce, is not recorded, and its calls stay on the
+    /// runtime path.
+    fn collect_local_factories(&mut self, var: &VarDecl) {
+        if var.kind != VarDeclKind::Const {
+            return;
+        }
+        for decl in &var.decls {
+            let (Pat::Ident(binding), Some(init)) = (&decl.name, &decl.init) else {
+                continue;
+            };
+            let Expr::Call(call) = unwrap_transparent(init) else {
+                continue;
+            };
+            let Callee::Expr(callee) = &call.callee else {
+                continue;
+            };
+            let Expr::Ident(creator) = unwrap_transparent(callee) else {
+                continue;
+            };
+            let Some(&children_first) = self.creators.get(&(creator.sym.clone(), creator.ctxt))
+            else {
+                continue;
+            };
+            if call.args.iter().any(|arg| arg.spread.is_some())
+                || call.args.is_empty()
+                || call.args.len() > 2
+            {
+                continue;
+            }
+            let is_tag = matches!(unwrap_transparent(&call.args[0].expr), Expr::Lit(Lit::Str(s))
+                if s.value.as_str().is_some_and(|tag| tag.starts_with(|c: char| c.is_ascii_lowercase())));
+            if !is_tag {
+                continue;
+            }
+            let key = (binding.id.sym.clone(), binding.id.ctxt);
+            let Some(initial) = call.args.get(1) else {
+                self.host_factories.insert(key);
+                continue;
+            };
+            let Expr::Object(obj) = unwrap_transparent(&initial.expr) else {
+                continue;
+            };
+            let Some((initial, value)) = literal_map(obj) else {
+                continue;
+            };
+            let mergeable = initial.iter().all(|(key, _)| {
+                !key.starts_with(COMPILED_PREFIX)
+                    && (!is_special_key(key)
+                        || key == "css"
+                        || (key == "children" && children_first))
+            });
+            // A component selector in `css` is not a map the runtime merges. A
+            // reserved `styles` key needs no check here: extraction leaves any
+            // style holding one to the runtime, which reports it.
+            if !mergeable || holds_key(&value, COMPONENT_SELECTOR_KEY) {
+                continue;
+            }
+            let fingerprint::Value::Map(entries) = value else {
+                continue;
+            };
+            let Some(fingerprint) = fingerprint::fingerprint(&entries) else {
+                continue;
+            };
+            self.local_factories.insert(key, self.local_defs.len());
+            self.local_defs.push(LocalFactory {
+                initial,
+                fingerprint,
+                children_first,
+            });
+        }
+    }
+
+    /// The initial props `factory` merges in front of a call's.
+    fn initial_entries(&self, factory: Factory) -> Vec<(String, Expr)> {
+        match factory {
+            Factory::Host => Vec::new(),
+            Factory::Layout { initial } => layout_entries(initial),
+            Factory::Local { def } => self.local_defs[def].initial.clone(),
+        }
+    }
+
+    /// The fingerprint a merged call of `factory` carries in `__meo$i`; `None`
+    /// for a host factory, which merges nothing.
+    fn initial_fingerprint(&self, factory: Factory) -> Option<String> {
+        match factory {
+            Factory::Host => None,
+            Factory::Layout { initial } => layout_fingerprint(initial),
+            Factory::Local { def } => Some(self.local_defs[def].fingerprint.clone()),
+        }
+    }
+
+    /// Whether `factory` takes `(children, props)`.
+    fn children_first(&self, factory: Factory) -> bool {
+        matches!(factory, Factory::Local { def } if self.local_defs[def].children_first)
+    }
+
     /// The factory `call` renders a host element through, when its styles can
     /// be extracted: an imported host or layout factory, or `Node` with a tag
     /// string.
@@ -257,6 +376,9 @@ impl ModuleScope {
         }
         if let Some(factory) = self.layout_factories.get(&key) {
             return Some(*factory);
+        }
+        if let Some(def) = self.local_factories.get(&key) {
+            return Some(Factory::Local { def: *def });
         }
         if self.node_factories.contains(&key) {
             let tag = call.args.first().is_some_and(|arg| {
@@ -414,6 +536,78 @@ impl ModuleScope {
 }
 
 /// Whether `expr` is a literal: text or nothing once rendered.
+/// The prefix of the compiler's own marker keys.
+const COMPILED_PREFIX: &str = "__meo$";
+/// The key Emotion marks a styled component and a component selector with; a
+/// `css` holding it is not a map the runtime merges.
+const COMPONENT_SELECTOR_KEY: &str = "__emotion_styles";
+/// `@meonode/ui`'s factory creators.
+const CREATE_NODE: &str = "createNode";
+const CREATE_CHILDREN_FIRST_NODE: &str = "createChildrenFirstNode";
+
+/// An object literal's entries and their fingerprint value, when every key is a
+/// plain name or string that is not integer-like, written once, and every value
+/// is a string, a number, a boolean, `null`, or such an object. (A number that
+/// is not finite has no fingerprint, so its factory is not recorded.)
+fn literal_map(obj: &ObjectLit) -> Option<(Vec<(String, Expr)>, fingerprint::Value)> {
+    let mut entries = Vec::new();
+    let mut values = Vec::new();
+    for prop in &obj.props {
+        let PropOrSpread::Prop(prop) = prop else {
+            return None;
+        };
+        let Prop::KeyValue(kv) = &**prop else {
+            return None;
+        };
+        let key = match &kv.key {
+            PropName::Ident(id) => id.sym.to_string(),
+            PropName::Str(s) => s.value.as_str()?.to_string(),
+            _ => return None,
+        };
+        if fingerprint::is_array_index(&key)
+            || entries.iter().any(|(k, _): &(String, Expr)| *k == key)
+        {
+            return None;
+        }
+        values.push((key.clone(), literal_value(&kv.value)?));
+        entries.push((key, (*kv.value).clone()));
+    }
+    Some((entries, fingerprint::Value::Map(values)))
+}
+
+/// A literal's fingerprint value.
+fn literal_value(expr: &Expr) -> Option<fingerprint::Value> {
+    Some(match unwrap_transparent(expr) {
+        Expr::Lit(Lit::Str(s)) => fingerprint::Value::Str(s.value.as_str()?.to_string()),
+        Expr::Lit(Lit::Num(n)) => fingerprint::Value::Num(n.value),
+        Expr::Unary(UnaryExpr {
+            op: UnaryOp::Minus,
+            arg,
+            ..
+        }) => match unwrap_transparent(arg) {
+            Expr::Lit(Lit::Num(n)) => fingerprint::Value::Num(-n.value),
+            _ => return None,
+        },
+        Expr::Lit(Lit::Bool(b)) => fingerprint::Value::Bool(b.value),
+        Expr::Lit(Lit::Null(_)) => fingerprint::Value::Null,
+        Expr::Tpl(tpl) if tpl.exprs.is_empty() => {
+            fingerprint::Value::Str(tpl.quasis.first()?.cooked.as_ref()?.as_str()?.to_string())
+        }
+        Expr::Object(obj) => literal_map(obj)?.1,
+        _ => return None,
+    })
+}
+
+/// Whether `value` holds the key `key` at any depth.
+fn holds_key(value: &fingerprint::Value, key: &str) -> bool {
+    match value {
+        fingerprint::Value::Map(entries) => {
+            entries.iter().any(|(k, v)| k == key || holds_key(v, key))
+        }
+        _ => false,
+    }
+}
+
 fn is_literal(expr: &Expr) -> bool {
     match unwrap_transparent(expr) {
         Expr::Lit(_) | Expr::Tpl(_) => true,
@@ -522,41 +716,45 @@ pub enum Factory {
     /// Declared with flat initial props, which `createNode` merges in front of
     /// the call site's.
     Layout { initial: InitialProps },
+    /// Declared in this module with literal initial props (see [`LocalFactory`]),
+    /// by its index in [`ModuleScope`]'s list.
+    Local { def: usize },
 }
 
-impl Factory {
-    fn initial_entries(&self) -> Vec<(String, Expr)> {
-        match self {
-            Factory::Host => Vec::new(),
-            Factory::Layout { initial, .. } => initial
-                .iter()
-                .map(|(key, value)| (key.to_string(), initial_expr(*value)))
-                .collect(),
-        }
-    }
+/// A factory this module declares as `const X = createNode('tag', { … })` (or
+/// `createChildrenFirstNode`), at its top level, with initial props whose every
+/// value is a literal the fingerprint can write.
+#[derive(Debug, Clone)]
+struct LocalFactory {
+    /// The initial props, as written.
+    initial: Vec<(String, Expr)>,
+    /// Their fingerprint, which a merged call carries in `__meo$i`.
+    fingerprint: String,
+    /// Whether the factory takes `(children, props)`.
+    children_first: bool,
 }
 
-impl Factory {
-    /// The fingerprint of the initial props merged into a call site, which the
-    /// call carries in `__meo$i`; `None` for a host factory, which merges none.
-    fn fingerprint(&self) -> Option<String> {
-        match self {
-            Factory::Host => None,
-            Factory::Layout { initial } => {
-                let entries: Vec<(String, fingerprint::Value)> = initial
-                    .iter()
-                    .map(|(key, value)| {
-                        let value = match value {
-                            InitialValue::Str(text) => fingerprint::Value::Str(text.to_string()),
-                            InitialValue::Num(n) => fingerprint::Value::Num(*n),
-                        };
-                        (key.to_string(), value)
-                    })
-                    .collect();
-                fingerprint::fingerprint(&entries)
-            }
-        }
-    }
+/// A layout factory's initial props as expressions.
+fn layout_entries(initial: InitialProps) -> Vec<(String, Expr)> {
+    initial
+        .iter()
+        .map(|(key, value)| (key.to_string(), initial_expr(*value)))
+        .collect()
+}
+
+/// A layout factory's fingerprint.
+fn layout_fingerprint(initial: InitialProps) -> Option<String> {
+    let entries: Vec<(String, fingerprint::Value)> = initial
+        .iter()
+        .map(|(key, value)| {
+            let value = match value {
+                InitialValue::Str(text) => fingerprint::Value::Str(text.to_string()),
+                InitialValue::Num(n) => fingerprint::Value::Num(*n),
+            };
+            (key.to_string(), value)
+        })
+        .collect();
+    fingerprint::fingerprint(&entries)
 }
 
 fn initial_expr(value: InitialValue) -> Expr {
@@ -585,6 +783,107 @@ fn combine_factory_props(
         }
     }
     combined
+}
+
+/// `createNode`'s merge of a factory's initial props with a call site's, as the
+/// node's props come out of `combineFactoryProps`: `{ ...initial, ...props }`,
+/// each key where it first appears holding its last value, except that two
+/// `css` maps are merged key by key (`mergeCss`).
+///
+/// `None`, leaving the call to the runtime, where the merge is not plain data:
+/// two `css` values the runtime composes as `[factoryCss, callSiteCss]` rather
+/// than merging, a `css` side whose value is not known here, or an integer-like
+/// key, which JavaScript moves ahead of the others.
+fn merge_factory_props(
+    initial: &[(String, Expr)],
+    props: &[(String, Expr)],
+) -> Option<Vec<(String, Expr)>> {
+    if initial
+        .iter()
+        .chain(props)
+        .any(|(key, _)| fingerprint::is_array_index(key))
+    {
+        return None;
+    }
+    let mut combined = combine_factory_props(initial, props);
+    let factory_css = initial.iter().find(|(key, _)| key == "css").map(|(_, v)| v);
+    let call_css = props.iter().find(|(key, _)| key == "css").map(|(_, v)| v);
+    if let (Some(base), Some(over)) = (factory_css, call_css)
+        && styles_something(base)?
+        && styles_something(over)?
+    {
+        let (Expr::Object(base), Expr::Object(over)) =
+            (unwrap_transparent(base), unwrap_transparent(over))
+        else {
+            return None;
+        };
+        let merged = merge_css(&object_entries(base)?, &object_entries(over)?)?;
+        let slot = combined.iter_mut().find(|(key, _)| key == "css")?;
+        slot.1 = object_expr(&merged);
+    }
+    Some(combined)
+}
+
+/// `stylesSomething`: whether a `css` value contributes rules, anything but
+/// nullish or a boolean. `None` for a value not known here.
+fn styles_something(css: &Expr) -> Option<bool> {
+    match unwrap_transparent(css) {
+        Expr::Lit(Lit::Null(_) | Lit::Bool(_)) => Some(false),
+        Expr::Ident(id) if id.sym.as_ref() == "undefined" => Some(false),
+        Expr::Object(_) | Expr::Array(_) | Expr::Lit(Lit::Str(_)) | Expr::Tpl(_) => Some(true),
+        _ => None,
+    }
+}
+
+/// `mergeCss(base, over)`: `over`'s entries over a copy of `base`'s, recursing
+/// where both hold a map, an explicit `undefined` in `over` winning as any
+/// value does. `None` for a nested value whose kind is not known here.
+fn merge_css(base: &[(String, Expr)], over: &[(String, Expr)]) -> Option<Vec<(String, Expr)>> {
+    let mut merged = base.to_vec();
+    for (key, next) in over {
+        match merged.iter_mut().find(|(k, _)| k == key) {
+            Some(slot) => {
+                slot.1 = match (unwrap_transparent(&slot.1), unwrap_transparent(next)) {
+                    (Expr::Object(prev), Expr::Object(next)) => {
+                        object_expr(&merge_css(&object_entries(prev)?, &object_entries(next)?)?)
+                    }
+                    _ => next.clone(),
+                }
+            }
+            None => merged.push((key.clone(), next.clone())),
+        }
+    }
+    Some(merged)
+}
+
+/// A property name for `key`: a plain name where it is an identifier, a string otherwise.
+fn prop_name(key: &str) -> PropName {
+    let mut chars = key.chars();
+    let ident = chars
+        .next()
+        .is_some_and(|c| c.is_ascii_alphabetic() || c == '_' || c == '$')
+        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$');
+    if ident {
+        PropName::Ident(IdentName::new(Atom::from(key), DUMMY_SP))
+    } else {
+        PropName::Str(Str::from(Atom::from(key)))
+    }
+}
+
+/// An object literal of `entries`, in their order.
+fn object_expr(entries: &[(String, Expr)]) -> Expr {
+    Expr::Object(ObjectLit {
+        span: DUMMY_SP,
+        props: entries
+            .iter()
+            .map(|(key, value)| {
+                PropOrSpread::Prop(Box::new(Prop::KeyValue(KeyValueProp {
+                    key: PropName::Str(Str::from(Atom::from(key.as_str()))),
+                    value: Box::new(value.clone()),
+                })))
+            })
+            .collect(),
+    })
 }
 
 /// Whether any identifier in `module` is spelled `name`.
@@ -879,7 +1178,7 @@ impl ModuleScope {
         factory: Factory,
         c_props: &mut Vec<PropOrSpread>,
         special_props: &mut Vec<PropOrSpread>,
-        d_props: &[PropOrSpread],
+        d_props: &mut Vec<PropOrSpread>,
         module: &mut ModuleExtraction,
     ) -> Option<SiteExtraction> {
         for prop in special_props.iter().chain(d_props.iter()) {
@@ -918,8 +1217,28 @@ impl ModuleScope {
             };
             call_props.push(("css".to_string(), value));
         }
-        let initial = factory.initial_entries();
-        let mut flat = combine_factory_props(&initial, &call_props);
+        // The initial props, their tokens rewritten as the call's were, split as
+        // the call's are: style entries merge here, DOM entries join the call's
+        // `__meo$d` once the style is extracted. A children-first factory's own
+        // `children` never survives its call.
+        let mut initial = self.initial_entries(factory);
+        crate::partition::rewrite_theme_tokens_in_entries(&mut initial);
+        let children_first = self.children_first(factory);
+        let (initial_style, initial_dom): (Vec<_>, Vec<_>) = initial
+            .into_iter()
+            .filter(|(key, _)| !(children_first && key == "children"))
+            .partition(|(key, _)| key == "css" || (is_css_prop(key) && !is_special_key(key)));
+        let call_dom = if initial_dom.is_empty() {
+            Vec::new()
+        } else {
+            object_entries(&ObjectLit {
+                span: DUMMY_SP,
+                props: d_props.clone(),
+            })
+            .or_else(|| explain::bail("DOM props with a spread or computed key"))?
+        };
+        let mut flat = merge_factory_props(&initial_style, &call_props)
+            .or_else(|| explain::bail("css the runtime composes rather than merges"))?;
         let css = flat
             .iter()
             .position(|(key, _)| key == "css")
@@ -1039,6 +1358,19 @@ impl ModuleScope {
         if let Some(index) = css_index {
             special_props.remove(index);
         }
+        // The runtime uses a marked call's props as given, so the factory's DOM
+        // props go in with the call's, in the order the runtime's merge gives.
+        if !initial_dom.is_empty() {
+            *d_props = combine_factory_props(&initial_dom, &call_dom)
+                .into_iter()
+                .map(|(key, value)| {
+                    PropOrSpread::Prop(Box::new(Prop::KeyValue(KeyValueProp {
+                        key: prop_name(&key),
+                        value: Box::new(value),
+                    })))
+                })
+                .collect();
+        }
         let mut props = vec![PropOrSpread::Prop(Box::new(Prop::KeyValue(KeyValueProp {
             key: PropName::Ident(IdentName::new(
                 Atom::from(if has_holes { TEMPLATE_KEY } else { NAME_KEY }),
@@ -1046,7 +1378,7 @@ impl ModuleScope {
             )),
             value: Box::new(site_expr),
         })))];
-        if let Some(fingerprint) = factory.fingerprint() {
+        if let Some(fingerprint) = self.initial_fingerprint(factory) {
             props.push(PropOrSpread::Prop(Box::new(Prop::KeyValue(KeyValueProp {
                 key: PropName::Ident(IdentName::new(Atom::from(INITIAL_KEY), DUMMY_SP)),
                 value: Box::new(str_expr(&fingerprint)),
@@ -1640,6 +1972,135 @@ mod tests {
             .unwrap_or_default()
     }
 
+    /// `createNode`'s and `createChildrenFirstNode`'s merge of sample local
+    /// factory defaults with sample call-site props, objects as ordered entries,
+    /// written by `scripts/codegen-extract-tables.ts`.
+    const LOCAL_FACTORY_MERGES: &str =
+        include_str!("../tests/fixture/extract/local-factory-merge.json");
+
+    /// A fixture value as an expression: `{ "$entries": [...] }` an object literal in that order.
+    fn ordered_expr(value: &serde_json::Value) -> Expr {
+        match value.get("$entries") {
+            Some(entries) => object_expr(&ordered_entries(entries)),
+            None => match value.as_array() {
+                Some(items) => Expr::Array(ArrayLit {
+                    span: DUMMY_SP,
+                    elems: items
+                        .iter()
+                        .map(|item| {
+                            Some(ExprOrSpread {
+                                spread: None,
+                                expr: Box::new(ordered_expr(item)),
+                            })
+                        })
+                        .collect(),
+                }),
+                None => json_expr(value),
+            },
+        }
+    }
+
+    fn ordered_entries(entries: &serde_json::Value) -> Vec<(String, Expr)> {
+        entries
+            .as_array()
+            .expect("entries")
+            .iter()
+            .map(|pair| {
+                (
+                    pair[0].as_str().expect("key").to_string(),
+                    ordered_expr(&pair[1]),
+                )
+            })
+            .collect()
+    }
+
+    /// An expression as comparable text: objects in their entry order, keys and strings quoted.
+    fn canon(expr: &Expr) -> String {
+        match unwrap_transparent(expr) {
+            Expr::Object(obj) => format!(
+                "{{{}}}",
+                object_entries(obj)
+                    .expect("plain entries")
+                    .iter()
+                    .map(|(k, v)| format!("{k:?}:{}", canon(v)))
+                    .collect::<Vec<_>>()
+                    .join(",")
+            ),
+            Expr::Array(array) => format!(
+                "[{}]",
+                array
+                    .elems
+                    .iter()
+                    .flatten()
+                    .map(|e| canon(&e.expr))
+                    .collect::<Vec<_>>()
+                    .join(",")
+            ),
+            Expr::Lit(Lit::Str(s)) => format!("{:?}", s.value.as_str().unwrap_or_default()),
+            Expr::Lit(Lit::Num(n)) => format!("{}", n.value),
+            Expr::Lit(Lit::Bool(b)) => b.value.to_string(),
+            Expr::Lit(Lit::Null(_)) => "null".into(),
+            Expr::Ident(id) => id.sym.to_string(),
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+
+    fn canon_entries(entries: &[(String, Expr)]) -> String {
+        canon(&object_expr(entries))
+    }
+
+    #[test]
+    fn local_factory_merge_matches_create_node() {
+        let cases: Vec<(
+            serde_json::Value,
+            serde_json::Value,
+            bool,
+            serde_json::Value,
+        )> = serde_json::from_str(LOCAL_FACTORY_MERGES).expect("fixture parses");
+        assert!(!cases.is_empty());
+        let (mut merged, mut left) = (0, 0);
+        for (initial, props, _children_first, expected) in &cases {
+            let initial_entries = ordered_entries(&initial["$entries"]);
+            let props_entries = if props.is_null() {
+                Vec::new()
+            } else {
+                ordered_entries(&props["$entries"])
+            };
+            let got = merge_factory_props(&initial_entries, &props_entries);
+            let integer_like = initial_entries
+                .iter()
+                .chain(&props_entries)
+                .any(|(k, _)| fingerprint::is_array_index(k));
+            match (&got, expected.is_null()) {
+                (Some(got), false) => {
+                    // The fixture's node props leave `children` out on both kinds of factory.
+                    let got: Vec<_> = got
+                        .iter()
+                        .filter(|(k, _)| k != "children")
+                        .cloned()
+                        .collect();
+                    assert_eq!(
+                        canon_entries(&got),
+                        canon_entries(&ordered_entries(&expected["$entries"])),
+                        "{initial} {props}"
+                    );
+                    merged += 1;
+                }
+                // Composed by the runtime, or an integer-like key: left to it.
+                (None, true) => left += 1,
+                (None, false) => {
+                    assert!(
+                        integer_like,
+                        "left to the runtime without a reason: {initial} {props}"
+                    );
+                    left += 1;
+                }
+                (Some(_), true) => panic!("merged what the runtime composes: {initial} {props}"),
+            }
+        }
+        assert!(merged > 300 && left > 0, "{merged} merged, {left} left");
+    }
+
     #[test]
     fn layout_factory_merge_matches_create_node() {
         let cases: Vec<(String, serde_json::Value, serde_json::Value)> =
@@ -1649,8 +2110,7 @@ mod tests {
         for (name, props, expected) in &cases {
             let (_, initial) = layout_factory(name).expect("a layout factory");
             factories.insert(name.clone());
-            let factory = Factory::Layout { initial };
-            let combined = combine_factory_props(&factory.initial_entries(), &json_entries(props));
+            let combined = combine_factory_props(&layout_entries(initial), &json_entries(props));
             let expected = json_entries(expected);
             let keys = |entries: &[(String, Expr)]| -> Vec<String> {
                 entries.iter().map(|(k, _)| k.clone()).collect()

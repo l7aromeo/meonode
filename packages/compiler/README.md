@@ -562,6 +562,21 @@ insertion and its class are the ones the node would have uncompiled.
   `__meo$i`, a fingerprint of those initial props; a `@meonode/ui` whose factory
   has the same initial props uses the call site's props as given instead of
   merging again.
+- **Factories declared in the same module.** A top-level
+  `const X = createNode('tag', { … })` (or `createChildrenFirstNode`) whose
+  initial props are all literals (strings, numbers, booleans, `null`, and
+  objects of those) is merged into each of its call sites in the module as
+  `createNode` merges it: flat props key by key, two `css` maps key by key at
+  any depth, a call's `css: undefined`, `false` or `null` dropping the default
+  `css`, and a call's `className` replacing the default's. The initial DOM props
+  join the call's `__meo$d` in the order the runtime's merge gives, and the call
+  carries `__meo$i` like a layout factory's. A children-first factory's own
+  `children` never survives its call. `createNode('tag')` with no initial props
+  is a host factory. Left to the runtime: initial props that are not literals,
+  that hold `theme`, `as`, `disableEmotion`, `key`, `ref`, `props`, a props-first
+  `children`, an integer-like key, a component selector, or the compiler's own
+  marker keys, and calls whose `css` the runtime would compose as
+  `[factoryCss, callSiteCss]` rather than merge.
 
 Off by default. With the option off, the output is exactly what it is without
 this option.
@@ -585,7 +600,7 @@ requirements](#runtime-version-requirements) rather than emitted.
 | `__meo$n` | The runtime's name for the call site's whole style, with `experimental_extractCss`: a string, or a conditional choosing between names (omitted when the node stays on the runtime path). |
 | `__meo$t` | In place of `__meo$n`, when the style holds values only the call site knows: `[templateId, ...valueTexts]`, or a conditional choosing between such arrays. The template's chunks, one more than its values, are registered under its id; joined with the values in order they are the serialized styles. |
 | `__meo$r` | With `experimental_extractCss`, `1` on a named call site (`__meo$n` or `__meo$t`) that renders as a carrier: through `StyledRenderer`, which inserts the run of named styles that begins at it where it renders, so no element is added to the children. The runtime makes a named node with no runtime node or carrier before it, since the walk's start or a component, a carrier; the mark goes on every node that may be one under some combination of the walk's conditions, and on every named node whose position another call site may take on another render (an arm of a conditional, an operand of `&&`, `\|\|` or `??`, an item of a spread, a `.map()` or a child that may be absent, and every child after one, and every named node below one of those, unless it or a node above it there has a `key`), so a node's element type is the same on every render. A memoized node (a host call given `deps`) counts as a component before and after it, since the runtime cuts before it and the browser renders it in a walk of its own; Suspense, SuspenseList and Activity are components. |
-| `__meo$i` | On a layout factory's call site with `__meo$n` or `__meo$t`: the fingerprint of the initial props merged into it, as the runtime's `initialPropsFingerprint` writes it: entries in JavaScript's key order (not sorted), each key and string length-prefixed in UTF-16 code units (`{k7:displays4:flexk13:flexDirections3:row}` for `Row`). A runtime whose factory has the same fingerprint skips its own merge. |
+| `__meo$i` | On a layout or same-module factory's call site with `__meo$n` or `__meo$t`: the fingerprint of the initial props merged into it, as the runtime's `initialPropsFingerprint` writes it: entries in JavaScript's key order (not sorted), each key and string length-prefixed in UTF-16 code units (`{k7:displays4:flexk13:flexDirections3:row}` for `Row`). A runtime whose factory has the same fingerprint skips its own merge. |
 | `__meo$loc` | `file:line:column` of a call site carrying `__meo$list`, emitted only when [`callSiteLocations`](#callsitelocations--where-a-generated-list-was-written) is enabled. |
 
 Forward-compat policy: the runtime checks `__meo$` against the schema
