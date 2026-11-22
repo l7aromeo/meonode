@@ -30,12 +30,12 @@ import { isFragment, isValidElementType, REACT_LAZY_TYPE } from '@src/helper/rea
 import { getComponentType, getElementTypeName, hasNoStyleTag, getGlobalState, omitUndefined } from '@src/helper/common.helper.js'
 import StyledRenderer, { ThemedRule, ThemeTokenCheck } from '@src/components/styled-renderer.client.js'
 import MeoMemo from '@src/components/meo-memo.client.js'
-import { isDevMode, LIST_MARKER, LOCATION_MARKER } from '@src/constant/common.const.js'
+import { COMPILED_MARKER, COMPILER_SCHEMA_KEYS, isDevMode, LIST_MARKER, LOCATION_MARKER } from '@src/constant/common.const.js'
 import { checkCss, checkFactoryCss, isMergeableCss, markCombinedCssChecked } from '@src/util/css.util.js'
 import { NodeUtil } from '@src/util/node.util.js'
 import { IS_REACT_SERVER_LAYER } from '@src/util/react-layer.util.js'
 import { passesChildrenThrough } from '@src/util/children-pass-through.util.js'
-import { observeChildren } from '@src/util/generated-list.util.js'
+import { noteOnce, observeChildren } from '@src/util/generated-list.util.js'
 import { compileServerEmotionRule } from '@src/util/server-emotion.util.js'
 import { replaceThemeTokensWithCssVars } from '@src/util/server-theme.util.js'
 import { collectThemeVarRefs, diagnosticsEnabled, getThemeVarIndex, reportThemeIssues, reportUnresolvedThemeKey } from '@src/util/theme-diagnostics.util.js'
@@ -152,6 +152,12 @@ function collectNodeChildren(children: readonly unknown[]): readonly unknown[] {
   }
   walk(children)
   return out
+}
+
+/** The compiler's key for the call site that wrote these props, when its marker carries one. */
+function compiledSiteKey(props: Record<string, unknown>): unknown {
+  const names = COMPILER_SCHEMA_KEYS[props[COMPILED_MARKER] as number]
+  return names === undefined ? undefined : props[names.key]
 }
 
 /**
@@ -796,7 +802,11 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
             // Without a location, only the mixed case is worth saying. React
             // already reports an all-unkeyed list correctly; repeating it with
             // no line number adds noise and nothing else.
-            if (missingKey && (callSiteLocation || mixed)) {
+            //
+            // Once per call site, last so only a note about to be logged is
+            // recorded: React logs its own warning once, and a component that
+            // renders often would otherwise repeat the note on every render.
+            if (missingKey && (callSiteLocation || mixed) && noteOnce(callSiteLocation, compiledSiteKey(node.rawProps), renderTarget)) {
               const spreadClause = mixed
                 ? ' Some children here do have keys: a spread puts a generated list and the siblings written beside it into one list, so React asks those siblings for keys too. Nest the generated part instead of spreading it.'
                 : ''
