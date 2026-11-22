@@ -1047,11 +1047,19 @@ describe.each(['cc', 'plain'] as const)('extracted styles in a production build 
     expect(styles.slice(4).some(style => style.startsWith('mn-static-'))).toBe(false)
     expect(styles.slice(4)).toContain('meonode')
     expect(page.indexOf('<style data-emotion')).toBeGreaterThan(head.lastIndexOf('data-precedence="mn-static-3"'))
-    expect(head).toContain('mn-static-fixture-server-0')
-    expect(head).toContain('mn-static-fixture-client-0')
-    // The streamed boundary's module arrives after the shell.
-    expect(head).not.toContain('fixture-late')
-    expect(page).toContain('mn-static-fixture-late-0')
+    // Each class the shell's nodes use, once, in its bucket's group, from the
+    // server tree and the client tree alike.
+    const hrefs = [...head.matchAll(/<style data-precedence="(mn-static-[0-3])" data-href="([^"]*)"/g)].map(match => [match[1], match[2].split(' ').sort()])
+    expect(hrefs).toEqual([
+      ['mn-static-0', ['mn-static-0', 'mn-static-mn-00000000cli0a', 'mn-static-mn-00000000cli0w', 'mn-static-mn-00000000srv0a']],
+      ['mn-static-1', ['mn-static-1']],
+      ['mn-static-2', ['mn-static-2', 'mn-static-mn-00000000srv2m']],
+      ['mn-static-3', ['mn-static-3']],
+    ])
+    // The streamed boundary's classes arrive after the shell.
+    expect(head).not.toContain('late0a')
+    expect(page).toContain('mn-static-mn-0000000late0a')
+    expect(page).toContain('mn-static-mn-0000000late1h')
   })
 
   it('hydrates with no mismatch and identical ids, applies every rule, and inserts nothing the server sent', async () => {
