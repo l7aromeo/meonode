@@ -61,6 +61,20 @@ use crate::theme::{is_length_key, rewrite_theme_tokens_for};
 /// as it is compiled today: `@meonode/mui`'s factories come from
 /// `createMuiNode`, and `@meonode/ui`'s subpaths export components.
 const NON_CREATE_NODE_SCOPE: &str = "@meonode/";
+/// Specifier prefixes of the app's own modules: relative and absolute paths, a
+/// package's `#` subpath imports, and the `~/` and `@/` path aliases. Any
+/// other specifier may name a package (`@src/x` reads as one), which the
+/// plugin cannot tell from an alias without the app's tsconfig.
+const LOCAL_MODULE_PREFIXES: &[&str] = &[".", "/", "#", "~/", "@/"];
+
+/// Whether `src` names one of the app's own modules (see
+/// [`LOCAL_MODULE_PREFIXES`]).
+fn is_local_module(src: &str) -> bool {
+    LOCAL_MODULE_PREFIXES
+        .iter()
+        .any(|prefix| src.starts_with(prefix))
+}
+
 /// The module the runtime helpers are imported from.
 const UI_MODULE: &str = "@meonode/ui";
 const UI_MODULE_CLIENT: &str = "@meonode/ui/client";
@@ -165,8 +179,12 @@ pub struct ModuleScope {
     local_factories: HashMap<(Atom, SyntaxContext), usize>,
     /// Bindings imported from modules other than `@meonode/ui` and not rendered
     /// as JSX elements anywhere in the module: what a call of an imported
-    /// factory may be (see [`crate::factory_call`]).
-    imported_callees: HashSet<(Atom, SyntaxContext)>,
+    /// factory may be (see [`crate::factory_call`]). Each says whether its
+    /// module is local (see [`is_local_module`]).
+    imported_callees: HashMap<(Atom, SyntaxContext), bool>,
+    /// Whether the module imports `@meonode/ui` at run time, a binding that is
+    /// not only a type: then it resolves `@meonode/ui/factory-call` too.
+    imports_runtime: bool,
     /// Whether the module already uses one of the helper names.
     name_taken: bool,
 }
@@ -226,6 +244,7 @@ impl ModuleScope {
             if src.starts_with(NON_CREATE_NODE_SCOPE) {
                 return;
             }
+            let local_module = is_local_module(src);
             for spec in &import.specifiers {
                 let local = match spec {
                     ImportSpecifier::Named(named) if !named.is_type_only => &named.local,
@@ -233,10 +252,14 @@ impl ModuleScope {
                     _ => continue,
                 };
                 self.imported_callees
-                    .insert((local.sym.clone(), local.ctxt));
+                    .insert((local.sym.clone(), local.ctxt), local_module);
             }
             return;
         }
+        self.imports_runtime |= import
+            .specifiers
+            .iter()
+            .any(|spec| !matches!(spec, ImportSpecifier::Named(named) if named.is_type_only));
         for spec in &import.specifiers {
             let ImportSpecifier::Named(named) = spec else {
                 continue;
@@ -372,9 +395,15 @@ impl ModuleScope {
         }
     }
 
-    /// Whether the binding `sym` in `ctxt` is one a call of an imported factory may be.
+    /// Whether the binding `sym` in `ctxt` is one a call of an imported factory
+    /// may be, and one the module can join: an import from a local module, or
+    /// any import of a module that imports `@meonode/ui` at run time. Another
+    /// module's package may not depend on `@meonode/ui`, so it could not resolve
+    /// the helper's import; a factory its own source defines is a local import.
     pub fn is_imported_callee(&self, sym: &Atom, ctxt: SyntaxContext) -> bool {
-        self.imported_callees.contains(&(sym.clone(), ctxt))
+        self.imported_callees
+            .get(&(sym.clone(), ctxt))
+            .is_some_and(|&local| local || self.imports_runtime)
     }
 
     /// The initial props `factory` merges in front of a call's.

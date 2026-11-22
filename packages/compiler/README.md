@@ -603,7 +603,13 @@ insertion and its class are the ones the node would have uncompiled.
   literals (either could be the props). The helper is imported from
   `@meonode/ui/factory-call`, which imports nothing, so a module that loads no
   other part of `@meonode/ui` (a route handler, say) gains no React or
-  Emotion. The carrier marks are those of both
+  Emotion. Such a module's package may not depend on `@meonode/ui` at all, so
+  it is rewritten only for calls of local imports (a specifier starting with
+  `.`, `/`, `#`, `~/` or `@/`); a module that imports `@meonode/ui` at run time
+  is rewritten for any import. Known limit: a module of a package that does
+  not depend on `@meonode/ui`, calling its own capitalized function in node
+  position, gains the import, which its package cannot resolve under strict
+  resolution. The carrier marks are those of both
   readings of such a call, a named node and a component, since only the
   runtime knows which it is.
 

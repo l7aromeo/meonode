@@ -598,3 +598,18 @@ fn extract_factory_call_positions() {
 fn extract_factory_call_without_runtime() {
     run_partition_with_ts("extract_factory_call_without_runtime", extract_config());
 }
+
+#[test]
+fn extract_factory_call_runtime_import() {
+    run_partition_with_ts("extract_factory_call_runtime_import", extract_config());
+}
+
+#[test]
+fn extract_factory_call_workspace_package() {
+    run_partition_with_config("extract_factory_call_workspace_package", extract_config());
+}
+
+#[test]
+fn extract_factory_call_workspace_local() {
+    run_partition_with_config("extract_factory_call_workspace_local", extract_config());
+}
