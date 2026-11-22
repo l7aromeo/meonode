@@ -1,7 +1,7 @@
 // @vitest-environment node
 //
 // A server with no document, as in production: registration only records the
-// rules, and a render sends the ones its nodes use as React hoistable styles,
+// rules, and a render sends each class its nodes use as a React hoistable style,
 // before Emotion's inline rules for the css left on the runtime path.
 import { createElement } from 'react'
 import { renderToString } from 'react-dom/server'
@@ -20,8 +20,8 @@ beforeEach(() => {
   __resetStaticCss()
   __resetStaticStyles()
   registerStaticCss('page', [
-    [0, RED, `.${RED}{color:red;}`],
-    [2, MEDIA, `@media (min-width: 600px){.${MEDIA}{padding:9px;}}`],
+    [1, RED, `.${RED}{color:red;}`],
+    [3, MEDIA, `@media (min-width: 600px){.${MEDIA}{padding:9px;}}`],
   ])
 })
 afterEach(() => vi.restoreAllMocks())
@@ -33,10 +33,11 @@ describe('a server render with no document', () => {
     expect(html).toMatch(
       new RegExp(
         '^<html><head>' +
-          '<style data-precedence="mn-static-0" data-href="mn-static-0 mn-static-page-0">\\.mn-000000000000r\\{color:red;\\}</style>' +
-          '<style data-precedence="mn-static-1" data-href="mn-static-1"></style>' +
-          '<style data-precedence="mn-static-2" data-href="mn-static-2 mn-static-page-2">@media \\(min-width: 600px\\)\\{\\.mn-000000000000m\\{padding:9px;\\}\\}</style>' +
-          '<style data-precedence="mn-static-3" data-href="mn-static-3"></style>' +
+          '<style data-precedence="mn-static-0" data-href="mn-static-0"></style>' +
+          '<style data-precedence="mn-static-1" data-href="mn-static-1 mn-static-mn-000000000000r">\\.mn-000000000000r\\{color:red;\\}</style>' +
+          '<style data-precedence="mn-static-2" data-href="mn-static-2"></style>' +
+          '<style data-precedence="mn-static-3" data-href="mn-static-3 mn-static-mn-000000000000m">@media \\(min-width: 600px\\)\\{\\.mn-000000000000m\\{padding:9px;\\}\\}</style>' +
+          '<style data-precedence="mn-static-4" data-href="mn-static-4"></style>' +
           '</head><body><style data-emotion="css [0-9a-z]+">[^<]*margin:2px;[^<]*</style>' +
           // The slot after the text renders nothing; React separates the text from it.
           `<div class="${RED} ${MEDIA} css-[0-9a-z]+">x<!-- --></div></body></html>$`,
@@ -45,28 +46,63 @@ describe('a server render with no document', () => {
   })
 
   it('keeps the buckets in order when the first module a render meets has only a later bucket', () => {
-    registerStaticCss('media-only', [[2, 'mn-00000000000m2', '@media print{.mn-00000000000m2{color:black;}}']])
-    registerStaticCss('base-only', [[0, 'mn-00000000000b0', '.mn-00000000000b0{color:white;}']])
+    registerStaticCss('media-only', [[3, 'mn-00000000000m2', '@media print{.mn-00000000000m2{color:black;}}']])
+    registerStaticCss('base-only', [[1, 'mn-00000000000b0', '.mn-00000000000b0{color:white;}']])
     const html = page(Div({ __meo$: 2, __meo$s: 'mn-00000000000m2 mn-00000000000b0' } as never))
     const precedences = [...html.matchAll(/data-precedence="([^"]+)"/g)].map(match => match[1])
 
-    expect(precedences).toEqual(['mn-static-0', 'mn-static-1', 'mn-static-2', 'mn-static-3'])
+    expect(precedences).toEqual(['mn-static-0', 'mn-static-1', 'mn-static-2', 'mn-static-3', 'mn-static-4'])
   })
 
-  it('sends a module once however many nodes use it', () => {
+  it('sends a class once however many nodes use it', () => {
     const html = page(Div({ children: [1, 2, 3].map(key => Div({ __meo$: 2, __meo$s: RED, key } as never)) }))
 
-    expect(html.match(/mn-static-page-0/g)).toHaveLength(1)
+    expect(html.match(/mn-static-mn-000000000000r/g)).toHaveLength(1)
   })
 
-  it('sends the module for a spread site whose spread brings no CSS key, and not for one whose spread does', () => {
+  it('sends the class of a spread site whose spread brings no CSS key, and not for one whose spread does', () => {
     const site = (rest: object) => Div({ __meo$: 2, __meo$s: RED, __meo$a: { color: 'red' }, ...rest } as never)
 
-    expect(page(site({ id: 'x' }))).toContain('mn-static-page-0')
+    expect(page(site({ id: 'x' }))).toContain(`mn-static-${RED}`)
     const overridden = page(site({ color: 'blue' }))
-    expect(overridden).not.toContain('mn-static-page-0')
+    expect(overridden).not.toContain(`mn-static-${RED}`)
     expect(overridden).not.toContain(RED)
     expect(overridden).toMatch(/color:red;/)
+  })
+
+  // Emotion's server render inserts a parent's rules before its children's.
+  it('sends a render’s classes in the order its nodes began, parents first', () => {
+    registerStaticCss('order', [
+      [1, 'mn-00000000000p0', '.mn-00000000000p0{color:red;}'],
+      [1, 'mn-00000000000c1', '.mn-00000000000c1{color:blue;}'],
+      [1, 'mn-00000000000c2', '.mn-00000000000c2{color:green;}'],
+    ])
+    const html = page(
+      Div({
+        __meo$: 2,
+        __meo$s: 'mn-00000000000p0',
+        children: [Div({ __meo$: 2, __meo$s: 'mn-00000000000c1', key: 1, children: Div({ __meo$: 2, __meo$s: 'mn-00000000000c2' } as never) } as never)],
+      } as never),
+    )
+    const hrefs = html.match(/data-href="mn-static-1[^"]*"/)![0]
+
+    expect(hrefs).toBe('data-href="mn-static-1 mn-static-mn-00000000000p0 mn-static-mn-00000000000c1 mn-static-mn-00000000000c2"')
+  })
+
+  // One hoistable per class, so React meets no two children with one key.
+  it('sends a class used by several nodes of a render once, with no key warning', () => {
+    const errors: string[] = []
+    vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => void errors.push(String(args[0])))
+    const html = page(
+      Div({
+        __meo$: 2,
+        __meo$s: RED,
+        children: [Div({ __meo$: 2, __meo$s: RED, key: 1 } as never), Div({ __meo$: 2, __meo$s: `${RED} ${MEDIA}`, key: 2 } as never)],
+      } as never),
+    )
+
+    expect(html.match(/mn-static-mn-000000000000r/g)).toHaveLength(1)
+    expect(errors.filter(error => /same key/.test(error))).toEqual([])
   })
 
   it('sends nothing for a render without static classes', () => {
@@ -92,10 +128,10 @@ describe('a server render with no document', () => {
     expect(most).toBe(STATIC_CLASS_LIST_MEMO_ENTRIES)
   }, 60_000)
 
-  it('emits the module of a component’s own render too', () => {
+  it('emits the class of a component’s own render too', () => {
     const Card = () => Div({ __meo$: 2, __meo$s: MEDIA, children: 'card' } as never).render()
     const html = page(Div({ children: Node(Card) }))
 
-    expect(html).toContain('data-href="mn-static-2 mn-static-page-2"')
+    expect(html).toContain('data-href="mn-static-3 mn-static-mn-000000000000m"')
   })
 })

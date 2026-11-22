@@ -307,6 +307,49 @@ describe('build output: the server build and the default build', () => {
     expect(node(resolveRequire, { module: false })).toBe(path.join(ROOT, `dist/cjs/${file}.cjs`))
   })
 
+  /** The preload that loads `'use client'` modules as client references, as a bundler's server layer does. */
+  const CLIENT_REFERENCES = path.join(ROOT, 'tests/react-server-client-references.mjs')
+
+  // The server layer runs the server build's own modules and the packages they
+  // import, against React's react-server build, which has no client hooks; a
+  // package that creates a context at load fails there too. Node links an ES
+  // module graph before running it, so a missing named import fails as well.
+  // `@meonode/ui/client` is the browser entry: it imports `react-dom/client`,
+  // which refuses the server layer itself.
+  const SERVER_SUBPATHS = SUBPATHS.filter(({ specifier }) => specifier !== '@meonode/ui/client')
+  it.each(SERVER_SUBPATHS.flatMap(subpath => FORMATS.map(({ format }) => ({ ...subpath, format }))))(
+    'links and loads $specifier from the server $format build under `react-server`',
+    ({ specifier, format }) => {
+      const load = format === 'esm' ? `await import(${JSON.stringify(specifier)})` : `require(${JSON.stringify(specifier)})`
+      const run = () =>
+        execFileSync(
+          process.execPath,
+          [
+            '--conditions=react-server',
+            '--import',
+            CLIENT_REFERENCES,
+            ...(format === 'esm' ? ['--input-type=module'] : []),
+            '-e',
+            `${load}; console.log('loaded')`,
+          ],
+          {
+            cwd: ROOT,
+            encoding: 'utf8',
+            stdio: 'pipe',
+          },
+        ).trim()
+      let failure = ''
+      let output = ''
+      try {
+        output = run()
+      } catch (error) {
+        failure = String((error as { stderr?: string }).stderr)
+      }
+      expect(failure.split('\n').find(line => /Error/.test(line)) ?? '').toBe('')
+      expect(output).toBe('loaded')
+    },
+  )
+
   const GUARD_MESSAGE = '[MeoNode] The default entry of @meonode/ui was loaded in the React Server Components layer'
 
   it('refuses to load its default cjs entry in Node, where `react` resolves to its react-server build', () => {

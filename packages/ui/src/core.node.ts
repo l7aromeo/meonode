@@ -30,17 +30,39 @@ import { isFragment, isValidElementType, REACT_LAZY_TYPE } from '@src/helper/rea
 import { getComponentType, getElementTypeName, hasNoStyleTag, getGlobalState, omitUndefined } from '@src/helper/common.helper.js'
 import StyledRenderer, { ThemedRule, ThemeTokenCheck } from '@src/components/styled-renderer.client.js'
 import MeoMemo from '@src/components/meo-memo.client.js'
-import { COMPILED_MARKER, COMPILER_SCHEMA_KEYS, isDevMode, LIST_MARKER, LOCATION_MARKER, STATIC_CLASSES_MARKER, STATIC_VARS_MARKER } from '@src/constant/common.const.js'
+import {
+  COMPILED_MARKER,
+  COMPILER_SCHEMA_KEYS,
+  INITIAL_PROPS_MARKER,
+  isDevMode,
+  LIST_MARKER,
+  LOCATION_MARKER,
+  RUNTIME_PRECEDENCE,
+  STATIC_CLASSES_MARKER,
+  STATIC_VARS_MARKER,
+} from '@src/constant/common.const.js'
 import { checkCss, checkFactoryCss, isMergeableCss, markCombinedCssChecked } from '@src/util/css.util.js'
 import { NodeUtil } from '@src/util/node.util.js'
 import { IS_REACT_SERVER_LAYER } from '@src/util/react-layer.util.js'
-import { passesChildrenThrough } from '@src/util/children-pass-through.util.js'
+import { passesChildrenThrough, providesTheme } from '@src/util/children-pass-through.util.js'
 import { noteOnce, observeChildren } from '@src/util/generated-list.util.js'
 import { compileServerEmotionRule } from '@src/util/server-emotion.util.js'
-import { hasStaticCss, modulesOfClasses } from '@src/util/static-css.util.js'
-import { StaticStyles } from '@src/components/static-styles.js'
+import { hasStaticCss, registeredClassesOf, staticRuleOf } from '@src/util/static-css.util.js'
+import { StaticStyles, type StaticThemeCandidate, type StaticThemeCheck } from '@src/components/static-styles.js'
 import { replaceThemeTokensWithCssVars } from '@src/util/server-theme.util.js'
-import { collectThemeVarRefs, diagnosticsEnabled, getThemeVarIndex, reportThemeIssues, reportUnresolvedThemeKey } from '@src/util/theme-diagnostics.util.js'
+import {
+  addThemeVarRef,
+  collectStaticThemeVarRefs,
+  collectThemeVarRefs,
+  diagnosticsEnabled,
+  getThemeVarIndex,
+  getTokensVarIndex,
+  reportThemeIssues,
+  reportThemeVarRefs,
+  reportUnresolvedThemeKey,
+  type ThemeVarIndex,
+  unionThemeVarIndexes,
+} from '@src/util/theme-diagnostics.util.js'
 import { ThemeUtil } from '@src/util/theme.util.js'
 
 /**
@@ -121,7 +143,7 @@ function ruleElement(rule: { id: string; ownClassName: string; cssText: string }
   const elements = requestRuleElements()
   let element = elements.get(rule.id)
   if (!element) {
-    element = createElement('style', { key: rule.ownClassName, href: rule.ownClassName, precedence: 'meonode' }, rule.cssText)
+    element = createElement('style', { key: rule.ownClassName, href: rule.ownClassName, precedence: RUNTIME_PRECEDENCE }, rule.cssText)
     elements.set(rule.id, element)
   }
   return element
@@ -542,25 +564,51 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
     // `ThemedRule`s that render beside the element keyed here, inside one of
     // MeoNode's own providers, because no host in that provider can carry them.
     const besideRules = new Map<BaseNode, Map<string, ReactElement>>()
-    // The modules each rules map's static css needs, once static css is
-    // registered. A map holding any gets one `StaticStyles` slot, reserved ahead
-    // of its other rules: in the server layer those are hoisted at a precedence
-    // React must meet after the static ones.
-    const staticModules = hasStaticCss() ? new Map<Map<string, ReactElement>, string[]>() : undefined
-    const staticSlot = (rules: Map<string, ReactElement>): string[] => {
-      let modules = staticModules!.get(rules)
-      if (!modules) {
-        modules = []
-        staticModules!.set(rules, modules)
+    // The static classes of each rules map's nodes, once static css is
+    // registered, each list with the order its node began in. A map holding any
+    // gets one `StaticStyles` slot, reserved ahead of its other rules: in the
+    // server layer those are hoisted at a precedence React must meet after the
+    // static ones.
+    const staticModules = hasStaticCss() ? new Map<Map<string, ReactElement>, [began: number, classes: readonly string[]][]>() : undefined
+    const staticSlot = (rules: Map<string, ReactElement>): [began: number, classes: readonly string[]][] => {
+      let lists = staticModules!.get(rules)
+      if (!lists) {
+        lists = []
+        staticModules!.set(rules, lists)
         // Holds the map position until the carrier completes.
         rules.set(STATIC_STYLES_KEY, null as unknown as ReactElement)
       }
-      return modules
+      return lists
     }
     const finishStaticSlot = (rules: Map<string, ReactElement>): void => {
-      const modules = staticModules?.get(rules)
-      if (modules) rules.set(STATIC_STYLES_KEY, createElement(StaticStyles, { key: STATIC_STYLES_KEY, modules }))
+      const lists = staticModules?.get(rules)
+      if (!lists) return
+      // Gathered as the nodes completed, deepest first, and put in the order they
+      // began, parents first: Emotion's order on both sides, since it inserts each
+      // element's rule from a leaf rendered before the element, ahead of its subtree.
+      lists.sort((a, b) => a[0] - b[0])
+      // A class several nodes use is listed for each: the server's hoistables are
+      // deduped by React by `href`, and the browser inserts a class once.
+      const classes: string[] = []
+      for (const [, list] of lists) for (const className of list) classes.push(className)
+      const checks = staticChecks?.get(rules)
+      const candidates = staticCandidates?.get(rules)
+      rules.set(
+        STATIC_STYLES_KEY,
+        createElement(StaticStyles, { key: STATIC_STYLES_KEY, classes, ...(checks && { checks }), ...(candidates && { candidates }) }),
+      )
     }
+    // The order nodes begin in, which is the order their static classes go in.
+    let began = 0
+    // In development, the theme tokens of extracted styles are checked where the
+    // providers are, as `StyledRenderer` checks a styled element's, by the
+    // `StaticStyles` of each rules map; see there. Production builds none of this.
+    const staticChecks = staticModules !== undefined && diagnosticsEnabled() ? new Map<Map<string, ReactElement>, StaticThemeCheck[]>() : undefined
+    // Checked after commit, which only a development build's `StaticStyles` does, and only in the browser.
+    const staticCandidates =
+      staticChecks !== undefined && isDevMode() && !NodeUtil.isServer && !IS_REACT_SERVER_LAYER
+        ? new Map<Map<string, ReactElement>, StaticThemeCandidate[]>()
+        : undefined
 
     try {
       // Fast capacity check with exponential growth
@@ -588,6 +636,9 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
         inForeignNamespace: false,
         themeAnchor: null,
         besidePassThrough: false,
+        opaqueAbove: false,
+        opaqueBelowAnchor: false,
+        themeOwn: undefined,
       }
 
       // Iterative depth-first traversal with explicit begin/complete phases to avoid recursion.
@@ -597,7 +648,18 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
           stackPointer--
           continue
         }
-        const { node, isProcessed, theme: inheritedTheme, anchor, inForeignNamespace, themeAnchor, besidePassThrough } = currentWork
+        const {
+          node,
+          isProcessed,
+          theme: inheritedTheme,
+          anchor,
+          inForeignNamespace,
+          themeAnchor,
+          besidePassThrough,
+          opaqueAbove,
+          opaqueBelowAnchor,
+          themeOwn,
+        } = currentWork as typeof currentWork & { opaqueAbove: boolean; opaqueBelowAnchor: boolean; themeOwn: ThemeVarIndex | undefined }
 
         const getActiveTheme = (props: FinalNodeProps, current?: Theme): Theme | undefined => {
           const candidate = (props as { theme?: unknown }).theme
@@ -610,6 +672,7 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
         if (!isProcessed) {
           // Begin phase: mark processed and push child BaseNodes onto the stack (in reverse order)
           currentWork.isProcessed = true
+          if (staticModules !== undefined) (currentWork as { began?: number }).began = began++
           const children = node.props.children
           const activeTheme = getActiveTheme(node.props, inheritedTheme)
           // The topmost host above each child that can carry its rules, and
@@ -630,6 +693,22 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
             !IS_REACT_SERVER_LAYER || mayChangeTheme(beginTarget)
               ? null
               : (themeAnchor ?? (canAnchorRules(beginTarget, node.props as Record<string, unknown>, inForeignNamespace) ? node : null))
+          // For the theme scope of the child's checks: whether a component the render
+          // cannot see into is above it, and whether one is between it and the topmost
+          // host, where its `StaticStyles` renders. MeoNode's own providers render
+          // their children as given, and a ThemeProvider's tokens are known here, so
+          // the child's tokens resolve against those merged over the ones above.
+          let childOpaqueAbove = opaqueAbove
+          let childOpaqueBelowAnchor = opaqueBelowAnchor
+          let childThemeOwn = themeOwn
+          if (staticChecks !== undefined && mayChangeTheme(beginTarget)) {
+            if (providesTheme(beginTarget))
+              childThemeOwn = unionThemeVarIndexes(themeOwn ?? null, getTokensVarIndex((node.props as { tokens?: unknown }).tokens))
+            else if (!passesChildrenThrough(beginTarget)) {
+              childOpaqueAbove = true
+              childOpaqueBelowAnchor ||= anchor !== null
+            }
+          }
 
           if (children) {
             // Only consider BaseNode children for further traversal; primitives and React elements are terminal.
@@ -669,6 +748,9 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
                 // their children as given, so a rule may go beside it. Not inside
                 // SVG or MathML, where a `<style>` would be that namespace's element.
                 besidePassThrough: IS_REACT_SERVER_LAYER && !childInForeignNamespace && passesChildrenThrough(beginTarget),
+                opaqueAbove: childOpaqueAbove,
+                opaqueBelowAnchor: childOpaqueBelowAnchor,
+                themeOwn: childThemeOwn,
               }
             }
           }
@@ -913,8 +995,43 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
                 rules = new Map<string, ReactElement>()
                 anchoredRules.set(carrier as BaseNode, rules)
               }
-              const modules = staticSlot(rules)
-              if (NodeUtil.isServer) for (const moduleId of modulesOfClasses(staticClasses as string)) if (!modules.includes(moduleId)) modules.push(moduleId)
+              staticSlot(rules).push([(currentWork as { began?: number }).began ?? 0, registeredClassesOf(staticClasses as string)])
+              if (staticChecks !== undefined) {
+                const { refs, valueRefs } = collectStaticThemeVarRefs(staticClasses as string, staticVars as Record<string, unknown> | undefined, staticRuleOf)
+                if (refs.length > 0 || valueRefs.length > 0) {
+                  if (IS_REACT_SERVER_LAYER) {
+                    const allRefs = [...refs]
+                    for (const [, found] of valueRefs) for (const ref of found) addThemeVarRef(allRefs, ref)
+                    // With a theme in scope, checked here; with none, where the providers
+                    // are, by `ThemeTokenCheck`, placed as a server rule's check is.
+                    if (activeTheme) reportThemeVarRefs(allRefs, getThemeVarIndex(activeTheme))
+                    else {
+                      const canCarry = canAnchorRules(renderTarget, elementProps as Record<string, unknown>, inForeignNamespace)
+                      const themeCarrier = themeAnchor ?? (canCarry ? node : null)
+                      const checkKey = `${STATIC_STYLES_KEY}:check:${allRefs.map(([varName, property]) => `${varName}|${property}`).join(' ')}`
+                      const check = createElement(ThemeTokenCheck, { key: checkKey, refs: allRefs })
+                      const carried = themeCarrier
+                        ? (anchoredRules.get(themeCarrier) ?? new Map<string, ReactElement>())
+                        : besidePassThrough
+                          ? (besideRules.get(node) ?? new Map<string, ReactElement>())
+                          : rules
+                      if (themeCarrier) anchoredRules.set(themeCarrier, carried)
+                      else if (besidePassThrough) besideRules.set(node, carried)
+                      carried.set(checkKey, check)
+                    }
+                  } else if (carrier !== null ? !opaqueBelowAnchor : !opaqueAbove) {
+                    const allRefs = [...refs]
+                    for (const [, found] of valueRefs) for (const ref of found) addThemeVarRef(allRefs, ref)
+                    const checks = staticChecks.get(rules) ?? []
+                    staticChecks.set(rules, checks)
+                    checks.push(themeOwn ? { refs: allRefs, own: themeOwn } : { refs: allRefs })
+                  } else if (staticCandidates !== undefined) {
+                    const candidates = staticCandidates.get(rules) ?? []
+                    staticCandidates.set(rules, candidates)
+                    candidates.push({ classes: staticClasses as string, refs, valueRefs })
+                  }
+                }
+              }
             }
           }
 
@@ -1043,13 +1160,17 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
             }
           }
 
-          // A host carrying rules gets them as one trailing keyed slot, after its
-          // own children, so none of those shift and the element stays the one
-          // element it would be without them.
+          // A host carrying rules gets them after its own children, every one
+          // keyed, so none of those shift and the element stays the one element
+          // it would be without them. With static css among them they go in as
+          // children of their own, which a nested list would wrap in one more
+          // fiber; without, they stay the one trailing list they have always been.
           const carriedRules = anchoredRules.get(node)
           if (carriedRules) {
             finishStaticSlot(carriedRules)
-            element = cloneElement(element, undefined, ...elementChildren, [...carriedRules.values()])
+            element = staticModules?.has(carriedRules)
+              ? cloneElement(element, undefined, ...elementChildren, ...carriedRules.values())
+              : cloneElement(element, undefined, ...elementChildren, [...carriedRules.values()])
           }
           const rulesBeside = besideRules.get(node)
           if (rulesBeside) element = createElement(Fragment, { key: element.key }, element, [...rulesBeside.values()])
@@ -1322,6 +1443,51 @@ function combineFactoryProps(initialProps: Record<string, unknown> | undefined, 
 }
 
 /**
+ * A factory's initial props as the compiler writes them in `__meo$i`: each entry
+ * as `key:value;`, keys in UTF-16 code-unit order, a number as JavaScript writes
+ * it. Only flat entries with string or number values have one, and none whose key
+ * or value holds `;` or `:`, which would make the text ambiguous.
+ * @returns The fingerprint, or `undefined` when the props have none.
+ */
+export function initialPropsFingerprint(initialProps: Record<string, unknown> | undefined): string | undefined {
+  if (initialProps === undefined) return undefined
+  let fingerprint = ''
+  for (const key of Object.keys(initialProps).sort()) {
+    const value = initialProps[key]
+    if (typeof value !== 'string' && typeof value !== 'number') return undefined
+    const text = String(value)
+    if (/[;:]/.test(key) || /[;:]/.test(text)) return undefined
+    fingerprint += `${key}:${text};`
+  }
+  return fingerprint
+}
+
+/** Each factory's fingerprint, worked out at its first marked call. */
+const fingerprints = new WeakMap<object, string | undefined>()
+
+/**
+ * A call site's props with its factory's initial props merged in, unless the
+ * compiler merged them itself: a call site marked with the factory's own
+ * fingerprint already holds every initial entry, the call site's winning, so its
+ * props are used as given and the initial ones do not come back as runtime css.
+ * Any other call merges as before. A marker naming other initial props means the
+ * compiler saw another version of the factory, and merging again only re-adds
+ * what it merged.
+ */
+function factoryProps(initialProps: Record<string, unknown> | undefined, props: Record<string, unknown> | undefined): Record<string, unknown> {
+  const marker = props?.[INITIAL_PROPS_MARKER]
+  if (typeof marker === 'string' && initialProps !== undefined) {
+    let own = fingerprints.get(initialProps)
+    if (!fingerprints.has(initialProps)) {
+      own = initialPropsFingerprint(initialProps)
+      fingerprints.set(initialProps, own)
+    }
+    if (own !== undefined && marker === own) return props as Record<string, unknown>
+  }
+  return combineFactoryProps(initialProps, props)
+}
+
+/**
  * Creates a curried node factory for a given React element or component type.
  * This is useful for creating reusable, specialized factory functions (e.g., `const Div = createNode('div')`).
  * @function createNode
@@ -1348,7 +1514,7 @@ export function createNode<AdditionalInitialProps, E extends NodeElementType, Ex
   ): BaseNode => {
     const node = buildNode(
       element,
-      combineFactoryProps(initialProps as Record<string, unknown> | undefined, props as Record<string, unknown> | undefined),
+      factoryProps(initialProps as Record<string, unknown> | undefined, props as Record<string, unknown> | undefined),
       deps,
       Instance,
     )
@@ -1386,7 +1552,7 @@ export function createChildrenFirstNode<AdditionalInitialProps, E extends NodeEl
   ): BaseNode => {
     const node = buildNode(
       element,
-      { ...combineFactoryProps(initialProps as Record<string, unknown> | undefined, props as Record<string, unknown> | undefined), children },
+      { ...factoryProps(initialProps as Record<string, unknown> | undefined, props as Record<string, unknown> | undefined), children },
       deps,
       Instance,
     )

@@ -8,10 +8,12 @@
 // before `hydrateRoot`.
 import { createElement, Fragment, Suspense, useEffect, useId } from 'react'
 import { act } from 'react'
-import { hydrateRoot } from 'react-dom/client'
+import { createRoot, hydrateRoot } from 'react-dom/client'
+import { CacheProvider } from '@emotion/react'
+import createCache from '@emotion/cache'
 import { renderToString } from 'react-dom/server'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { Div, Span } from '@src/main.js'
+import { Div, Node, Span } from '@src/main.js'
 import { NodeUtil } from '@src/util/node.util.js'
 import { __resetStaticCss, registerStaticCss, STATIC_CSS_PREFIX } from '@src/util/static-css.util.js'
 
@@ -30,11 +32,11 @@ const LATE_RULE = `.${LATE}{margin:1px;}`
 /** The two compiled modules: the page's, and one only a component inside a Suspense boundary uses. */
 const registerPage = () =>
   registerStaticCss('page', [
-    [0, RED, RED_RULE],
-    [0, WIDE, WIDE_RULE],
-    [2, MEDIA, MEDIA_RULE],
+    [1, RED, RED_RULE],
+    [1, WIDE, WIDE_RULE],
+    [3, MEDIA, MEDIA_RULE],
   ])
-const registerLate = () => registerStaticCss('late', [[0, LATE, LATE_RULE]])
+const registerLate = () => registerStaticCss('late', [[1, LATE, LATE_RULE]])
 
 /** The ids the browser computed, by probe. After an attribute mismatch the DOM keeps the server's, and production React reports nothing. */
 const clientIds: Record<string, string> = {}
@@ -103,6 +105,20 @@ function serverRender(): string {
   }
 }
 
+/** Time for a render's commit and effects to run after `start`. */
+const SETTLE_MS = 50
+
+/**
+ * Runs `start` and waits for its render to commit and its effects to run: through
+ * `act` in a development build, by waiting in a production build, which has no
+ * `act`, so the hydration tests also run with `NODE_ENV=production`.
+ */
+async function settle(start: () => void): Promise<void> {
+  if (typeof act === 'function') return act(async () => start())
+  start()
+  await new Promise(resolve => setTimeout(resolve, SETTLE_MS))
+}
+
 /** Loads `html` as the page, registers the modules as the browser would, and hydrates. */
 async function hydrate(html: string, loadModules: () => void): Promise<string[]> {
   document.open()
@@ -113,7 +129,7 @@ async function hydrate(html: string, loadModules: () => void): Promise<string[]>
   const messages: string[] = []
   const errorSpy = vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => void messages.push(args.map(String).join(' ')))
   try {
-    await act(async () => {
+    await settle(() => {
       hydrateRoot(document, createElement(App), { onRecoverableError: error => void messages.push(String(error)) })
     })
   } finally {
@@ -135,15 +151,20 @@ afterEach(() => {
 })
 
 describe('a server-rendered document with static css', () => {
-  it('sends each module once, as hoisted styles in bucket order', async () => {
+  it('sends each class once, as hoisted styles in bucket order, parents first', async () => {
     const html = serverRender()
     const doc = new DOMParser().parseFromString(html, 'text/html')
 
     expect(precedenceGroups(doc.head)).toEqual([
-      [`${STATIC_CSS_PREFIX}0`, `${STATIC_CSS_PREFIX}0 ${STATIC_CSS_PREFIX}page-0 ${STATIC_CSS_PREFIX}late-0`, RED_RULE + WIDE_RULE + LATE_RULE],
-      [`${STATIC_CSS_PREFIX}1`, `${STATIC_CSS_PREFIX}1`, ''],
-      [`${STATIC_CSS_PREFIX}2`, `${STATIC_CSS_PREFIX}2 ${STATIC_CSS_PREFIX}page-2`, MEDIA_RULE],
-      [`${STATIC_CSS_PREFIX}3`, `${STATIC_CSS_PREFIX}3`, ''],
+      [`${STATIC_CSS_PREFIX}0`, `${STATIC_CSS_PREFIX}0`, ''],
+      [
+        `${STATIC_CSS_PREFIX}1`,
+        `${STATIC_CSS_PREFIX}1 ${STATIC_CSS_PREFIX}${RED} ${STATIC_CSS_PREFIX}${WIDE} ${STATIC_CSS_PREFIX}${LATE}`,
+        RED_RULE + WIDE_RULE + LATE_RULE,
+      ],
+      [`${STATIC_CSS_PREFIX}2`, `${STATIC_CSS_PREFIX}2`, ''],
+      [`${STATIC_CSS_PREFIX}3`, `${STATIC_CSS_PREFIX}3 ${STATIC_CSS_PREFIX}${MEDIA}`, MEDIA_RULE],
+      [`${STATIC_CSS_PREFIX}4`, `${STATIC_CSS_PREFIX}4`, ''],
     ])
     // Nothing static is left in the body. (Emotion writes its own there only on a
     // server with no document, which this suite is not.)
@@ -176,18 +197,36 @@ describe('a server-rendered document with static css', () => {
     expect(document.querySelectorAll('style[data-meonode-static]')).toHaveLength(0)
   })
 
-  it('inserts only a module the server did not send, in the bucket order', async () => {
+  // A module's classes reach the page when a node using them renders, not when it
+  // loads, so this test renders one; registering alone inserts nothing.
+  it('inserts only a class the server did not send, once a node uses it, in the bucket order', async () => {
     const html = serverRender()
     await hydrate(html, () => {
       registerPage()
       registerLate()
-      registerStaticCss('client-only', [[1, 'mn-000000000000c', '.mn-000000000000c:hover{color:blue;}']])
+      registerStaticCss('client-only', [[2, 'mn-000000000000c', '.mn-000000000000c:hover{color:blue;}']])
+    })
+    const ownRules = () => [...document.head.querySelectorAll<HTMLStyleElement>('style[data-meonode-static]')].map(element => element.sheet!.cssRules.length)
+    expect(ownRules().every(count => count === 0)).toBe(true)
+
+    const container = document.createElement('div')
+    document.body.append(container)
+    // `document.write` gave the page a new head; Emotion's default cache still
+    // holds the one before it, so this root gets a cache for the page's own.
+    await settle(() => {
+      createRoot(container).render(
+        createElement(
+          CacheProvider,
+          { value: createCache({ key: 'css', container: document.head }) },
+          Div({ __meo$: 2, __meo$s: 'mn-000000000000c' } as never).render(),
+        ),
+      )
     })
 
     const order = [...document.head.querySelectorAll('style')].map(
       element => element.getAttribute('data-precedence') ?? `own ${element.getAttribute('data-meonode-static')}`,
     )
-    expect(order.slice(0, 8)).toEqual([
+    expect(order.slice(0, 10)).toEqual([
       `${STATIC_CSS_PREFIX}0`,
       'own 0',
       `${STATIC_CSS_PREFIX}1`,
@@ -196,9 +235,10 @@ describe('a server-rendered document with static css', () => {
       'own 2',
       `${STATIC_CSS_PREFIX}3`,
       'own 3',
+      `${STATIC_CSS_PREFIX}4`,
+      'own 4',
     ])
-    const own = [...document.head.querySelectorAll<HTMLStyleElement>('style[data-meonode-static]')].map(element => element.sheet!.cssRules.length)
-    expect(own).toEqual([0, 1, 0, 0])
+    expect(ownRules()).toEqual([0, 0, 1, 0, 0])
   })
 })
 
@@ -212,5 +252,96 @@ describe('a server render without static css', () => {
     } finally {
       NodeUtil.isServer = false
     }
+  })
+})
+
+// In development a node's undefined theme token is checked without adding to the
+// tree: one in the scope of `StaticStyles` while rendering, on both sides, and
+// one under a component in the browser after commit. The host under the
+// component has three children, so a slot added on either side alone would take
+// it to four and shift the ids below.
+describe('a server-rendered document whose static css references an undefined theme token, in development', () => {
+  const MISSING = 'mn-00000000000mt'
+  const MISSING_RULE = `.${MISSING}{color:var(--meonode-theme-primary-missing);}`
+  const registerTokens = () => registerStaticCss('tokens', [[1, MISSING, MISSING_RULE]])
+
+  const Wrapper = ({ children }: { children?: unknown }) => children as ReturnType<typeof createElement>
+
+  function TokenApp() {
+    return createElement(
+      'html',
+      null,
+      createElement('head', null, createElement('title', null, 't')),
+      createElement(
+        'body',
+        null,
+        Div({
+          __meo$: 2,
+          __meo$s: MISSING,
+          id: 'scoped',
+          children: [
+            createElement(Labelled, { key: 'o', name: 'outer' }),
+            Node(Wrapper, {
+              key: 'w',
+              children: Div({
+                __meo$: 2,
+                __meo$s: MISSING,
+                id: 'under-component',
+                children: [
+                  createElement(Labelled, { key: 'a', name: 'a' }),
+                  createElement('p', { key: 'b' }, createElement(Labelled, { name: 'b' }), 'x'),
+                  createElement(Labelled, { key: 'c', name: 'c' }),
+                ],
+              } as never),
+            }),
+          ],
+        } as never).render(),
+      ),
+    )
+  }
+
+  it('warns on both sides, hydrates with no mismatch and ids intact', async () => {
+    const { __resetThemeDiagnostics } = await import('@src/util/theme-diagnostics.util.js')
+    const warnings: string[] = []
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation((...args: unknown[]) => void warnings.push(String(args[0])))
+
+    __resetStaticCss()
+    __resetThemeDiagnostics()
+    registerTokens()
+    NodeUtil.isServer = true
+    let html: string
+    try {
+      html = renderToString(createElement(TokenApp))
+    } finally {
+      NodeUtil.isServer = false
+    }
+    const serverWarnings = warnings.splice(0).filter(text => text.includes('--meonode-theme-primary-missing'))
+    const serverIds = Object.fromEntries(
+      [...new DOMParser().parseFromString(html, 'text/html').querySelectorAll('label')].map(label => [label.dataset.probe, label.htmlFor]),
+    )
+
+    document.open()
+    document.write(html)
+    document.close()
+    __resetStaticCss()
+    __resetThemeDiagnostics()
+    registerTokens()
+    for (const name of Object.keys(clientIds)) delete clientIds[name]
+    const messages: string[] = []
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => void messages.push(args.map(String).join(' ')))
+    try {
+      await act(async () => {
+        hydrateRoot(document, createElement(TokenApp), { onRecoverableError: error => void messages.push(String(error)) })
+      })
+    } finally {
+      errorSpy.mockRestore()
+      warnSpy.mockRestore()
+    }
+
+    expect(serverWarnings).toHaveLength(1)
+    expect(warnings.filter(text => text.includes('--meonode-theme-primary-missing'))).toEqual(serverWarnings)
+    expect(messages.filter(message => HYDRATION_MARKERS.some(marker => marker.test(message)))).toEqual([])
+    expect(Object.keys(serverIds)).toEqual(['outer', 'a', 'b', 'c'])
+    expect(clientIds).toEqual(serverIds)
   })
 })

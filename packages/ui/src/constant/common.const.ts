@@ -91,6 +91,14 @@ export function setDebugMode(enabled: boolean) {
  * props objects (e.g. `{ __meo$: 2, __meo$c: {...}, __meo$d: {...} }`) produced
  * for a call site.
  */
+
+/**
+ * The precedence of the runtime rules React hoists into the head: those of
+ * server components, and the ones a client renders through React's hoistable
+ * styles. The static buckets' precedences must come before it.
+ */
+export const RUNTIME_PRECEDENCE = 'meonode'
+
 export const COMPILED_MARKER = '__meo$'
 
 /**
@@ -175,6 +183,13 @@ export const STATIC_VARS_MARKER = '__meo$v'
  */
 export const STATIC_BEFORE_SPREAD_MARKER = '__meo$b'
 export const STATIC_AFTER_SPREAD_MARKER = '__meo$a'
+
+/**
+ * Marker key of a layout factory's call site whose initial props the compiler
+ * merged itself: a fingerprint of what it merged (see `initialPropsFingerprint`).
+ * When it is the factory's own, the factory uses the call site's props as given.
+ */
+export const INITIAL_PROPS_MARKER = '__meo$i'
 
 /**
  * Per-schema names of the compiled marker's contract keys. Indexed by the schema

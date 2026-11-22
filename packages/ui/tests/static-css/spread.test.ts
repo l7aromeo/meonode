@@ -64,8 +64,8 @@ function rendered(node: NodeInstance) {
 beforeEach(() => {
   __resetStaticCss()
   registerStaticCss('spread', [
-    [0, PADDING, `.${PADDING}{padding:16px;}`],
-    [0, RED, `.${RED}{color:red;}`],
+    [1, PADDING, `.${PADDING}{padding:16px;}`],
+    [1, RED, `.${RED}{color:red;}`],
   ])
 })
 afterEach(() => {

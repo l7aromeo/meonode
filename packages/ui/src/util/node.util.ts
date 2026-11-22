@@ -21,6 +21,7 @@ import {
   __DEBUG__,
   COMPILED_MARKER,
   COMPILER_SCHEMA_KEYS,
+  INITIAL_PROPS_MARKER,
   LIST_MARKER,
   LOCATION_MARKER,
   STATIC_AFTER_SPREAD_MARKER,
@@ -249,6 +250,7 @@ export class NodeUtil {
         // out to the element.
         propKey === LIST_MARKER ||
         propKey === LOCATION_MARKER ||
+        propKey === INITIAL_PROPS_MARKER ||
         propKey === STATIC_CLASSES_MARKER ||
         propKey === STATIC_VARS_MARKER ||
         propKey === STATIC_BEFORE_SPREAD_MARKER ||

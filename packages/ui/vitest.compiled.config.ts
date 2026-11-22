@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { defineConfig, mergeConfig, type Plugin } from 'vitest/config'
 import baseConfig from './vitest.config'
+import { sourceAliases } from './vitest.aliases'
 
 const rootDir = path.dirname(fileURLToPath(import.meta.url))
 
@@ -118,7 +119,7 @@ export default mergeConfig(
     test: {
       // The compiler rewrites `@meonode/ui` factory calls; aliasing `@src`
       // means the library's own sources compile too, not just the tests.
-      alias: { '@src': path.resolve(rootDir, 'src') },
+      alias: sourceAliases,
       // Vitest's module cache keys a transform by the file's source and the
       // config, not by the wasm the config loads, so after a rebuild it would
       // replay what the previous build compiled (#154).

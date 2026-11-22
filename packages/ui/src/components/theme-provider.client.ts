@@ -16,7 +16,7 @@ import {
 import type { Children, ResolvedThemeMode, ResolvedThemePreference, ResolvedThemeSystem, Theme, ThemeSystemModes } from '@src/types/node.type.js'
 import { Node } from '@src/core.node.js'
 import { buildThemeVariablesCss } from '@src/util/server-theme.util.js'
-import { diagnosticsEnabled, getThemeVarIndex, mergeThemeVarIndexes, trackProviderVars, type ThemeVarIndex } from '@src/util/theme-diagnostics.util.js'
+import { diagnosticsEnabled, getTokensVarIndex, mergeThemeVarIndexes, trackProviderVars, type ThemeVarIndex } from '@src/util/theme-diagnostics.util.js'
 
 export interface ThemeContextValue {
   /**
@@ -607,7 +607,8 @@ export default function ThemeProvider({
       modes,
       setMode,
       setPreference,
-      definedVars: () => (defined ??= mergeThemeVarIndexes(outer ? outer.definedVars() : null, getThemeVarIndex(theme))),
+      // The same function a render holding this provider's node reads its tokens with.
+      definedVars: () => (defined ??= mergeThemeVarIndexes(outer ? outer.definedVars() : null, getTokensVarIndex(tokens))),
     }
   }, [store, defaultMode, tokens, modes, setMode, setPreference, outer])
 
@@ -623,7 +624,7 @@ export default function ThemeProvider({
   // identity, so a `tokens` object written inline is not scanned again on every
   // render. Development only.
   const tokensKey = useMemo(() => (diagnostics ? JSON.stringify(tokens) : null), [diagnostics, tokens])
-  useEffect(() => (tokensKey === null ? undefined : trackProviderVars(contextValue.theme, getThemeVarIndex(contextValue.theme))), [tokensKey])
+  useEffect(() => (tokensKey === null ? undefined : trackProviderVars(contextValue.theme, getTokensVarIndex(contextValue.theme.system))), [tokensKey])
 
   const composed = composeChildren(children, tokens, defaultMode as Theme['mode'])
   return Node(ThemeContext.Provider, {

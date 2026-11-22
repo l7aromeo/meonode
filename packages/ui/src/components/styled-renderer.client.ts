@@ -1,4 +1,5 @@
 'use client'
+import { RUNTIME_PRECEDENCE } from '@src/constant/common.const.js'
 import { createElement, type ElementType, Fragment, type JSX, type ReactElement, type ReactNode, useContext, useInsertionEffect } from 'react'
 import { __unsafe_useEmotionCache as useEmotionCache, CacheProvider, jsx, ThemeContext as EmotionThemeContext } from '@emotion/react'
 import createCache, { type EmotionCache } from '@emotion/cache'
@@ -251,7 +252,7 @@ export function ThemedRule({ className, css }: ThemedRuleProps): ReactElement | 
   const serialized = nameStyles(serializeStyles([kept as never]))
   const cssText = compileRule(className, serialized)
   if (!cssText) return null
-  return createElement('style', { href: `${className}-${serialized.name}`, precedence: 'meonode' }, cssText)
+  return createElement('style', { href: `${className}-${serialized.name}`, precedence: RUNTIME_PRECEDENCE }, cssText)
 }
 
 export interface ThemeTokenCheckProps {

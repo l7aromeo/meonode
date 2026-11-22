@@ -51,6 +51,8 @@ beforeAll(async () => {
   for (const [specifier, names] of exportsOf) {
     vi.doMock(specifier, () => Object.fromEntries(names.map(name => [name, clientReference(`${specifier}#${name}`)])))
   }
+  // The server build's own variant, which the unit suites' aliases swap for the default build's.
+  vi.doMock('@src/components/static-styles.js', () => import(path.join(SRC, 'components/static-styles.ts')))
   main = await import('@src/main.js')
   nodeUtil = (await import('@src/util/node.util.js')).NodeUtil
   diagnostics = await import('@src/util/theme-diagnostics.util.js')
@@ -160,8 +162,8 @@ describe('static css in the React Server Components layer', () => {
     const { StaticStyles } = await import('@src/components/static-styles.js')
     registry.__resetStaticCss()
     registry.registerStaticCss('rsc-page', [
-      [0, RED, `.${RED}{color:red;}`],
-      [2, MEDIA, `@media (min-width: 600px){.${MEDIA}{padding:9px;}}`],
+      [1, RED, `.${RED}{color:red;}`],
+      [3, MEDIA, `@media (min-width: 600px){.${MEDIA}{padding:9px;}}`],
     ])
     try {
       // The node with only runtime css comes first, so its rule reaches the host before any static class does.
@@ -174,26 +176,125 @@ describe('static css in the React Server Components layer', () => {
           ],
         })
         .render() as ReactElement<{ children: unknown[] }>
+      // With static css among them, the host's rules follow its three children as children of their own.
       const children = root.props.children
-      const slot = children[children.length - 1] as ReactElement<{ precedence?: string; modules?: string[] }>[]
+      const slot = children.slice(3) as ReactElement<{ precedence?: string; classes?: string[] }>[]
 
       expect(slot.map(element => (element.type === StaticStyles ? 'static' : element.props.precedence))).toEqual(['static', 'meonode', 'meonode'])
-      expect(slot[0].props.modules).toEqual(['rsc-page'])
+      expect(slot[0].props.classes).toEqual([RED, MEDIA])
 
-      const hoisted = (StaticStyles(slot[0].props as never) as ReactElement<{ children: ReactElement<{ href: string; precedence: string }>[] }>).props.children
+      // Nothing to insert in this layer: its output is only ever hoisted.
+      const hoisted = StaticStyles(slot[0].props as never) as ReactElement<{ href: string; precedence: string }>[]
       expect(hoisted.map(element => [element.props.href, element.props.precedence])).toEqual([
         ['mn-static-0', 'mn-static-0'],
         ['mn-static-1', 'mn-static-1'],
         ['mn-static-2', 'mn-static-2'],
         ['mn-static-3', 'mn-static-3'],
-        ['mn-static-rsc-page-0', 'mn-static-0'],
-        ['mn-static-rsc-page-2', 'mn-static-2'],
+        ['mn-static-4', 'mn-static-4'],
+        [`mn-static-${RED}`, 'mn-static-1'],
+        [`mn-static-${MEDIA}`, 'mn-static-3'],
       ])
 
       const [, plain, partial] = children as ReactElement<{ className?: string }>[]
       expect(plain.type).toBe('div')
       expect(plain.props.className).toBe(RED)
       expect(partial.props.className).toMatch(new RegExp(`^${MEDIA} `))
+    } finally {
+      registry.__resetStaticCss()
+    }
+  })
+
+  // A server component cannot tell whether a token is defined: the provider holds
+  // the theme on the client. The variables its extracted styles read are handed to
+  // `ThemeTokenCheck`, which renders where the element is, as for a server rule.
+  it('hands the theme variables of extracted styles to a check where the providers are, in development', async () => {
+    const registry = await import('@src/util/static-css.util.js')
+    const { ThemeTokenCheck } = await import('@src/components/styled-renderer.client.js')
+    const MISSING = 'mn-00000000000mt'
+    registry.__resetStaticCss()
+    registry.registerStaticCss('rsc-tokens', [[1, MISSING, `.${MISSING}{color:var(--meonode-theme-primary-missing);}`]])
+    try {
+      const root = main.Div({ children: [main.Div({ __meo$: 2, __meo$s: MISSING, key: 'static' } as never)] }).render() as ReactElement<{ children: unknown[] }>
+      // The host's rules, among its children, as static css puts them.
+      const slot = [root.props.children].flat(Infinity) as ReactElement<{ refs?: unknown }>[]
+      const checks = slot.filter(element => element.type === ThemeTokenCheck)
+
+      expect(checks.map(element => element.props.refs)).toEqual([[['--meonode-theme-primary-missing', 'color']]])
+    } finally {
+      registry.__resetStaticCss()
+    }
+  })
+
+  // With a theme in the render itself, the server component can check the tokens there.
+  it('checks the theme variables of extracted styles against a theme in scope, with no check carried', async () => {
+    const registry = await import('@src/util/static-css.util.js')
+    const { ThemeTokenCheck } = await import('@src/components/styled-renderer.client.js')
+    const MISSING = 'mn-00000000000mt'
+    registry.__resetStaticCss()
+    diagnostics.__resetThemeDiagnostics()
+    registry.registerStaticCss('rsc-scoped', [[1, MISSING, `.${MISSING}{color:var(--meonode-theme-primary-missing);}`]])
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const root = main
+        .Div({
+          theme: { mode: 'light', system: { primary: { default: 'red' } } },
+          children: [main.Div({ __meo$: 2, __meo$s: MISSING, key: 'static' } as never)],
+        } as never)
+        .render() as ReactElement<{ children: unknown[] }>
+      // The host's rules, among its children, as static css puts them.
+
+      const slot = [root.props.children].flat(Infinity) as ReactElement[]
+
+      expect(slot.filter(element => element.type === ThemeTokenCheck)).toEqual([])
+      expect(warn.mock.calls.map(([text]) => String(text)).filter(text => text.includes('--meonode-theme-primary-missing'))).toHaveLength(1)
+    } finally {
+      warn.mockRestore()
+      registry.__resetStaticCss()
+    }
+  })
+
+  // Debug mode in a production build: the server layer's output is not hydrated against anything, so it still carries the check.
+  it('carries the check with debug mode on in a production build', async () => {
+    const registry = await import('@src/util/static-css.util.js')
+    const { ThemeTokenCheck } = await import('@src/components/styled-renderer.client.js')
+    const MISSING = 'mn-00000000000mt'
+    vi.stubEnv('NODE_ENV', 'production')
+    diagnostics.__resetThemeDiagnostics()
+    main.setDebugMode(true)
+    registry.__resetStaticCss()
+    registry.registerStaticCss('rsc-debug', [[1, MISSING, `.${MISSING}{color:var(--meonode-theme-primary-missing);}`]])
+    try {
+      const root = main.Div({ children: [main.Div({ __meo$: 2, __meo$s: MISSING, key: 'static' } as never)] }).render() as ReactElement<{ children: unknown[] }>
+      // The host's rules, among its children, as static css puts them.
+      const slot = [root.props.children].flat(Infinity) as ReactElement<{ refs?: unknown }>[]
+      expect(slot.filter(element => element.type === ThemeTokenCheck).map(element => element.props.refs)).toEqual([
+        [['--meonode-theme-primary-missing', 'color']],
+      ])
+    } finally {
+      main.setDebugMode(false)
+      vi.unstubAllEnvs()
+      diagnostics.__resetThemeDiagnostics()
+      registry.__resetStaticCss()
+    }
+  })
+
+  // A page of an app that registered no static css, or only a module with no
+  // rules, sends nothing for it: no `StaticStyles`, so no seed styles.
+  it.each([
+    ['nothing registered', () => {}],
+    ['a module with no rules', (registry: typeof import('@src/util/static-css.util.js')) => registry.registerStaticCss('empty', [])],
+  ])('adds nothing with %s', async (_, register) => {
+    const registry = await import('@src/util/static-css.util.js')
+    const { StaticStyles } = await import('@src/components/static-styles.js')
+    registry.__resetStaticCss()
+    register(registry)
+    try {
+      const root = main.Div({ children: [main.Div({ key: 'runtime', css: { margin: 3 } })] }).render() as ReactElement<{ children: unknown[] }>
+      const slot = root.props.children[root.props.children.length - 1] as ReactElement<{ href?: string }>[]
+
+      expect(slot.length).toBeGreaterThan(0)
+      expect(slot.some(element => element.type === StaticStyles)).toBe(false)
+      expect(slot.filter(element => String(element.props.href).startsWith(registry.STATIC_CSS_PREFIX))).toEqual([])
     } finally {
       registry.__resetStaticCss()
     }
