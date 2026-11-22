@@ -127,6 +127,21 @@ describe('a createNode factory', () => {
     expect(mount(() => call(Panel, site, props))).toEqual(mount(() => Panel(props)))
   })
 
+  // The factory merges missing props as `{}`. The twins spread their arguments,
+  // so a compiled run of this suite leaves them as written.
+  it('joins a call with no arguments, or no props, as the call uncompiled', () => {
+    const none: [] = []
+    const site = { at: 0 }
+    expect(nameOf(call(Panel, site))).toBeDefined()
+    expect(mount(() => call(Panel, site))).toEqual(mount(() => Panel(...none)))
+    const deps = [1]
+    const unset: [undefined, number[]] = [undefined, deps]
+    const node = call(Panel, { at: 0 }, ...unset)
+    expect(nameOf(node)).toBeDefined()
+    expect(node.dependencies).toEqual([1])
+    expect(mount(() => call(Panel, { at: 0 }, ...unset))).toEqual(mount(() => Panel(...unset)))
+  })
+
   it('passes `deps` on, as the call would', () => {
     const site = { at: 0 }
     const deps = [1]
@@ -205,6 +220,17 @@ describe('a children-first factory', () => {
     expect(mount(() => call(Label, site, 'text', props))).toEqual(mount(() => Label('text', props)))
     expect(mount(() => call(Label, site, 'text', props)).style).toEqual({ color: BLUE, padding: '0px', fontWeight: '700' })
     expect(call(Label, site, 'text', props, [2]).dependencies).toEqual([2])
+  })
+
+  // The compiler names argument 0 for a call with no arguments, whichever kind
+  // of factory it calls. The twins spread their arguments, as above.
+  it('joins a call with no arguments, or children and no props, as the call uncompiled', () => {
+    const none: [] = []
+    expect(nameOf(call(Label, { at: 0 }))).toBeDefined()
+    expect(mount(() => call(Label, { at: 0 }))).toEqual(mount(() => Label(...none)))
+    const childOnly: [string] = ['text']
+    expect(nameOf(call(Label, { at: 1 }, ...childOnly))).toBeDefined()
+    expect(mount(() => call(Label, { at: 1 }, ...childOnly))).toEqual(mount(() => Label(...childOnly)))
   })
 
   it('is called as written when the site took its props from the first argument', () => {

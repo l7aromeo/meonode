@@ -1800,8 +1800,9 @@ function joinStyle(merged: Record<string, unknown>, own: string | undefined): Jo
  * another module. The call site's style can't vary between renders, so its
  * first call joins it with the factory's initial props, and every call renders
  * a named node under that style, its other props merged as the factory merges
- * them. Anything else is called as written: a site whose `at` is not the
- * argument the factory reads its props from, props that are not an object
+ * them; props left out join as `{}`. Anything else is called as written: a
+ * site whose `at` is not the argument the factory reads its props from, in a
+ * call with arguments, props that are not an object
  * literal's, a `theme` or `disableEmotion` in the call's or the factory's props,
  * and a style {@link joinStyle} keeps on the runtime path. In development, a
  * call whose own style is not its site's first call's is reported once and
@@ -1820,9 +1821,12 @@ function joinFactoryCall(
   args: unknown[],
   caller: (...args: never[]) => unknown,
 ): unknown {
-  const props = args[site.at]
+  // With no arguments, the site's `at` names none, and the factory reads no
+  // props from either. Props left out merge as `{}`, as the factory merges them.
+  const given = args[site.at]
+  const props = given === undefined ? {} : given
   if (
-    site.at !== brand.propsAt ||
+    (args.length > 0 && site.at !== brand.propsAt) ||
     !isPlainObject(props) ||
     'theme' in props ||
     'disableEmotion' in props ||
