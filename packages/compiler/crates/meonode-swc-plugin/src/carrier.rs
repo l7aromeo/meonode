@@ -16,9 +16,11 @@
 //! so a node never changes its element type between renders: a named node is
 //! marked when, for some combination of its conditions, it is first in a
 //! stretch whose left end is the walk's start or a component and whose right
-//! end is a component or the walk's end. Over a conditional, a spread and a
+//! end is a component or the walk's end. A component here is any slot of a
+//! host (`__meo$p`), where the runtime's walk cuts whatever renders there, or
+//! a child that may be one. Over a conditional, a spread and a
 //! generated list every member is optional, and a `.map()` item is read twice
-//! so an item's first node sees the end of the item before it.
+//! so an item's nodes see the item before it and the item after it.
 
 use std::collections::HashSet;
 
@@ -26,7 +28,7 @@ use swc_core::common::Spanned;
 use swc_core::ecma::ast::*;
 use swc_core::ecma::visit::{Visit, VisitMut, VisitMutWith, VisitWith};
 
-use crate::extract::{ModuleScope, NAME_KEY, TEMPLATE_KEY};
+use crate::extract::{ModuleScope, NAME_KEY, SLOTS_KEY, TEMPLATE_KEY};
 use crate::pass_through::unwrap_transparent;
 
 /// Marker key of a named node chosen to carry the run of named styles that
@@ -130,6 +132,27 @@ fn children_of(call: &CallExpr) -> Option<&Expr> {
     Some(&first.expr)
 }
 
+/// A host's slots (`__meo$p`): each a path of indices into its children,
+/// the empty path before a children value that is not an array.
+fn slots_of(props: &ObjectLit) -> Vec<Vec<usize>> {
+    let index = |e: &Expr| match e {
+        Expr::Lit(Lit::Num(n)) => Some(n.value as usize),
+        _ => None,
+    };
+    let Some(Expr::Array(paths)) = value_of(props, SLOTS_KEY) else {
+        return Vec::new();
+    };
+    paths
+        .elems
+        .iter()
+        .flatten()
+        .filter_map(|p| match &*p.expr {
+            Expr::Array(path) => path.elems.iter().flatten().map(|i| index(&i.expr)).collect(),
+            e => index(e).map(|i| vec![i]),
+        })
+        .collect()
+}
+
 fn is_map(call: &CallExpr) -> bool {
     matches!(&call.callee, Callee::Expr(callee)
         if matches!(&**callee, Expr::Member(m) if matches!(&m.prop, MemberProp::Ident(p) if p.sym.as_ref() == "map")))
@@ -219,24 +242,7 @@ impl Walks<'_> {
                 self.emit(&b.left, true, out);
                 self.emit(&b.right, true, out);
             }
-            Expr::Array(array) => {
-                for elem in array.elems.iter().flatten() {
-                    if elem.spread.is_none() {
-                        self.emit(&elem.expr, optional, out);
-                        continue;
-                    }
-                    // A spread of literals and branches over them is read
-                    // through, every member optional; any other is opaque.
-                    match unwrap_transparent(&elem.expr) {
-                        Expr::Call(call) if is_map(call) => self.emit_list(call, out),
-                        inner @ (Expr::Array(_) | Expr::Cond(_)) => self.emit(inner, true, out),
-                        inner @ Expr::Bin(b) if matches!(b.op, BinaryOp::LogicalAnd | BinaryOp::LogicalOr | BinaryOp::NullishCoalescing) => {
-                            self.emit(inner, true, out)
-                        }
-                        _ => out.push(Token { kind: Kind::Component, optional: true, site: None }),
-                    }
-                }
-            }
+            Expr::Array(array) => self.emit_array(array, optional, &[], &mut Vec::new(), out),
             Expr::Call(call) if is_map(call) => self.emit_list(call, out),
             Expr::Call(call) if self.is_host(call) => {
                 let site = site_of(call);
@@ -253,7 +259,16 @@ impl Walks<'_> {
                 };
                 out.push(Token { kind, optional, site: Some(site) });
                 if let Some(children) = children_of(call) {
-                    self.emit(children, optional, out);
+                    let slots = props_of(call).map(slots_of).unwrap_or_default();
+                    match unwrap_transparent(children) {
+                        Expr::Array(array) => self.emit_array(array, optional, &slots, &mut Vec::new(), out),
+                        child => {
+                            if slots.iter().any(Vec::is_empty) {
+                                out.push(Token { kind: Kind::Component, optional, site: None });
+                            }
+                            self.emit(child, optional, out);
+                        }
+                    }
                 }
             }
             Expr::JSXElement(element) => {
@@ -261,6 +276,38 @@ impl Walks<'_> {
                 push(out, if host { Kind::Plain } else { Kind::Component });
             }
             _ => push(out, Kind::Component),
+        }
+    }
+
+    /// An array of children at `path` among a host's: each slot of the host
+    /// (`__meo$p`) before its position, then the child. The runtime's walk
+    /// cuts at a slot as at a component, whatever renders there.
+    fn emit_array(&mut self, array: &ArrayLit, optional: bool, slots: &[Vec<usize>], path: &mut Vec<usize>, out: &mut Vec<Token>) {
+        for (index, elem) in array.elems.iter().enumerate() {
+            let Some(elem) = elem else { continue };
+            path.push(index);
+            if slots.contains(path) {
+                out.push(Token { kind: Kind::Component, optional, site: None });
+            }
+            if elem.spread.is_none() {
+                match unwrap_transparent(&elem.expr) {
+                    Expr::Array(inner) => self.emit_array(inner, optional, slots, path, out),
+                    child => self.emit(child, optional, out),
+                }
+                path.pop();
+                continue;
+            }
+            path.pop();
+            // A spread of literals and branches over them is read through,
+            // every member optional; any other is opaque.
+            match unwrap_transparent(&elem.expr) {
+                Expr::Call(call) if is_map(call) => self.emit_list(call, out),
+                inner @ (Expr::Array(_) | Expr::Cond(_)) => self.emit(inner, true, out),
+                inner @ Expr::Bin(b) if matches!(b.op, BinaryOp::LogicalAnd | BinaryOp::LogicalOr | BinaryOp::NullishCoalescing) => {
+                    self.emit(inner, true, out)
+                }
+                _ => out.push(Token { kind: Kind::Component, optional: true, site: None }),
+            }
         }
     }
 
@@ -401,7 +448,7 @@ mod tests {
         GLOBALS.set(&Globals::new(), || {
             let cm: Lrc<SourceMap> = Default::default();
             let fm = cm.new_source_file(Lrc::new(FileName::Anon), src.clone());
-            let lexer = Lexer::new(Syntax::Es(EsSyntax::default()), EsVersion::EsNext, StringInput::from(&*fm), None);
+            let lexer = Lexer::new(Syntax::Es(EsSyntax { jsx: true, ..Default::default() }), EsVersion::EsNext, StringInput::from(&*fm), None);
             let mut program = Parser::new_from(lexer)
                 .parse_program()
                 .unwrap_or_else(|e| panic!("failed to parse: {e:?}\n{src}"));
@@ -532,6 +579,26 @@ mod tests {
     }
 
     #[test]
+    fn marks_a_stretch_ending_at_a_spread_slot() {
+        // The spread's slot is a cut on every render that has a child there,
+        // whatever its items are.
+        assert_eq!(
+            carriers("export const P = (w, s) => Div({ width: w, children: [Card(), Div({ padding: 1, 'data-i': 1, children: [...s.items.map(item => Div({ width: w })), Div({ width: w })] })] })"),
+            set(&[1])
+        );
+    }
+
+    #[test]
+    fn marks_a_stretch_ending_at_the_slot_before_a_single_child() {
+        // The walk does not enter an element with a read inside, which may
+        // render a component: its slot is the empty path.
+        assert_eq!(
+            carriers("export const P = (w, s) => Div({ width: w, children: [Card(), Div({ padding: 1, 'data-i': 1, children: <div>{w}</div> }), Div({ width: w })] })"),
+            set(&[1])
+        );
+    }
+
+    #[test]
     fn looks_past_an_uncompiled_host_to_the_component_before_it() {
         // Its props may hold no style, and the stretch begins after the component.
         assert_eq!(
@@ -564,6 +631,18 @@ mod tests {
                 "export const P = (w, s) => Div({ width: w, children: [Card(), s.a ? Span('a', { color: 'red', 'data-i': 1 }) : null, Span('b', { color: 'blue', 'data-i': 2 }), Card()] })"
             ),
             set(&[1, 2])
+        );
+    }
+
+    #[test]
+    fn marks_a_list_item_whose_stretch_may_end_in_the_next_item() {
+        // The next item's host cuts at its slot before the component, before
+        // the runtime node after the list.
+        assert_eq!(
+            carriers(
+                "export const P = (w, items) => Div({ width: w, children: [...items.map(i => Div({ children: [Card(), Div({ padding: 1, 'data-i': 1 })] })), Div({ width: w })] })"
+            ),
+            set(&[1])
         );
     }
 

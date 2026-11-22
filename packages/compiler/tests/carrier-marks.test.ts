@@ -1,7 +1,8 @@
 // The carrier mark `__meo$r` must be on every named node that, on some render,
 // begins a stretch of named nodes whose styles no runtime node takes: the
-// stretch starts at the walk's start or after a component, and ends at a
-// component or the walk's end. The mark is a call site's, the same on every
+// stretch starts at the walk's start or after a slot (`__meo$p`, where a
+// component may render), and ends at a slot or the walk's end, as the
+// runtime's walk cuts them. The mark is a call site's, the same on every
 // render, so over conditions it may be on more nodes than one render needs,
 // but never on a node that is not named, and on a walk without conditions on
 // exactly the nodes that need it.
@@ -112,21 +113,34 @@ function hostKind(props: Record<string, unknown>): 'named' | 'runtime' | 'plain'
   return styled(props.css) || 'padding' in props || 'color' in props ? 'runtime' : 'plain'
 }
 
-/** The render's positions, in pre-order. */
+/** A host's slots (`__meo$p`), as the runtime keys them: indices joined by `.`, `''` for the empty path. */
+const slotKeys = (props: Record<string, unknown>) =>
+  new Set(((props.__meo$p as (number | number[])[] | undefined) ?? []).map(p => (typeof p === 'number' ? String(p) : p.join('.'))))
+
+/**
+ * The render's positions, in pre-order, as the runtime's walk reads them: a
+ * host's slot is a cut before the child at its index, as `collectWithSlots`
+ * places it, and components cut only there.
+ */
 function tokens(value: unknown, out: Token[] = []): Token[] {
   if (Array.isArray(value)) {
     for (const v of value) tokens(v, out)
     return out
   }
-  if (value === null || typeof value !== 'object') return out
-  const built = value as Built
-  if (built.kind === 'component') {
-    out.push({ kind: 'component' })
-    return out
-  }
-  const props = built.props ?? {}
+  if (value === null || typeof value !== 'object' || (value as Built).kind !== 'host') return out
+  const props = (value as Built).props ?? {}
   out.push({ kind: hostKind(props), id: idOf(props) })
-  tokens(props.children ?? dom(props)?.children, out)
+  const children = props.children ?? dom(props)?.children
+  const slots = slotKeys(props)
+  if (slots.has('')) out.push({ kind: 'component' })
+  const walk = (list: unknown[], prefix: string) =>
+    list.forEach((child, i) => {
+      const key = prefix === '' ? String(i) : `${prefix}.${i}`
+      if (slots.has(key)) out.push({ kind: 'component' })
+      if (Array.isArray(child)) walk(child, key)
+      else tokens(child, out)
+    })
+  walk(Array.isArray(children) ? children : [children], '')
   return out
 }
 
