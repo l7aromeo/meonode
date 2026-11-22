@@ -13,7 +13,8 @@
 import { Div, Span } from '@src/main.js'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { __resetGeneratedListReport } from '@src/util/generated-list.util.js'
 
 const LIST = '__meo$list'
 const LOC = '__meo$loc'
@@ -31,6 +32,9 @@ function meoLines(build: () => unknown): string[] {
   }
   return seen.filter(m => m.includes('[MeoNode]'))
 }
+
+// Each case renders one call site once; the line is logged once per call site.
+beforeEach(() => __resetGeneratedListReport())
 
 const keyedRows = () => ['a', 'b', 'c'].map(id => Span(id, { key: id }))
 const unkeyedRows = () => ['a', 'b', 'c'].map(id => Span(id))

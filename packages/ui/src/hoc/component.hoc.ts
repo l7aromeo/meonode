@@ -1,5 +1,5 @@
 import type * as React from 'react'
-import { BaseNode, Node } from '@src/core.node.js'
+import { BaseNode, Node, registerComponentRenderer } from '@src/core.node.js'
 import type { Children, ComponentNode, DependencyList, HasCSSCompatibleStyleProp, ThemedCSSProperties } from '@src/types/node.type.js'
 import type { ReactElement, ReactNode } from 'react'
 import { getElementTypeName } from '@src/helper/common.helper.js'
@@ -119,6 +119,7 @@ export function Component<TProps extends Record<string, any> | undefined>(compon
     return result as ReactNode
   }
   Renderer.displayName = `Renderer(${displayName})`
+  registerComponentRenderer(Renderer, displayName)
   ;(Renderer as { __meonodeAcceptsServerCss?: boolean }).__meonodeAcceptsServerCss = true
 
   function Func(props: Partial<ComponentCallProps<TProps>> = {}, deps?: DependencyList) {
