@@ -417,3 +417,40 @@ describe('a run handed to a Component', () => {
     expect(runOnce(compiledStyle)).toEqual(expected)
   })
 })
+
+describe('a run handed to a Component element written twice in one host', () => {
+  // Each position's run goes to the copy there, as each instance's rules follow
+  // the run before it uncompiled.
+  it.each([
+    ['', false],
+    [' under StrictMode', true],
+  ])('goes to the copy at its own position%s', async (_, strict) => {
+    const { StrictMode } = await import('react')
+    const runOnce = (style: Style) => {
+      __resetStaticCss()
+      document.head.innerHTML = ''
+      const Item = Component(() => Div({ className: 'item', ...style({ order: 9 }) }))
+      const item = Item()
+      const container = document.body.appendChild(document.createElement('div'))
+      const twiceRoot = createRoot(container)
+      const page = createElement(
+        CacheProvider,
+        { value: createCache({ key: 'css', speedy: true }) },
+        createElement(function Page() {
+          return Div({
+            ...slots(style, 1, 3),
+            children: [Span('a', { key: 'a', ...style({ order: 1 }) }), item, Span('b', { key: 'b', ...style({ order: 2 }) }), item],
+          }).render() as ReactElement
+        }),
+      )
+      act(() => twiceRoot.render(strict ? createElement(StrictMode, null, page) : page))
+      const result = rules()
+      act(() => twiceRoot.unmount())
+      container.remove()
+      return result
+    }
+    const expected = runOnce(runtimeStyle)
+    expect(expected.length).toBe(3)
+    expect(runOnce(compiledStyle)).toEqual(expected)
+  })
+})
