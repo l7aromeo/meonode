@@ -1708,11 +1708,13 @@ const factoryBrands = new WeakMap<object, FactoryBrand>()
 
 /**
  * A call site of an imported factory, as the compiler hoists it to its module's
- * top level: `at` is the argument it found the call's props in. Only `at` and
- * the object's identity are read.
+ * top level: `at` is the argument it found the call's props in, and `r` marks a
+ * site the compiler's carrier rule gives a carrier, as it would a named node
+ * there. Only these and the object's identity are read.
  */
 export interface FactoryCallSite {
   readonly at: number
+  readonly r?: 1
 }
 
 /**
@@ -1849,6 +1851,7 @@ export function __meoFactoryCall(callee: unknown, site: FactoryCallSite, ...args
   const built = withoutStylePart(combineFactoryProps(brand.initialProps, props))
   built[COMPILED_MARKER] = 2
   built[STATIC_NAME_MARKER] = style.name
+  if (site.r === 1) built[STATIC_CARRIER_MARKER] = 1
   if (brand.propsAt === 1) built.children = args[0]
   return buildNode(brand.element, built, args[brand.propsAt + 1] as DependencyList | undefined, factory)
 }

@@ -9,11 +9,11 @@
 // written. Either way the page is the uncompiled call's. Props are passed as
 // variables, so a compiled run of this suite leaves the uncompiled twins as
 // they are.
-import { act, createElement, type ReactElement } from 'react'
+import { act, createElement, useState, type ReactElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { __meoFactoryCall, createChildrenFirstNode, createNode, Div, type FactoryCallSite, type NodeInstance } from '@src/main.js'
-import { STATIC_NAME_MARKER } from '@src/constant/common.const.js'
+import { __meoFactoryCall, Button, createChildrenFirstNode, createNode, Div, Node, type FactoryCallSite, type NodeInstance } from '@src/main.js'
+import { STATIC_CARRIER_MARKER, STATIC_NAME_MARKER } from '@src/constant/common.const.js'
 import { __resetStaticCss, hasNamedStyles, registerStaticCss, staticStylesOf } from '@src/util/static-css.util.js'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -149,6 +149,51 @@ describe('a createNode factory', () => {
     const node = call(Panel, { at: 1 }, { padding: 4, children: 'x' }, { padding: 5 })
     expect(nameOf(node)).toBeUndefined()
     expect(node.props).toEqual(Panel({ padding: 4, children: 'x' }, { padding: 5 } as never).props)
+  })
+})
+
+describe('a joined call at a position whose first rule varies', () => {
+  /** Holds a count, which a remount resets. */
+  function Count() {
+    const [count, setCount] = useState(0)
+    return Div({ children: Button(`n:${count}`, { onClick: () => setCount(value => value + 1) }) }).render() as ReactElement
+  }
+  const PANEL_PROPS = { padding: 4 }
+
+  /** The count after a click, then after the conditional runtime sibling before the call is taken away. */
+  function countsAcrossToggle(make: (props: Props) => NodeInstance): [string, string] {
+    const container = document.body.appendChild(document.createElement('div'))
+    const root = createRoot(container)
+    roots.push(root)
+    let hide = () => {}
+    function TogglePage() {
+      const [on, setOn] = useState(true)
+      hide = () => setOn(false)
+      return Div({ children: [on && Div({ key: 'r', css: SIBLING_CSS }), make({ ...PANEL_PROPS, key: 'p', children: Node(Count) })] }).render() as ReactElement
+    }
+    act(() => root.render(createElement(TogglePage)))
+    act(() => container.querySelector('button')!.click())
+    const before = container.querySelector('button')!.textContent!
+    act(() => hide())
+    return [before, container.querySelector('button')!.textContent!]
+  }
+
+  it('keeps its state uncompiled, the call rendering through the styled renderer either way', () => {
+    expect(countsAcrossToggle(props => Panel(props))).toEqual(['n:1', 'n:1'])
+  })
+
+  it('keeps its state as a carrier, where the site marks one', () => {
+    const site = { at: 0, r: 1 as const }
+    expect((call(Panel, site, PANEL_PROPS).props as Props)[STATIC_CARRIER_MARKER]).toBe(1)
+    expect(countsAcrossToggle(props => call(Panel, site, props))).toEqual(['n:1', 'n:1'])
+  })
+
+  // What the mark is for: a named node with no rule before it renders as a
+  // carrier, and with one renders its plain element, so its type changes.
+  it('remounts where the site marks no carrier', () => {
+    const site = { at: 0 }
+    expect((call(Panel, site, PANEL_PROPS).props as Props)[STATIC_CARRIER_MARKER]).toBeUndefined()
+    expect(countsAcrossToggle(props => call(Panel, site, props))).toEqual(['n:1', 'n:0'])
   })
 })
 
