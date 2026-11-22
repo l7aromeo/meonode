@@ -18,7 +18,9 @@
 //! stretch whose left end is the walk's start or a component and whose right
 //! end is a component or the walk's end. A component here is any slot of a
 //! host, a position the extraction marks as one that may render a component
-//! (`__meo$p`, which this pass removes once read), or a child that may be one. Over a conditional, a spread and a
+//! (`__meo$p`, which this pass removes once read), or a child that may be one.
+//! A memoized host (one given `deps`) is a component on both sides: the
+//! runtime cuts before it, and the browser walks it on its own. Over a conditional, a spread and a
 //! generated list every member is optional, and a `.map()` item is read twice
 //! so an item's nodes see the item before it and the item after it.
 
@@ -91,8 +93,12 @@ fn value_of<'a>(obj: &'a ObjectLit, name: &str) -> Option<&'a Expr> {
         if key_name(p) != Some(name) {
             return None;
         }
-        let PropOrSpread::Prop(prop) = p else { return None };
-        let Prop::KeyValue(kv) = &**prop else { return None };
+        let PropOrSpread::Prop(prop) = p else {
+            return None;
+        };
+        let Prop::KeyValue(kv) = &**prop else {
+            return None;
+        };
         Some(&*kv.value)
     })
 }
@@ -105,12 +111,39 @@ fn has_key(obj: &ObjectLit, name: &str) -> bool {
 /// the first object literal among its arguments.
 fn props_of(call: &CallExpr) -> Option<&ObjectLit> {
     let objects = || {
-        call.args.iter().filter_map(|a| match unwrap_transparent(&a.expr) {
-            Expr::Object(obj) if a.spread.is_none() => Some(obj),
-            _ => None,
-        })
+        call.args
+            .iter()
+            .filter_map(|a| match unwrap_transparent(&a.expr) {
+                Expr::Object(obj) if a.spread.is_none() => Some(obj),
+                _ => None,
+            })
     };
-    objects().find(|o| has_key(o, MARKER_KEY)).or_else(|| objects().next())
+    objects()
+        .find(|o| has_key(o, MARKER_KEY))
+        .or_else(|| objects().next())
+}
+
+/// Whether a host call has `deps`, the argument after its props, other than a
+/// written `undefined`. The runtime renders such a node in a walk of its own in
+/// the browser and inline on the server, and cuts a run before it in both. One
+/// that may be `undefined` on some render is read as one: a component token
+/// marks the same whether or not the cut is there on every render.
+fn is_memo(call: &CallExpr) -> bool {
+    let Some(props) = props_of(call) else {
+        return false;
+    };
+    let Some(at) = call.args.iter().position(
+        |a| matches!(unwrap_transparent(&a.expr), Expr::Object(o) if std::ptr::eq(o, props)),
+    ) else {
+        return false;
+    };
+    call.args
+        .get(at + 1)
+        .is_some_and(|deps| match unwrap_transparent(&deps.expr) {
+            Expr::Ident(id) => id.sym.as_ref() != "undefined",
+            Expr::Unary(u) => u.op != UnaryOp::Void,
+            _ => true,
+        })
 }
 
 /// A host call's children: its `children` prop, in the DOM bucket or not, or a
@@ -120,7 +153,9 @@ fn children_of(call: &CallExpr) -> Option<&Expr> {
     if let Some(children) = props.and_then(|p| value_of(p, "children")) {
         return Some(children);
     }
-    if let Some(Expr::Object(dom)) = props.and_then(|p| value_of(p, DOM_KEY)).map(unwrap_transparent)
+    if let Some(Expr::Object(dom)) = props
+        .and_then(|p| value_of(p, DOM_KEY))
+        .map(unwrap_transparent)
         && let Some(children) = value_of(dom, "children")
     {
         return Some(children);
@@ -147,7 +182,12 @@ fn slots_of(props: &ObjectLit) -> Vec<Vec<usize>> {
         .iter()
         .flatten()
         .filter_map(|p| match &*p.expr {
-            Expr::Array(path) => path.elems.iter().flatten().map(|i| index(&i.expr)).collect(),
+            Expr::Array(path) => path
+                .elems
+                .iter()
+                .flatten()
+                .map(|i| index(&i.expr))
+                .collect(),
             e => index(e).map(|i| vec![i]),
         })
         .collect()
@@ -228,7 +268,13 @@ impl Walks<'_> {
     }
 
     fn emit(&mut self, expr: &Expr, optional: bool, out: &mut Vec<Token>) {
-        let push = |out: &mut Vec<Token>, kind| out.push(Token { kind, optional, site: None });
+        let push = |out: &mut Vec<Token>, kind| {
+            out.push(Token {
+                kind,
+                optional,
+                site: None,
+            })
+        };
         match unwrap_transparent(expr) {
             Expr::Lit(_) | Expr::Tpl(_) => {}
             Expr::Ident(id) if id.sym.as_ref() == "undefined" => {}
@@ -250,25 +296,46 @@ impl Walks<'_> {
                 let kind = match props_of(call).filter(|props| has_key(props, MARKER_KEY)) {
                     // Styles the runtime always has: it renders through `StyledRenderer`.
                     Some(props) if has_key(props, CSS_KEY) => Kind::Runtime,
-                    Some(props) if has_key(props, NAME_KEY) || has_key(props, TEMPLATE_KEY) => Kind::Named,
+                    Some(props) if has_key(props, NAME_KEY) || has_key(props, TEMPLATE_KEY) => {
+                        Kind::Named
+                    }
                     // No styles, a `css` read at run time (the compiler moves
                     // static styles beside it to `__meo$c`), or a host call left
                     // uncompiled: a cut only on renders where it holds a style.
                     // A cut that may be absent marks as an absent one does.
                     _ => Kind::Plain,
                 };
-                out.push(Token { kind, optional, site: Some(site) });
+                // A memoized node is a cut before it, and its walk in the
+                // browser ends after it; on the server the walk goes through.
+                let memo = is_memo(call);
+                if memo {
+                    push(out, Kind::Component);
+                }
+                out.push(Token {
+                    kind,
+                    optional,
+                    site: Some(site),
+                });
                 if let Some(children) = children_of(call) {
                     let slots = props_of(call).map(slots_of).unwrap_or_default();
                     match unwrap_transparent(children) {
-                        Expr::Array(array) => self.emit_array(array, optional, &slots, &mut Vec::new(), out),
+                        Expr::Array(array) => {
+                            self.emit_array(array, optional, &slots, &mut Vec::new(), out)
+                        }
                         child => {
                             if slots.iter().any(Vec::is_empty) {
-                                out.push(Token { kind: Kind::Component, optional, site: None });
+                                out.push(Token {
+                                    kind: Kind::Component,
+                                    optional,
+                                    site: None,
+                                });
                             }
                             self.emit(child, optional, out);
                         }
                     }
+                }
+                if memo {
+                    push(out, Kind::Component);
                 }
             }
             Expr::JSXElement(element) => {
@@ -282,12 +349,23 @@ impl Walks<'_> {
     /// An array of children at `path` among a host's: each slot of the host
     /// (`__meo$p`) before its position, then the child. The runtime's walk
     /// cuts at a slot as at a component, whatever renders there.
-    fn emit_array(&mut self, array: &ArrayLit, optional: bool, slots: &[Vec<usize>], path: &mut Vec<usize>, out: &mut Vec<Token>) {
+    fn emit_array(
+        &mut self,
+        array: &ArrayLit,
+        optional: bool,
+        slots: &[Vec<usize>],
+        path: &mut Vec<usize>,
+        out: &mut Vec<Token>,
+    ) {
         for (index, elem) in array.elems.iter().enumerate() {
             let Some(elem) = elem else { continue };
             path.push(index);
             if slots.contains(path) {
-                out.push(Token { kind: Kind::Component, optional, site: None });
+                out.push(Token {
+                    kind: Kind::Component,
+                    optional,
+                    site: None,
+                });
             }
             if elem.spread.is_none() {
                 match unwrap_transparent(&elem.expr) {
@@ -303,10 +381,19 @@ impl Walks<'_> {
             match unwrap_transparent(&elem.expr) {
                 Expr::Call(call) if is_map(call) => self.emit_list(call, out),
                 inner @ (Expr::Array(_) | Expr::Cond(_)) => self.emit(inner, true, out),
-                inner @ Expr::Bin(b) if matches!(b.op, BinaryOp::LogicalAnd | BinaryOp::LogicalOr | BinaryOp::NullishCoalescing) => {
+                inner @ Expr::Bin(b)
+                    if matches!(
+                        b.op,
+                        BinaryOp::LogicalAnd | BinaryOp::LogicalOr | BinaryOp::NullishCoalescing
+                    ) =>
+                {
                     self.emit(inner, true, out)
                 }
-                _ => out.push(Token { kind: Kind::Component, optional: true, site: None }),
+                _ => out.push(Token {
+                    kind: Kind::Component,
+                    optional: true,
+                    site: None,
+                }),
             }
         }
     }
@@ -315,7 +402,11 @@ impl Walks<'_> {
     fn emit_list(&mut self, call: &CallExpr, out: &mut Vec<Token>) {
         let returns = map_returns(call);
         if returns.is_empty() {
-            out.push(Token { kind: Kind::Component, optional: true, site: None });
+            out.push(Token {
+                kind: Kind::Component,
+                optional: true,
+                site: None,
+            });
             return;
         }
         for _ in 0..2 {
@@ -370,9 +461,17 @@ impl Walks<'_> {
 impl Visit for Walks<'_> {
     fn visit_call_expr(&mut self, call: &CallExpr) {
         if self.is_host(call) && !self.consumed.contains(&site_of(call)) {
-            let mut tokens = vec![Token { kind: Kind::Start, optional: false, site: None }];
+            let mut tokens = vec![Token {
+                kind: Kind::Start,
+                optional: false,
+                site: None,
+            }];
             self.emit(&Expr::Call(call.clone()), false, &mut tokens);
-            tokens.push(Token { kind: Kind::End, optional: false, site: None });
+            tokens.push(Token {
+                kind: Kind::End,
+                optional: false,
+                site: None,
+            });
             self.choose(&tokens);
         }
         call.visit_children_with(self);
@@ -388,7 +487,9 @@ impl VisitMut for Marker<'_> {
         call.visit_mut_children_with(self);
         let carrier = self.0.contains(&site_of(call));
         for arg in &mut call.args {
-            let Expr::Object(obj) = &mut *arg.expr else { continue };
+            let Expr::Object(obj) = &mut *arg.expr else {
+                continue;
+            };
             if !has_key(obj, MARKER_KEY) {
                 continue;
             }
@@ -440,7 +541,7 @@ mod tests {
     use crate::config::CompileConfig;
     use crate::partition::transform_program;
 
-    const IMPORTS: &str = "import { Div, Span, Node } from '@meonode/ui'\nimport { Card } from './card'\n";
+    const IMPORTS: &str = "import { Activity, Div, Node, Row, Span, Suspense } from '@meonode/ui'\nimport { SuspenseList } from 'react'\nimport { Card } from './card'\n";
 
     /// The `data-i` of every call site the transform marks as a carrier, for
     /// `src` after the imports, with extraction on or off.
@@ -449,7 +550,15 @@ mod tests {
         GLOBALS.set(&Globals::new(), || {
             let cm: Lrc<SourceMap> = Default::default();
             let fm = cm.new_source_file(Lrc::new(FileName::Anon), src.clone());
-            let lexer = Lexer::new(Syntax::Es(EsSyntax { jsx: true, ..Default::default() }), EsVersion::EsNext, StringInput::from(&*fm), None);
+            let lexer = Lexer::new(
+                Syntax::Es(EsSyntax {
+                    jsx: true,
+                    ..Default::default()
+                }),
+                EsVersion::EsNext,
+                StringInput::from(&*fm),
+                None,
+            );
             let mut program = Parser::new_from(lexer)
                 .parse_program()
                 .unwrap_or_else(|e| panic!("failed to parse: {e:?}\n{src}"));
@@ -520,14 +629,19 @@ mod tests {
 
     #[test]
     fn marks_a_named_root_before_a_component() {
-        assert_eq!(carriers("export const P = () => Div({ padding: 1, 'data-i': 0, children: [Card()] })"), set(&[0]));
+        assert_eq!(
+            carriers("export const P = () => Div({ padding: 1, 'data-i': 0, children: [Card()] })"),
+            set(&[0])
+        );
     }
 
     #[test]
     fn leaves_a_run_a_runtime_node_takes_unmarked() {
         // The runtime node right after the root carries the root's run.
         assert_eq!(
-            carriers("export const P = (w) => Div({ padding: 1, 'data-i': 0, children: [Div({ width: w, 'data-i': 1 }), Card()] })"),
+            carriers(
+                "export const P = (w) => Div({ padding: 1, 'data-i': 0, children: [Div({ width: w, 'data-i': 1 }), Card()] })"
+            ),
             set(&[])
         );
     }
@@ -545,7 +659,9 @@ mod tests {
     #[test]
     fn leaves_a_stretch_ending_at_a_runtime_node_unmarked() {
         assert_eq!(
-            carriers("export const P = (w) => Div({ width: w, children: [Card(), Span('a', { color: 'red', 'data-i': 1 }), Div({ width: w })] })"),
+            carriers(
+                "export const P = (w) => Div({ width: w, children: [Card(), Span('a', { color: 'red', 'data-i': 1 }), Div({ width: w })] })"
+            ),
             set(&[])
         );
     }
@@ -554,7 +670,9 @@ mod tests {
     fn leaves_a_stretch_after_a_runtime_node_unmarked() {
         // The runtime node before it takes the run, after its own rule.
         assert_eq!(
-            carriers("export const P = (w) => Div({ width: w, children: [Card(), Div({ width: w }), Span('a', { color: 'red', 'data-i': 1 }), Card()] })"),
+            carriers(
+                "export const P = (w) => Div({ width: w, children: [Card(), Div({ width: w }), Span('a', { color: 'red', 'data-i': 1 }), Card()] })"
+            ),
             set(&[])
         );
     }
@@ -574,7 +692,9 @@ mod tests {
     fn looks_past_a_css_read_at_run_time_to_the_component_before_it() {
         // An empty `css` leaves that node unstyled, and the stretch begins after the component.
         assert_eq!(
-            carriers("export const P = (w, s) => Div({ width: w, children: [Card(), Div({ css: s.css }), Span('a', { color: 'red', 'data-i': 1 }), Card()] })"),
+            carriers(
+                "export const P = (w, s) => Div({ width: w, children: [Card(), Div({ css: s.css }), Span('a', { color: 'red', 'data-i': 1 }), Card()] })"
+            ),
             set(&[1])
         );
     }
@@ -584,7 +704,9 @@ mod tests {
         // The spread's slot is a cut on every render that has a child there,
         // whatever its items are.
         assert_eq!(
-            carriers("export const P = (w, s) => Div({ width: w, children: [Card(), Div({ padding: 1, 'data-i': 1, children: [...s.items.map(item => Div({ width: w })), Div({ width: w })] })] })"),
+            carriers(
+                "export const P = (w, s) => Div({ width: w, children: [Card(), Div({ padding: 1, 'data-i': 1, children: [...s.items.map(item => Div({ width: w })), Div({ width: w })] })] })"
+            ),
             set(&[1])
         );
     }
@@ -594,16 +716,97 @@ mod tests {
         // The walk does not enter an element with a read inside, which may
         // render a component: its slot is the empty path.
         assert_eq!(
-            carriers("export const P = (w, s) => Div({ width: w, children: [Card(), Div({ padding: 1, 'data-i': 1, children: <div>{w}</div> }), Div({ width: w })] })"),
+            carriers(
+                "export const P = (w, s) => Div({ width: w, children: [Card(), Div({ padding: 1, 'data-i': 1, children: <div>{w}</div> }), Div({ width: w })] })"
+            ),
             set(&[1])
         );
+    }
+
+    #[test]
+    fn marks_a_memoized_node_after_a_named_sibling() {
+        // A host with `deps` is a cut before it, and the browser renders it in a
+        // walk of its own, which ends after it.
+        assert_eq!(
+            carriers(
+                "export const P = (w) => Div({ width: w, children: [Span('a', { color: 'red', 'data-i': 1 }), Span('b', { color: 'blue', 'data-i': 2 }, []), Div({ width: w })] })"
+            ),
+            set(&[2])
+        );
+    }
+
+    #[test]
+    fn marks_a_named_node_after_a_memoized_one() {
+        // The memoized node's walk ends before it in the browser, so it begins a
+        // stretch that ends at the component.
+        assert_eq!(
+            carriers(
+                "export const P = (w) => Div({ width: w, children: [Span('b', { color: 'blue', 'data-i': 2 }, []), Span('c', { color: 'green', 'data-i': 3 }), Card()] })"
+            ),
+            set(&[2, 3])
+        );
+    }
+
+    #[test]
+    fn marks_a_memoized_parent_that_begins_its_own_walk() {
+        // The memoized parent's walk is its own in the browser, and it begins it.
+        assert_eq!(
+            carriers(
+                "export const P = (w) => Div({ width: w, children: [Card(), Row({ gap: 1, 'data-i': 0, children: [Span('a', { color: 'red', 'data-i': 1 })] }, [w]), Div({ width: w })] })"
+            ),
+            set(&[0])
+        );
+    }
+
+    #[test]
+    fn reads_deps_that_may_be_undefined_as_a_cut() {
+        // A cut where `d` is `undefined` marks no more than one where it is not.
+        assert_eq!(
+            carriers(
+                "export const P = (w, d) => Div({ width: w, children: [Span('a', { color: 'red', 'data-i': 1 }), Span('b', { color: 'blue', 'data-i': 2 }, d), Div({ width: w })] })"
+            ),
+            set(&[2])
+        );
+    }
+
+    #[test]
+    fn reads_written_undefined_deps_as_no_cut() {
+        // The node renders inline, so the runtime node after it takes the run.
+        for deps in ["undefined", "void 0"] {
+            assert_eq!(
+                carriers(&format!(
+                    "export const P = (w) => Div({{ width: w, children: [Span('a', {{ color: 'red', 'data-i': 1 }}), Span('b', {{ color: 'blue', 'data-i': 2 }}, {deps}), Div({{ width: w }})] }})"
+                )),
+                set(&[]),
+                "{deps}"
+            );
+        }
+    }
+
+    #[test]
+    fn marks_a_named_run_before_suspense_activity_and_suspense_list() {
+        for boundary in [
+            "Suspense({ fallback: null, children: Card() })",
+            "Activity({ mode: 'hidden', children: Card() })",
+            "Node(SuspenseList, { children: Card() })",
+        ] {
+            assert_eq!(
+                carriers(&format!(
+                    "export const P = (w) => Div({{ width: w, children: [Card(), Span('a', {{ color: 'red', 'data-i': 1 }}), {boundary}, Div({{ width: w }})] }})"
+                )),
+                set(&[1]),
+                "{boundary}"
+            );
+        }
     }
 
     #[test]
     fn looks_past_an_uncompiled_host_to_the_component_before_it() {
         // Its props may hold no style, and the stretch begins after the component.
         assert_eq!(
-            carriers("export const P = (w, s) => Div({ width: w, children: [Card(), Div(s.props), Span('a', { color: 'red', 'data-i': 1 }), Card()] })"),
+            carriers(
+                "export const P = (w, s) => Div({ width: w, children: [Card(), Div(s.props), Span('a', { color: 'red', 'data-i': 1 }), Card()] })"
+            ),
             set(&[1])
         );
     }
@@ -612,7 +815,9 @@ mod tests {
     fn leaves_static_styles_beside_a_css_read_at_run_time_to_the_runtime() {
         // They go in `__meo$c` with the `css`, so the node is a runtime node.
         assert_eq!(
-            carriers("export const P = (w, s) => Div({ width: w, children: [Card(), Div({ padding: 1, css: s.css, 'data-i': 1 }), Card()] })"),
+            carriers(
+                "export const P = (w, s) => Div({ width: w, children: [Card(), Div({ padding: 1, css: s.css, 'data-i': 1 }), Card()] })"
+            ),
             set(&[])
         );
     }
@@ -620,7 +825,9 @@ mod tests {
     #[test]
     fn marks_a_stretch_ending_at_the_walk_end() {
         assert_eq!(
-            carriers("export const P = (w) => Div({ width: w, children: [Card(), Span('a', { color: 'red', 'data-i': 1 })] })"),
+            carriers(
+                "export const P = (w) => Div({ width: w, children: [Card(), Span('a', { color: 'red', 'data-i': 1 })] })"
+            ),
             set(&[1])
         );
     }
@@ -671,13 +878,21 @@ mod tests {
     #[test]
     fn marks_the_root_of_a_walk_in_a_component_prop() {
         assert_eq!(
-            carriers("export const P = (w) => Div({ width: w, children: [Card({ icon: Span('i', { color: 'red', 'data-i': 5 }) })] })"),
+            carriers(
+                "export const P = (w) => Div({ width: w, children: [Card({ icon: Span('i', { color: 'red', 'data-i': 5 }) })] })"
+            ),
             set(&[5])
         );
     }
 
     #[test]
     fn marks_nothing_without_extraction() {
-        assert_eq!(carriers_with("export const P = () => Div({ padding: 1, 'data-i': 0, children: [Card()] })", false), set(&[]));
+        assert_eq!(
+            carriers_with(
+                "export const P = () => Div({ padding: 1, 'data-i': 0, children: [Card()] })",
+                false
+            ),
+            set(&[])
+        );
     }
 }

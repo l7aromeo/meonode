@@ -21,6 +21,8 @@ const CARRIER_KEY = '__meo$r'
 /** How many walks are generated, and the seed that makes them the same each run. */
 const CASES = 800
 const SEED = 4
+/** How many walks with memoized hosts are generated, from the same seed. */
+const MEMO_CASES = 400
 /** The boolean reads conditions are made of. */
 const FLAGS = ['a', 'b', 'c'] as const
 /** The lengths a generated list is run with. */
@@ -36,7 +38,12 @@ interface Case {
   conditional: boolean
 }
 
-function generator(seed: number) {
+/**
+ * Walks from `seed`. With `memo`, some hosts are memoized: given `deps`, a
+ * list always or a value that is `undefined` on some renders. Without it the
+ * walks are the same as before memoized hosts were generated.
+ */
+function generator(seed: number, memo = false) {
   let state = seed
   const next = () => {
     state = (state * 1103515245 + 12345) % 2 ** 31
@@ -57,7 +64,8 @@ function generator(seed: number) {
   const host = (depth: number): string => {
     const n = id++
     const kids = depth < DEPTH && next() < 0.5 ? `, children: [${children(depth + 1, 1 + Math.floor(next() * 3)).join(', ')}]` : ''
-    return `Div({ ${style()}'data-i': ${n}${kids} })`
+    const deps = memo && next() < 0.3 ? (next() < 0.5 ? ', [s.a]' : ((conditional = true), ', s.deps')) : ''
+    return `Div({ ${style()}'data-i': ${n}${kids} }${deps})`
   }
   const child = (depth: number): string => {
     const r = next()
@@ -99,6 +107,8 @@ type Token = { kind: 'start' | 'end' | 'component' } | { kind: 'named' | 'runtim
 interface Built {
   kind: 'host' | 'component'
   props?: Record<string, unknown>
+  /** A host's `deps`: memoized when not `undefined`. */
+  deps?: unknown
 }
 
 const dom = (props: Record<string, unknown> | undefined) => props?.__meo$d as Record<string, unknown> | undefined
@@ -116,13 +126,18 @@ function hostKind(props: Record<string, unknown>): 'named' | 'runtime' | 'plain'
 /** Whether a child renders a component on this render, where the runtime's walk cuts a run. */
 const isComponent = (value: unknown) => value !== null && typeof value === 'object' && (value as Built).kind === 'component'
 
+/** Whether a child is a memoized host, which the runtime's walk also cuts a run before. */
+const isMemo = (value: unknown) => value !== null && typeof value === 'object' && (value as Built).kind === 'host' && (value as Built).deps !== undefined
+
 /**
- * The render's positions, in pre-order, as the runtime's walk reads them: a
- * host's child that renders a component is a cut before it, as `cutsAt` finds.
+ * The render's positions, in pre-order, as one environment's walk reads them:
+ * a host's child that renders a component, or a memoized one, is a cut before
+ * it, as `cutsAt` finds. The server walks a memoized child inline after the
+ * cut; the browser walks it on its own, so it goes to `pending` instead.
  */
-function tokens(value: unknown, out: Token[] = []): Token[] {
+function tokens(value: unknown, out: Token[], pending?: unknown[]): Token[] {
   if (Array.isArray(value)) {
-    for (const v of value) tokens(v, out)
+    for (const v of value) tokens(v, out, pending)
     return out
   }
   if (value === null || typeof value !== 'object' || (value as Built).kind !== 'host') return out
@@ -133,9 +148,26 @@ function tokens(value: unknown, out: Token[] = []): Token[] {
     list.forEach(child => {
       if (Array.isArray(child)) walk(child)
       else if (isComponent(child)) out.push({ kind: 'component' })
-      else tokens(child, out)
+      else if (isMemo(child)) {
+        out.push({ kind: 'component' })
+        if (pending) pending.push(child)
+        else tokens(child, out)
+      } else tokens(child, out, pending)
     })
   walk(Array.isArray(children) ? children : [children])
+  return out
+}
+
+/** The named nodes a render needs a carrier at, on the server or in the browser. */
+function neededOnEither(render: unknown): Set<number> {
+  const out = new Set<number>()
+  const server = needed([{ kind: 'start' }, ...tokens(render, []), { kind: 'end' }])
+  server.forEach(id => out.add(id))
+  const pending: unknown[] = [render]
+  while (pending.length > 0) {
+    const root = pending.shift()
+    needed([{ kind: 'start' }, ...tokens(root, [], pending), { kind: 'end' }]).forEach(id => out.add(id))
+  }
   return out
 }
 
@@ -166,9 +198,10 @@ function marks(value: unknown, out = { marked: new Set<number>(), named: new Set
   return out
 }
 
-describe('the carrier mark over generated walks', async () => {
-  const generate = generator(SEED)
-  const cases = Array.from({ length: CASES }, generate)
+const suite = (name: string, memo: boolean, count: number) =>
+  describe(name, async () => {
+  const generate = generator(SEED, memo)
+  const cases = Array.from({ length: count }, generate)
   const module = `import { Div, Node } from '@meonode/ui'\nconst Card = () => null\nexport const cases = [\n${cases.map(c => `  s => ${c.source},`).join('\n')}\n]\n`
   const { code } = await transform(module, {
     filename: 'carriers.js',
@@ -178,7 +211,7 @@ describe('the carrier mark over generated walks', async () => {
   // plain objects, the registration helpers do nothing.
   const imported = [...code.matchAll(/import \{([^}]*)\} from "@meonode\/ui"/g)].flatMap(m => m[1].split(',').map(s => s.trim().split(/\s+as\s+/).at(-1)!))
   const stubs: Record<string, unknown> = {
-    Div: (props?: Record<string, unknown>): Built => ({ kind: 'host', props }),
+    Div: (props?: Record<string, unknown>, deps?: unknown): Built => ({ kind: 'host', props, deps }),
     Node: (): Built => ({ kind: 'component' }),
   }
   const names = [...new Set(['Div', 'Node', ...imported])]
@@ -195,16 +228,18 @@ describe('the carrier mark over generated walks', async () => {
         s.items = Array.from({ length }, (_, k) => k)
         // The props of a host the compiler leaves to the runtime.
         s.loose = s.b ? { css: { margin: 1 } } : {}
+        // Deps that are a list on some renders and `undefined` on others.
+        s.deps = s.a ? [1] : undefined
         // Every read of unknown kind (`s.u<id>`) is a component.
         return compiled[i](new Proxy(s, { get: (target, key) => (typeof key === 'string' && /^u\d+$/.test(key) ? { kind: 'component' } : target[key as string]) }))
       }),
     )
 
   it('compiles every case, and generates walks with and without conditions that need carriers', () => {
-    expect(compiled).toHaveLength(CASES)
-    const needing = cases.map((_, i) => renders(i).some(r => needed([{ kind: 'start' }, ...tokens(r), { kind: 'end' }]).size > 0))
-    expect(cases.filter((c, i) => c.conditional && needing[i]).length).toBeGreaterThan(CASES / 5)
-    expect(cases.filter((c, i) => !c.conditional && needing[i]).length).toBeGreaterThan(CASES / 20)
+    expect(compiled).toHaveLength(count)
+    const needing = cases.map((_, i) => renders(i).some(r => neededOnEither(r).size > 0))
+    expect(cases.filter((c, i) => c.conditional && needing[i]).length).toBeGreaterThan(count / 5)
+    expect(cases.filter((c, i) => !c.conditional && needing[i]).length).toBeGreaterThan(count / 20)
   })
 
   it.each(cases.map((c, i) => [c.source, i] as const))('%s', (_, i) => {
@@ -212,7 +247,7 @@ describe('the carrier mark over generated walks', async () => {
     const got = new Set<number>()
     const named = new Set<number>()
     for (const render of renders(i)) {
-      for (const id of needed([{ kind: 'start' }, ...tokens(render), { kind: 'end' }])) want.add(id)
+      for (const id of neededOnEither(render)) want.add(id)
       const m = marks(render)
       m.marked.forEach(id => got.add(id))
       m.named.forEach(id => named.add(id))
@@ -225,3 +260,6 @@ describe('the carrier mark over generated walks', async () => {
     if (!cases[i].conditional) expect([...got].sort()).toEqual([...want].sort())
   })
 })
+
+suite('the carrier mark over generated walks', false, CASES)
+suite('the carrier mark over generated walks with memoized hosts', true, MEMO_CASES)
