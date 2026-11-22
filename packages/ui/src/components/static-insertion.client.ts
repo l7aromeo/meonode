@@ -103,14 +103,14 @@ const candidatesKey = (candidates: readonly StaticThemeCandidate[] | undefined):
  * static sheets, and in a development build checks its candidates once they are
  * committed. A client module, so the server layer, whose React has neither
  * context nor effects, never loads Emotion or these hooks.
- * @param props.classes The render's classes, in the order its nodes completed, deepest first.
+ * @param props.classes The render's classes, in the order its nodes began, parents first.
  * @param props.candidates The theme variables to check after commit.
  */
 export function StaticInsertion({ classes, candidates }: { classes?: readonly string[]; candidates?: readonly StaticThemeCandidate[] }): ReactElement | null {
   // Where MeoNode's runtime rules go, so the static ones go right before them.
   const cache = useEmotionCache()
-  // Before layout effects and paint, as Emotion inserts its own: in this
-  // render's order, which is the order its nodes completed, deepest first.
+  // Before layout effects and paint, as Emotion inserts its own, in the order
+  // the render's nodes began.
   useInsertionEffect(() => {
     if (classes) insertStaticClasses(cache?.sheet as unknown as EmotionSheetPlacement | undefined, classes)
   }, [cache, classes])

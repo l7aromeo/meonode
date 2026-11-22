@@ -567,9 +567,10 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
     const finishStaticSlot = (rules: Map<string, ReactElement>): void => {
       const lists = staticModules?.get(rules)
       if (!lists) return
-      // Gathered as the nodes completed, deepest first, which is the order Emotion
-      // inserts in the browser; the server's is the order they began, parents first.
-      if (NodeUtil.isServer) lists.sort((a, b) => a[0] - b[0])
+      // Gathered as the nodes completed, deepest first, and put in the order they
+      // began, parents first: Emotion's order on both sides, since it inserts each
+      // element's rule from a leaf rendered before the element, ahead of its subtree.
+      lists.sort((a, b) => a[0] - b[0])
       // A class several nodes use is listed for each: the server's hoistables are
       // deduped by React by `href`, and the browser inserts a class once.
       const classes: string[] = []
@@ -581,7 +582,7 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
         createElement(StaticStyles, { key: STATIC_STYLES_KEY, classes, ...(checks && { checks }), ...(candidates && { candidates }) }),
       )
     }
-    // The order nodes begin in, for the server's order.
+    // The order nodes begin in, which is the order their static classes go in.
     let began = 0
     // In development, the theme tokens of extracted styles are checked where the
     // providers are, as `StyledRenderer` checks a styled element's, by the

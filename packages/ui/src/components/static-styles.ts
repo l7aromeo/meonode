@@ -49,15 +49,16 @@ const INSERTION_KEY = 'mn-static-insertion'
  * browser, insertion into the static sheets once the render commits, by the
  * client module `StaticInsertion`.
  *
- * Its classes come in Emotion's order for the side it renders on. On the server
- * they are the render's classes in the order its nodes began, parents first, as
- * Emotion's server render meets them. In the browser they are in the order its
- * nodes completed, deepest first, as Emotion's insertion effects run, and they go
- * in from the insertion effect of its `StaticInsertion`, which runs after those
- * of any render nested inside it. Across renders the order is where each
- * `StaticStyles` sits:
- * at the end of its render's topmost host, so a render nested inside another
- * emits before it on the server as well.
+ * Its classes come in the order the render's nodes began, parents first, which
+ * is Emotion's order on both sides: Emotion inserts each element's rule from a
+ * leaf rendered just before the element, so ahead of its subtree. On the server
+ * they are hoisted in that order; in the browser they go in from the insertion
+ * effect of its `StaticInsertion`. Across renders the order is where each
+ * `StaticStyles` sits, at the end of its render's topmost host: a render nested
+ * inside another goes in before it, on both sides, where Emotion would insert
+ * the outer render's nodes that began before the nested one first. The order of
+ * two nodes' own rules decides nothing, so this differs from Emotion only for a
+ * rule of one render that reaches an element of the other.
  *
  * The tree has the same shape on both sides, which keeps `useId` stable through
  * hydration, and a hoistable leaves nothing in place for hydration to match.
