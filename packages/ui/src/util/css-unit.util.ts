@@ -1,5 +1,5 @@
 import unitless from '@emotion/unitless'
-import { LengthPropertySet } from '@src/constant/css-properties.const.js'
+import CSSPropertySet, { LengthPropertySet } from '@src/constant/css-properties.const.js'
 import { declarationPropertyAt, toStyleKey } from '@src/util/theme-key.util.js'
 
 /**
@@ -86,6 +86,19 @@ export const CSS_TEXT: unique symbol = Symbol('meonode.cssText')
  */
 export type TokenContext = string | undefined | typeof CSS_TEXT
 
+/** The key of a node's `css` prop, which holds CSS text or a style, never a property's value. */
+const CSS_PROP_KEY = 'css'
+
+/**
+ * Whether a string written against `context` is CSS text, whose braces open
+ * blocks: CSS text standing alone ({@link CSS_TEXT}), or a string under the key
+ * of a node's `css` prop, as `{ css }` holds one. Any other string is a
+ * property's value, where a brace is part of the value.
+ * @param context What the string was written against.
+ * @returns `true` when a brace in the string opens a block.
+ */
+export const isCssTextContext = (context: TokenContext): boolean => context === CSS_TEXT || context === CSS_PROP_KEY
+
 /**
  * The reference that replaces a theme token: the length form when the property
  * the token is written against takes a length, the plain variable otherwise.
@@ -160,17 +173,24 @@ export const valueContext = (key: string, serialized: boolean): TokenContext =>
   serialized && key === 'styles' ? CSS_TEXT : isSelectorOrAtRule(key) ? undefined : key
 
 /**
- * Whether `value` under `key` is a fallback list of a length property: an array
- * Emotion writes as one declaration of that property per item, so each item is a
- * value of the property and a token in it needs the length form.
+ * Whether `key` names a CSS property: a custom property, or one Emotion writes
+ * as a declaration of its own name. MeoNode's wrapper key `css`, as in
+ * `{ css: [flatCssProps, css] }`, names none.
+ * @param key The object key.
+ * @returns `true` when `key` is a property name.
+ */
+const isPropertyName = (key: string): boolean => key.startsWith('--') || CSSPropertySet.has(toStyleKey(key))
+
+/**
+ * Whether `value` under `key` is a fallback list of that property: an array
+ * Emotion writes as one declaration of the property per item, so each item is a
+ * value of the property and a token in it takes the property's form.
  *
  * Every other array is walked as CSS text and style objects, as a `css` array
- * is. That reads a fallback list of any other property the same way, since a
- * bare token there takes the plain variable either way, and it keeps a wrapper
- * key such as `css` in `{ css: [flatCssProps, css] }` from being taken for a
- * property its CSS text would then be written against.
+ * is, which keeps a wrapper key such as `css` in `{ css: [flatCssProps, css] }`
+ * from being taken for a property its CSS text would then be written against.
  * @param key The object key.
  * @param value The value under it.
- * @returns `true` when the items are values of the length property `key` names.
+ * @returns `true` when the items are values of the property `key` names.
  */
-export const isLengthFallbackList = (key: string, value: unknown): value is unknown[] => Array.isArray(value) && isLengthProperty(key)
+export const isFallbackList = (key: string, value: unknown): value is unknown[] => Array.isArray(value) && isPropertyName(key)

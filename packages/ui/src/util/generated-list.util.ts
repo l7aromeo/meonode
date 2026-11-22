@@ -11,11 +11,15 @@ import { NodeUtil } from '@src/util/node.util.js'
  * source can say whether `children` was written out or generated, and without
  * the compiler nobody reads the source. A call site can still be watched: an
  * array written in the source has the same length every time it is evaluated
- * (`[A(), cond && B()]` is always 2), so one call site handing over unkeyed
- * arrays of different lengths is producing them at runtime.
+ * (`[A(), cond && B()]` is always 2), so one call site handing over arrays
+ * whose length and number of unkeyed members both change is producing unkeyed
+ * rows at runtime.
  *
- * Only the length is observed, before anything filters or collapses it, and
- * nothing here changes what reaches React: this is one console line.
+ * The unkeyed members are counted as well as the list: children written out
+ * beside a keyed list spread in (`[h, ...rows, f]`) lack keys but never change
+ * in number, and the rows that do change have keys. Only the counts are
+ * observed, before anything filters or collapses the list, and nothing here
+ * changes what reaches React: this is one console line.
  *
  * A call site is identified by the frames above `Node` when it runs. More
  * frames only ever split a call site into finer ones, which can hide a list
@@ -27,9 +31,9 @@ import { NodeUtil } from '@src/util/node.util.js'
  * Reading the stack costs microseconds, so most calls skip it. Calls are first
  * grouped by what can be read off the call itself: the element, the type of
  * its first unkeyed child, and how many props it was given. While every call
- * in a group hands over the same length, none of its call sites can have
- * changed length, and the stack is only read for the first call of the group.
- * Once a group has seen two lengths, every call in it is identified.
+ * in a group hands over the same count, none of its call sites can have
+ * changed it, and the stack is only read for the first call of the group.
+ * Once a group has seen two counts, every call in it is identified.
  */
 
 /**
@@ -47,15 +51,19 @@ const CALL_SITE_FRAMES = 8
  */
 const MAX_CALL_SITES = 2000
 
-/** Call site → the length first seen there. */
-let lengths = new Map<string, number>()
-/** Marks a group that has seen two lengths, in place of the length. */
+/** What one call of a call site handed over: the list's length and how many of its members have no key. */
+type Seen = readonly [length: number, unkeyed: number]
+/** Call site → what it handed over first. */
+let lengths = new Map<string, Seen>()
+/** Marks a group that has seen two counts, in place of the count. */
 const MIXED = -1
-/** Element → first unkeyed child's type → prop count → the group's length, or {@link MIXED}. */
+/** Element → first unkeyed child's type → prop count → the group's unkeyed count, or {@link MIXED}. */
 let groups = new Map<unknown, Map<unknown, number[]>>()
 let groupCount = 0
 /** Call sites already reported, so each warns once per process. */
 const reported = new Set<string>()
+/** Call sites of marked lists whose note beside React's warning was logged, as {@link noteOnce} names them. */
+const noted = new Set<unknown>()
 
 /**
  * Nodes and elements already seen in a list at the call site that wrote it. A
@@ -102,9 +110,9 @@ function unkeyedType(child: unknown): unknown {
 
 /**
  * Whether this call has to be identified by its stack: the first call of its
- * group, or any call of a group that has seen two lengths.
+ * group, or any call of a group that has seen two unkeyed counts.
  */
-function needsCallSite(element: unknown, rowType: unknown, propCount: number, length: number): boolean {
+function needsCallSite(element: unknown, rowType: unknown, propCount: number, unkeyed: number): boolean {
   let byRowType = groups.get(element)
   if (!byRowType) {
     if (groupCount >= MAX_CALL_SITES) {
@@ -121,11 +129,11 @@ function needsCallSite(element: unknown, rowType: unknown, propCount: number, le
   }
   const seen = byPropCount[propCount]
   if (seen === undefined) {
-    byPropCount[propCount] = length
+    byPropCount[propCount] = unkeyed
     groupCount++
     return true
   }
-  if (seen === length) return false
+  if (seen === unkeyed) return false
   byPropCount[propCount] = MIXED
   return true
 }
@@ -268,6 +276,7 @@ export function observeChildren(element: unknown, props: Record<string, unknown>
   if (COMPILED_MARKER in props || LIST_MARKER in props) return
 
   let rowType: unknown
+  let unkeyed = 0
   for (const child of children) {
     // A member that already belonged to another list makes this a copy of that
     // list, re-wrapped by whoever received it (`[...children, Footer()]`). Its
@@ -282,40 +291,65 @@ export function observeChildren(element: unknown, props: Record<string, unknown>
       if (claimed.has(child)) return
       if ((child as { _store?: { validated?: unknown } })._store?.validated && !NodeUtil.isMarkedByNode(child)) return
     }
-    rowType ??= unkeyedType(child)
+    const type = unkeyedType(child)
+    if (type === undefined) continue
+    unkeyed++
+    rowType ??= type
   }
   claim(children)
   if (rowType === undefined) return
-  if (!needsCallSite(element, rowType, propCount, children.length)) return
+  if (!needsCallSite(element, rowType, propCount, unkeyed)) return
 
   const key = callSiteKey(caller)
   const first = lengths.get(key)
   if (first === undefined) {
     if (lengths.size >= MAX_CALL_SITES) lengths = new Map()
-    lengths.set(key, children.length)
+    lengths.set(key, [children.length, unkeyed])
     return
   }
-  if (first === children.length || reported.has(key)) return
+  // Both change for a generated list of unkeyed rows. A written-out array keeps
+  // its length even when a member's key comes and goes.
+  if (first[0] === children.length || first[1] === unkeyed || reported.has(key)) return
   if (reported.size >= MAX_CALL_SITES) reported.clear()
   reported.add(key)
 
   console.warn(
-    `[MeoNode] A \`children\` list without keys came from one call site with ${first}, then ${children.length} items, so it is generated at runtime rather than written out. ` +
+    `[MeoNode] A \`children\` list without keys came from one call site with ${first[0]}, then ${children.length} items, so it is generated at runtime rather than written out. ` +
       'MeoNode hands children to React as separate arguments, so React does not report it; the rows are matched by position and keep the wrong state when the list changes. ' +
       'Give each item a `key`, build the list with `For`, or add @meonode/compiler. The call site:',
     callSiteError(caller),
   )
 }
 
+/**
+ * Whether the note beside React's missing-key warning for a marked list is
+ * still to be logged at this call site, recording it as logged. React logs its
+ * own warning once, so the note is logged once too. A call site is named by
+ * the location the compiler recorded, else by the compiler's call-site key,
+ * else by the element it renders, which is as coarse as React's own once per
+ * parent.
+ * @param location The call site's `__meo$loc`, if the plugin recorded one.
+ * @param siteKey The call site's compiled key, if its marker carries one.
+ * @param element The element the call site renders.
+ */
+export function noteOnce(location: unknown, siteKey: unknown, element: unknown): boolean {
+  const site = typeof location === 'string' ? `loc:${location}` : typeof siteKey === 'string' ? `key:${siteKey}` : element
+  if (noted.has(site)) return false
+  if (noted.size >= MAX_CALL_SITES) noted.clear()
+  noted.add(site)
+  return true
+}
+
 /** How many call sites are remembered and reported, for tests. */
-export function __generatedListState(): { callSites: number; groups: number; reported: number } {
-  return { callSites: lengths.size, groups: groupCount, reported: reported.size }
+export function __generatedListState(): { callSites: number; groups: number; reported: number; noted: number } {
+  return { callSites: lengths.size, groups: groupCount, reported: reported.size, noted: noted.size }
 }
 
 /** Forgets every call site and array seen, for tests. */
 export function __resetGeneratedListReport(): void {
   lengths = new Map()
   reported.clear()
+  noted.clear()
   claimed = new WeakSet()
   groups = new Map()
   groupCount = 0

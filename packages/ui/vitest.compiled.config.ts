@@ -6,15 +6,30 @@ import baseConfig from './vitest.config'
 
 const rootDir = path.dirname(fileURLToPath(import.meta.url))
 
+/** The package specifier an app imports each entry of the sources by. */
+const ENTRY_SPECIFIERS = { main: '@meonode/ui', client: '@meonode/ui/client' } as const
+
+/** An import of an entry by its `@src` path, as the tests write it. */
+const ENTRY_IMPORT = /(\bfrom\s*)(['"])@src\/(main|client)\.js\2/g
+
+/** Names a wasm build to compile with instead of the ones found below. */
+const WASM_ENV = 'MEONODE_COMPILER_WASM'
+
 /**
  * Where to find the compiler's wasm artifact.
  *
- * Prefers the published package, falls back to a sibling checkout so the
- * compiler can be exercised before release. Resolved lazily and reported
- * clearly, because a silently-missing plugin would make this whole config a
- * no-op that reports "all compiled tests pass" while compiling nothing.
+ * `MEONODE_COMPILER_WASM` names one build explicitly. Otherwise prefers the
+ * published package, falls back to a sibling checkout so the compiler can be
+ * exercised before release. Resolved lazily and reported clearly, because a
+ * silently-missing plugin would make this whole config a no-op that reports
+ * "all compiled tests pass" while compiling nothing.
  */
 function resolveWasm(): string {
+  const named = process.env[WASM_ENV]
+  if (named) {
+    if (!existsSync(named)) throw new Error(`${WASM_ENV} names a wasm that does not exist: ${named}`)
+    return named
+  }
   const candidates = [
     path.resolve(rootDir, 'node_modules/@meonode/compiler/meonode_swc_plugin.wasm'),
     path.resolve(rootDir, '../compiler/npm/meonode_swc_plugin.wasm'),
@@ -34,6 +49,11 @@ function resolveWasm(): string {
  * Both are transformed on purpose. Compiling only `src` would leave the tests
  * constructing nodes the uncompiled way, which is the shape already covered.
  * The point is to exercise the marker contract through the same assertions.
+ *
+ * The tests import the factories from `@src/main.js` and `@src/client.js`. The
+ * plugin compiles them as an app's code is compiled: those imports are given
+ * the package specifiers an app imports them by, with the plugin's default
+ * options, and the specifiers resolve back to the sources under test.
  */
 function meonodeCompilerPlugin(): Plugin {
   const wasm = resolveWasm()
@@ -49,18 +69,21 @@ function meonodeCompilerPlugin(): Plugin {
       // Cheap prefilter: only files that actually construct nodes can compile.
       if (!code.includes('@meonode/ui') && !code.includes('@src/main.js')) return null
 
+      const source = code.replace(
+        ENTRY_IMPORT,
+        (_, from: string, quote: string, entry: keyof typeof ENTRY_SPECIFIERS) => `${from}${quote}${ENTRY_SPECIFIERS[entry]}${quote}`,
+      )
       const { transform } = await import('@swc/core')
-      const result = await transform(code, {
+      const result = await transform(source, {
         filename: id,
         sourceMaps: true,
         jsc: {
           target: 'es2022',
           parser: { syntax: 'typescript', tsx: id.endsWith('.tsx') },
           experimental: {
-            // The suite imports factories from `@src/main.js`, not the literal
-            // `@meonode/ui` specifier the plugin traces by default, so those
-            // modules have to be named explicitly or almost nothing compiles.
-            plugins: [[wasm, { factoryModules: ['@src/main.js', '@src/client.js', '@meonode/ui'] }]],
+            // No `factoryModules`: it would compile the package's own factories
+            // as a wrapper library's, props first, which no app gets.
+            plugins: [[wasm, {}]],
           },
         },
       })
@@ -83,10 +106,23 @@ export default mergeConfig(
   baseConfig,
   defineConfig({
     plugins: [meonodeCompilerPlugin()],
+    resolve: {
+      // An array here, not in `test.alias`: mergeConfig would concatenate an
+      // array with the base config's object alias and leave an entry with no
+      // `find`, which fails every import.
+      alias: Object.entries(ENTRY_SPECIFIERS).map(([entry, specifier]) => ({
+        find: new RegExp(`^${specifier.replace('/', '\\/')}$`),
+        replacement: path.resolve(rootDir, `src/${entry}.ts`),
+      })),
+    },
     test: {
       // The compiler rewrites `@meonode/ui` factory calls; aliasing `@src`
       // means the library's own sources compile too, not just the tests.
       alias: { '@src': path.resolve(rootDir, 'src') },
+      // Vitest's module cache keys a transform by the file's source and the
+      // config, not by the wasm the config loads, so after a rebuild it would
+      // replay what the previous build compiled (#154).
+      fsModuleCache: false,
       // Lets a test tell which mode it is running under. A few assertions are
       // legitimately mode-specific: uncompiled keys are derived from props, so
       // structurally identical nodes share one, while compiled keys come from

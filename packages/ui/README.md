@@ -320,7 +320,8 @@ There are two levels of diagnostics, and only the second needs a flag.
 - the two other shapes that emit invalid CSS: a number written as a string (`padding: '12'`, which Emotion will not add
   `px` to) and a unitless length in a media query
 - a generated list whose children have no `key`. React reports the missing key itself; this names the call site it came
-  from, which React's own message cannot (needs `@meonode/compiler` with `callSiteLocations`)
+  from, which React's own message cannot (needs `@meonode/compiler` with `callSiteLocations`). Like React's warning, it
+  is logged once per call site
 - an error thrown inside a function-as-a-child, which is otherwise swallowed and leaves the element missing with
   nothing printed
 - `For()` given a list where every item is a fresh object, so reference identity cannot match renders and every row
