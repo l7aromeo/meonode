@@ -11,12 +11,15 @@ import createCache from '@emotion/cache'
 import { serializeStyles } from '@emotion/serialize'
 import { createElement, type ReactElement } from 'react'
 import { renderToString } from 'react-dom/server'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Div, Node, Span, type NodeInstance } from '@src/main.js'
 import { ThemeUtil } from '@src/util/theme.util.js'
 import { nameStyles } from '@src/util/style-name.util.js'
 import { __resetStaticCss, registerStaticCss } from '@src/util/static-css.util.js'
 import { templated } from './_template.js'
+import { styledRenders } from './_styled-renders.js'
+
+vi.mock('@src/components/styled-renderer.client.js', async original => (await import('./_styled-renders.js')).countingStyledRenderer(original as never))
 
 /** Renders `make`'s element from a component, where an app's walk runs and reads its cache. */
 const inRender = (make: () => ReactElement): ReactElement =>
@@ -131,8 +134,12 @@ describe.each([
   ['under a cache provider', true],
 ])('a server render %s', (_, provider) => {
   it.each(Object.entries(CASES))('%s', (_, tree) => {
+    styledRenders()
     const expected = render(tree, runtimeStyle, provider)
+    const runtimeRenders = styledRenders()
     expect(expected.rules.length).toBeGreaterThan(0)
     expect(render(tree, compiledStyle, provider)).toEqual(expected)
+    // The compiled tree's named nodes took the named path.
+    expect(styledRenders()).toBeLessThan(runtimeRenders)
   })
 })

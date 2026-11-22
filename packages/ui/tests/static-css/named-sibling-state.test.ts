@@ -20,6 +20,9 @@ import { Button, Div, Node, Span, type NodeInstance } from '@src/main.js'
 import { ThemeUtil } from '@src/util/theme.util.js'
 import { nameStyles } from '@src/util/style-name.util.js'
 import { __resetStaticCss, registerStaticCss } from '@src/util/static-css.util.js'
+import { styledRenders } from './_styled-renders.js'
+
+vi.mock('@src/components/styled-renderer.client.js', async original => (await import('./_styled-renders.js')).countingStyledRenderer(original as never))
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -195,10 +198,14 @@ describe.skipIf(process.env.MEONODE_COMPILED === '1').each([
     ['with it out at first', false],
   ] as const)('%s', (__, initially) => {
     it.each(Object.entries(CASES))('%s', (___, testCase) => {
+      styledRenders()
       const expected = run(testCase, false, keyed, initially)
+      const runtimeRenders = styledRenders()
       expect(expected.keyWarnings).toBe(0)
       expect(expected.steps.at(-1)!.rules.length).toBeGreaterThan(0)
       expect(run(testCase, true, keyed, initially)).toEqual(expected)
+      // The compiled tree's named nodes took the named path.
+      expect(styledRenders()).toBeLessThan(runtimeRenders)
     })
   })
 })

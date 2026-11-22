@@ -11,11 +11,14 @@ import createCache from '@emotion/cache'
 import { serializeStyles } from '@emotion/serialize'
 import { act, createElement, useState, type ReactElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Div, Node, Span, type NodeInstance } from '@src/main.js'
 import { ThemeUtil } from '@src/util/theme.util.js'
 import { nameStyles } from '@src/util/style-name.util.js'
 import { __resetStaticCss, registerStaticCss } from '@src/util/static-css.util.js'
+import { styledRenders } from './_styled-renders.js'
+
+vi.mock('@src/components/styled-renderer.client.js', async original => (await import('./_styled-renders.js')).countingStyledRenderer(original as never))
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -219,9 +222,13 @@ afterEach(() => {
 
 describe('compiled nodes carrying their style’s name go into Emotion’s sheet as their css would', () => {
   it.each(Object.entries(CASES))('%s', (_, steps) => {
+    styledRenders()
     const expected = run(steps, runtimeStyle)
+    const runtimeRenders = styledRenders()
     expect(expected.rules.length).toBeGreaterThan(0)
     expect(run(steps, compiledStyle)).toEqual(expected)
+    // The compiled tree's named nodes took the named path.
+    expect(styledRenders()).toBeLessThan(runtimeRenders)
   })
 })
 
