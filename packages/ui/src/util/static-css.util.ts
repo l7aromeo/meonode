@@ -1,4 +1,4 @@
-import { isDevMode } from '@src/constant/common.const.js'
+import { isDevMode, RUNTIME_PRECEDENCE } from '@src/constant/common.const.js'
 import { getGlobalState } from '@src/helper/common.helper.js'
 
 /**
@@ -204,9 +204,10 @@ function placementOf(sheet: EmotionSheetPlacement | undefined, container: Node):
 /**
  * The static sheets of a cache's container, placed for that cache.
  *
- * In the document head of a page the server rendered, each bucket's sheet goes
- * right after the server's styles of that bucket, so the server's rules and the
- * browser's keep one bucket order. Otherwise the four go together right before
+ * In the document head of a page the server rendered, the server's styles for
+ * the buckets first move to where the cache's rules are, and each bucket's sheet
+ * goes right after the server's styles of that bucket, so the server's rules and
+ * the browser's keep one bucket order. Otherwise the four go together right before
  * the cache's first tag, or, while it has none, where it will put it; then, for a
  * cache that places its first tag by `prepend` or `insertionPoint`, its
  * `insertionPoint` is set to the last static sheet, so its tags follow them.
@@ -230,7 +231,10 @@ function targetFor(sheet: EmotionSheetPlacement | undefined): StaticTarget {
       ? Array.from({ length: STATIC_CSS_BUCKETS }, (_, bucket) => head.querySelectorAll(`style[data-precedence="${staticPrecedence(bucket)}"]`))
       : undefined
   const afterServer = serverGroups?.some(group => group.length > 0) ?? false
-  const before = placementOf(sheet, container)
+  // Before MeoNode's runtime rules wherever they come first: the cache's, or
+  // those React hoisted for server components.
+  const before = earlier(placementOf(sheet, container), container === head ? head.querySelector(`style[data-precedence="${RUNTIME_PRECEDENCE}"]`) : null)
+  if (afterServer && !known) placeServerGroups(serverGroups!, container, before)
 
   if (known) {
     // Placed for another cache: kept when this one needs them where they are.
@@ -258,6 +262,29 @@ function targetFor(sheet: EmotionSheetPlacement | undefined): StaticTarget {
   if (known) insertInto(target, [...known.inserted])
   claimInsertionPoint(sheet, target)
   return target
+}
+
+/** Of two places to insert before, the one earlier in the document; `null` is the end. */
+function earlier(a: Node | null, b: Node | null): Node | null {
+  if (a === null) return b
+  if (b === null) return a
+  return a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_PRECEDING ? b : a
+}
+
+/**
+ * Moves the styles the server hoisted for the static buckets, in bucket order,
+ * to right before `before`: where MeoNode's runtime rules are once the page
+ * hydrates, the cache's or those React hoisted for server components.
+ * The page's own stylesheets can come between the two in the server's head, and
+ * a cache that prepends moves its server styles to the head's start on
+ * hydration, so without this a tie between a static rule and the page's would
+ * go the other way from the same rule in Emotion's sheet.
+ */
+function placeServerGroups(groups: readonly NodeListOf<Element>[], container: Node, before: Node | null): void {
+  const own = new Set<Node>(groups.flatMap(group => [...group]))
+  let anchor = before
+  while (anchor && own.has(anchor)) anchor = anchor.nextSibling
+  for (const group of groups) for (const element of group) container.insertBefore(element, anchor)
 }
 
 /** Makes a cache with no tags yet put its first one after the static sheets, when it places it by `prepend` or `insertionPoint`. */

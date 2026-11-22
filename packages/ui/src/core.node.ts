@@ -30,7 +30,15 @@ import { isFragment, isValidElementType, REACT_LAZY_TYPE } from '@src/helper/rea
 import { getComponentType, getElementTypeName, hasNoStyleTag, getGlobalState, omitUndefined } from '@src/helper/common.helper.js'
 import StyledRenderer, { ThemedRule, ThemeTokenCheck } from '@src/components/styled-renderer.client.js'
 import MeoMemo from '@src/components/meo-memo.client.js'
-import { INITIAL_PROPS_MARKER, isDevMode, LIST_MARKER, LOCATION_MARKER, STATIC_CLASSES_MARKER, STATIC_VARS_MARKER } from '@src/constant/common.const.js'
+import {
+  INITIAL_PROPS_MARKER,
+  isDevMode,
+  LIST_MARKER,
+  LOCATION_MARKER,
+  RUNTIME_PRECEDENCE,
+  STATIC_CLASSES_MARKER,
+  STATIC_VARS_MARKER,
+} from '@src/constant/common.const.js'
 import { checkCss, checkFactoryCss, isMergeableCss, markCombinedCssChecked } from '@src/util/css.util.js'
 import { NodeUtil } from '@src/util/node.util.js'
 import { IS_REACT_SERVER_LAYER } from '@src/util/react-layer.util.js'
@@ -133,7 +141,7 @@ function ruleElement(rule: { id: string; ownClassName: string; cssText: string }
   const elements = requestRuleElements()
   let element = elements.get(rule.id)
   if (!element) {
-    element = createElement('style', { key: rule.ownClassName, href: rule.ownClassName, precedence: 'meonode' }, rule.cssText)
+    element = createElement('style', { key: rule.ownClassName, href: rule.ownClassName, precedence: RUNTIME_PRECEDENCE }, rule.cssText)
     elements.set(rule.id, element)
   }
   return element
