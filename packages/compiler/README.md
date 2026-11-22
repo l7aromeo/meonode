@@ -560,7 +560,13 @@ was, and the runtime handles it as before.
   `:read-only` and `:read-write` rules get Emotion's vendor copies. A property is never split between a build-time rule
   and a runtime one on the same node. Shapes whose result depends on declaration
   order stay on the runtime path: `padding` beside `paddingTop`, and one property
-  under two pseudo-classes or two media queries. Which properties overlap comes
+  under two pseudo-classes or two media queries of equal specificity.
+  Build-time rules are ordered base, then pseudo-classes and pseudo-elements,
+  then at-rules, so one property under `&:hover` and then under `@media` is
+  extracted when that is the order Emotion writes the node's rules in (an
+  object's own declarations first, then its nested objects), and kept on the
+  runtime path in the opposite order. `&:hover` beside `&:hover:focus` is
+  extracted in either order, since specificity decides. Which properties overlap comes
   from the CSS specifications' shorthand and logical property tables (through
   `@webref/css`), so `border` beside `borderRadius` is extracted, while `border`
   beside `borderColor`, or `marginBottom` beside `marginInline`, is not.

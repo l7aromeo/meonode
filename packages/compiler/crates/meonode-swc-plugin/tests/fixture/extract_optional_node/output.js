@@ -1,6 +1,6 @@
 import { registerStaticCss as __meoCss } from "@meonode/ui";
 import { Div } from "@meonode/ui";
-__meoCss("3qw1dawh43wn3", [
+__meoCss("31w2hzj3je8nh", [
     [
         0,
         "mn-2qn1mhrn05kv2",
@@ -50,6 +50,16 @@ __meoCss("3qw1dawh43wn3", [
         0,
         "mn-36ua9zx9jya6w",
         ".mn-36ua9zx9jya6w{margin:4px;}"
+    ],
+    [
+        1,
+        "mn-0apew9ru4aw4m",
+        ".mn-0apew9ru4aw4m::-webkit-input-placeholder{color:gray;}.mn-0apew9ru4aw4m::-moz-placeholder{color:gray;}.mn-0apew9ru4aw4m:-ms-input-placeholder{color:gray;}.mn-0apew9ru4aw4m::placeholder{color:gray;}"
+    ],
+    [
+        2,
+        "mn-2dkx0503h7lq2",
+        "@media (min-width: 600px){.mn-2dkx0503h7lq2::-webkit-input-placeholder{color:silver;}.mn-2dkx0503h7lq2::-moz-placeholder{color:silver;}.mn-2dkx0503h7lq2:-ms-input-placeholder{color:silver;}.mn-2dkx0503h7lq2::placeholder{color:silver;}}"
     ]
 ]);
 Div({
@@ -221,17 +231,6 @@ Div({
 });
 Div({
     __meo$: 2,
-    __meo$s: "mn-36ua9zx9jya6w",
-    __meo$k: "m20qewglmica0w",
-    __meo$dyn: [
-        "css"
-    ],
-    css: {
-        "&::placeholder": {
-            color: "gray",
-            "@media (min-width: 600px)": {
-                color: "silver"
-            }
-        }
-    }
+    __meo$s: "mn-36ua9zx9jya6w mn-0apew9ru4aw4m mn-2dkx0503h7lq2 mn-0e47bwo0vm4o6 mn-35l163g1tjy26 mn-0zzfi4vug0nqv",
+    __meo$k: "m20qewglmica0w"
 });

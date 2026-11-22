@@ -775,6 +775,12 @@ impl Context {
         self.at_rules.is_empty() && self.selector.is_empty()
     }
 
+    /// What the context's selector adds to the node class's specificity, or
+    /// `None` when [`suffix_specificity`] cannot tell.
+    fn specificity(&self) -> Option<Specificity> {
+        suffix_specificity(&self.selector)
+    }
+
     fn bucket(&self) -> u8 {
         if !self.at_rules.is_empty() {
             BUCKET_AT_RULE
@@ -818,6 +824,10 @@ struct Declaration {
     context: Context,
     /// Keys from the top of the merged css to the object holding it.
     path: Vec<String>,
+    /// Where Emotion writes its rule: the holding object's place in a
+    /// pre-order walk of the merged css. stylis writes an object's own
+    /// declarations as one rule, then its nested objects in source order.
+    rule: usize,
     key: String,
     property: String,
     route: Route,
@@ -908,6 +918,166 @@ fn pseudo_suffix(rest: &str) -> Option<String> {
     (depth == 0).then(|| rest.to_string())
 }
 
+/// A selector's specificity: ids, then classes, attributes and
+/// pseudo-classes, then types and pseudo-elements (Selectors 4).
+type Specificity = [u32; 3];
+
+/// Pseudo-elements also written with one colon.
+const LEGACY_PSEUDO_ELEMENTS: &[&str] = &["before", "after", "first-line", "first-letter"];
+
+/// Functional pseudo-classes taking a selector list, which count as their most
+/// specific argument.
+const LIST_PSEUDOS: &[&str] = &["is", "not", "has", "matches"];
+
+/// Functional pseudo-classes taking no selector, which count as one pseudo-class.
+const VALUE_PSEUDOS: &[&str] = &[
+    "nth-child",
+    "nth-last-child",
+    "nth-of-type",
+    "nth-last-of-type",
+    "lang",
+    "dir",
+    "state",
+];
+
+fn add(x: Specificity, y: Specificity) -> Specificity {
+    [x[0] + y[0], x[1] + y[1], x[2] + y[2]]
+}
+
+/// The specificity of a run of pseudo selectors ([`pseudo_suffix`]), or `None`
+/// for a form it does not know: a functional pseudo-element, a vendor
+/// pseudo-class with an argument, `:nth-child(… of S)`.
+fn suffix_specificity(suffix: &str) -> Option<Specificity> {
+    let mut total = [0, 0, 0];
+    let mut rest = suffix;
+    while !rest.is_empty() {
+        let colons = rest.len() - rest.trim_start_matches(':').len();
+        rest = &rest[colons..];
+        let end = rest.find([':', '(']).unwrap_or(rest.len());
+        let name = rest[..end].to_ascii_lowercase();
+        rest = &rest[end..];
+        let argument = if rest.starts_with('(') {
+            let close = matching_paren(rest)?;
+            let inner = &rest[1..close];
+            rest = &rest[close + 1..];
+            Some(inner)
+        } else {
+            None
+        };
+        if name.is_empty() {
+            return None;
+        }
+        let own = match (colons, argument) {
+            (2, None) => [0, 0, 1],
+            (1, None) if LEGACY_PSEUDO_ELEMENTS.contains(&name.as_str()) => [0, 0, 1],
+            (1, None) => [0, 1, 0],
+            (1, Some(_)) if name == "where" => [0, 0, 0],
+            (1, Some(list)) if LIST_PSEUDOS.contains(&name.as_str()) => list_specificity(list)?,
+            (1, Some(argument))
+                if VALUE_PSEUDOS.contains(&name.as_str())
+                    && !argument.split_ascii_whitespace().any(|w| w == "of") =>
+            {
+                [0, 1, 0]
+            }
+            _ => return None,
+        };
+        total = add(total, own);
+    }
+    Some(total)
+}
+
+/// The index of the parenthesis closing the one `text` starts with.
+fn matching_paren(text: &str) -> Option<usize> {
+    let mut depth = 0;
+    for (i, ch) in text.char_indices() {
+        match ch {
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(i);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// The most specific item of a selector list, each item a complex selector of
+/// type, universal, class, id, attribute and pseudo selectors.
+fn list_specificity(list: &str) -> Option<Specificity> {
+    let mut best: Option<Specificity> = None;
+    let mut depth = 0;
+    let mut start = 0;
+    let mut items = Vec::new();
+    for (i, ch) in list.char_indices() {
+        match ch {
+            '(' | '[' => depth += 1,
+            ')' | ']' => depth -= 1,
+            ',' if depth == 0 => {
+                items.push(&list[start..i]);
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    items.push(&list[start..]);
+    for item in items {
+        let s = complex_specificity(item.trim())?;
+        best = Some(best.map_or(s, |b| b.max(s)));
+    }
+    best
+}
+
+/// One complex selector's specificity, or `None` for a form it does not know.
+fn complex_specificity(item: &str) -> Option<Specificity> {
+    if item.is_empty() {
+        return None;
+    }
+    let mut total = [0, 0, 0];
+    let mut rest = item;
+    while let Some(ch) = rest.chars().next() {
+        let ident_end = |text: &str| {
+            text.find(|c: char| !(c.is_ascii_alphanumeric() || c == '-' || c == '_'))
+                .unwrap_or(text.len())
+        };
+        match ch {
+            ' ' | '>' | '+' | '~' => rest = &rest[1..],
+            '*' => rest = &rest[1..],
+            '.' | '#' => {
+                let end = 1 + ident_end(&rest[1..]);
+                if end == 1 {
+                    return None;
+                }
+                total = add(total, if ch == '#' { [1, 0, 0] } else { [0, 1, 0] });
+                rest = &rest[end..];
+            }
+            '[' => {
+                let close = rest.find(']')?;
+                total = add(total, [0, 1, 0]);
+                rest = &rest[close + 1..];
+            }
+            ':' => {
+                let colons = rest.len() - rest.trim_start_matches(':').len();
+                let mut end = colons + ident_end(&rest[colons..]);
+                if rest[end..].starts_with('(') {
+                    end += matching_paren(&rest[end..])? + 1;
+                }
+                total = add(total, suffix_specificity(&rest[..end])?);
+                rest = &rest[end..];
+            }
+            c if c.is_ascii_alphabetic() => {
+                let end = ident_end(rest);
+                total = add(total, [0, 0, 1]);
+                rest = &rest[end..];
+            }
+            _ => return None,
+        }
+    }
+    Some(total)
+}
+
 /// Whether the static path writes at-rule `key`: `@media`, `@supports` or
 /// `@container`, with no theme token in its prelude (the runtime resolves
 /// those). Its text is written as stylis writes it ([`selector::Rule::at_rule`]).
@@ -982,6 +1152,8 @@ struct Model {
     /// Nested selector and at-rule objects with no entries, as path and key:
     /// they write nothing, and are dropped from the runtime's css with the rest.
     empty: Vec<(Vec<String>, String)>,
+    /// Objects walked so far, numbering each declaration's rule.
+    rules: usize,
 }
 
 impl ModuleScope {
@@ -992,6 +1164,7 @@ impl ModuleScope {
             keys: entries.iter().map(|(k, _)| k.clone()).collect(),
             base_values: HashMap::new(),
             empty: Vec::new(),
+            rules: 0,
         };
         self.collect_object(
             &entries,
@@ -1013,6 +1186,8 @@ impl ModuleScope {
         path: &[String],
         model: &mut Model,
     ) -> Option<()> {
+        let rule = model.rules;
+        model.rules += 1;
         for (key, value) in entries {
             if RESERVED_STYLE_KEYS.contains(&key.as_str()) {
                 return explain::bail("a reserved style key");
@@ -1093,6 +1268,7 @@ impl ModuleScope {
                 model.declarations.push(Declaration {
                     context: context.clone(),
                     path: path.to_vec(),
+                    rule,
                     key: key.clone(),
                     property: property_name(key),
                     route,
@@ -1299,6 +1475,22 @@ impl Block {
 // ---------------------------------------------------------------------------
 // Deciding what is extracted
 
+/// Whether two declarations in different nested contexts keep Emotion's
+/// winner as atomic rules, whose order is their buckets' and, within one
+/// bucket, wherever each rule was first inserted. Different specificities
+/// decide alike in both; equal ones are decided by order, which atomic rules
+/// keep only when the node's own rule order is already the buckets' order.
+/// An unknown specificity counts as equal.
+fn kept_in_order(a: &Declaration, b: &Declaration) -> bool {
+    if let (Some(x), Some(y)) = (a.context.specificity(), b.context.specificity())
+        && x != y
+    {
+        return true;
+    }
+    let (first, second) = if a.rule < b.rule { (a, b) } else { (b, a) };
+    first.context.bucket() < second.context.bucket()
+}
+
 /// Moves declarations to the runtime path until every rule in the module docs
 /// holds. Returns whether anything is left on the runtime path.
 fn settle(model: &mut Model) -> bool {
@@ -1330,7 +1522,7 @@ fn settle(model: &mut Model) -> bool {
                 } else if b.route.is_static_path() {
                     let same_context = a.context == b.context;
                     let both_nested = !a.context.is_base() && !b.context.is_base();
-                    if same_context || both_nested {
+                    if same_context || (both_nested && !kept_in_order(a, b)) {
                         // Order-dependent: atomic rules cannot keep it.
                         explain::note(if same_context {
                             "overlapping properties in one context"
@@ -2422,6 +2614,60 @@ mod tests {
     }
 
     #[test]
+    fn computes_the_specificity_a_pseudo_suffix_adds() {
+        // Expected values from @bramus/specificity on `.N` plus the suffix,
+        // less the node class.
+        for (suffix, expected) in [
+            ("", [0, 0, 0]),
+            (":hover", [0, 1, 0]),
+            ("::before", [0, 0, 1]),
+            (":before", [0, 0, 1]),
+            (":after", [0, 0, 1]),
+            (":first-line", [0, 0, 1]),
+            (":first-letter", [0, 0, 1]),
+            ("::placeholder", [0, 0, 1]),
+            (":hover:focus", [0, 2, 0]),
+            (":hover::before", [0, 1, 1]),
+            (":where(.x)", [0, 0, 0]),
+            (":where(#a, .b)", [0, 0, 0]),
+            (":is(#a, .b)", [1, 0, 0]),
+            (":not(.a)", [0, 1, 0]),
+            (":not(.a, #b)", [1, 0, 0]),
+            (":not(:last-child)", [0, 1, 0]),
+            (":not(p)", [0, 0, 1]),
+            (":not(*)", [0, 0, 0]),
+            (":has(> img)", [0, 0, 1]),
+            (":has(+ .a)", [0, 1, 0]),
+            (":is(.a .b, p)", [0, 2, 0]),
+            (":is([data-x])", [0, 1, 0]),
+            (":nth-child(2n+1)", [0, 1, 0]),
+            (":nth-last-of-type(2)", [0, 1, 0]),
+            (":lang(en)", [0, 1, 0]),
+            (":dir(rtl)", [0, 1, 0]),
+            (":state(checked)", [0, 1, 0]),
+            (":not(:hover:focus)", [0, 2, 0]),
+            (":is(:where(.a), .b)", [0, 1, 0]),
+            (":not(.a):hover", [0, 2, 0]),
+            (":focus-visible", [0, 1, 0]),
+            (":is(#a)", [1, 0, 0]),
+            (":matches(.a)", [0, 1, 0]),
+        ] {
+            assert_eq!(suffix_specificity(suffix), Some(expected), "{suffix}");
+        }
+        for unknown in [
+            "::part(label)",
+            "::slotted(span)",
+            ":nth-child(2 of .a)",
+            ":-webkit-any(.a)",
+            ":host(.a)",
+            ":is()",
+            ":::x",
+        ] {
+            assert_eq!(suffix_specificity(unknown), None, "{unknown}");
+        }
+    }
+
+    #[test]
     fn a_selector_styles_the_node_when_its_last_compound_names_it() {
         for yes in [
             &["&"][..],
@@ -2575,6 +2821,7 @@ mod tests {
                 keys: Vec::new(),
                 base_values: HashMap::new(),
                 empty: Vec::new(),
+                rules: 0,
             };
             for (key, value) in input {
                 model.keys.push(key.clone());
