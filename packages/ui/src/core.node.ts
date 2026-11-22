@@ -1615,23 +1615,51 @@ function combineFactoryProps(initialProps: Record<string, unknown> | undefined, 
 }
 
 /**
- * A factory's initial props as the compiler writes them in `__meo$i`: each entry
- * as `key:value;`, keys in UTF-16 code-unit order, a number as JavaScript writes
- * it. Only flat entries with string or number values have one, and none whose key
- * or value holds `;` or `:`, which would make the text ambiguous.
+ * A factory's initial props as the compiler writes them in `__meo$i`, so a call
+ * site the compiler merged with them can say which it merged. The entries go in
+ * the order JavaScript gives them, the order the merge keeps, since that order
+ * decides the merged style's text and so its name. Each part is written so the
+ * text needs no escaping and no two entries give the same text:
+ * - a key: `k<length>:<key>`, then its value;
+ * - a string: `s<length>:<text>`;
+ * - a finite number: `n<number as JavaScript writes it>;`;
+ * - `true`, `false` and `null`: `t`, `f` and `z`;
+ * - a plain object, the initial props included: `{`, its entries, `}`.
+ *
+ * A length counts UTF-16 code units, as a string's `length` does. Initial props
+ * holding any other value (a function, an array, `undefined`, a number that is
+ * not finite, an object that is not plain) or a symbol key have no fingerprint,
+ * so the compiler does not merge them.
  * @returns The fingerprint, or `undefined` when the props have none.
  */
 export function initialPropsFingerprint(initialProps: Record<string, unknown> | undefined): string | undefined {
-  if (initialProps === undefined) return undefined
-  let fingerprint = ''
-  for (const key of Object.keys(initialProps).sort()) {
-    const value = initialProps[key]
-    if (typeof value !== 'string' && typeof value !== 'number') return undefined
-    const text = String(value)
-    if (/[;:]/.test(key) || /[;:]/.test(text)) return undefined
-    fingerprint += `${key}:${text};`
+  return initialProps === undefined ? undefined : fingerprintOf(initialProps)
+}
+
+/** {@link initialPropsFingerprint}'s text for one value, or `undefined` when it has none. */
+function fingerprintOf(value: unknown): string | undefined {
+  switch (typeof value) {
+    case 'string':
+      return `s${value.length}:${value}`
+    case 'number':
+      return Number.isFinite(value) ? `n${String(value)};` : undefined
+    case 'boolean':
+      return value ? 't' : 'f'
+    case 'object': {
+      if (value === null) return 'z'
+      const prototype = Object.getPrototypeOf(value)
+      if ((prototype !== Object.prototype && prototype !== null) || Object.getOwnPropertySymbols(value).length > 0) return undefined
+      let text = '{'
+      for (const key of Object.keys(value)) {
+        const entry = fingerprintOf((value as Record<string, unknown>)[key])
+        if (entry === undefined) return undefined
+        text += `k${key.length}:${key}${entry}`
+      }
+      return `${text}}`
+    }
+    default:
+      return undefined
   }
-  return fingerprint
 }
 
 /** Each factory's fingerprint, worked out at its first marked call. */
