@@ -1,57 +1,35 @@
-import { registerStaticCss as __meoCss, toCssValue as __meoVal } from "@meonode/ui";
+import { registerStaticCss as __meoCss } from "@meonode/ui";
 import { Div } from "@meonode/ui";
-__meoCss("3r6lw89zqm2kr", [
+__meoCss("11gsu77lp4hgd", [
     [
-        1,
-        "mn-3764f7b09omwe",
-        ".mn-3764f7b09omwe{min-height:var(--mv-3r2zz3jir5sse);}"
+        "3k5pcyg7d9ay8",
+        "flex-shrink:1;min-height:0;min-width:0;"
     ],
     [
-        1,
-        "mn-0e47bwo0vm4o6",
-        ".mn-0e47bwo0vm4o6{-webkit-flex-shrink:0;-ms-flex-negative:0;flex-shrink:0;}"
-    ],
-    [
-        1,
-        "mn-0zzfi4vug0nqv",
-        ".mn-0zzfi4vug0nqv{min-width:0;}"
-    ],
-    [
-        1,
-        "mn-3efcdnxw9prkf",
-        ".mn-3efcdnxw9prkf{min-width:var(--mv-0zjyvaq9yhjrz);}"
-    ],
-    [
-        1,
-        "mn-38omq5rsyxko1",
-        ".mn-38omq5rsyxko1{color:red;}"
-    ],
-    [
-        1,
-        "mn-35l163g1tjy26",
-        ".mn-35l163g1tjy26{min-height:0;}"
-    ],
-    [
-        1,
-        "mn-3s7ag9fnua70f",
-        ".mn-3s7ag9fnua70f{-webkit-flex-shrink:1;-ms-flex-negative:1;flex-shrink:1;}"
+        "2oxp3nm3a8kkq",
+        "min-height:0;min-width:0;"
     ]
 ]);
 Div({
     __meo$: 2,
-    __meo$s: "mn-3764f7b09omwe mn-0e47bwo0vm4o6 mn-0zzfi4vug0nqv",
-    __meo$v: {
-        "--mv-3r2zz3jir5sse": __meoVal("minHeight", `${keyword}`)
+    __meo$c: {
+        minHeight: `${keyword}`
     },
-    __meo$k: "m3v0lspayi47y"
+    __meo$k: "m3v0lspayi47y",
+    __meo$dyn: [
+        "minHeight"
+    ]
 });
 Div({
     __meo$: 2,
-    __meo$s: "mn-3efcdnxw9prkf mn-38omq5rsyxko1 mn-0e47bwo0vm4o6 mn-35l163g1tjy26",
-    __meo$v: {
-        "--mv-0zjyvaq9yhjrz": __meoVal("minWidth", size * 2)
+    __meo$c: {
+        minWidth: size * 2,
+        color: "red"
     },
-    __meo$k: "m2qdxj4v1j0bu3"
+    __meo$k: "m2qdxj4v1j0bu3",
+    __meo$dyn: [
+        "minWidth"
+    ]
 });
 Div({
     __meo$: 2,
@@ -66,7 +44,7 @@ Div({
 });
 Div({
     __meo$: 2,
-    __meo$s: "mn-35l163g1tjy26 mn-0zzfi4vug0nqv" + (open ? " mn-3s7ag9fnua70f" : ""),
+    __meo$n: open ? "3k5pcyg7d9ay8" : "2oxp3nm3a8kkq",
     __meo$k: "m1y1hqbbm7ciap"
 });
 Div({

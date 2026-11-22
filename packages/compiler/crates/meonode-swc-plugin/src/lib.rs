@@ -65,13 +65,16 @@ pub mod detect;
 // Tables extraction reads from @meonode/ui and Emotion (see
 // scripts/codegen-extract-tables.ts).
 mod extract_tables;
-// Emotion's selector composition, ported for extracted rules.
-mod selector;
+// Emotion's selector composition, ported. Kept for the measured fast path
+// that inserts precomputed stylis output; checked against Emotion by its tests.
+pub mod selector;
 // Why call sites stay on the runtime path, recorded in test builds only.
 mod explain;
 
 // Class names for extracted rules, matching the runtime's `hashStyles`.
 pub mod style_name;
+// The runtime's serialized styles and class name for a known css object.
+mod serialize;
 
 // Emotion's whitespace handling and vendor prefixer, ported.
 pub mod stylis;

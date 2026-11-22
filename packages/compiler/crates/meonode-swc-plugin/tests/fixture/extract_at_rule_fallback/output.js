@@ -1,50 +1,21 @@
 import { registerStaticCss as __meoCss } from "@meonode/ui";
 import { Div } from "@meonode/ui";
-__meoCss("298ae5s1mqmfs", [
+__meoCss("0u50qlryb0qfb", [
     [
-        1,
-        "mn-350ngwob8xscz",
-        ".mn-350ngwob8xscz{padding:8px;}"
+        "06wxlzczd8yl7",
+        "flex-shrink:0;min-height:0;min-width:0;margin:4px;row-gap:2px;@layer base{margin-top:2px;}"
     ],
     [
-        1,
-        "mn-38omq5rsyxko1",
-        ".mn-38omq5rsyxko1{color:red;}"
-    ],
-    [
-        1,
-        "mn-20dlay1ghtxr7",
-        ".mn-20dlay1ghtxr7{gap:4px;}"
-    ],
-    [
-        1,
-        "mn-32wp08rtm75vc",
-        ".mn-32wp08rtm75vc{row-gap:2px;}"
-    ],
-    [
-        1,
-        "mn-1p5ykdzpo0db1",
-        ".mn-1p5ykdzpo0db1{opacity:1;}"
-    ],
-    [
-        1,
-        "mn-0x0ro2w3jit36",
-        ".mn-0x0ro2w3jit36{-webkit-animation:spin 1s;animation:spin 1s;}"
-    ],
-    [
-        2,
-        "mn-1e9cnzmc5gc6b",
-        ".mn-1e9cnzmc5gc6b:hover{background:red;}"
-    ],
-    [
-        1,
-        "mn-3ira0mmss1bvp",
-        ".mn-3ira0mmss1bvp{padding:4px;}"
+        "3unbmso8hkrh9",
+        "flex-shrink:0;min-height:0;min-width:0;opacity:1;animation:spin 1s;@keyframes spin{from{opacity:0;}to{opacity:1;}}"
     ]
 ]);
 Div({
     __meo$: 2,
-    __meo$s: "mn-350ngwob8xscz mn-38omq5rsyxko1",
+    __meo$c: {
+        padding: 8,
+        color: "red"
+    },
     __meo$k: "m15q3hgi76utyt",
     __meo$dyn: [
         "css"
@@ -57,9 +28,9 @@ Div({
 });
 Div({
     __meo$: 2,
-    __meo$s: "mn-20dlay1ghtxr7",
     __meo$c: {
-        color: "red"
+        color: "red",
+        gap: 4
     },
     __meo$k: "mfydoxsozl5p6",
     __meo$dyn: [
@@ -73,41 +44,16 @@ Div({
 });
 Div({
     __meo$: 2,
-    __meo$s: "mn-32wp08rtm75vc",
-    __meo$c: {
-        margin: 4
-    },
-    __meo$k: "m2io8biguckg52",
-    __meo$dyn: [
-        "css"
-    ],
-    css: {
-        "@layer base": {
-            marginTop: 2
-        }
-    }
+    __meo$n: "06wxlzczd8yl7",
+    __meo$k: "m2io8biguckg52"
 });
 Div({
     __meo$: 2,
-    __meo$s: "mn-1p5ykdzpo0db1 mn-0x0ro2w3jit36",
-    __meo$k: "m3e8uzavjyqktz",
-    __meo$dyn: [
-        "css"
-    ],
-    css: {
-        "@keyframes spin": {
-            from: {
-                opacity: 0
-            },
-            to: {
-                opacity: 1
-            }
-        }
-    }
+    __meo$n: "3unbmso8hkrh9",
+    __meo$k: "m3e8uzavjyqktz"
 });
 Div({
     __meo$: 2,
-    __meo$s: "mn-1e9cnzmc5gc6b",
     __meo$c: {
         color: "red"
     },
@@ -117,6 +63,7 @@ Div({
     ],
     css: {
         "&:hover": {
+            background: "red",
             "@media (min-width: theme.breakpoint.md)": {
                 color: "blue"
             }
@@ -153,9 +100,9 @@ Div({
 });
 Div({
     __meo$: 2,
-    __meo$s: "mn-3ira0mmss1bvp",
     __meo$c: {
-        color: "red"
+        color: "red",
+        padding: 4
     },
     __meo$k: "m2aukpax71xfvr",
     __meo$dyn: [
@@ -169,7 +116,9 @@ Div({
 });
 Div({
     __meo$: 2,
-    __meo$s: "mn-3ira0mmss1bvp",
+    __meo$c: {
+        padding: 4
+    },
     __meo$k: "m35yxf19mub59d",
     __meo$dyn: [
         "css"

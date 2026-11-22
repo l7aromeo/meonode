@@ -1,54 +1,13 @@
 import { registerStaticCss as __meoCss } from "@meonode/ui";
 import { Div } from "@meonode/ui";
-__meoCss("1mgnfvazkazss", [
+__meoCss("00i2xzdwa578a", [
     [
-        1,
-        "mn-350ngwob8xscz",
-        ".mn-350ngwob8xscz{padding:8px;}"
-    ],
-    [
-        1,
-        "mn-38omq5rsyxko1",
-        ".mn-38omq5rsyxko1{color:red;}"
-    ],
-    [
-        1,
-        "mn-3lwa371yusfvc",
-        ".mn-3lwa371yusfvc{line-height:1.5;}"
-    ],
-    [
-        2,
-        "mn-2mizy8lxu9kn1",
-        ".mn-2mizy8lxu9kn1:hover{color:blue;}"
-    ],
-    [
-        3,
-        "mn-0x2shcn97q665",
-        "@media (min-width: 600px){.mn-0x2shcn97q665{padding:16px;}}"
-    ],
-    [
-        1,
-        "mn-0y7tmfiidtkqk",
-        ".mn-0y7tmfiidtkqk{background-color:var(--meonode-theme-surface-default);}"
-    ],
-    [
-        1,
-        "mn-0e47bwo0vm4o6",
-        ".mn-0e47bwo0vm4o6{-webkit-flex-shrink:0;-ms-flex-negative:0;flex-shrink:0;}"
-    ],
-    [
-        1,
-        "mn-35l163g1tjy26",
-        ".mn-35l163g1tjy26{min-height:0;}"
-    ],
-    [
-        1,
-        "mn-0zzfi4vug0nqv",
-        ".mn-0zzfi4vug0nqv{min-width:0;}"
+        "3jv7xxarfp7ei",
+        "flex-shrink:0;min-height:0;min-width:0;padding:8px;color:red;line-height:1.5;&:hover{color:blue;}@media (min-width: 600px){padding:16px;}background-color:var(--meonode-theme-surface-default);"
     ]
 ]);
 Div({
     __meo$: 2,
-    __meo$s: "mn-350ngwob8xscz mn-38omq5rsyxko1 mn-3lwa371yusfvc mn-2mizy8lxu9kn1 mn-0x2shcn97q665 mn-0y7tmfiidtkqk mn-0e47bwo0vm4o6 mn-35l163g1tjy26 mn-0zzfi4vug0nqv",
+    __meo$n: "3jv7xxarfp7ei",
     __meo$k: "m1anc2qrnmve4a"
 });

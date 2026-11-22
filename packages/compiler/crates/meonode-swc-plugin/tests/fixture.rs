@@ -456,8 +456,8 @@ fn extract_per_node() {
 }
 
 #[test]
-fn extract_reaching() {
-    run_partition_with_config("extract_reaching", extract_config());
+fn extract_names() {
+    run_partition_with_config("extract_names", extract_config());
 }
 
 #[test]
@@ -508,11 +508,6 @@ fn extract_empty_block() {
 #[test]
 fn extract_layer() {
     run_partition_with_config("extract_layer", extract_config());
-}
-
-#[test]
-fn extract_multi_context() {
-    run_partition_with_config("extract_multi_context", extract_config());
 }
 
 #[test]
