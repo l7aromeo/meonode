@@ -301,3 +301,87 @@ describe('static css in the React Server Components layer', () => {
     }
   })
 })
+
+// A compiled node that carries its style's name, in a server component, against
+// the same tree with its css on the runtime path: this layer compiles both to a
+// class on the element and a rule React hoists, so the two trees must be equal.
+describe('named static styles in the React Server Components layer', () => {
+  type Css = Record<string, unknown>
+  type Style = (css: Css, isStatic?: boolean) => Record<string, unknown>
+  const RED = { color: 'rgb(200, 0, 0)' }
+  const BLUE = { color: 'rgb(0, 0, 200)' }
+
+  /** An element tree as plain data, server components rendered: types by name, every prop but children, then the children. */
+  function shape(value: unknown): unknown {
+    if (Array.isArray(value)) return value.map(shape)
+    if (!isValidElement(value)) return typeof value === 'function' ? `fn:${value.name}` : value
+    const { children, ...props } = value.props as Record<string, unknown>
+    const type = value.type as unknown
+    // A server component renders here, as the server renders it; a client reference does not.
+    if (typeof type === 'function' && !('$$typeof' in type)) return shape((type as (props: unknown) => unknown)(value.props))
+    const name = typeof type === 'string' ? type : typeof type === 'function' ? type.name : String(type)
+    return { type: name, key: value.key, props: Object.fromEntries(Object.entries(props).map(([key, prop]) => [key, shape(prop)])), children: shape(children) }
+  }
+
+  async function styles() {
+    const registry = await import('@src/util/static-css.util.js')
+    const { ThemeUtil } = await import('@src/util/theme.util.js')
+    const { nameStyles } = await import('@src/util/style-name.util.js')
+    const { serializeStyles } = await import('@emotion/serialize')
+    const runtime: Style = css => ({ css })
+    const compiled: Style = (css, isStatic = true) => {
+      if (!isStatic) return { css }
+      const resolved = ThemeUtil.resolveObjWithTheme(css, undefined, { processFunctions: true, themeStringsMode: 'vars' })
+      const { name, styles: text } = nameStyles(serializeStyles([ThemeUtil.resolveDefaultStyle(ThemeUtil.dropThemedKeys(resolved, () => {}))] as never))
+      registry.registerStaticCss(`m-${name}`, [[name, text]])
+      return { __meo$: 2, __meo$n: name }
+    }
+    return { registry, runtime, compiled }
+  }
+
+  const CASES: Record<string, (style: Style) => import('@src/main.js').NodeInstance> = {
+    'a parent’s & > * against its static child’s colour': style => main.Div({ ...style({ '& > *': RED }), children: main.Span('c', style(BLUE)) }),
+    'statics and runtimes interleaved among siblings': style =>
+      main.Div({
+        children: [
+          main.Div({ key: 1, ...style({ order: 1 }) }),
+          main.Div({ key: 2, ...style({ order: 2 }, false) }),
+          main.Div({ key: 3, ...style({ order: 3 }), children: main.Div(style({ order: 4 })) }),
+        ],
+      }),
+    'two nodes of one style': style => main.Div({ children: [main.Div({ key: 1, ...style(BLUE) }), main.Div({ key: 2, ...style(BLUE) })] }),
+    'a server component handed a class it puts on a static node': style => {
+      const Box = (props: { className?: string }) => main.Div({ className: props.className, ...style(BLUE) }).render() as ReactElement
+      return main.Div({ children: main.Node(Box, { ...style(RED, false), className: 'given' }) })
+    },
+  }
+
+  // A client reference renders in the browser, through `StyledRenderer` as its
+  // css would, so the compiled style goes with it.
+  it('hands a client reference’s StyledRenderer the compiled style in place of css', async () => {
+    const { registry, compiled } = await styles()
+    registry.__resetStaticCss()
+    try {
+      const Link = clientReference('next/link#default')
+      const props = compiled(BLUE)
+      const element = main.Node(Link, { href: '/a', ...props } as never).render() as ReactElement<Record<string, unknown>>
+      const name = props.__meo$n as string
+      expect(element.props).toMatchObject({ element: Link, href: '/a', __meonodeStaticStyle: { name, styles: registry.staticStylesOf(name) } })
+      expect(element.props.css).toBeUndefined()
+    } finally {
+      registry.__resetStaticCss()
+    }
+  })
+
+  it.each(Object.entries(CASES))('%s', async (_, tree) => {
+    const { registry, runtime, compiled } = await styles()
+    registry.__resetStaticCss()
+    try {
+      const expected = shape(tree(runtime).render())
+      expect(JSON.stringify(expected)).toContain('"precedence":"meonode"')
+      expect(shape(tree(compiled).render())).toEqual(expected)
+    } finally {
+      registry.__resetStaticCss()
+    }
+  })
+})

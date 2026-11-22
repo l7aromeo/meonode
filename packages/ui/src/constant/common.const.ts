@@ -191,6 +191,13 @@ export const STATIC_NAME_MARKER = '__meo$n'
 export const STATIC_RUN_PROP = '__meonodeStaticRun'
 
 /**
+ * The prop of a `StyledRenderer` that a server component hands a compiled
+ * node's style, `{ name, styles }`, in place of `css`: the module that registered
+ * it never loads in the browser, so the text goes with the element.
+ */
+export const STATIC_STYLE_PROP = '__meonodeStaticStyle'
+
+/**
  * Marker keys of a call site with one spread: the source of the static entries
  * written before it and after it. They are the css the node renders with when
  * the spread brings a key that could override, or be overridden by, a static

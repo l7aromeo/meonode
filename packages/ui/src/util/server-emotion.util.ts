@@ -201,6 +201,35 @@ export interface ServerEmotionRule {
 export function compileServerEmotionRule(css: CssProp, className?: unknown, options?: { share?: boolean; identity?: CssProp }): ServerEmotionRule | undefined {
   // Only an object or an array of them is compiled; anything else styles nothing.
   if (!css || typeof css === 'string' || typeof css === 'number' || typeof css === 'boolean') return undefined
+  return compileRule(css, undefined, className, options)
+}
+
+/**
+ * Compiles a compiled node's style to the classes its element carries and the
+ * rule behind them, as {@link compileServerEmotionRule} compiles the css it was
+ * written from: the compiler's text stands where the css would, and keeps the
+ * compiler's name unless the element's `className` folds more styles in.
+ * @param name The compiler's name for the style.
+ * @param styles The compiler's serialized text for it.
+ * @param className The element's own `className`, if any.
+ * @param options `share`: keep the class in the shared store, for an element that is a component.
+ * @returns The rule.
+ */
+export function compileServerNamedRule(name: string, styles: string, className?: unknown, options?: { share?: boolean }): ServerEmotionRule | undefined {
+  return compileRule(styles, name, className, options)
+}
+
+/**
+ * The body of {@link compileServerEmotionRule}, for css or a compiled node's
+ * text. With `knownName`, `css` is that text, and is named so when nothing is
+ * folded into it.
+ */
+function compileRule(
+  css: CssProp | string,
+  knownName: string | undefined,
+  className: unknown,
+  options?: { share?: boolean; identity?: CssProp },
+): ServerEmotionRule | undefined {
   const cache = requestEmotionCache()
   const themedClasses = requestThemedClasses()
   const styles: unknown[] = [css]
@@ -223,7 +252,10 @@ export function compileServerEmotionRule(css: CssProp, className?: unknown, opti
     return { className: `${otherClasses}${ownClassName}`, ownClassName, id: name, cssText: '', clientCss: parts as CssProp }
   }
   const otherClasses = typeof className === 'string' ? getRegisteredStyles(cache.registered, styles as string[], className) : ''
-  const compiled = nameStyles(serializeStyles(styles as any, cache.registered))
+  const compiled =
+    knownName !== undefined && styles.length === 1
+      ? { name: knownName, styles: css as string, next: undefined }
+      : nameStyles(serializeStyles(styles as any, cache.registered))
   const serialized = options?.identity
     ? { ...compiled, name: nameStyles(serializeStyles([options.identity, ...styles.slice(1)] as any, cache.registered)).name }
     : compiled

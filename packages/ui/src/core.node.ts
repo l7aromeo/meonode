@@ -15,6 +15,7 @@ import {
 import type {
   Children,
   DependencyList,
+  CssProp,
   FinalNodeProps,
   HasRequiredProps,
   MergedProps,
@@ -39,6 +40,7 @@ import {
   STATIC_CLASSES_MARKER,
   STATIC_NAME_MARKER,
   STATIC_RUN_PROP,
+  STATIC_STYLE_PROP,
   STATIC_VARS_MARKER,
 } from '@src/constant/common.const.js'
 import { checkCss, checkFactoryCss, isMergeableCss, markCombinedCssChecked } from '@src/util/css.util.js'
@@ -46,7 +48,7 @@ import { NodeUtil } from '@src/util/node.util.js'
 import { IS_REACT_SERVER_LAYER } from '@src/util/react-layer.util.js'
 import { passesChildrenThrough, providesTheme } from '@src/util/children-pass-through.util.js'
 import { observeChildren } from '@src/util/generated-list.util.js'
-import { compileServerEmotionRule } from '@src/util/server-emotion.util.js'
+import { compileServerEmotionRule, compileServerNamedRule } from '@src/util/server-emotion.util.js'
 import { hasNamedStyles, hasStaticCss, registeredClassesOf, staticRuleOf, staticStylesOf } from '@src/util/static-css.util.js'
 import { namedClass, type NamedStyle } from '@src/util/named-style.util.js'
 import type { EmotionCache } from '@emotion/cache'
@@ -853,7 +855,7 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
             [LOCATION_MARKER]: callSiteLocation,
             [STATIC_CLASSES_MARKER]: staticClasses,
             [STATIC_VARS_MARKER]: staticVars,
-            [STATIC_NAME_MARKER]: _staticName,
+            [STATIC_NAME_MARKER]: staticName,
             ...otherProps
           } = node.props
 
@@ -1140,13 +1142,28 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
             // The layer constant comes first in these conditions, so the default build, where
             // it is `false`, folds the server-layer path out.
             const shouldBypassStyledRendererOnServer = IS_REACT_SERVER_LAYER && NodeUtil.isServer
+            // In that layer a compiled node's style compiles here as css does, since
+            // its output is final there too; elsewhere the walk inserted it.
+            const namedStylesHere =
+              shouldBypassStyledRendererOnServer && !disableEmotion && typeof staticName === 'string' ? staticStylesOf(staticName) : undefined
+            // A client reference renders in the browser, through `StyledRenderer`
+            // as its css would; the style goes with it, since the module that
+            // registered it does not load there.
+            const namedForClient = namedStylesHere !== undefined && NodeUtil.isClientReference(renderTarget)
+            const serverNamedStyles = namedForClient ? undefined : namedStylesHere
             // Keep server/client on the same StyledRenderer path for client references.
             // This avoids Emotion hash drift not only for theme tokens, but also for raw
             // CSS values (e.g. "red", "#ff0000") that would otherwise use different
             // server vs client compilation routes.
             const shouldUseRuntimeThemeOnServer = shouldBypassStyledRendererOnServer && isStyledComponent && NodeUtil.isClientReference(renderTarget)
 
-            if ((isStyledComponent && !shouldBypassStyledRendererOnServer) || shouldUseRuntimeThemeOnServer) {
+            if (namedForClient) {
+              element = createElement(
+                StyledRenderer,
+                { element: renderTarget, ...elementProps, [STATIC_STYLE_PROP]: { name: staticName, styles: namedStylesHere } },
+                ...elementChildren,
+              )
+            } else if ((isStyledComponent && !shouldBypassStyledRendererOnServer) || shouldUseRuntimeThemeOnServer) {
               // `elementProps` was already pre-processed above, so only `css`
               // needs the var conversion here on the server. Aligning with the
               // client runtime's vars-mode resolution keeps the Emotion class
@@ -1158,39 +1175,52 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
                 { element: renderTarget, ...elementProps, css: cssForRenderer, ...(run && { [STATIC_RUN_PROP]: run }) },
                 ...elementChildren,
               )
-            } else if (shouldBypassStyledRendererOnServer && isStyledComponent && !NodeUtil.acceptsServerCss(renderTarget)) {
-              // Emit `var(--meonode-theme-*)` on the server so the generated Emotion class
-              // matches the client runtime output — unifies the class hash across SSR/CSR.
-              // `replaceThemeTokensWithCssVars` runs even when activeTheme is undefined
-              // (e.g., RSC/SSR bundler-layer split where the layout-set global state does not
-              // carry into the client page's SSR pass), so string tokens still produce vars.
-              // `processFunctions: true` executes any callable theme refs in `css`,
-              // and with no theme in scope drops them, so none reaches `ThemedRule`:
-              // a function cannot be handed to a client component. What one returns
-              // is converted to vars too, as the client converts it.
-              const themedCss = ThemeUtil.resolveObjWithTheme(replaceThemeTokensWithCssVars(css), activeTheme, {
-                processFunctions: true,
-                themeStringsMode: 'vars',
-              })
-              // Development only; no-ops in production. With a theme in scope this
-              // is the check `StyledRenderer` makes. With none, the token
-              // references are left to `ThemeTokenCheck` below, which runs where
-              // the ThemeProvider is.
-              reportThemeIssues(themedCss, activeTheme ? getThemeVarIndex(activeTheme) : undefined)
-              const cssWithDefaults = ThemeUtil.resolveDefaultStyle(themedCss)
-              // A key holding a theme token needs the theme's concrete value. With
-              // a theme in scope it has been resolved above, and one still holding
-              // a token names a value the theme lacks, so it is left out. With none,
-              // the part from the first such key on goes to `ThemedRule`, which
-              // resolves it where the theme is; the rest compiles here, under a
-              // class named after the whole css.
-              const { plain, themed } = activeTheme
-                ? { plain: ThemeUtil.dropThemedKeys(cssWithDefaults, reportUnresolvedThemeKey), themed: undefined }
-                : ThemeUtil.splitThemedCss(ThemeUtil.dropReservedStylesKeys(cssWithDefaults))
-              const rule = compileServerEmotionRule(plain, elementProps.className, {
-                share: typeof renderTarget !== 'string',
-                identity: themed ? cssWithDefaults : undefined,
-              })
+            } else if (
+              (shouldBypassStyledRendererOnServer && isStyledComponent && !NodeUtil.acceptsServerCss(renderTarget)) ||
+              serverNamedStyles !== undefined
+            ) {
+              // A compiled node's style takes the same route as css here, with the
+              // compiler's text in place of the css it was written from.
+              let rule: ReturnType<typeof compileServerEmotionRule>
+              let plain: CssProp | undefined
+              let themed: CssProp | undefined
+              if (serverNamedStyles !== undefined) {
+                rule = compileServerNamedRule(staticName as string, serverNamedStyles, elementProps.className, { share: typeof renderTarget !== 'string' })
+              } else {
+                // Emit `var(--meonode-theme-*)` on the server so the generated Emotion class
+                // matches the client runtime output — unifies the class hash across SSR/CSR.
+                // `replaceThemeTokensWithCssVars` runs even when activeTheme is undefined
+                // (e.g., RSC/SSR bundler-layer split where the layout-set global state does not
+                // carry into the client page's SSR pass), so string tokens still produce vars.
+                // `processFunctions: true` executes any callable theme refs in `css`,
+                // and with no theme in scope drops them, so none reaches `ThemedRule`:
+                // a function cannot be handed to a client component. What one returns
+                // is converted to vars too, as the client converts it.
+                const themedCss = ThemeUtil.resolveObjWithTheme(replaceThemeTokensWithCssVars(css), activeTheme, {
+                  processFunctions: true,
+                  themeStringsMode: 'vars',
+                })
+                // Development only; no-ops in production. With a theme in scope this
+                // is the check `StyledRenderer` makes. With none, the token
+                // references are left to `ThemeTokenCheck` below, which runs where
+                // the ThemeProvider is.
+                reportThemeIssues(themedCss, activeTheme ? getThemeVarIndex(activeTheme) : undefined)
+                const cssWithDefaults = ThemeUtil.resolveDefaultStyle(themedCss)
+                // A key holding a theme token needs the theme's concrete value. With
+                // a theme in scope it has been resolved above, and one still holding
+                // a token names a value the theme lacks, so it is left out. With none,
+                // the part from the first such key on goes to `ThemedRule`, which
+                // resolves it where the theme is; the rest compiles here, under a
+                // class named after the whole css.
+                const split = activeTheme
+                  ? { plain: ThemeUtil.dropThemedKeys(cssWithDefaults, reportUnresolvedThemeKey), themed: undefined }
+                  : ThemeUtil.splitThemedCss(ThemeUtil.dropReservedStylesKeys(cssWithDefaults))
+                ;({ plain, themed } = split)
+                rule = compileServerEmotionRule(plain, elementProps.className, {
+                  share: typeof renderTarget !== 'string',
+                  identity: themed ? cssWithDefaults : undefined,
+                })
+              }
               const elementPropsWithClassName = rule ? { ...elementProps, className: rule.className } : elementProps
               element = createElement(renderTarget, elementPropsWithClassName, ...elementChildren)
               if (rule && (rule.cssText || themed || rule.clientCss)) {
@@ -1230,7 +1260,7 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
                 // The tokens compiled here are checked where the providers are.
                 // `ThemedRule` checks its own part. Only while diagnostics are on,
                 // so production output carries nothing for it.
-                if (!activeTheme && diagnosticsEnabled()) {
+                if (!activeTheme && plain !== undefined && diagnosticsEnabled()) {
                   const refs = collectThemeVarRefs(plain)
                   if (refs.length > 0) {
                     const ruleKey = `${rule.id}:check`

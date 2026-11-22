@@ -1,5 +1,5 @@
 'use client'
-import { RUNTIME_PRECEDENCE, STATIC_RUN_PROP } from '@src/constant/common.const.js'
+import { RUNTIME_PRECEDENCE, STATIC_RUN_PROP, STATIC_STYLE_PROP } from '@src/constant/common.const.js'
 import { createElement, type ElementType, Fragment, type JSX, type ReactElement, type ReactNode, useContext, useInsertionEffect } from 'react'
 import { __unsafe_useEmotionCache as useEmotionCache, CacheProvider, jsx, ThemeContext as EmotionThemeContext } from '@emotion/react'
 import createCache, { type EmotionCache } from '@emotion/cache'
@@ -85,7 +85,49 @@ function RuleInsertion({
 }
 
 /** The props a styled element's own element is not given. */
-const RENDERER_ONLY = new Set(['element', 'children', 'css', 'as', STATIC_RUN_PROP])
+const RENDERER_ONLY = new Set(['element', 'children', 'css', 'as', STATIC_RUN_PROP, STATIC_STYLE_PROP])
+
+/** A compiled node's style, as the compiler serialized it. */
+interface CompiledStyle {
+  name: string
+  styles: string
+}
+
+/**
+ * An element's css as it goes to Emotion: theme references resolved, then the
+ * defaults added.
+ * @param css The element's css.
+ * @param theme The theme in scope.
+ * @param context The theme context, for development reports.
+ * @returns The css for Emotion.
+ */
+function cssOf(css: unknown, theme: Theme | undefined, context: ThemeContextState | null): unknown {
+  // Called with no theme too, so a theme function it cannot run is dropped instead
+  // of reaching Emotion, which would print its source into the stylesheet.
+  const finalCss: CssProp = ThemeUtil.resolveObjWithTheme(css as Record<string, unknown>, theme, { processFunctions: true, themeStringsMode: 'vars' })
+  // Development only: the last point where the live theme and the fully
+  // resolved declarations are both in hand, so a token that names a variable
+  // the theme never defines can still be reported before it silently
+  // disappears into Emotion. No-ops in production.
+  reportStyleTokens(finalCss, context)
+  // A key still holding a theme token — no provider above, or a path the theme
+  // lacks — names a condition or selector the browser would drop, so it is left
+  // out rather than handed to Emotion.
+  return ThemeUtil.resolveDefaultStyle(ThemeUtil.dropThemedKeys(finalCss, reportUnresolvedThemeKey))
+}
+
+/**
+ * The serialized styles for an element's css and the registered styles folded
+ * into it. A compiled style with nothing folded in keeps the compiler's name.
+ * @param registered The element's css, then the styles folded in.
+ * @param compiled The compiled style the css stands for, if any.
+ * @param emotionTheme Emotion's theme, for its function interpolations.
+ * @returns The serialized styles.
+ */
+function serializedOf(registered: unknown[], compiled: CompiledStyle | undefined, emotionTheme: unknown): SerializedStyles {
+  if (compiled && registered.length === 1) return { name: compiled.name, styles: compiled.styles, next: undefined }
+  return nameStyles(serializeStyles(registered as never, undefined, emotionTheme as never))
+}
 
 /**
  * Renders the element with the class Emotion's `css` prop would give it under
@@ -105,16 +147,13 @@ function renderOwnClass(
 ): JSX.Element {
   const asTarget = props.as
   const renderTarget = (asTarget != null && isValidElementType(asTarget) ? asTarget : props.element) as ElementType
-  const css = props.css as Record<string, unknown>
   const givenClass = props.className
   let className = ''
-  const finalCss: CssProp = ThemeUtil.resolveObjWithTheme(css, theme, { processFunctions: true, themeStringsMode: 'vars' })
-  reportStyleTokens(finalCss, context)
-  const cssForEmotion = ThemeUtil.resolveDefaultStyle(ThemeUtil.dropThemedKeys(finalCss, reportUnresolvedThemeKey))
-  const registered: unknown[] = [cssForEmotion]
+  const compiled = props[STATIC_STYLE_PROP] as CompiledStyle | undefined
+  const registered: unknown[] = [compiled ? compiled.styles : cssOf(props.css, theme, context)]
   if (typeof givenClass === 'string') className = getRegisteredStyles(cache.registered, registered as string[], givenClass)
   else if (givenClass != null) className = `${givenClass as string} `
-  const serialized = nameStyles(serializeStyles(registered as never, undefined, emotionTheme as never))
+  const serialized = serializedOf(registered, compiled, emotionTheme)
   const isStringTag = typeof renderTarget === 'string'
   registerStyles(cache, serialized, isStringTag)
   className += `${cache.key}-${serialized.name}`
@@ -160,7 +199,13 @@ function renderStyled(
   // path already strips `as` and forwards the resolved element, but if `as` ever
   // reaches here we honor it instead of leaking it as a bogus attribute.
   // `isValidElementType` narrows `asTarget` to `ElementType`, so no cast is needed there.
-  const { css, as: asTarget, className: givenClass, ...otherProps } = props
+  const {
+    css,
+    as: asTarget,
+    className: givenClass,
+    [STATIC_STYLE_PROP]: compiled,
+    ...otherProps
+  } = props as typeof props & { [STATIC_STYLE_PROP]?: CompiledStyle }
   let renderTarget = element as ElementType
   if (asTarget != null && isValidElementType(asTarget)) {
     renderTarget = asTarget
@@ -171,20 +216,8 @@ function renderStyled(
   // so no further processing is needed here. `css` still needs resolution
   // to execute any callable theme refs and to expand string tokens that
   // may have been provided directly via `css` rather than via `elementProps`.
-  // Called with no theme too, so a theme function it cannot run is dropped instead
-  // of reaching Emotion, which would print its source into the stylesheet.
-  const finalCss: CssProp = ThemeUtil.resolveObjWithTheme(css, theme, { processFunctions: true, themeStringsMode: 'vars' })
-
-  // Development only: the last point where the live theme and the fully
-  // resolved declarations are both in hand, so a token that names a variable
-  // the theme never defines can still be reported before it silently
-  // disappears into Emotion. No-ops in production.
-  reportStyleTokens(finalCss, context)
-
-  // A key still holding a theme token — no provider above, or a path the theme
-  // lacks — names a condition or selector the browser would drop, so it is left
-  // out rather than handed to Emotion.
-  const cssForEmotion = ThemeUtil.resolveDefaultStyle(ThemeUtil.dropThemedKeys(finalCss, reportUnresolvedThemeKey))
+  // A compiled style comes serialized already.
+  const cssForEmotion = compiled ? compiled.styles : cssOf(css, theme, context)
 
   // With no cache above it — only on the server, since the browser always has
   // Emotion's default one — Emotion would create a `css` cache here itself, whose
@@ -201,7 +234,7 @@ function renderStyled(
   let className: string | undefined
   if (typeof givenClass === 'string') className = getRegisteredStyles(cache.registered, registered as string[], givenClass).trim() || undefined
   else if (givenClass != null) className = String(givenClass)
-  const serialized = nameStyles(serializeStyles(registered as never, undefined, emotionTheme as never))
+  const serialized = serializedOf(registered, compiled, emotionTheme)
 
   const styled = jsx(renderTarget, { ...otherProps, className, css: serialized }, children)
   if (emotionCache !== null) return styled
