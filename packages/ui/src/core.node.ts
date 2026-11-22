@@ -53,6 +53,7 @@ import { compileServerEmotionRule, compileServerNamedRule } from '@src/util/serv
 import { hasNamedStyles, hasStaticCss, registeredClassesOf, staticRuleOf, staticStylesOf } from '@src/util/static-css.util.js'
 import { namedClass, type NamedStyle } from '@src/util/named-style.util.js'
 import type { EmotionCache } from '@emotion/cache'
+import type { SerializedStyles } from '@emotion/serialize'
 import { readEmotionCache } from '@src/util/emotion-cache.util.js'
 import { createServerCssCache } from '@src/util/server-css-cache.util.js'
 import { StaticStyles, type StaticThemeCandidate, type StaticThemeCheck } from '@src/components/static-styles.js'
@@ -694,6 +695,12 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
       }
       const checks = staticChecks?.get(rules)
       const candidates = staticCandidates?.get(rules)
+      // Named styles alone, all in the cache already: nothing to render, and the
+      // slot keeps its place.
+      if (!lists && !checks && !candidates && !namedPending(named!)) {
+        rules.set(STATIC_STYLES_KEY, null as unknown as ReactElement)
+        return
+      }
       rules.set(
         STATIC_STYLES_KEY,
         createElement(StaticStyles, {
@@ -722,6 +729,18 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
     const namedRuns = namedEnabled ? new Map<BaseNode, NamedStyle[]>() : undefined
     /** What each carrier's `StaticStyles` inserts, once its subtree is in. */
     const namedTail = namedEnabled ? new Map<Map<string, ReactElement>, NamedStyle[]>() : undefined
+
+    /**
+     * Whether a style of `run` is not in the render's cache yet, so a leaf must
+     * render to put it in, as `RuleInsertion` renders only while its rule is not.
+     * A server render with no provider writes each again, so its leaves always render.
+     */
+    const namedPending = (run: readonly NamedStyle[]): boolean => {
+      const inserted = cacheOfWalk().inserted
+      for (const { serialized } of run)
+        for (let current: SerializedStyles | undefined = serialized; current; current = current.next) if (inserted[current.name] === undefined) return true
+      return false
+    }
     /** The runs a host's slots render, by slot key. */
     const slotRuns = new Map<BaseNode, Map<string, NamedStyle[]>>()
     /** The run since the last rule, and the carrier of its nodes. */
@@ -1046,7 +1065,7 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
           const runsHere = slots ? slotRuns.get(node) : undefined
           const leafAt = (slotKeyOf: string): ReactNode => {
             const run = runsHere?.get(slotKeyOf)
-            return run ? createElement(StaticStyles, { key: `${SLOT_KEY_PREFIX}${slotKeyOf}`, styles: run }) : null
+            return run && namedPending(run) ? createElement(StaticStyles, { key: `${SLOT_KEY_PREFIX}${slotKeyOf}`, styles: run }) : null
           }
           if (slots && finalChildren.length > 0) finalChildren = placeSlots(finalChildren, slots, '', leafAt)
           const wholeSlot = slots?.keys.has('') ? [leafAt('')] : undefined
