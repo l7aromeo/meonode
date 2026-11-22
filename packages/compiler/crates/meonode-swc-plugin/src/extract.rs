@@ -54,6 +54,7 @@ use swc_core::common::{DUMMY_SP, SyntaxContext};
 use swc_core::ecma::ast::*;
 use swc_core::ecma::atoms::Atom;
 
+use crate::explain;
 use crate::extract_tables::{
     CSS_ALIASES, CSS_LOGICAL, CSS_PROPERTIES, CSS_SHORTHANDS, InitialProps, InitialValue,
     is_host_factory, is_unitless, layout_factory,
@@ -1014,16 +1015,21 @@ impl ModuleScope {
     ) -> Option<()> {
         for (key, value) in entries {
             if RESERVED_STYLE_KEYS.contains(&key.as_str()) {
-                return None;
+                return explain::bail("a reserved style key");
             }
             let nested = matches!(unwrap_transparent(value), Expr::Object(_));
             if key.starts_with('@') {
                 let Expr::Object(obj) = unwrap_transparent(value) else {
-                    return None;
+                    return explain::bail(
+                        "a nested selector or at-rule whose value is not an object literal",
+                    );
                 };
-                let (text, inner_scope) = scope.at_rule(key)?;
+                let (text, inner_scope) = scope.at_rule(key).or_else(|| {
+                    explain::bail("an at-rule key Emotion's parse does not keep inside the rule")
+                })?;
                 if writes_at_rule(key) {
-                    let inner = object_entries(obj)?;
+                    let inner = object_entries(obj)
+                        .or_else(|| explain::bail("an object with a spread or computed key"))?;
                     if inner.is_empty() {
                         model.empty.push((path.to_vec(), key.clone()));
                     }
@@ -1040,12 +1046,17 @@ impl ModuleScope {
                 }
             } else if key.starts_with('&') || nested {
                 let Expr::Object(obj) = unwrap_transparent(value) else {
-                    return None;
+                    return explain::bail(
+                        "a nested selector or at-rule whose value is not an object literal",
+                    );
                 };
-                let child_scope = scope.nest(key)?;
+                let child_scope = scope.nest(key).or_else(|| {
+                    explain::bail("a selector key Emotion's parse does not keep inside the rule")
+                })?;
                 match atomic_suffix(&child_scope, key) {
                     Some(suffix) if !context.selector.contains("::") => {
-                        let inner = object_entries(obj)?;
+                        let inner = object_entries(obj)
+                            .or_else(|| explain::bail("an object with a spread or computed key"))?;
                         if inner.is_empty() {
                             model.empty.push((path.to_vec(), key.clone()));
                         }
@@ -1068,13 +1079,16 @@ impl ModuleScope {
                 }
             } else {
                 let route = checked(key, self.route(value, 0));
+                if matches!(route, Route::Runtime) {
+                    explain::note("a value left to the runtime");
+                }
                 if context.is_base() && DEFAULT_READ_KEYS.contains(&key.as_str()) {
                     model.base_values.insert(key.clone(), route.clone());
                 }
                 if key.contains("theme.")
                     || key.starts_with(|c: char| !c.is_ascii_alphabetic() && c != '-')
                 {
-                    return None;
+                    return explain::bail("a theme token or a non-property in a key");
                 }
                 model.declarations.push(Declaration {
                     context: context.clone(),
@@ -1101,15 +1115,19 @@ impl ModuleScope {
         at_rules: &[String],
         obj: &ObjectLit,
     ) -> Option<Block> {
-        let entries = object_entries(obj)?;
+        let entries = object_entries(obj)
+            .or_else(|| explain::bail("an object with a spread or computed key"))?;
         // The node's class is its whole style to Emotion. A selector naming it
         // twice (`& + &`, `& &`) matches only nodes styled alike in full, and one
         // naming it only where it is optional (`:not(&)`, `:is(&, .a)`) matches
         // nodes styled otherwise, or none rendered at all. Taking any entry out
         // of that class changes which elements match, and a static rule exists
         // before the node renders: the whole node stays on the runtime path.
-        if names_node_twice(&scope.props) || !requires_node(&scope.props) {
-            return None;
+        if names_node_twice(&scope.props) {
+            return explain::bail("a selector naming the node twice");
+        }
+        if !requires_node(&scope.props) {
+            return explain::bail("a selector naming the node only inside :not, :is or :where");
         }
         let mut block = Block {
             path: Vec::new(),
@@ -1119,15 +1137,22 @@ impl ModuleScope {
             declarations: Vec::new(),
             children: Vec::new(),
             // The runtime resolves theme tokens in keys.
-            extractable: !key.contains("theme."),
+            extractable: !key.contains("theme.") || {
+                explain::note("a theme token in a selector or at-rule key");
+                false
+            },
         };
         for (child_key, value) in &entries {
             let nested = matches!(unwrap_transparent(value), Expr::Object(_));
             if child_key.starts_with('@') {
                 let Expr::Object(inner) = unwrap_transparent(value) else {
-                    return None;
+                    return explain::bail(
+                        "a nested selector or at-rule whose value is not an object literal",
+                    );
                 };
-                let (text, inner_scope) = block.scope.at_rule(child_key)?;
+                let (text, inner_scope) = block.scope.at_rule(child_key).or_else(|| {
+                    explain::bail("an at-rule key Emotion's parse does not keep inside the rule")
+                })?;
                 let child = if writes_at_rule(child_key) {
                     let mut rules = at_rules.to_vec();
                     rules.push(text);
@@ -1139,9 +1164,13 @@ impl ModuleScope {
                 block.children.push(child);
             } else if child_key.starts_with('&') || nested {
                 let Expr::Object(inner) = unwrap_transparent(value) else {
-                    return None;
+                    return explain::bail(
+                        "a nested selector or at-rule whose value is not an object literal",
+                    );
                 };
-                let child_scope = block.scope.nest(child_key)?;
+                let child_scope = block.scope.nest(child_key).or_else(|| {
+                    explain::bail("a selector key Emotion's parse does not keep inside the rule")
+                })?;
                 let child = self.block(child_key, child_scope, at_rules, inner)?;
                 block.extractable &= child.extractable;
                 block.children.push(child);
@@ -1162,6 +1191,13 @@ impl ModuleScope {
                     || child_key.contains("theme.")
                     || !writable
                 {
+                    explain::note(match route {
+                        Route::Runtime => "a block holding a value left to the runtime",
+                        Route::Var(_) | Route::Switch(..) => {
+                            "a block holding a run-time value it cannot write as a variable"
+                        }
+                        _ => "a block holding a reserved or theme-token key",
+                    });
                     block.extractable = false;
                 }
                 block.declarations.push((child_key.clone(), route));
@@ -1182,6 +1218,7 @@ impl ModuleScope {
         obj: &ObjectLit,
     ) -> Option<Block> {
         let mut block = self.block(key, scope, at_rules, obj)?;
+        explain::note("an at-rule other than @media, @supports or @container");
         block.extractable = false;
         if is_keyframes(key) {
             block.declarations.clear();
@@ -1273,6 +1310,7 @@ fn settle(model: &mut Model) -> bool {
         // Prefixed VAR values: the prefixer's output depends on the value.
         for (i, d) in decls.iter().enumerate() {
             if matches!(d.route, Route::Var(_)) && stylis::is_prefixed_property(&d.property) {
+                explain::note("a run-time value of a property the prefixer rewrites by value");
                 to_runtime.insert(i);
             }
         }
@@ -1287,12 +1325,18 @@ fn settle(model: &mut Model) -> bool {
                 }
                 if !b.route.is_static_path() && !matches!(b.route, Route::Omit) {
                     // Rule: never split a property between the two paths.
+                    explain::note("a property also set on the runtime path");
                     to_runtime.insert(i);
                 } else if b.route.is_static_path() {
                     let same_context = a.context == b.context;
                     let both_nested = !a.context.is_base() && !b.context.is_base();
                     if same_context || both_nested {
                         // Order-dependent: atomic rules cannot keep it.
+                        explain::note(if same_context {
+                            "overlapping properties in one context"
+                        } else {
+                            "one property in two nested contexts"
+                        });
                         to_runtime.insert(i);
                         to_runtime.insert(j);
                     }
@@ -1312,6 +1356,7 @@ fn settle(model: &mut Model) -> bool {
                     .iter()
                     .any(|p| overlaps(p, &d.property))
             {
+                explain::note("a property a runtime block sets");
                 to_runtime.insert(i);
             }
         }
@@ -1341,6 +1386,11 @@ fn settle(model: &mut Model) -> bool {
                     })
                 });
             if clashes || any_block_runtime {
+                explain::note(if clashes {
+                    "a block sharing a property with the element's pseudo rules"
+                } else {
+                    "a block beside another block on the runtime path"
+                });
                 block.extractable = false;
                 changed = true;
             }
@@ -1711,15 +1761,15 @@ impl ModuleScope {
     ) -> Option<SiteExtraction> {
         for prop in special_props.iter().chain(d_props.iter()) {
             let PropOrSpread::Prop(prop) = prop else {
-                return None;
+                return explain::bail("a spread among the props");
             };
             let name = match &**prop {
                 Prop::KeyValue(kv) => key_name_atom(&kv.key).to_string(),
                 Prop::Shorthand(id) => id.sym.to_string(),
-                _ => return None,
+                _ => return explain::bail("a prop that is not key: value"),
             };
             if BLOCKING_PROPS.contains(&name.as_str()) {
-                return None;
+                return explain::bail("a prop that blocks extraction");
             }
         }
 
@@ -1729,18 +1779,19 @@ impl ModuleScope {
         let mut call_props = object_entries(&ObjectLit {
             span: DUMMY_SP,
             props: c_props.clone(),
-        })?;
+        })
+        .or_else(|| explain::bail("props with a spread or computed key"))?;
         let css_index = special_props
             .iter()
             .position(|p| prop_key(p).as_deref() == Some("css"));
         if let Some(index) = css_index {
             let PropOrSpread::Prop(prop) = &special_props[index] else {
-                return None;
+                return explain::bail("a css prop that is not key: value");
             };
             let value = match &**prop {
                 Prop::KeyValue(kv) => (*kv.value).clone(),
                 Prop::Shorthand(id) => Expr::Ident(id.clone()),
-                _ => return None,
+                _ => return explain::bail("a css prop that is not key: value"),
             };
             call_props.push(("css".to_string(), value));
         }
@@ -1753,7 +1804,9 @@ impl ModuleScope {
         if let Some(value) = css {
             match unwrap_transparent(&value) {
                 Expr::Object(obj) => {
-                    for (key, value) in object_entries(obj)? {
+                    for (key, value) in object_entries(obj)
+                        .or_else(|| explain::bail("css with a spread or computed key"))?
+                    {
                         match entries.iter_mut().find(|(k, _)| *k == key) {
                             Some(slot) => slot.1 = value,
                             None => entries.push((key, value)),
@@ -1762,15 +1815,18 @@ impl ModuleScope {
                 }
                 Expr::Lit(Lit::Bool(Bool { value: false, .. }) | Lit::Null(_)) => {}
                 Expr::Ident(id) if id.sym.as_ref() == "undefined" => {}
-                _ => return None,
+                _ => return explain::bail("css that is not an object literal"),
             }
         }
         if entries.is_empty() {
-            return None;
+            return explain::bail("no style entries");
         }
 
         let mut model = self.model(entries)?;
         let partial = settle(&mut model);
+        if partial {
+            explain::note(explain::PARTIAL);
+        }
 
         let mut classes: Vec<String> = Vec::new();
         let mut switches: Vec<Expr> = Vec::new();
@@ -1849,8 +1905,11 @@ impl ModuleScope {
         }
 
         if !partial {
-            for (key, value) in defaults(&model)? {
-                let text = value_text(key, &value)?;
+            for (key, value) in defaults(&model)
+                .or_else(|| explain::bail("default declarations not known at build time"))?
+            {
+                let text = value_text(key, &value)
+                    .or_else(|| explain::bail("a default value stylis's parse is not followed"))?;
                 let rule = atomic_rule(&Context::base(), &property_name(key), &text)?;
                 classes.push(rule.class.clone());
                 module.add(rule);
@@ -1858,7 +1917,7 @@ impl ModuleScope {
         }
 
         if classes.is_empty() && switches.is_empty() {
-            return None;
+            return explain::bail("nothing extracted");
         }
 
         // Remove what was extracted from `__meo$c` and `css`.

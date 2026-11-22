@@ -67,6 +67,8 @@ pub mod detect;
 mod extract_tables;
 // Emotion's selector composition, ported for extracted rules.
 mod selector;
+// Why call sites stay on the runtime path, recorded in test builds only.
+mod explain;
 
 // Class names for extracted rules, matching the runtime's `hashStyles`.
 pub mod style_name;

@@ -45,6 +45,7 @@ use crate::css_props::is_css_prop;
 use crate::detect::{self, ChildrenOrigin, Decision};
 use crate::effect::is_inline_function;
 use crate::effect::is_static_literal;
+use crate::explain;
 use crate::extract::{Factory, ModuleExtraction, ModuleScope, emit_module};
 use crate::keys::{is_special_key, is_stable_key_visible_special, key_name_atom};
 use crate::theme::{is_length_key, is_selector_or_at_rule, rewrite_theme_tokens_for};
@@ -806,11 +807,23 @@ fn rewrite_object(
     // Build-time CSS for what can be proved; the rest stays where it is. Never
     // with a spread, whose keys are unknown here.
     let mut extracted_props = Vec::new();
-    if !has_spread
-        && let Some((scope, factory, module)) = extract
-        && let Some(site) =
+    let attempted = extract.is_some();
+    if attempted {
+        explain::begin(span.lo.0);
+        if has_spread {
+            explain::note("a spread among the call's props");
+        }
+    }
+    let site = match extract {
+        Some((scope, factory, module)) if !has_spread => {
             scope.extract_site(factory, &mut c_props, &mut special_props, &d_props, module)
-    {
+        }
+        _ => None,
+    };
+    if attempted {
+        explain::finish(site.is_some());
+    }
+    if let Some(site) = site {
         let remaining: std::collections::HashSet<String> = c_props
             .iter()
             .chain(d_props.iter())
