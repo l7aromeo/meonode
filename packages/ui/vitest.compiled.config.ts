@@ -6,15 +6,24 @@ import baseConfig from './vitest.config'
 
 const rootDir = path.dirname(fileURLToPath(import.meta.url))
 
+/** Names a wasm build to compile with instead of the ones found below. */
+const WASM_ENV = 'MEONODE_COMPILER_WASM'
+
 /**
  * Where to find the compiler's wasm artifact.
  *
- * Prefers the published package, falls back to a sibling checkout so the
- * compiler can be exercised before release. Resolved lazily and reported
- * clearly, because a silently-missing plugin would make this whole config a
- * no-op that reports "all compiled tests pass" while compiling nothing.
+ * `MEONODE_COMPILER_WASM` names one build explicitly. Otherwise prefers the
+ * published package, falls back to a sibling checkout so the compiler can be
+ * exercised before release. Resolved lazily and reported clearly, because a
+ * silently-missing plugin would make this whole config a no-op that reports
+ * "all compiled tests pass" while compiling nothing.
  */
 function resolveWasm(): string {
+  const named = process.env[WASM_ENV]
+  if (named) {
+    if (!existsSync(named)) throw new Error(`${WASM_ENV} names a wasm that does not exist: ${named}`)
+    return named
+  }
   const candidates = [
     path.resolve(rootDir, 'node_modules/@meonode/compiler/meonode_swc_plugin.wasm'),
     path.resolve(rootDir, '../compiler/npm/meonode_swc_plugin.wasm'),
@@ -87,6 +96,10 @@ export default mergeConfig(
       // The compiler rewrites `@meonode/ui` factory calls; aliasing `@src`
       // means the library's own sources compile too, not just the tests.
       alias: { '@src': path.resolve(rootDir, 'src') },
+      // Vitest's module cache keys a transform by the file's source and the
+      // config, not by the wasm the config loads, so after a rebuild it would
+      // replay what the previous build compiled (#154).
+      fsModuleCache: false,
       // Lets a test tell which mode it is running under. A few assertions are
       // legitimately mode-specific: uncompiled keys are derived from props, so
       // structurally identical nodes share one, while compiled keys come from
