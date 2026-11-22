@@ -32,11 +32,11 @@ const LATE_RULE = `.${LATE}{margin:1px;}`
 /** The two compiled modules: the page's, and one only a component inside a Suspense boundary uses. */
 const registerPage = () =>
   registerStaticCss('page', [
-    [0, RED, RED_RULE],
-    [0, WIDE, WIDE_RULE],
-    [2, MEDIA, MEDIA_RULE],
+    [1, RED, RED_RULE],
+    [1, WIDE, WIDE_RULE],
+    [3, MEDIA, MEDIA_RULE],
   ])
-const registerLate = () => registerStaticCss('late', [[0, LATE, LATE_RULE]])
+const registerLate = () => registerStaticCss('late', [[1, LATE, LATE_RULE]])
 
 /** The ids the browser computed, by probe. After an attribute mismatch the DOM keeps the server's, and production React reports nothing. */
 const clientIds: Record<string, string> = {}
@@ -156,14 +156,15 @@ describe('a server-rendered document with static css', () => {
     const doc = new DOMParser().parseFromString(html, 'text/html')
 
     expect(precedenceGroups(doc.head)).toEqual([
+      [`${STATIC_CSS_PREFIX}0`, `${STATIC_CSS_PREFIX}0`, ''],
       [
-        `${STATIC_CSS_PREFIX}0`,
-        `${STATIC_CSS_PREFIX}0 ${STATIC_CSS_PREFIX}${RED} ${STATIC_CSS_PREFIX}${WIDE} ${STATIC_CSS_PREFIX}${LATE}`,
+        `${STATIC_CSS_PREFIX}1`,
+        `${STATIC_CSS_PREFIX}1 ${STATIC_CSS_PREFIX}${RED} ${STATIC_CSS_PREFIX}${WIDE} ${STATIC_CSS_PREFIX}${LATE}`,
         RED_RULE + WIDE_RULE + LATE_RULE,
       ],
-      [`${STATIC_CSS_PREFIX}1`, `${STATIC_CSS_PREFIX}1`, ''],
-      [`${STATIC_CSS_PREFIX}2`, `${STATIC_CSS_PREFIX}2 ${STATIC_CSS_PREFIX}${MEDIA}`, MEDIA_RULE],
-      [`${STATIC_CSS_PREFIX}3`, `${STATIC_CSS_PREFIX}3`, ''],
+      [`${STATIC_CSS_PREFIX}2`, `${STATIC_CSS_PREFIX}2`, ''],
+      [`${STATIC_CSS_PREFIX}3`, `${STATIC_CSS_PREFIX}3 ${STATIC_CSS_PREFIX}${MEDIA}`, MEDIA_RULE],
+      [`${STATIC_CSS_PREFIX}4`, `${STATIC_CSS_PREFIX}4`, ''],
     ])
     // Nothing static is left in the body. (Emotion writes its own there only on a
     // server with no document, which this suite is not.)
@@ -203,7 +204,7 @@ describe('a server-rendered document with static css', () => {
     await hydrate(html, () => {
       registerPage()
       registerLate()
-      registerStaticCss('client-only', [[1, 'mn-000000000000c', '.mn-000000000000c:hover{color:blue;}']])
+      registerStaticCss('client-only', [[2, 'mn-000000000000c', '.mn-000000000000c:hover{color:blue;}']])
     })
     const ownRules = () => [...document.head.querySelectorAll<HTMLStyleElement>('style[data-meonode-static]')].map(element => element.sheet!.cssRules.length)
     expect(ownRules().every(count => count === 0)).toBe(true)
@@ -225,7 +226,7 @@ describe('a server-rendered document with static css', () => {
     const order = [...document.head.querySelectorAll('style')].map(
       element => element.getAttribute('data-precedence') ?? `own ${element.getAttribute('data-meonode-static')}`,
     )
-    expect(order.slice(0, 8)).toEqual([
+    expect(order.slice(0, 10)).toEqual([
       `${STATIC_CSS_PREFIX}0`,
       'own 0',
       `${STATIC_CSS_PREFIX}1`,
@@ -234,8 +235,10 @@ describe('a server-rendered document with static css', () => {
       'own 2',
       `${STATIC_CSS_PREFIX}3`,
       'own 3',
+      `${STATIC_CSS_PREFIX}4`,
+      'own 4',
     ])
-    expect(ownRules()).toEqual([0, 1, 0, 0])
+    expect(ownRules()).toEqual([0, 0, 1, 0, 0])
   })
 })
 
@@ -260,7 +263,7 @@ describe('a server render without static css', () => {
 describe('a server-rendered document whose static css references an undefined theme token, in development', () => {
   const MISSING = 'mn-00000000000mt'
   const MISSING_RULE = `.${MISSING}{color:var(--meonode-theme-primary-missing);}`
-  const registerTokens = () => registerStaticCss('tokens', [[0, MISSING, MISSING_RULE]])
+  const registerTokens = () => registerStaticCss('tokens', [[1, MISSING, MISSING_RULE]])
 
   const Wrapper = ({ children }: { children?: unknown }) => children as ReturnType<typeof createElement>
 

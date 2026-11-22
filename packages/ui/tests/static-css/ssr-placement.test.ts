@@ -18,7 +18,7 @@ import { __resetStaticCss, registerStaticCss } from '@src/util/static-css.util.j
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 const PADDING = 'mn-0000000000p16'
-const register = () => registerStaticCss('card', [[0, PADDING, `.${PADDING}{padding:16px;}`]])
+const register = () => registerStaticCss('card', [[1, PADDING, `.${PADDING}{padding:16px;}`]])
 
 function App({ cache, runtime = true }: { cache?: EmotionCache; runtime?: boolean }): ReactElement {
   const page = Div({
@@ -89,14 +89,25 @@ function hydrateUnder(cache: (head: HTMLHeadElement) => EmotionCache, userFirst:
     hoisted.setAttribute('data-precedence', 'meonode')
     hoisted.setAttribute('data-href', 'css-server')
     hoisted.textContent = '.css-server{margin:1px}'
-    document.head.querySelector('style[data-precedence="mn-static-3"]')!.after(hoisted)
+    document.head.querySelector('style[data-precedence="mn-static-4"]')!.after(hoisted)
   }
   __resetStaticCss()
   register()
   act(() => void hydrateRoot(document, createElement(App, { cache: cache(document.head), runtime })))
 }
 
-const SERVER_AND_BROWSER_BUCKETS = ['mn-static-0', 'sheet-0', 'mn-static-1', 'sheet-1', 'mn-static-2', 'sheet-2', 'mn-static-3', 'sheet-3']
+const SERVER_AND_BROWSER_BUCKETS = [
+  'mn-static-0',
+  'sheet-0',
+  'mn-static-1',
+  'sheet-1',
+  'mn-static-2',
+  'sheet-2',
+  'mn-static-3',
+  'sheet-3',
+  'mn-static-4',
+  'sheet-4',
+]
 
 describe('a server-rendered page, once hydrated, has its static rules where the cache’s rules are', () => {
   // The page's stylesheet comes ahead of what React hoisted, as a framework's or a

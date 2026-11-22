@@ -22,9 +22,9 @@ const HOVER = 'mn-000000000000h'
 /** The module a compiled file registers at its top level. */
 function registerModule() {
   registerStaticCss('module-a', [
-    [0, RED, `.${RED}{color:red;}`],
-    [0, WIDE, `.${WIDE}{width:var(--mv-000000000000w);}`],
-    [1, HOVER, `.${HOVER}:hover{color:blue;}`],
+    [1, RED, `.${RED}{color:red;}`],
+    [1, WIDE, `.${WIDE}{width:var(--mv-000000000000w);}`],
+    [2, HOVER, `.${HOVER}:hover{color:blue;}`],
   ])
 }
 

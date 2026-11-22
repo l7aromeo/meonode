@@ -52,20 +52,21 @@ describe('extracted styles in a Next app', () => {
     const groups = groupsIn(html)
     const precedences = groups.map(([precedence]) => precedence)
 
-    expect(precedences.slice(0, 4)).toEqual(['mn-static-0', 'mn-static-1', 'mn-static-2', 'mn-static-3'])
-    expect(precedences.slice(4)).toContain('meonode')
+    expect(precedences.slice(0, 5)).toEqual(['mn-static-0', 'mn-static-1', 'mn-static-2', 'mn-static-3', 'mn-static-4'])
+    expect(precedences.slice(5)).toContain('meonode')
     // Each group holds its bucket's seed, then each class the shell's nodes use,
     // once, from the server tree and the client tree alike.
-    const hrefs = groups.slice(0, 4).map(([, href]) => href.split(' ').sort())
+    const hrefs = groups.slice(0, 5).map(([, href]) => href.split(' ').sort())
     expect(hrefs).toEqual([
-      ['mn-static-0', 'mn-static-mn-00000000cli0a', 'mn-static-mn-00000000cli0w', 'mn-static-mn-00000000srv0a'],
-      ['mn-static-1'],
-      ['mn-static-2', 'mn-static-mn-00000000srv2m'],
-      ['mn-static-3'],
+      ['mn-static-0'],
+      ['mn-static-1', 'mn-static-mn-00000000cli1a', 'mn-static-mn-00000000cli1w', 'mn-static-mn-00000000srv1a'],
+      ['mn-static-2'],
+      ['mn-static-3', 'mn-static-mn-00000000srv3m'],
+      ['mn-static-4'],
     ])
     // The streamed boundary's classes are not in the shell's head; they arrive with it.
-    expect(html).toContain('mn-static-mn-0000000late0a')
-    expect(html).toContain('mn-static-mn-0000000late1h')
+    expect(html).toContain('mn-static-mn-0000000late1a')
+    expect(html).toContain('mn-static-mn-0000000late2h')
   })
 
   it('hydrates with no mismatch, applies every rule, and inserts nothing the server sent', async () => {

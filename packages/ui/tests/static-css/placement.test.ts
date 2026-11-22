@@ -18,7 +18,7 @@ import { __resetStaticCss } from '@src/util/static-css.util.js'
 const PADDING = 'mn-0000000000p16'
 const RULE = `.${PADDING}{padding:16px;}`
 
-const register = () => registerStaticCss('placement', [[0, PADDING, RULE]])
+const register = () => registerStaticCss('placement', [[1, PADDING, RULE]])
 
 let roots: Root[] = []
 

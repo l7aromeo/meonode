@@ -9,9 +9,15 @@ import { getGlobalState } from '@src/helper/common.helper.js'
  * a node that uses its class first renders, as Emotion's do, through the
  * `StaticStyles` of that node's render.
  *
- * A rule belongs to one of four buckets, and every rule of a bucket comes after
+ * A rule belongs to one of five buckets, and every rule of a bucket comes after
  * every rule of the buckets before it. Within a bucket, rules come in the order
- * they reached the page.
+ * they reached the page, which follows the render's order, parents first, as
+ * Emotion's do. A rule that styles another node's element ties with that node's
+ * own rules as Emotion's would: Emotion inserts by render order, so a rule for a
+ * descendant or a later sibling (forward) loses to the target's own rules, and
+ * one for an ancestor or an earlier sibling through `:has()` (backward) wins.
+ * Forward rules therefore come first, and backward ones with the node's own
+ * selector rules last; see {@link STATIC_CSS_BUCKETS}.
  *
  * - In the browser, each bucket is one `<style data-meonode-static>` per
  *   container, placed right before the tags of the Emotion cache MeoNode's own
@@ -22,7 +28,7 @@ import { getGlobalState } from '@src/helper/common.helper.js'
  *   style text would be blocked. In development the rules go in as text, as
  *   Emotion's do, so the browser's tools show and edit them.
  * - On the server, a render emits each class it uses as a React hoistable style,
- *   in four precedences that React creates in bucket order. React dedupes them by
+ *   in five precedences that React creates in bucket order. React dedupes them by
  *   `href` within a request and hoists them into the head.
  * - When the browser takes over a server-rendered page, it reads which classes
  *   the server sent from those styles' `data-href` and inserts none of them again.
@@ -32,8 +38,15 @@ import { getGlobalState } from '@src/helper/common.helper.js'
  * per render or per request.
  */
 
-/** How many buckets the rules fall into: base declarations, pseudo-classes, at-rules and per-node selectors. */
-export const STATIC_CSS_BUCKETS = 4
+/**
+ * How many buckets the rules fall into, in this order:
+ * 0. forward rules, which style a descendant or a later sibling of the node (`& .x`, `& > *`, `& + .x`);
+ * 1. base declarations;
+ * 2. pseudo-classes;
+ * 3. at-rules;
+ * 4. the node's own selector rules (`.wrapper &`, `&.x`), and backward rules, which style an ancestor or an earlier sibling (`.x:has(&)`).
+ */
+export const STATIC_CSS_BUCKETS = 5
 
 /** One extracted rule: its bucket, the class it defines, and its css text. */
 export type StaticCssRule = readonly [bucket: number, className: string, cssText: string]
@@ -207,7 +220,7 @@ function placementOf(sheet: EmotionSheetPlacement | undefined, container: Node):
  * In the document head of a page the server rendered, the server's styles for
  * the buckets first move to where the cache's rules are, and each bucket's sheet
  * goes right after the server's styles of that bucket, so the server's rules and
- * the browser's keep one bucket order. Otherwise the four go together right before
+ * the browser's keep one bucket order. Otherwise the five go together right before
  * the cache's first tag, or, while it has none, where it will put it; then, for a
  * cache that places its first tag by `prepend` or `insertionPoint`, its
  * `insertionPoint` is set to the last static sheet, so its tags follow them.

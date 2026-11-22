@@ -59,7 +59,7 @@ function emotionOrder(steps: Steps): Name[] {
 /** The order the static sheet ends with when the same rules are extracted. */
 function staticOrder(steps: Steps): Name[] {
   run('css', extractedNode, steps)
-  return namesIn(document.head.querySelectorAll<HTMLStyleElement>('style[data-meonode-static="0"]'))
+  return namesIn(document.head.querySelectorAll<HTMLStyleElement>('style[data-meonode-static="1"]'))
 }
 
 const once =
@@ -72,7 +72,7 @@ beforeEach(() => {
   __setStaticCssSpeedy(true)
   registerStaticCss(
     'order',
-    NAMES.map(name => [0, classOf(name), `.${classOf(name)}{order:${orderOf(name)};}`] as const),
+    NAMES.map(name => [1, classOf(name), `.${classOf(name)}{order:${orderOf(name)};}`] as const),
   )
 })
 afterEach(() => {

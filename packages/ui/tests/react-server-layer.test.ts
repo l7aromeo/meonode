@@ -160,8 +160,8 @@ describe('static css in the React Server Components layer', () => {
     const { StaticStyles } = await import('@src/components/static-styles.js')
     registry.__resetStaticCss()
     registry.registerStaticCss('rsc-page', [
-      [0, RED, `.${RED}{color:red;}`],
-      [2, MEDIA, `@media (min-width: 600px){.${MEDIA}{padding:9px;}}`],
+      [1, RED, `.${RED}{color:red;}`],
+      [3, MEDIA, `@media (min-width: 600px){.${MEDIA}{padding:9px;}}`],
     ])
     try {
       // The node with only runtime css comes first, so its rule reaches the host before any static class does.
@@ -190,8 +190,9 @@ describe('static css in the React Server Components layer', () => {
         ['mn-static-1', 'mn-static-1'],
         ['mn-static-2', 'mn-static-2'],
         ['mn-static-3', 'mn-static-3'],
-        [`mn-static-${RED}`, 'mn-static-0'],
-        [`mn-static-${MEDIA}`, 'mn-static-2'],
+        ['mn-static-4', 'mn-static-4'],
+        [`mn-static-${RED}`, 'mn-static-1'],
+        [`mn-static-${MEDIA}`, 'mn-static-3'],
       ])
 
       const [, plain, partial] = children as ReactElement<{ className?: string }>[]
@@ -211,7 +212,7 @@ describe('static css in the React Server Components layer', () => {
     const { ThemeTokenCheck } = await import('@src/components/styled-renderer.client.js')
     const MISSING = 'mn-00000000000mt'
     registry.__resetStaticCss()
-    registry.registerStaticCss('rsc-tokens', [[0, MISSING, `.${MISSING}{color:var(--meonode-theme-primary-missing);}`]])
+    registry.registerStaticCss('rsc-tokens', [[1, MISSING, `.${MISSING}{color:var(--meonode-theme-primary-missing);}`]])
     try {
       const root = main.Div({ children: [main.Div({ __meo$: 2, __meo$s: MISSING, key: 'static' } as never)] }).render() as ReactElement<{ children: unknown[] }>
       const slot = root.props.children[root.props.children.length - 1] as ReactElement<{ refs?: unknown }>[]
@@ -230,7 +231,7 @@ describe('static css in the React Server Components layer', () => {
     const MISSING = 'mn-00000000000mt'
     registry.__resetStaticCss()
     diagnostics.__resetThemeDiagnostics()
-    registry.registerStaticCss('rsc-scoped', [[0, MISSING, `.${MISSING}{color:var(--meonode-theme-primary-missing);}`]])
+    registry.registerStaticCss('rsc-scoped', [[1, MISSING, `.${MISSING}{color:var(--meonode-theme-primary-missing);}`]])
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     try {
       const root = main
@@ -258,7 +259,7 @@ describe('static css in the React Server Components layer', () => {
     diagnostics.__resetThemeDiagnostics()
     main.setDebugMode(true)
     registry.__resetStaticCss()
-    registry.registerStaticCss('rsc-debug', [[0, MISSING, `.${MISSING}{color:var(--meonode-theme-primary-missing);}`]])
+    registry.registerStaticCss('rsc-debug', [[1, MISSING, `.${MISSING}{color:var(--meonode-theme-primary-missing);}`]])
     try {
       const root = main.Div({ children: [main.Div({ __meo$: 2, __meo$s: MISSING, key: 'static' } as never)] }).render() as ReactElement<{ children: unknown[] }>
       const slot = root.props.children[root.props.children.length - 1] as ReactElement<{ refs?: unknown }>[]

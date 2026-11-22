@@ -20,8 +20,8 @@ beforeEach(() => {
   __resetStaticCss()
   __resetStaticStyles()
   registerStaticCss('page', [
-    [0, RED, `.${RED}{color:red;}`],
-    [2, MEDIA, `@media (min-width: 600px){.${MEDIA}{padding:9px;}}`],
+    [1, RED, `.${RED}{color:red;}`],
+    [3, MEDIA, `@media (min-width: 600px){.${MEDIA}{padding:9px;}}`],
   ])
 })
 afterEach(() => vi.restoreAllMocks())
@@ -33,10 +33,11 @@ describe('a server render with no document', () => {
     expect(html).toMatch(
       new RegExp(
         '^<html><head>' +
-          '<style data-precedence="mn-static-0" data-href="mn-static-0 mn-static-mn-000000000000r">\\.mn-000000000000r\\{color:red;\\}</style>' +
-          '<style data-precedence="mn-static-1" data-href="mn-static-1"></style>' +
-          '<style data-precedence="mn-static-2" data-href="mn-static-2 mn-static-mn-000000000000m">@media \\(min-width: 600px\\)\\{\\.mn-000000000000m\\{padding:9px;\\}\\}</style>' +
-          '<style data-precedence="mn-static-3" data-href="mn-static-3"></style>' +
+          '<style data-precedence="mn-static-0" data-href="mn-static-0"></style>' +
+          '<style data-precedence="mn-static-1" data-href="mn-static-1 mn-static-mn-000000000000r">\\.mn-000000000000r\\{color:red;\\}</style>' +
+          '<style data-precedence="mn-static-2" data-href="mn-static-2"></style>' +
+          '<style data-precedence="mn-static-3" data-href="mn-static-3 mn-static-mn-000000000000m">@media \\(min-width: 600px\\)\\{\\.mn-000000000000m\\{padding:9px;\\}\\}</style>' +
+          '<style data-precedence="mn-static-4" data-href="mn-static-4"></style>' +
           '</head><body><style data-emotion="css [0-9a-z]+">[^<]*margin:2px;[^<]*</style>' +
           // The slot after the text renders nothing; React separates the text from it.
           `<div class="${RED} ${MEDIA} css-[0-9a-z]+">x<!-- --></div></body></html>$`,
@@ -45,12 +46,12 @@ describe('a server render with no document', () => {
   })
 
   it('keeps the buckets in order when the first module a render meets has only a later bucket', () => {
-    registerStaticCss('media-only', [[2, 'mn-00000000000m2', '@media print{.mn-00000000000m2{color:black;}}']])
-    registerStaticCss('base-only', [[0, 'mn-00000000000b0', '.mn-00000000000b0{color:white;}']])
+    registerStaticCss('media-only', [[3, 'mn-00000000000m2', '@media print{.mn-00000000000m2{color:black;}}']])
+    registerStaticCss('base-only', [[1, 'mn-00000000000b0', '.mn-00000000000b0{color:white;}']])
     const html = page(Div({ __meo$: 2, __meo$s: 'mn-00000000000m2 mn-00000000000b0' } as never))
     const precedences = [...html.matchAll(/data-precedence="([^"]+)"/g)].map(match => match[1])
 
-    expect(precedences).toEqual(['mn-static-0', 'mn-static-1', 'mn-static-2', 'mn-static-3'])
+    expect(precedences).toEqual(['mn-static-0', 'mn-static-1', 'mn-static-2', 'mn-static-3', 'mn-static-4'])
   })
 
   it('sends a class once however many nodes use it', () => {
@@ -72,9 +73,9 @@ describe('a server render with no document', () => {
   // Emotion's server render inserts a parent's rules before its children's.
   it('sends a render’s classes in the order its nodes began, parents first', () => {
     registerStaticCss('order', [
-      [0, 'mn-00000000000p0', '.mn-00000000000p0{color:red;}'],
-      [0, 'mn-00000000000c1', '.mn-00000000000c1{color:blue;}'],
-      [0, 'mn-00000000000c2', '.mn-00000000000c2{color:green;}'],
+      [1, 'mn-00000000000p0', '.mn-00000000000p0{color:red;}'],
+      [1, 'mn-00000000000c1', '.mn-00000000000c1{color:blue;}'],
+      [1, 'mn-00000000000c2', '.mn-00000000000c2{color:green;}'],
     ])
     const html = page(
       Div({
@@ -83,9 +84,9 @@ describe('a server render with no document', () => {
         children: [Div({ __meo$: 2, __meo$s: 'mn-00000000000c1', key: 1, children: Div({ __meo$: 2, __meo$s: 'mn-00000000000c2' } as never) } as never)],
       } as never),
     )
-    const hrefs = html.match(/data-href="mn-static-0[^"]*"/)![0]
+    const hrefs = html.match(/data-href="mn-static-1[^"]*"/)![0]
 
-    expect(hrefs).toBe('data-href="mn-static-0 mn-static-mn-00000000000p0 mn-static-mn-00000000000c1 mn-static-mn-00000000000c2"')
+    expect(hrefs).toBe('data-href="mn-static-1 mn-static-mn-00000000000p0 mn-static-mn-00000000000c1 mn-static-mn-00000000000c2"')
   })
 
   // One hoistable per class, so React meets no two children with one key.
@@ -131,6 +132,6 @@ describe('a server render with no document', () => {
     const Card = () => Div({ __meo$: 2, __meo$s: MEDIA, children: 'card' } as never).render()
     const html = page(Div({ children: Node(Card) }))
 
-    expect(html).toContain('data-href="mn-static-2 mn-static-mn-000000000000m"')
+    expect(html).toContain('data-href="mn-static-3 mn-static-mn-000000000000m"')
   })
 })

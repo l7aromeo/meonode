@@ -1043,23 +1043,24 @@ describe.each(['cc', 'plain'] as const)('extracted styles in a production build 
       match => /data-precedence="([^"]+)"/.exec(match[1])?.[1] ?? (/data-emotion/.test(match[1]) ? 'emotion' : 'other'),
     )
 
-    expect(styles.slice(0, 4)).toEqual(['mn-static-0', 'mn-static-1', 'mn-static-2', 'mn-static-3'])
-    expect(styles.slice(4).some(style => style.startsWith('mn-static-'))).toBe(false)
-    expect(styles.slice(4)).toContain('meonode')
-    expect(page.indexOf('<style data-emotion')).toBeGreaterThan(head.lastIndexOf('data-precedence="mn-static-3"'))
+    expect(styles.slice(0, 5)).toEqual(['mn-static-0', 'mn-static-1', 'mn-static-2', 'mn-static-3', 'mn-static-4'])
+    expect(styles.slice(5).some(style => style.startsWith('mn-static-'))).toBe(false)
+    expect(styles.slice(5)).toContain('meonode')
+    expect(page.indexOf('<style data-emotion')).toBeGreaterThan(head.lastIndexOf('data-precedence="mn-static-4"'))
     // Each class the shell's nodes use, once, in its bucket's group, from the
     // server tree and the client tree alike.
-    const hrefs = [...head.matchAll(/<style data-precedence="(mn-static-[0-3])" data-href="([^"]*)"/g)].map(match => [match[1], match[2].split(' ').sort()])
+    const hrefs = [...head.matchAll(/<style data-precedence="(mn-static-[0-4])" data-href="([^"]*)"/g)].map(match => [match[1], match[2].split(' ').sort()])
     expect(hrefs).toEqual([
-      ['mn-static-0', ['mn-static-0', 'mn-static-mn-00000000cli0a', 'mn-static-mn-00000000cli0w', 'mn-static-mn-00000000srv0a']],
-      ['mn-static-1', ['mn-static-1']],
-      ['mn-static-2', ['mn-static-2', 'mn-static-mn-00000000srv2m']],
-      ['mn-static-3', ['mn-static-3']],
+      ['mn-static-0', ['mn-static-0']],
+      ['mn-static-1', ['mn-static-1', 'mn-static-mn-00000000cli1a', 'mn-static-mn-00000000cli1w', 'mn-static-mn-00000000srv1a']],
+      ['mn-static-2', ['mn-static-2']],
+      ['mn-static-3', ['mn-static-3', 'mn-static-mn-00000000srv3m']],
+      ['mn-static-4', ['mn-static-4']],
     ])
     // The streamed boundary's classes arrive after the shell.
-    expect(head).not.toContain('late0a')
-    expect(page).toContain('mn-static-mn-0000000late0a')
-    expect(page).toContain('mn-static-mn-0000000late1h')
+    expect(head).not.toContain('late1a')
+    expect(page).toContain('mn-static-mn-0000000late1a')
+    expect(page).toContain('mn-static-mn-0000000late2h')
   })
 
   it('hydrates with no mismatch and identical ids, applies every rule, and inserts nothing the server sent', async () => {

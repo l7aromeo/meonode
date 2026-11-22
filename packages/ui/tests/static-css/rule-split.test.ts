@@ -24,7 +24,7 @@ function insertedRules(speedy: boolean): string[] {
   __resetStaticCss()
   document.head.innerHTML = ''
   __setStaticCssSpeedy(speedy)
-  registerStaticCss('quoted', [[3, QUOTED, RULES]])
+  registerStaticCss('quoted', [[4, QUOTED, RULES]])
   const container = document.createElement('div')
   document.body.append(container)
   const root = createRoot(container)

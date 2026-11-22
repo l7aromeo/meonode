@@ -49,17 +49,17 @@ beforeEach(() => {
   __resetStaticCss()
   __resetThemeDiagnostics()
   registerStaticCss('diagnostics', [
-    [0, MISSING_COLOR, `.${MISSING_COLOR}{color:var(--meonode-theme-primary-missing);}`],
-    [0, DEFINED_COLOR, `.${DEFINED_COLOR}{color:var(--meonode-theme-primary);}`],
-    [0, MISSING_BG, `.${MISSING_BG}{background-color:var(--meonode-theme-surface-missing);}`],
-    [0, DEFINED_BG, `.${DEFINED_BG}{background-color:var(--meonode-theme-surface);}`],
-    [0, WIDTH, `.${WIDTH}{width:var(--mv-00000000000wd);}`],
+    [1, MISSING_COLOR, `.${MISSING_COLOR}{color:var(--meonode-theme-primary-missing);}`],
+    [1, DEFINED_COLOR, `.${DEFINED_COLOR}{color:var(--meonode-theme-primary);}`],
+    [1, MISSING_BG, `.${MISSING_BG}{background-color:var(--meonode-theme-surface-missing);}`],
+    [1, DEFINED_BG, `.${DEFINED_BG}{background-color:var(--meonode-theme-surface);}`],
+    [1, WIDTH, `.${WIDTH}{width:var(--mv-00000000000wd);}`],
     // The prefixer writes a prefixed copy of the declaration; it is one token reference, as written.
-    [0, SELECT_MISSING, `.${SELECT_MISSING}{-webkit-user-select:var(--meonode-theme-select-missing);user-select:var(--meonode-theme-select-missing);}`],
-    [0, ACCENT, `.${ACCENT}{color:var(--meonode-theme-accent);}`],
-    [0, ACCENT_BG, `.${ACCENT_BG}{background-color:var(--meonode-theme-accent);}`],
-    [1, HOVER_MISSING, `.${HOVER_MISSING}:hover{color:var(--meonode-theme-hover-missing);}`],
-    [3, SELECTOR_MISSING, `.${SELECTOR_MISSING} pre:not(.a){border-color:var(--meonode-theme-border-missing);}`],
+    [1, SELECT_MISSING, `.${SELECT_MISSING}{-webkit-user-select:var(--meonode-theme-select-missing);user-select:var(--meonode-theme-select-missing);}`],
+    [1, ACCENT, `.${ACCENT}{color:var(--meonode-theme-accent);}`],
+    [1, ACCENT_BG, `.${ACCENT_BG}{background-color:var(--meonode-theme-accent);}`],
+    [2, HOVER_MISSING, `.${HOVER_MISSING}:hover{color:var(--meonode-theme-hover-missing);}`],
+    [0, SELECTOR_MISSING, `.${SELECTOR_MISSING} pre:not(.a){border-color:var(--meonode-theme-border-missing);}`],
   ])
 })
 
