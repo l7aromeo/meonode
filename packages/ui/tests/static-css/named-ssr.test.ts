@@ -18,6 +18,12 @@ import { nameStyles } from '@src/util/style-name.util.js'
 import { __resetStaticCss, registerStaticCss } from '@src/util/static-css.util.js'
 import { templated } from './_template.js'
 
+/** Renders `make`'s element from a component, where an app's walk runs and reads its cache. */
+const inRender = (make: () => ReactElement): ReactElement =>
+  createElement(function Page() {
+    return make()
+  })
+
 type Css = Record<string, unknown>
 
 /** The name and text the runtime computes for `css`, which the compiler writes for it. */
@@ -53,7 +59,7 @@ function read(html: string): { markup: string; rules: string[] } {
 
 function render(tree: (style: Style) => NodeInstance, style: Style, provider: boolean): ReturnType<typeof read> {
   __resetStaticCss()
-  const element = tree(style).render() as ReactElement
+  const element = inRender(() => tree(style).render() as ReactElement)
   return read(renderToString(provider ? createElement(CacheProvider, { value: createCache({ key: 'css' }) }, element) : element))
 }
 

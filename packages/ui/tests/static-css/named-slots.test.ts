@@ -16,6 +16,12 @@ import { __resetStaticCss, registerStaticCss } from '@src/util/static-css.util.j
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
+/** Renders `make`'s element from a component, where an app's walk runs and reads its cache. */
+const inRender = (make: () => ReactElement): ReactElement =>
+  createElement(function Page() {
+    return make()
+  })
+
 /** Props for a static node of `css`, as the compiler emits them. */
 function staticStyle(css: Record<string, unknown>): Record<string, unknown> {
   const resolved = ThemeUtil.resolveObjWithTheme(css, undefined, { processFunctions: true, themeStringsMode: 'vars' })
@@ -78,9 +84,9 @@ describe('a slot before a component', () => {
         children: ['a', 'b'].map(key => (keyed ? Node(Item, { key }) : Node(Item))),
       })
     root = createRoot(document.body.appendChild(document.createElement('div')))
-    act(() => root!.render(page(true).render() as ReactElement))
+    act(() => root!.render(inRender(() => page(true).render() as ReactElement)))
     expect(error.mock.calls.map(call => String(call[0])).filter(message => /key/i.test(message))).toEqual([])
-    act(() => root!.render(page(false).render() as ReactElement))
+    act(() => root!.render(inRender(() => page(false).render() as ReactElement)))
     // Unkeyed, React still asks for keys: the list reaches it as one list.
     expect(error.mock.calls.map(call => String(call[0])).some(message => /key/i.test(message))).toBe(true)
     expect(document.body.querySelectorAll('span').length).toBe(2)
@@ -95,7 +101,7 @@ describe('a slot before a component', () => {
       children: [Div(staticStyle({ order: 1 })), Node(Item), [Span('a', { key: 'a', ...staticStyle({ order: 3 }) }), Node(Item, { key: 'b' })]],
     })
     root = createRoot(document.body.appendChild(document.createElement('div')))
-    act(() => root!.render(page.render() as ReactElement))
+    act(() => root!.render(inRender(() => page.render() as ReactElement)))
     expect(error.mock.calls.map(call => String(call[0])).filter(message => /key/i.test(message))).toEqual([])
     expect(document.body.querySelectorAll('span').length).toBe(3)
   })

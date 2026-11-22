@@ -135,6 +135,18 @@ describe('named styles', () => {
     })
   })
 
+  // Outside any component's render there is no cache to read, so a named node
+  // renders through `StyledRenderer`, as its css would, at the runtime path's cost.
+  it('cost what the runtime path costs when the walk runs outside any component', () => {
+    const fibers = census(
+      () => Div({ children: Array.from({ length: CHILDREN }, (_, index) => Div({ key: String(index), ...named(index) } as never)) }).render() as ReactElement,
+    )
+    expect(fibers).toEqual({
+      mount: { 'host:div': CHILDREN + 1, Styled: CHILDREN, RuleInsertion: CHILDREN },
+      again: { 'host:div': CHILDREN + 1, Styled: CHILDREN },
+    })
+  })
+
   it('cost nothing at an idle slot', () => {
     const Card = () => Div(named(0) as never).render() as ReactElement
     const idle = census(

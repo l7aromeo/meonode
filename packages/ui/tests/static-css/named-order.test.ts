@@ -19,6 +19,12 @@ import { __resetStaticCss, registerStaticCss } from '@src/util/static-css.util.j
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
+/** Renders `make`'s element from a component, where an app's walk runs and reads its cache. */
+const inRender = (make: () => ReactElement): ReactElement =>
+  createElement(function Page() {
+    return make()
+  })
+
 type Css = Record<string, unknown>
 
 /** The name and text the runtime computes for `css`, which the compiler writes for it. */
@@ -59,7 +65,15 @@ function run(steps: Steps, style: Style): { classes: string[]; rules: string[] }
   steps(tree => {
     const root = createRoot(document.body.appendChild(document.createElement('div')))
     roots.push(root)
-    act(() => root.render(createElement(CacheProvider, { value: cache }, tree(style).render() as ReactElement)))
+    act(() =>
+      root.render(
+        createElement(
+          CacheProvider,
+          { value: cache },
+          inRender(() => tree(style).render() as ReactElement),
+        ),
+      ),
+    )
   })
   const classes = [...document.body.querySelectorAll('[data-n]')].map(element => `${element.getAttribute('data-n')}: ${element.className}`)
   const rules = [...document.head.querySelectorAll<HTMLStyleElement>('style[data-emotion^="css"]')].flatMap(element =>
@@ -234,7 +248,15 @@ describe('under a cache that prepends, with the page’s stylesheet first in the
       const cache = createCache({ key: 'css', prepend: true })
       const root = createRoot(document.body.appendChild(document.createElement('div')))
       roots.push(root)
-      act(() => root.render(createElement(CacheProvider, { value: cache }, Div({ className: 'card', ...style({ padding: 16 }) }).render() as ReactElement)))
+      act(() =>
+        root.render(
+          createElement(
+            CacheProvider,
+            { value: cache },
+            inRender(() => Div({ className: 'card', ...style({ padding: 16 }) }).render() as ReactElement),
+          ),
+        ),
+      )
       return [...document.head.querySelectorAll('style')].map(element => (element.hasAttribute('data-page') ? 'page' : (element.textContent ?? '')))
     }
     const expected = run(runtimeStyle)

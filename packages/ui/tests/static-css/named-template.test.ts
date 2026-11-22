@@ -18,6 +18,12 @@ import { __resetStaticCss, registerStaticCss } from '@src/util/static-css.util.j
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
+/** Renders `make`'s element from a component, where an app's walk runs and reads its cache. */
+const inRender = (make: () => ReactElement): ReactElement =>
+  createElement(function Page() {
+    return make()
+  })
+
 type Css = Record<string, unknown>
 
 /** Props a node of `css` gets: `css` itself, or as the compiler emits it. */
@@ -48,7 +54,15 @@ function run(tree: (style: Style) => NodeInstance, style: Style) {
   const cache = createCache({ key: 'css', speedy: true })
   const root = createRoot(document.body.appendChild(document.createElement('div')))
   roots.push(root)
-  act(() => root.render(createElement(CacheProvider, { value: cache }, tree(style).render() as ReactElement)))
+  act(() =>
+    root.render(
+      createElement(
+        CacheProvider,
+        { value: cache },
+        inRender(() => tree(style).render() as ReactElement),
+      ),
+    ),
+  )
   return {
     // No marker or internal prop reaches the element.
     attributes: [...document.body.querySelectorAll('*')].flatMap(element => element.getAttributeNames().filter(name => name.includes('meo'))),

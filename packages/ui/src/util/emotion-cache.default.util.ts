@@ -9,13 +9,13 @@ import { type Context, use } from 'react'
  * conditionally. The server build swaps in `emotion-cache.util.ts`.
  * @returns The cache of the nearest `CacheProvider`, or Emotion's default for
  * where it renders: a cache keyed `css` in the browser, `null` on the server.
- * `null` too when the render runs outside a component's render, where `use`
- * cannot be called.
+ * `undefined` when the render runs outside a component's render, where `use`
+ * cannot be called and no cache can be known.
  */
-export function readEmotionCache(): EmotionCache | null {
+export function readEmotionCache(): EmotionCache | null | undefined {
   try {
     return use(CacheProvider as unknown as Context<EmotionCache | null>)
   } catch {
-    return null
+    return undefined
   }
 }

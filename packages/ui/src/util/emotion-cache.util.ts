@@ -7,4 +7,4 @@ import type { EmotionCache } from '@emotion/cache'
  * `emotion-cache.default.util.ts`, which reads it.
  * @returns `null`.
  */
-export const readEmotionCache = (): EmotionCache | null => null
+export const readEmotionCache = (): EmotionCache | null | undefined => null

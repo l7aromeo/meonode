@@ -723,7 +723,28 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
     const namedEnabled = !IS_REACT_SERVER_LAYER && hasNamedStyles()
     /** The cache the render's elements go under, read once, at its first named node. */
     let walkCache: EmotionCache | undefined
-    const cacheOfWalk = (): EmotionCache => (walkCache ??= readEmotionCache() ?? createServerCssCache())
+    /** Whether the walk runs outside a component's render, where no cache can be read. */
+    let walkUnderNoRender = false
+    const cacheOfWalk = (): EmotionCache => {
+      if (walkCache === undefined) {
+        const read = readEmotionCache()
+        walkUnderNoRender = read === undefined
+        walkCache = read ?? createServerCssCache()
+      }
+      return walkCache
+    }
+    /** Whether the walk has no cache to read, being outside a component's render. */
+    const walkHasNoCache = (): boolean => {
+      cacheOfWalk()
+      return walkUnderNoRender
+    }
+
+    /**
+     * Named nodes that render through `StyledRenderer` instead, handed their
+     * style: with no cache to read, neither its key nor the classes it registered,
+     * which a `className` may hold, are known until the element renders under it.
+     */
+    const namedAtRender = namedEnabled ? new Set<BaseNode>() : undefined
     /** Each named node's class, from its begin phase, for its complete phase. */
     const namedClasses = namedEnabled ? new Map<BaseNode, string>() : undefined
     /** The run each runtime node inserts ahead of its own rule. */
@@ -876,7 +897,14 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
             if (name !== undefined && styles === undefined && isDevMode()) {
               console.error(`[MeoNode] The static style \`${name}\` is used but no module registered it, so no rule is sent for it.`)
             }
-            if (styles !== undefined) {
+            if (styles !== undefined && walkHasNoCache()) {
+              // A runtime node now: it takes the run since the last rule, as one does.
+              namedAtRender!.add(node)
+              if (pendingNamed.length > 0) {
+                namedRuns!.set(node, pendingNamed)
+                pendingNamed = []
+              }
+            } else if (styles !== undefined) {
               if (carrier !== pendingCarrier) {
                 flushNamed()
                 pendingCarrier = carrier
@@ -1326,7 +1354,19 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
             // server vs client compilation routes.
             const shouldUseRuntimeThemeOnServer = shouldBypassStyledRendererOnServer && isStyledComponent && NodeUtil.isClientReference(renderTarget)
 
-            if (namedForClient) {
+            if (namedAtRender?.has(node)) {
+              const run = namedRuns?.get(node)
+              element = createElement(
+                StyledRenderer,
+                {
+                  element: renderTarget,
+                  ...elementProps,
+                  [STATIC_STYLE_PROP]: { name: staticName, styles: namedText },
+                  ...(run && { [STATIC_RUN_PROP]: run }),
+                },
+                ...elementChildren,
+              )
+            } else if (namedForClient) {
               element = createElement(
                 StyledRenderer,
                 { element: renderTarget, ...elementProps, [STATIC_STYLE_PROP]: { name: staticName, styles: namedStylesHere } },

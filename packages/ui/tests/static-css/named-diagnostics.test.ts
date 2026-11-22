@@ -8,7 +8,7 @@
 // committed when a component between them may provide another theme. Each case
 // compares the warnings with those of the same call site uncompiled.
 import { serializeStyles } from '@emotion/serialize'
-import { act, type ReactElement } from 'react'
+import { createElement, act, type ReactElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { renderToString } from 'react-dom/server'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -22,6 +22,12 @@ import { __resetThemeDiagnostics } from '@src/util/theme-diagnostics.util.js'
 import { asThemeProps } from '../_theme-props.js'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+
+/** Renders `make`'s element from a component, where an app's walk runs and reads its cache. */
+const inRender = (make: () => ReactElement): ReactElement =>
+  createElement(function Page() {
+    return make()
+  })
 
 const theme = { mode: 'light', system: { primary: { default: 'rgb(0, 0, 255)' } } } as const
 /** A theme for a provider inside a component, defining one more token. */
@@ -61,7 +67,9 @@ function tokenWarnings(node: () => NodeInstance, withProvider = true): string[] 
   warnings = []
   const root = createRoot(document.body.appendChild(document.createElement('div')))
   roots.push(root)
-  act(() => root.render((withProvider ? ThemeProvider({ ...asThemeProps(theme as never), children: node() }) : node()).render() as ReactElement))
+  act(() =>
+    root.render(inRender(() => (withProvider ? ThemeProvider({ ...asThemeProps(theme as never), children: node() }) : node()).render() as ReactElement)),
+  )
   return warnings.filter(text => text.includes('--meonode-theme-'))
 }
 
@@ -105,7 +113,9 @@ describe('a token the theme in scope does not define, on a named node', () => {
       warnings = []
       NodeUtil.isServer = true
       try {
-        renderToString(ThemeProvider({ ...asThemeProps(theme as never), children: Div(style({ color: 'theme.primary.missing' })) }).render() as ReactElement)
+        renderToString(
+          inRender(() => ThemeProvider({ ...asThemeProps(theme as never), children: Div(style({ color: 'theme.primary.missing' })) }).render() as ReactElement),
+        )
       } finally {
         NodeUtil.isServer = false
       }

@@ -102,7 +102,10 @@ async function load() {
     )
   /** The case's page, under a cache of its own unless `provider` is `'none'`, as an app with a registry renders it. */
   const page = (tree: Tree, compiled: boolean, provider: Provider) => {
-    const element = tree(ui, react, styles(compiled)).render() as import('react').ReactElement
+    // From a component, where an app's walk runs and reads its cache.
+    const element = react.createElement(function Page() {
+      return tree(ui, react, styles(compiled)).render() as import('react').ReactElement
+    })
     if (provider === 'none') return element
     return react.createElement(emotion.CacheProvider, { value: createCache({ key: 'css', prepend: provider === 'prepend' }) }, element)
   }
