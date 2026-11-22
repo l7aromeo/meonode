@@ -161,6 +161,14 @@ function runUnshaped(page: (on: boolean) => NodeInstance, initially: boolean) {
 }
 const run = shaped(runUnshaped)
 
+/**
+ * Whether the suite runs compiled. Compiled, a call site reports an unkeyed
+ * spread's items itself, and React reports a missing key once per owner's name
+ * in the process, so how many warnings a run sees depends on the runs before
+ * it. The counts are pinned uncompiled; state, rules and shape in both modes.
+ */
+const COMPILED = process.env.MEONODE_COMPILED === '1'
+
 describe.each([
   ['unkeyed', false],
   ['keyed', true],
@@ -170,10 +178,11 @@ describe.each([
     ['with it out at first', false],
   ] as const)('%s', (__, initially) => {
     it.each(Object.entries(CASES))('%s', (___, page) => {
-      const expected = run(on => page(on, runtimeStyle, keyed), initially)
-      expect(expected.keyWarnings).toBe(0)
+      const { keyWarnings, ...expected } = run(on => page(on, runtimeStyle, keyed), initially)
+      if (!COMPILED) expect(keyWarnings).toBe(0)
       expect(expected.steps.at(-1)!.rules.length).toBeGreaterThan(0)
-      const compiled = run(on => page(on, compiledStyle, keyed), initially)
+      const { keyWarnings: compiledWarnings, ...compiled } = run(on => page(on, compiledStyle, keyed), initially)
+      if (!COMPILED) expect(compiledWarnings).toBe(keyWarnings)
       // The same state and rules, and `.render()` the same children.
       expect(compiled).toEqual(expected)
     })
@@ -359,7 +368,7 @@ describe('a generated list of items each holding a component', () => {
     ['keyed', true],
   ] as const)('%s, through appends, removals and reorders, keeps state, rules and shape as uncompiled', (_, keyed) => {
     const { keyWarnings, ...expected } = runList(runtimeStyle, keyed)
-    expect(keyWarnings).toBe(keyed ? 0 : 1)
+    if (!COMPILED) expect(keyWarnings).toBe(keyed ? 0 : 1)
     expect(expected.steps.at(-1)!.rules.length).toBeGreaterThan(0)
     // React reports a missing key once per owner's name, `Styled` in both runs,
     // so the second run's count says nothing; what decides React's check, the

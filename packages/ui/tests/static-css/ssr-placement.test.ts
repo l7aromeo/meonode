@@ -15,6 +15,11 @@ import { Div } from '@src/main.js'
 import { NodeUtil } from '@src/util/node.util.js'
 import { __resetStaticCss, registerStaticCss } from '@src/util/static-css.util.js'
 
+/**
+ * Whether the plugin extracted css from this file too. Extracted, a reference node's css written here becomes a named node's, registered at the module's top level, which the reset between tests forgets; these cases need it on the runtime path. Extraction's own placement is checked by the named-* suites.
+ */
+const EXTRACTED = process.env.MEONODE_EXTRACTED === '1'
+
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 const PADDING = 'mn-0000000000p16'
@@ -109,7 +114,7 @@ const SERVER_AND_BROWSER_BUCKETS = [
   'sheet-4',
 ]
 
-describe('a server-rendered page, once hydrated, has its static rules where the cache’s rules are', () => {
+describe.skipIf(EXTRACTED)('a server-rendered page, once hydrated, has its static rules where the cache’s rules are', () => {
   // The page's stylesheet comes ahead of what React hoisted, as a framework's or a
   // page shell's does; Emotion moves its styles ahead of it, so it wins a tie.
   it('ahead of the page’s stylesheet under a cache that prepends', () => {
@@ -193,7 +198,7 @@ function Page({ cache }: { cache?: EmotionCache }): ReactElement {
 /** The static styles still in the body. */
 const inBody = () => document.body.querySelectorAll('style[data-precedence^="mn-static-"], style[data-meonode-static]').length
 
-describe('a page server-rendered as a fragment, once hydrated, has its static rules where the cache’s rules are', () => {
+describe.skipIf(EXTRACTED)('a page server-rendered as a fragment, once hydrated, has its static rules where the cache’s rules are', () => {
   // Emotion's client cache moves the server's styles out of the body into the
   // head, to where its own tags go; the static styles go with them.
   it('at the head’s start under a cache that prepends', () => {

@@ -21,6 +21,11 @@ import { __resetStaticCss, registerStaticCss } from '@src/util/static-css.util.j
 import { __resetThemeDiagnostics, getTokensVarIndex, type ThemeVarIndex, type ThemeVarRef } from '@src/util/theme-diagnostics.util.js'
 import { asThemeProps } from '../_theme-props.js'
 
+/**
+ * Whether the plugin extracted css from this file too. Extracted, the uncompiled reference each case compares against becomes a named node, registered at the module's top level, which the reset between tests forgets, so it stays silent. Named nodes' warnings are checked against the runtime path by named-diagnostics.
+ */
+const EXTRACTED = process.env.MEONODE_EXTRACTED === '1'
+
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 const theme = {
@@ -113,7 +118,7 @@ const Wrapper = ({ children }: { children?: unknown }) => children as ReactEleme
 
 const compiled = (classes: string, rest: Record<string, unknown> = {}) => Div({ __meo$: 2, __meo$s: classes, ...rest } as never)
 
-describe('a token the active theme does not define, extracted', () => {
+describe.skipIf(EXTRACTED)('a token the active theme does not define, extracted', () => {
   it('warns from a static rule', () => {
     warnsAsUncompiled(
       () => Div({ color: 'theme.primary.missing' }),
@@ -183,7 +188,7 @@ describe('a token the active theme does not define, extracted', () => {
   })
 })
 
-describe('a node under a component inside the walk, which may provide another theme', () => {
+describe.skipIf(EXTRACTED)('a node under a component inside the walk, which may provide another theme', () => {
   /** A component that renders its children inside a provider of its own, out of the walk's sight. */
   const InnerTheme = ({ children }: { children?: NodeInstance }) => ThemeProvider({ ...asThemeProps(inner as never), children }).render() as ReactElement
 
@@ -298,7 +303,7 @@ describe('a token the active theme defines, extracted', () => {
   })
 })
 
-describe('a provider inside the walk, below its topmost host', () => {
+describe.skipIf(EXTRACTED)('a provider inside the walk, below its topmost host', () => {
   // A root layout written with MeoNode: hosts above the provider in the same
   // walk, so the walk's `StaticStyles` sits outside it.
   const layout = (child: NodeInstance) => Div({ children: Div({ children: ThemeProvider({ ...asThemeProps(theme as never), children: child }) }) })
@@ -599,7 +604,7 @@ describe('an element whose fiber cannot be read', () => {
   })
 })
 
-describe('a node in a portal under a component', () => {
+describe.skipIf(EXTRACTED)('a node in a portal under a component', () => {
   const InPortal = ({ children }: { children?: ReactElement }) => createPortal(children, document.body)
 
   it('is checked against the providers above it in the tree, not in the document', () => {

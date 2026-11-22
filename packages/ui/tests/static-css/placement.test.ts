@@ -13,6 +13,11 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { Div, registerStaticCss } from '@src/main.js'
 import { __resetStaticCss } from '@src/util/static-css.util.js'
 
+/**
+ * Whether the plugin extracted css from this file too. Extracted, a reference node's css written here becomes a named node's, registered at the module's top level, which the reset between tests forgets; these cases need it on the runtime path. Extraction's own placement is checked by the named-* suites.
+ */
+const EXTRACTED = process.env.MEONODE_EXTRACTED === '1'
+
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 const PADDING = 'mn-0000000000p16'
@@ -65,7 +70,7 @@ afterEach(() => {
   document.body.innerHTML = ''
 })
 
-describe('under a cache that prepends, as MUI’s injectFirst does', () => {
+describe.skipIf(EXTRACTED)('under a cache that prepends, as MUI’s injectFirst does', () => {
   // Uncompiled, the node's rule is in the prepended cache, ahead of the page's
   // stylesheet, which wins a tie. Extracted, it must be ahead of it too.
   it('lands ahead of the page’s styles when the module registers before Emotion inserts anything', () => {
@@ -88,7 +93,7 @@ describe('under a cache that prepends, as MUI’s injectFirst does', () => {
 })
 
 // Another library's prepended cache ahead of MeoNode's own, which appends.
-it('lands before MeoNode’s cache, not before another library’s', () => {
+it.skipIf(EXTRACTED)('lands before MeoNode’s cache, not before another library’s', () => {
   const mui = createCache({ key: 'mui', prepend: true })
   mui.sheet.insert('.mui-a{color:red}')
   userStyle()
