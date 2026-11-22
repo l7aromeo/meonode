@@ -198,7 +198,10 @@ function renderOwnClass(
   for (const name in props) if (!RENDERER_ONLY.has(name)) hostProps[name] = props[name]
   hostProps.className = className
   const host = createElement(renderTarget, hostProps, props.children as ReactNode)
-  const notIn = (styles: readonly NamedStyle[] | undefined) => styles !== undefined && styles.some(style => cache.inserted[style.serialized.name] === undefined)
+  // Each named style goes into its own scope's cache where it has one: on a server
+  // render with no provider, a style after this element's scope may be under another.
+  const notIn = (styles: readonly NamedStyle[] | undefined) =>
+    styles !== undefined && styles.some(style => (style.scope ?? cache).inserted[style.serialized.name] === undefined)
   const pending = cache.inserted[serialized.name] === undefined || notIn(run) || notIn(after)
   const leaf = pending ? createElement(RuleInsertion, { cache, serialized, isStringTag, ...(run && { run }), ...(after && { after }) }) : null
   return createElement(Fragment, null, leaf, host)

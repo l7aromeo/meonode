@@ -144,6 +144,17 @@ const CASES: Record<string, (style: Style) => NodeInstance> = {
     const pair = (key: number) => Div({ key, ...style({ '& > *': RED }), children: Span('c', style(BLUE)) })
     return Div({ ...style({ display: 'grid' }, true, true), children: [pair(1), pair(2)] })
   },
+  'a static node after a carrier inside a runtime sibling, both of one style': style => {
+    // With no provider, the carrier shares its runtime parent's cache, which holds
+    // the style already; the node after the parent is under a cache of its own.
+    const Card = () => null
+    return Div({
+      children: [
+        Div({ key: 'b', ...style(BLUE, false), children: [Node(Card, { key: 'k' }), Div({ key: 'c', ...style(BLUE, true, true) })] }),
+        Div({ key: 'd', ...style(BLUE) }),
+      ],
+    })
+  },
   'two nodes of one style': style =>
     Div({ children: [Div({ key: 1, ...style(BLUE) }), Div({ key: 2, ...style(RED, false) }), Div({ key: 3, ...style(BLUE) })] }),
   'a registered class handed to a static node': style => {
