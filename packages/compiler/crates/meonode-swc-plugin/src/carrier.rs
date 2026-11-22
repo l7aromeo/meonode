@@ -5,24 +5,27 @@
 //! nodes (`__meo$n` or `__meo$t`, no `__meo$c`), its runtime nodes (`__meo$c`),
 //! the components among its children, and its start and end. A host that is a
 //! runtime node only on some renders (a `css` read at run time, or a host call
-//! left uncompiled) is no cut. Named nodes keep no element of their own for their
-//! styles, so the styles of a stretch of them between two cuts go in at a
-//! node that renders: a runtime node at either end takes them, as it takes its
-//! own. A stretch with no runtime node at either end needs a carrier, which
-//! renders through `StyledRenderer` and inserts the stretch's styles there.
+//! left uncompiled) is no cut. Named nodes keep no element of their own for
+//! their styles: a runtime node or a carrier inserts the run of them since the
+//! last such rule, and the runtime makes a named node with no rule before it,
+//! since the walk's start or a cut, a carrier, which renders through
+//! `StyledRenderer`.
 //!
-//! A carrier is the stretch's first named node, so its styles go in before
-//! everything after it. The mark is a call site's, the same on every render,
-//! so a node never changes its element type between renders: a named node is
-//! marked when, for some combination of its conditions, it is first in a
-//! stretch whose left end is the walk's start or a component and whose right
-//! end is a component or the walk's end. A component here is any slot of a
-//! host, a position the extraction marks as one that may render a component
-//! (`__meo$p`, which this pass removes once read), or a child that may be one.
-//! A memoized host (one given `deps`) is a component on both sides: the
-//! runtime cuts before it, and the browser walks it on its own. Over a conditional, a spread and a
-//! generated list every member is optional, and a `.map()` item is read twice
-//! so an item's nodes see the item before it and the item after it.
+//! The mark is a call site's, the same on every render, so a node never changes
+//! its element type between renders. A named node is marked when, for some
+//! combination of its conditions, it comes with no rule before it since the
+//! walk's start or a component. A component here is any slot of a host, a
+//! position the extraction marks as one that may render a component (`__meo$p`,
+//! which this pass removes once read), or a child that may be one. A memoized
+//! host (one given `deps`) is a component on both sides: the runtime cuts before
+//! it, and the browser walks it on its own. Over a conditional, a spread and a
+//! generated list every member is optional, but a host holding a node is there
+//! whenever the node is; a `.map()` item is read twice so an item's nodes see
+//! the item before it.
+//!
+//! A named node is also marked wherever another call site may take its position
+//! on another render (see [`Shared`]), so a position never holds a carrier on
+//! one render and a plain host on the next.
 
 use std::collections::HashSet;
 
@@ -67,6 +70,9 @@ struct Token {
     kind: Kind,
     optional: bool,
     site: Option<Site>,
+    /// For a host, the index after its subtree's last token, so a token before
+    /// that is inside it; `0` for any other token.
+    end: usize,
 }
 
 fn site_of(call: &CallExpr) -> Site {
@@ -193,14 +199,14 @@ fn slots_of(props: &ObjectLit) -> Vec<Vec<usize>> {
         .collect()
 }
 
-fn is_map(call: &CallExpr) -> bool {
+pub(crate) fn is_map(call: &CallExpr) -> bool {
     matches!(&call.callee, Callee::Expr(callee)
         if matches!(&**callee, Expr::Member(m) if matches!(&m.prop, MemberProp::Ident(p) if p.sym.as_ref() == "map")))
 }
 
 /// What a `.map()` callback returns: its expression body, or the arguments of
 /// the return statements of its block, not of functions inside it.
-fn map_returns(call: &CallExpr) -> Vec<&Expr> {
+pub(crate) fn map_returns(call: &CallExpr) -> Vec<&Expr> {
     struct Returns<'a>(Vec<&'a Expr>);
     impl<'a> Returns<'a> {
         fn stmts(&mut self, stmts: &'a [Stmt]) {
@@ -273,6 +279,7 @@ impl Walks<'_> {
                 kind,
                 optional,
                 site: None,
+                end: 0,
             })
         };
         match unwrap_transparent(expr) {
@@ -311,10 +318,12 @@ impl Walks<'_> {
                 if memo {
                     push(out, Kind::Component);
                 }
+                let at = out.len();
                 out.push(Token {
                     kind,
                     optional,
                     site: Some(site),
+                    end: 0,
                 });
                 if let Some(children) = children_of(call) {
                     let slots = props_of(call).map(slots_of).unwrap_or_default();
@@ -328,12 +337,14 @@ impl Walks<'_> {
                                     kind: Kind::Component,
                                     optional,
                                     site: None,
+                                    end: 0,
                                 });
                             }
                             self.emit(child, optional, out);
                         }
                     }
                 }
+                out[at].end = out.len();
                 if memo {
                     push(out, Kind::Component);
                 }
@@ -365,6 +376,7 @@ impl Walks<'_> {
                     kind: Kind::Component,
                     optional,
                     site: None,
+                    end: 0,
                 });
             }
             if elem.spread.is_none() {
@@ -393,6 +405,7 @@ impl Walks<'_> {
                     kind: Kind::Component,
                     optional: true,
                     site: None,
+                    end: 0,
                 }),
             }
         }
@@ -406,6 +419,7 @@ impl Walks<'_> {
                 kind: Kind::Component,
                 optional: true,
                 site: None,
+                end: 0,
             });
             return;
         }
@@ -416,42 +430,32 @@ impl Walks<'_> {
         }
     }
 
-    /// Marks each named node of the walk that may begin a stretch needing a carrier.
+    /// Marks each named node of the walk that may come with no rule before it
+    /// since the walk's start or a cut, where the runtime makes it a carrier.
     fn choose(&mut self, tokens: &[Token]) {
-        let is_cut = |k: Kind| !matches!(k, Kind::Named | Kind::Plain);
         for (i, token) in tokens.iter().enumerate() {
             if token.kind != Kind::Named {
                 continue;
             }
             let mut left = HashSet::new();
             for other in tokens[..i].iter().rev() {
+                // A host holding the node is there whenever the node is.
+                let always = !other.optional || other.end > i;
                 match other.kind {
                     Kind::Plain => continue,
-                    Kind::Named if other.optional => continue,
+                    Kind::Named if !always => continue,
                     Kind::Named => break,
                     kind => {
                         left.insert(kind);
-                        if !other.optional {
+                        if always {
                             break;
                         }
                     }
                 }
             }
-            if !(left.contains(&Kind::Start) || left.contains(&Kind::Component)) {
-                continue;
-            }
-            let right_needs = tokens[i + 1..]
-                .iter()
-                .filter(|o| is_cut(o.kind))
-                .scan(false, |stopped, o| {
-                    if *stopped {
-                        return None;
-                    }
-                    *stopped = !o.optional;
-                    Some(o.kind)
-                })
-                .any(|k| matches!(k, Kind::Component | Kind::End));
-            if right_needs && let Some(site) = token.site {
+            if (left.contains(&Kind::Start) || left.contains(&Kind::Component))
+                && let Some(site) = token.site
+            {
                 self.carriers.insert(site);
             }
         }
@@ -465,14 +469,138 @@ impl Visit for Walks<'_> {
                 kind: Kind::Start,
                 optional: false,
                 site: None,
+                end: 0,
             }];
             self.emit(&Expr::Call(call.clone()), false, &mut tokens);
             tokens.push(Token {
                 kind: Kind::End,
                 optional: false,
                 site: None,
+                end: 0,
             });
             self.choose(&tokens);
+        }
+        call.visit_children_with(self);
+    }
+}
+
+/// Reads the positions a named node may share with another call site across
+/// renders, and adds the named nodes there to the carriers: a node marked at a
+/// position some other node takes on another render would change its fiber's
+/// type there, from `StyledRenderer` to a host or back, and remount, where the
+/// runtime renders every styled node through `StyledRenderer` and keeps it. A
+/// position is shared by both arms of a conditional, by the operands of `&&`,
+/// `||` and `??`, by the items of a variable-length region of a children
+/// array (a spread, a `.map()`, or a child that may be absent), and by every
+/// sibling after one. A keyed node is matched by its key, so it is left out.
+struct Shared<'a> {
+    scope: &'a ModuleScope,
+    carriers: &'a mut HashSet<Site>,
+}
+
+impl Shared<'_> {
+    /// Marks every named, unkeyed host call `expr` may render as at its position.
+    fn share(&mut self, expr: &Expr) {
+        match unwrap_transparent(expr) {
+            Expr::Cond(c) => {
+                self.share(&c.cons);
+                self.share(&c.alt);
+            }
+            Expr::Bin(b) if b.op == BinaryOp::LogicalAnd => self.share(&b.right),
+            Expr::Bin(b) if matches!(b.op, BinaryOp::LogicalOr | BinaryOp::NullishCoalescing) => {
+                self.share(&b.left);
+                self.share(&b.right);
+            }
+            Expr::Array(array) => {
+                for elem in array.elems.iter().flatten() {
+                    self.share(&elem.expr);
+                }
+            }
+            Expr::Call(call) if is_map(call) => {
+                for r in map_returns(call) {
+                    self.share(r);
+                }
+            }
+            Expr::Call(call) => {
+                if let Some(props) = props_of(call).filter(|p| has_key(p, MARKER_KEY))
+                    && (has_key(props, NAME_KEY) || has_key(props, TEMPLATE_KEY))
+                    && !has_key(props, CSS_KEY)
+                    && !has_key(props, "key")
+                {
+                    self.carriers.insert(site_of(call));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// A children array's positions in order, nested array literals read
+    /// through: each item of a variable-length region and every child after
+    /// one is shared.
+    fn sequence(&mut self, array: &ArrayLit, shifted: &mut bool) {
+        for elem in array.elems.iter().flatten() {
+            let child = unwrap_transparent(&elem.expr);
+            if elem.spread.is_none()
+                && let Expr::Array(nested) = child
+            {
+                self.sequence(nested, shifted);
+                continue;
+            }
+            let region = elem.spread.is_some()
+                || matches!(child, Expr::Call(call) if is_map(call))
+                || may_be_absent(child);
+            if *shifted || region {
+                self.share(child);
+            }
+            *shifted |= region;
+        }
+    }
+}
+
+/// Whether a child may render nothing, or several positions, on some render:
+/// a logical operand, or a conditional with an arm that is absent or an array.
+fn may_be_absent(child: &Expr) -> bool {
+    match unwrap_transparent(child) {
+        Expr::Bin(b) => matches!(
+            b.op,
+            BinaryOp::LogicalAnd | BinaryOp::LogicalOr | BinaryOp::NullishCoalescing
+        ),
+        Expr::Cond(c) => [&c.cons, &c.alt]
+            .into_iter()
+            .any(|arm| match unwrap_transparent(arm) {
+                Expr::Lit(Lit::Null(_) | Lit::Bool(_)) | Expr::Array(_) => true,
+                Expr::Ident(id) => id.sym.as_ref() == "undefined",
+                Expr::Unary(u) => u.op == UnaryOp::Void,
+                other => may_be_absent(other),
+            }),
+        _ => false,
+    }
+}
+
+impl Visit for Shared<'_> {
+    fn visit_cond_expr(&mut self, cond: &CondExpr) {
+        self.share(&cond.cons);
+        self.share(&cond.alt);
+        cond.visit_children_with(self);
+    }
+
+    fn visit_bin_expr(&mut self, bin: &BinExpr) {
+        match bin.op {
+            BinaryOp::LogicalAnd => self.share(&bin.right),
+            _ => {}
+        }
+        bin.visit_children_with(self);
+    }
+
+    fn visit_call_expr(&mut self, call: &CallExpr) {
+        // A host's children, or a `children` prop handed to whatever renders it.
+        let children = if self.scope.extractable_factory(call).is_some() {
+            children_of(call)
+        } else {
+            props_of(call).and_then(|props| value_of(props, "children"))
+        };
+        if let Some(Expr::Array(array)) = children.map(unwrap_transparent) {
+            self.sequence(array, &mut false);
         }
         call.visit_children_with(self);
     }
@@ -522,6 +650,10 @@ pub fn mark(module: &mut Module, scope: &ModuleScope) {
         carriers: HashSet::new(),
     };
     module.visit_with(&mut walks);
+    module.visit_with(&mut Shared {
+        scope,
+        carriers: &mut walks.carriers,
+    });
     module.visit_mut_with(&mut Marker(&walks.carriers));
 }
 
@@ -636,13 +768,14 @@ mod tests {
     }
 
     #[test]
-    fn leaves_a_run_a_runtime_node_takes_unmarked() {
-        // The runtime node right after the root carries the root's run.
+    fn marks_a_named_root_whatever_follows_it() {
+        // No rule is before the root, so the runtime carries its run there even
+        // with a runtime node after it: the mark makes that the same on every render.
         assert_eq!(
             carriers(
                 "export const P = (w) => Div({ padding: 1, 'data-i': 0, children: [Div({ width: w, 'data-i': 1 }), Card()] })"
             ),
-            set(&[])
+            set(&[0])
         );
     }
 
@@ -657,12 +790,13 @@ mod tests {
     }
 
     #[test]
-    fn leaves_a_stretch_ending_at_a_runtime_node_unmarked() {
+    fn marks_a_named_node_after_a_component_whatever_follows_it() {
+        // The component cuts the run, so no rule is before the node.
         assert_eq!(
             carriers(
                 "export const P = (w) => Div({ width: w, children: [Card(), Span('a', { color: 'red', 'data-i': 1 }), Div({ width: w })] })"
             ),
-            set(&[])
+            set(&[1])
         );
     }
 
@@ -801,6 +935,132 @@ mod tests {
     }
 
     #[test]
+    fn marks_both_arms_of_a_ternary() {
+        // Either arm may hold the position on a render: a carrier and a plain
+        // host there would change the fiber's type between renders.
+        assert_eq!(
+            carriers(
+                "export const P = (w, s) => Div({ width: w, children: [s.a ? Span('a', { color: 'red', 'data-i': 1 }) : Span('b', { color: 'blue', 'data-i': 2 }), Div({ width: w })] })"
+            ),
+            set(&[1, 2])
+        );
+    }
+
+    #[test]
+    fn marks_a_logical_operand_and_the_siblings_after_it() {
+        // The `&&` child may be absent, so the siblings after it move.
+        assert_eq!(
+            carriers(
+                "export const P = (w, s) => Div({ width: w, children: [Span('z', { color: 'gray', 'data-i': 0 }), Div({ width: w }), s.a && Span('a', { color: 'red', 'data-i': 1 }), Span('b', { color: 'blue', 'data-i': 2 }), Div({ width: w })] })"
+            ),
+            set(&[1, 2])
+        );
+    }
+
+    #[test]
+    fn marks_unkeyed_list_items_and_the_siblings_after_them() {
+        assert_eq!(
+            carriers(
+                "export const P = (w, s) => Div({ width: w, children: [...s.items.map(item => Span('a', { color: 'red', 'data-i': 1 })), Span('b', { color: 'blue', 'data-i': 2 }), Div({ width: w })] })"
+            ),
+            set(&[1, 2])
+        );
+    }
+
+    #[test]
+    fn marks_both_operands_of_or_and_nullish() {
+        for op in ["||", "??"] {
+            assert_eq!(
+                carriers(&format!(
+                    "export const P = (w, s) => Div({{ width: w, children: [s.x {op} Span('a', {{ color: 'red', 'data-i': 1 }}), Div({{ width: w }})] }})"
+                )),
+                set(&[1]),
+                "{op}"
+            );
+        }
+    }
+
+    #[test]
+    fn leaves_a_runtime_node_at_a_shared_position_unmarked() {
+        // It renders through `StyledRenderer` on every render already.
+        assert_eq!(
+            carriers(
+                "export const P = (w, s) => Div({ width: w, children: [s.a ? Div({ width: w, 'data-i': 1 }) : Span('b', { color: 'blue', 'data-i': 2 }), Div({ width: w })] })"
+            ),
+            set(&[2])
+        );
+    }
+
+    #[test]
+    fn reads_nested_children_arrays_as_one_sequence() {
+        assert_eq!(
+            carriers(
+                "export const P = (w, s) => Div({ width: w, children: [[s.a && Div({ width: w })], [Span('b', { color: 'blue', 'data-i': 2 })], Div({ width: w })] })"
+            ),
+            set(&[2])
+        );
+    }
+
+    #[test]
+    fn marks_a_logical_operand_that_is_a_sole_child() {
+        for op in ["&&", "||"] {
+            assert_eq!(
+                carriers(&format!(
+                    "export const P = (w, s) => Div({{ width: w, children: s.a {op} Span('a', {{ color: 'red', 'data-i': 1 }}) }})"
+                )),
+                set(&[1]),
+                "{op}"
+            );
+        }
+    }
+
+    #[test]
+    fn leaves_a_named_child_of_a_list_item_unmarked() {
+        // The item's own node is always there when its child is, and is a rule
+        // node before it: only the item, which follows the component of the item
+        // before it, needs the mark.
+        assert_eq!(
+            carriers(
+                "export const P = (s) => Div({ display: 'grid', 'data-i': 0, children: [Span('h', { key: 'h', fontSize: 1, 'data-i': 1 }), ...s.cards.map((c, i) => Div({ key: i, padding: 1, 'data-i': 2, children: [Span('b', { order: 1, 'data-i': 3 }), Card({ key: 'l' })] }))] })"
+            ),
+            set(&[0, 2])
+        );
+    }
+
+    #[test]
+    fn leaves_keyed_positions_unmarked() {
+        // React matches a keyed child by its key, not its position.
+        assert_eq!(
+            carriers(
+                "export const P = (w, s) => Div({ width: w, children: [...s.items.map(item => Span('a', { key: item, color: 'red', 'data-i': 1 })), Span('b', { key: 'b', color: 'blue', 'data-i': 2 }), s.a ? Span('c', { key: 'c', color: 'green', 'data-i': 3 }) : null, Div({ width: w })] })"
+            ),
+            set(&[])
+        );
+    }
+
+    #[test]
+    fn leaves_a_sibling_before_a_variable_region_unmarked() {
+        // Its position is the same on every render.
+        assert_eq!(
+            carriers(
+                "export const P = (w, s) => Div({ width: w, children: [Span('b', { color: 'blue', 'data-i': 2 }), s.a && Div({ width: w }), Div({ width: w })] })"
+            ),
+            set(&[])
+        );
+    }
+
+    #[test]
+    fn marks_the_items_of_a_conditional_spread() {
+        // `[A]` and `[C]` share the first position of the region.
+        assert_eq!(
+            carriers(
+                "export const P = (w, s) => Div({ width: w, children: [...(s.a ? [Span('a', { color: 'red', 'data-i': 1 })] : [Span('c', { color: 'green', 'data-i': 3 })]), Div({ width: w })] })"
+            ),
+            set(&[1, 3])
+        );
+    }
+
+    #[test]
     fn looks_past_an_uncompiled_host_to_the_component_before_it() {
         // Its props may hold no style, and the stretch begins after the component.
         assert_eq!(
@@ -866,12 +1126,13 @@ mod tests {
 
     #[test]
     fn reads_a_conditional_spread_as_part_of_its_walk() {
-        // The spread's span follows a named node always there, so it is no walk of its own.
+        // The spread follows a named node always there, which carries what comes
+        // after it. Its item is keyed, so its shared position needs no mark either.
         assert_eq!(
             carriers(
-                "export const P = (w, s) => Div({ width: w, children: [Card(), Span('a', { color: 'red', 'data-i': 1 }), ...(s.e ? [Span('b', { color: 'blue', 'data-i': 2 })] : []), Div({ width: w })] })"
+                "export const P = (w, s) => Div({ width: w, children: [Card(), Span('a', { color: 'red', 'data-i': 1 }), ...(s.e ? [Span('b', { key: 'b', color: 'blue', 'data-i': 2 })] : []), Div({ width: w })] })"
             ),
-            set(&[])
+            set(&[1])
         );
     }
 

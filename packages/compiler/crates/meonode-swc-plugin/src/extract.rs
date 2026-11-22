@@ -356,6 +356,11 @@ impl ModuleScope {
     /// marker names: always, unless `spread` is a conditional over array
     /// literals whose branches are empty or start with a walked child.
     fn may_start_unwalked(&self, spread: &Expr) -> bool {
+        if let Expr::Call(call) = unwrap_transparent(spread)
+            && crate::carrier::is_map(call)
+        {
+            return !self.walked(spread);
+        }
         let Expr::Cond(cond) = unwrap_transparent(spread) else {
             return true;
         };
@@ -393,6 +398,11 @@ impl ModuleScope {
             Expr::Bin(b) if b.op == BinaryOp::LogicalAnd => self.walked(&b.right),
             Expr::Bin(b) if matches!(b.op, BinaryOp::LogicalOr | BinaryOp::NullishCoalescing) => {
                 self.walked(&b.left) && self.walked(&b.right)
+            }
+            // A generated list: what its callback returns, for every item.
+            Expr::Call(call) if crate::carrier::is_map(call) => {
+                let returns = crate::carrier::map_returns(call);
+                !returns.is_empty() && returns.iter().all(|r| self.walked(r))
             }
             Expr::Call(call) => {
                 self.extractable_factory(call).is_some() || is_host_create_element(call)

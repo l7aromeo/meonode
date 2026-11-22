@@ -1,9 +1,9 @@
 // The carrier mark `__meo$r` must be on every named node that, on some render,
-// begins a stretch of named nodes whose styles no runtime node takes: the
-// stretch starts at the walk's start or after a child that renders a
-// component, and ends at such a child or the walk's end, as the runtime's walk
-// cuts them. The mark is a call site's, the same on every
-// render, so over conditions it may be on more nodes than one render needs,
+// comes with no rule node before it since the walk's start or a child that
+// renders a component, where the runtime makes it a carrier: marked, it is one
+// on every render, so its fiber's type never changes. The mark is a call
+// site's, the same on every render, so over conditions it may be on more nodes
+// than one render needs,
 // but never on a node that is not named, and on a walk without conditions on
 // exactly the nodes that need it.
 //
@@ -171,15 +171,16 @@ function neededOnEither(render: unknown): Set<number> {
   return out
 }
 
-/** The named nodes this render needs a carrier at. */
+/**
+ * The named nodes this render makes carriers: each with no rule before it
+ * since the walk's start or a cut, as the runtime promotes one there.
+ */
 function needed(sequence: Token[]): Set<number> {
   const out = new Set<number>()
   sequence.forEach((token, i) => {
     if (token.kind !== 'named') return
     const before = sequence.slice(0, i).reverse().find(t => t.kind !== 'plain')
-    if (before?.kind !== 'start' && before?.kind !== 'component') return
-    const after = sequence.slice(i + 1).find(t => t.kind !== 'plain' && t.kind !== 'named')
-    if (after?.kind === 'component' || after?.kind === 'end') out.add(token.id)
+    if (before?.kind === 'start' || before?.kind === 'component') out.add(token.id)
   })
   return out
 }
