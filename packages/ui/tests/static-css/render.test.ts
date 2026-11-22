@@ -1,147 +1,80 @@
 // @vitest-environment jsdom
 //
-// What a node the compiler extracted styles from renders in the browser. Each
-// node here is compiled output written by hand in the contract's shape: the
-// static classes in `__meo$s`, the variables their rules read in `__meo$v`, and
-// whatever css stays on the runtime path in `__meo$c`.
-import { act, createElement, isValidElement, type ReactElement } from 'react'
+// What a node the compiler named renders in the browser, against the same call
+// site uncompiled. Each node here is compiled output written by hand in the
+// contract's shape: its whole style's name in `__meo$n`, registered by its
+// module. Each tree renders from a component, where an app's walk runs.
+import { serializeStyles } from '@emotion/serialize'
+import { act, createElement, type ReactElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { Div, Img, Span, ThemeProvider, type NodeInstance, type Theme } from '@src/main.js'
-import StyledRenderer from '@src/components/styled-renderer.client.js'
-import { StaticStyles } from '@src/components/static-styles.js'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { Div, ThemeProvider, type NodeInstance, type Theme } from '@src/main.js'
+import { nameStyles } from '@src/util/style-name.util.js'
 import { __resetStaticCss, registerStaticCss } from '@src/util/static-css.util.js'
+import { ThemeUtil } from '@src/util/theme.util.js'
 import { asThemeProps } from '../_theme-props.js'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
-const RED = 'mn-000000000000r'
-const WIDE = 'mn-000000000000w'
-const HOVER = 'mn-000000000000h'
+type Css = Record<string, unknown>
 
-/** The module a compiled file registers at its top level. */
-function registerModule() {
-  registerStaticCss('module-a', [
-    [1, RED, `.${RED}{color:red;}`],
-    [1, WIDE, `.${WIDE}{width:var(--mv-000000000000w);}`],
-    [2, HOVER, `.${HOVER}:hover{color:blue;}`],
-  ])
+/** The style of the call sites below: `Div({ color: 'red', '&:hover': { color: 'blue' } })`. */
+const STYLE: Css = { color: 'red', '&:hover': { color: 'blue' } }
+
+/** The name and text the compiler computes for `css`. */
+function nameOf(css: Css): { name: string; styles: string } {
+  const resolved = ThemeUtil.resolveObjWithTheme(css, undefined, { processFunctions: true, themeStringsMode: 'vars' })
+  return nameStyles(serializeStyles([ThemeUtil.resolveDefaultStyle(ThemeUtil.dropThemedKeys(resolved, () => {}))] as never))
 }
 
-/** A compiled host call site: `Div({ color: 'red', width, '&:hover': {...}, ...rest })`. */
-const compiled = (rest: Record<string, unknown> = {}) =>
-  Div({ __meo$: 2, __meo$s: `${RED} ${WIDE} ${HOVER}`, __meo$v: { '--mv-000000000000w': '8px' }, ...rest } as never)
+const { name: NAME, styles: STYLES } = nameOf(STYLE)
 
-let container: HTMLElement
-let root: Root | undefined
+/** A compiled host call site of {@link STYLE}, with `rest` as its other props. */
+const compiled = (rest: Record<string, unknown> = {}) => Div({ __meo$: 2, __meo$n: NAME, ...rest } as never)
+/** The same call site uncompiled. */
+const uncompiled = (rest: Record<string, unknown> = {}) => Div({ css: STYLE, ...rest })
 
-function mount(node: NodeInstance | ReactElement): HTMLElement {
-  container = document.createElement('div')
-  document.body.append(container)
-  root = createRoot(container)
-  act(() => root!.render(isValidElement(node) ? node : node.render()))
-  return container
-}
+let roots: Root[] = []
 
-const emotionRules = () =>
-  [...document.head.querySelectorAll<HTMLStyleElement>('style[data-emotion]')].flatMap(element =>
-    [...(element.sheet?.cssRules ?? [])].map(rule => rule.cssText),
+/** Mounts `tree` rendered from a component, and gives its container's markup. */
+function mount(tree: () => NodeInstance | ReactElement): string {
+  const container = document.body.appendChild(document.createElement('div'))
+  const root = createRoot(container)
+  roots.push(root)
+  act(() =>
+    root.render(
+      createElement(function Page() {
+        const made = tree()
+        return ('render' in made ? made.render() : made) as ReactElement
+      }),
+    ),
   )
+  return container.innerHTML
+}
 
 beforeEach(() => {
   __resetStaticCss()
-  registerModule()
+  registerStaticCss('module-a', [[NAME, STYLES]])
 })
 afterEach(() => {
-  act(() => root?.unmount())
-  root = undefined
-  container?.remove()
+  for (const root of roots) act(() => root.unmount())
+  roots = []
+  document.body.innerHTML = ''
 })
 
-describe('a node whose styles were all extracted', () => {
-  it('renders a plain host element with the static classes and variables', () => {
-    const el = mount(compiled({ children: 'x' })).firstElementChild as HTMLElement
-
-    expect(el.outerHTML).toBe(`<div class="${RED} ${WIDE} ${HOVER}" style="--mv-000000000000w: 8px;">x</div>`)
+describe('a named node', () => {
+  it('renders the markup of the call site uncompiled', () => {
+    expect(mount(() => compiled({ children: 'x' }))).toBe(mount(() => uncompiled({ children: 'x' })))
   })
 
-  it('takes no StyledRenderer, no theme hook and no default styles', () => {
-    const element = compiled({ children: 'x' }).render()
-
-    expect(element.type).toBe('div')
-    expect(element.type).not.toBe(StyledRenderer)
-    mount(element)
-    expect(emotionRules().some(rule => rule.includes('flex-shrink'))).toBe(false)
+  it('puts its class with a className as the call site uncompiled does', () => {
+    expect(mount(() => compiled({ className: 'own', children: 'x' }))).toBe(mount(() => uncompiled({ className: 'own', children: 'x' })))
+    expect(mount(() => compiled({ __meo$d: { className: 'own' }, children: 'x' }))).toBe(mount(() => uncompiled({ className: 'own', children: 'x' })))
   })
 
-  it('puts the static classes before the element’s own className', () => {
-    const fromDom = mount(compiled({ __meo$d: { className: 'own' } })).firstElementChild as HTMLElement
-    expect(fromDom.className).toBe(`${RED} ${WIDE} ${HOVER} own`)
-  })
-
-  it('takes a className passed outside the compiled buckets the same way', () => {
-    const el = mount(compiled({ className: 'own' })).firstElementChild as HTMLElement
-    expect(el.className).toBe(`${RED} ${WIDE} ${HOVER} own`)
-  })
-
-  it('lets the element’s own style win over a variable', () => {
-    const el = mount(compiled({ __meo$d: { style: { color: 'green', '--mv-000000000000w': '1px' } } })).firstElementChild as HTMLElement
-
-    expect(el.getAttribute('style')).toBe('--mv-000000000000w: 1px; color: green;')
-  })
-
-  it('leaves a variable out when its value is nothing', () => {
-    const el = mount(compiled({ __meo$v: { '--mv-000000000000w': undefined } })).firstElementChild as HTMLElement
-    expect(el.style.getPropertyValue('--mv-000000000000w')).toBe('')
-  })
-
-  // As a child of its own, not a nested list, which would cost one more fiber.
-  it('carries the server’s static styles as one keyed child after its own children, which renders nothing here', () => {
-    const element = Div({ children: [compiled({ key: 'a' }), Span('y')] }).render() as ReactElement<{ children: unknown[] }>
-    const children = element.props.children
-    const slot = children[children.length - 1] as ReactElement
-
-    expect(children).toHaveLength(3)
-    expect(slot.type).toBe(StaticStyles)
-    expect(slot.key).toBe('mn-static')
-    expect(mount(element).innerHTML).toBe(`<div><div class="${RED} ${WIDE} ${HOVER}" style="--mv-000000000000w: 8px;"></div><span>y</span></div>`)
-    // The browser's rules are the registry's own sheets; React is handed none.
-    expect(document.head.querySelectorAll('style[data-precedence]')).toHaveLength(0)
-  })
-
-  it('renders beside a root that cannot carry the slot', () => {
-    const element = Img({ __meo$: 2, __meo$s: RED, alt: '' } as never).render() as ReactElement<{ children: unknown[] }>
-
-    expect(element.type).not.toBe('img')
-    expect(mount(element).innerHTML).toBe(`<img alt="" class="${RED}">`)
-  })
-})
-
-describe('a node with css left on the runtime path', () => {
-  const partial = () => compiled({ __meo$c: { padding: 4 }, children: 'x' })
-
-  it('renders through StyledRenderer, with the static classes before Emotion’s', () => {
-    const element = partial().render() as ReactElement<{ className?: string }>
-    expect(element.type).toBe(StyledRenderer)
-
-    const el = mount(element).firstElementChild as HTMLElement
-    const classes = el.className.split(' ')
-    expect(classes.slice(0, 3)).toEqual([RED, WIDE, HOVER])
-    expect(classes).toHaveLength(4)
-    expect(classes[3]).toMatch(/^css-/)
-    expect(el.style.getPropertyValue('--mv-000000000000w')).toBe('8px')
-  })
-
-  it('keeps the runtime’s defaults on what stays on the runtime path', () => {
-    mount(partial())
-    expect(emotionRules().some(rule => /flex-shrink: 0/.test(rule) && /padding: 4px/.test(rule))).toBe(true)
-  })
-
-  it('has its static rules in sheets before Emotion’s', () => {
-    mount(partial())
-    const order = [...document.head.querySelectorAll('style')].map(element => (element.hasAttribute('data-emotion') ? 'emotion' : 'static'))
-
-    expect(order.indexOf('emotion')).toBeGreaterThan(order.lastIndexOf('static'))
+  it('renders as uncompiled after a runtime sibling, which it does not carry', () => {
+    const tree = (style: typeof compiled) => Div({ children: [Div({ key: 'r', css: { order: 1 } }), style({ key: 'n', children: 'x' })] })
+    expect(mount(() => tree(compiled))).toBe(mount(() => tree(uncompiled)))
   })
 })
 
@@ -152,51 +85,52 @@ describe('compiled output rendered as an element under another node', () => {
     ['a node', child => Div({ children: child })],
     ['a ThemeProvider', child => ThemeProvider({ ...asThemeProps(theme), children: child })],
     ['a node inside a ThemeProvider', child => ThemeProvider({ ...asThemeProps(theme), children: Div({ children: [child] }) })],
-  ])('is copied as written under %s', (_, parent) => {
-    const child = compiled({ __meo$d: { className: 'own' }, children: 'x' }).render()
-    const html = mount(parent(child)).innerHTML
-
-    expect(html).toContain(`<div class="${RED} ${WIDE} ${HOVER} own" style="--mv-000000000000w: 8px;">x</div>`)
-    // Nothing was compiled for it on the way.
-    expect(emotionRules().some(rule => rule.includes('color: red'))).toBe(false)
+  ])('renders as uncompiled under %s', (_, parent) => {
+    const html = (style: typeof compiled) => mount(() => parent(style({ key: 'c', className: 'own', children: 'x' }).render() as ReactElement))
+    expect(html(compiled)).toBe(html(uncompiled))
   })
 })
 
 describe('a node with Emotion disabled', () => {
-  it('takes no static classes or variables under an ancestor that disabled it', () => {
-    const html = mount(Div({ disableEmotion: true, children: [compiled({ key: 'c', __meo$d: { className: 'own' }, children: 'x' })] })).innerHTML
-
-    expect(html).toBe('<div><div class="own">x</div></div>')
+  it('takes no class under an ancestor that disabled it, as uncompiled', () => {
+    const tree = (style: typeof compiled) => Div({ disableEmotion: true, children: [style({ key: 'c', className: 'own', children: 'x' })] })
+    expect(mount(() => tree(compiled))).toBe('<div><div class="own">x</div></div>')
+    expect(mount(() => tree(compiled))).toBe(mount(() => tree(uncompiled)))
   })
 
-  it('takes none when it disabled Emotion itself', () => {
-    const el = mount(compiled({ disableEmotion: true, children: 'x' })).firstElementChild as HTMLElement
-    expect(el.outerHTML).toBe('<div>x</div>')
+  it('takes none when it disabled Emotion itself, as uncompiled', () => {
+    expect(mount(() => compiled({ disableEmotion: true, children: 'x' }))).toBe('<div>x</div>')
+    expect(mount(() => compiled({ disableEmotion: true, children: 'x' }))).toBe(mount(() => uncompiled({ disableEmotion: true, children: 'x' })))
   })
 })
 
-describe('a node with markers before any module registered', () => {
-  it('still takes its classes, and carries no slot', () => {
+describe('a node whose name no module registered', () => {
+  it('says so in development and renders without the style', () => {
     __resetStaticCss()
-    const element = compiled({ children: 'x' }).render() as ReactElement<{ children: unknown }>
-
-    expect(element.props.children).toBe('x')
-    expect((mount(element).firstElementChild as HTMLElement).className).toBe(`${RED} ${WIDE} ${HOVER}`)
+    registerStaticCss('module-b', [['other', 'order:1;']])
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      expect(mount(() => compiled({ children: 'x' }))).toBe('<div>x</div>')
+      expect(error.mock.calls.map(call => String(call[0])).filter(text => text.includes(NAME))).toEqual([
+        `[MeoNode] The static style \`${NAME}\` is used but no module registered it, so no rule is sent for it.`,
+      ])
+    } finally {
+      error.mockRestore()
+    }
   })
 })
 
 describe('the markers', () => {
   it('never reach the element', () => {
-    const element = compiled({ __meo$c: { padding: 4 } }).render() as ReactElement<Record<string, unknown>>
-    for (const key of Object.keys(element.props)) expect(key.startsWith('__meo$')).toBe(false)
-    const plain = compiled().render() as ReactElement<Record<string, unknown>>
-    for (const key of Object.keys(plain.props)) expect(key.startsWith('__meo$')).toBe(false)
+    let element: ReactElement<Record<string, unknown>> | undefined
+    mount(() => (element = compiled({ __meo$c: { padding: 4 }, __meo$r: 1 }).render() as ReactElement<Record<string, unknown>>))
+    for (const key of Object.keys(element!.props)) expect(key.startsWith('__meo$')).toBe(false)
+    mount(() => (element = Div({ children: [Div({ key: 'r', css: { order: 1 } }), compiled({ key: 'n' })] }).render() as ReactElement<Record<string, unknown>>))
+    const named = (element!.props.children as ReactElement<Record<string, unknown>>[]).flat()[1]
+    for (const key of Object.keys(named.props)) expect(key.startsWith('__meo$')).toBe(false)
   })
 
   it('are ignored by schema 1, which never had them', () => {
-    const element = Div({ __meo$: 1, __meo$s: RED, children: 'x' } as never).render() as ReactElement<Record<string, unknown>>
-
-    expect(element.props.className).toBeUndefined()
-    expect(createElement('div').type).toBe('div')
+    expect(mount(() => Div({ __meo$: 1, __meo$n: NAME, children: 'x' } as never))).toBe('<div>x</div>')
   })
 })

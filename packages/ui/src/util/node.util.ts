@@ -25,10 +25,8 @@ import {
   LIST_MARKER,
   LOCATION_MARKER,
   STATIC_CARRIER_MARKER,
-  STATIC_CLASSES_MARKER,
   STATIC_NAME_MARKER,
   STATIC_TEXT_PROP,
-  STATIC_VARS_MARKER,
   SUPPORTED_COMPILER_SCHEMAS,
 } from '@src/constant/common.const.js'
 import { BaseNode } from '@src/core.node.js'
@@ -273,23 +271,7 @@ export class NodeUtil {
     // Always a fresh object, never an alias of the compiler's bucket, so downstream
     // consumers keep the same ownership guarantees the legacy path gave them. A `css`
     // that is not a map is composed after the flat props instead; see `isSpreadableCss`.
-    // A call site with one spread keeps its static entries' source either side of
-    // it. When the spread brings a CSS key, `css`, `as` or `theme`, a static class
-    // could be overridden by it, override it, or land on another element, so the
-    // node renders as the call site would uncompiled: the css is rebuilt in the
-    // authored order and the classes are dropped. Static and runtime entries of
-    // the call site never share a property family, so their relative order has no
-    // effect. With none of those keys, the classes stand.
-    const staticBefore = schemaKeys.before === undefined ? undefined : (source[schemaKeys.before] as Record<string, unknown> | undefined)
-    const staticAfter = schemaKeys.after === undefined ? undefined : (source[schemaKeys.after] as Record<string, unknown> | undefined)
-    const spreadOverrides =
-      (staticBefore !== undefined || staticAfter !== undefined) &&
-      ((passthroughCssProps !== undefined && Object.keys(passthroughCssProps).length > 0) || css !== undefined || 'as' in source || 'theme' in source)
-    const merged = spreadOverrides
-      ? { ...staticBefore, ...passthroughCssProps, ...markerCssProps, ...staticAfter }
-      : passthroughCssProps === undefined
-        ? markerCssProps
-        : { ...passthroughCssProps, ...markerCssProps }
+    const merged = passthroughCssProps === undefined ? markerCssProps : { ...passthroughCssProps, ...markerCssProps }
     const flatCssProps = merged === undefined ? undefined : NodeUtil.primitivesFirst(merged)
     const finalCssProps = NodeUtil.isSpreadableCss(css) ? { ...flatCssProps, ...css } : [{ ...flatCssProps }, css]
 
@@ -324,18 +306,12 @@ export class NodeUtil {
     if (generatedChildren) result[LIST_MARKER] = true
     const compiledLocation = schemaKeys.loc === undefined ? undefined : source[schemaKeys.loc]
     if (typeof compiledLocation === 'string') result[LOCATION_MARKER] = compiledLocation
-    // The classes and variables of the styles the compiler extracted. The render
-    // adds them to the element's own `className` and `style`.
-    const staticClasses = schemaKeys.classes === undefined || spreadOverrides ? undefined : source[schemaKeys.classes]
-    if (typeof staticClasses === 'string' && staticClasses !== '') result[STATIC_CLASSES_MARKER] = staticClasses
-    const staticVars = schemaKeys.vars === undefined || spreadOverrides ? undefined : source[schemaKeys.vars]
-    if (staticVars !== null && typeof staticVars === 'object') result[STATIC_VARS_MARKER] = staticVars
     // The name of the call site's whole style, which the compiler serialized.
-    const staticName = schemaKeys.name === undefined || spreadOverrides ? undefined : source[schemaKeys.name]
+    const staticName = schemaKeys.name === undefined ? undefined : source[schemaKeys.name]
     if (typeof staticName === 'string' && staticName !== '') result[STATIC_NAME_MARKER] = staticName
     // A template filled with the call site's values is its whole style, named
     // as Emotion's pipeline names the text, so the node is a named one.
-    const template = schemaKeys.template === undefined || spreadOverrides ? undefined : source[schemaKeys.template]
+    const template = schemaKeys.template === undefined ? undefined : source[schemaKeys.template]
     if (Array.isArray(template) && typeof template[0] === 'string') {
       const text = templateText(template[0], template.slice(1))
       if (text !== undefined) {

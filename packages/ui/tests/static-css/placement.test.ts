@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 //
-// Where an app's extracted rules land against its other styles, through the
-// public surface only: a compiled module registers, a compiled node renders
-// under the Emotion cache the app provides. The static rules must sit where the
-// same node's rules would uncompiled: right before that cache's tags, in that
-// cache's container.
+// Where an app's named rules land against its other styles, through the public
+// surface only: a compiled module registers, a compiled node renders under the
+// Emotion cache the app provides. A named rule goes in through that cache, so it
+// must sit where the same node's rule would uncompiled: in that cache's tags, in
+// that cache's container.
+import { serializeStyles } from '@emotion/serialize'
 import { CacheProvider } from '@emotion/react'
 import createCache, { type EmotionCache } from '@emotion/cache'
 import { act, createElement, type ReactElement } from 'react'
@@ -12,41 +13,55 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { Div, registerStaticCss } from '@src/main.js'
 import { __resetStaticCss } from '@src/util/static-css.util.js'
+import { nameStyles } from '@src/util/style-name.util.js'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
-const PADDING = 'mn-0000000000p16'
-const RULE = `.${PADDING}{padding:16px;}`
+const { name: PADDING, styles: PADDING_STYLES } = nameStyles(serializeStyles([{ padding: '16px' }] as never))
 
-const register = () => registerStaticCss('placement', [[1, PADDING, RULE]])
+const register = () => registerStaticCss('placement', [[PADDING, PADDING_STYLES]])
 
 let roots: Root[] = []
 
-function mount(cache: EmotionCache, ...children: ReactElement[]) {
+function mount(cache: EmotionCache, ...children: (() => ReactElement)[]) {
   const container = document.createElement('div')
   document.body.append(container)
   const root = createRoot(container)
   roots.push(root)
-  act(() => root.render(createElement(CacheProvider, { value: cache }, ...children)))
+  act(() =>
+    root.render(
+      createElement(
+        CacheProvider,
+        { value: cache },
+        ...children.map((child, index) =>
+          createElement(
+            function Page() {
+              return child()
+            },
+            { key: index },
+          ),
+        ),
+      ),
+    ),
+  )
 }
 
-/** A compiled node with only extracted styles, and one whose css stays on the runtime path. */
-const extracted = () => Div({ __meo$: 2, __meo$s: PADDING, key: 'static', className: 'card' } as never).render() as ReactElement
-const runtime = () => Div({ key: 'runtime', css: { margin: 3 } }).render() as ReactElement
+/** A compiled node with its whole style named, and one whose css stays on the runtime path. */
+const named = () => Div({ __meo$: 2, __meo$n: PADDING, className: 'card' } as never).render() as ReactElement
+const runtime = () => Div({ css: { margin: 3 } }).render() as ReactElement
 
-/** The head's children, named by what they are. */
+/** The head's children, named by what they are: the cache whose rule each holds, or the page's own. */
 const order = (root: ParentNode = document.head) =>
   [...root.children]
-    .map(element =>
-      element.hasAttribute('data-meonode-static') ? 'static' : element.getAttribute('data-emotion') || element.getAttribute('data-name') || element.tagName,
-    )
+    .map(element => element.getAttribute('data-emotion')?.split(' ')[0] || element.getAttribute('data-name') || element.tagName)
     .filter((name, index, names) => name !== names[index - 1])
 
-/** Whether a container holds the static rule. */
-const holdsRule = (root: ParentNode) =>
-  [...root.querySelectorAll<HTMLStyleElement>('style[data-meonode-static]')].some(element =>
-    [...(element.sheet?.cssRules ?? [])].some(rule => rule.cssText.includes(PADDING)),
-  )
+/** The cache key of the tag in `root` that holds the named rule, if any. */
+const ruleHolder = (root: ParentNode) =>
+  [...root.querySelectorAll<HTMLStyleElement>('style[data-emotion]')]
+    .find(element => [...(element.sheet?.cssRules ?? [])].some(rule => rule.cssText.includes(PADDING)) || element.textContent?.includes(PADDING))
+    ?.getAttribute('data-emotion')
+    ?.split(' ')[0]
 
 function userStyle() {
   const element = document.createElement('style')
@@ -67,35 +82,38 @@ afterEach(() => {
 
 describe('under a cache that prepends, as MUI’s injectFirst does', () => {
   // Uncompiled, the node's rule is in the prepended cache, ahead of the page's
-  // stylesheet, which wins a tie. Extracted, it must be ahead of it too.
-  it('lands ahead of the page’s styles when the module registers before Emotion inserts anything', () => {
+  // stylesheet, which wins a tie. Named, it must be ahead of it too.
+  it('lands in the cache, ahead of the page’s styles, when the module registers before Emotion inserts anything', () => {
     userStyle()
     register()
-    mount(createCache({ key: 'css', prepend: true }), extracted(), runtime())
+    mount(createCache({ key: 'css', prepend: true }), named, runtime)
 
-    expect(order()).toEqual(['static', 'css', 'user'])
+    expect(ruleHolder(document.head)).toBe('css')
+    expect(order()).toEqual(['css', 'user'])
   })
 
-  it('lands ahead of the page’s styles when Emotion inserted first', () => {
+  it('lands in the cache, ahead of the page’s styles, when Emotion inserted first', () => {
     userStyle()
     const cache = createCache({ key: 'css', prepend: true })
-    mount(cache, runtime())
+    mount(cache, runtime)
     register()
-    mount(cache, extracted())
+    mount(cache, named)
 
-    expect(order()).toEqual(['static', 'css', 'user'])
+    expect(ruleHolder(document.head)).toBe('css')
+    expect(order()).toEqual(['css', 'user'])
   })
 })
 
 // Another library's prepended cache ahead of MeoNode's own, which appends.
-it('lands before MeoNode’s cache, not before another library’s', () => {
+it('lands in MeoNode’s cache, not in another library’s', () => {
   const mui = createCache({ key: 'mui', prepend: true })
   mui.sheet.insert('.mui-a{color:red}')
   userStyle()
   register()
-  mount(createCache({ key: 'meonode-css' }), extracted(), runtime())
+  mount(createCache({ key: 'meonode-css' }), named, runtime)
 
-  expect(order()).toEqual(['mui', 'user', 'static', 'meonode-css'])
+  expect(ruleHolder(document.head)).toBe('meonode-css')
+  expect(order()).toEqual(['mui', 'user', 'meonode-css'])
 })
 
 describe('under a cache whose container is not the document head', () => {
@@ -104,9 +122,10 @@ describe('under a cache whose container is not the document head', () => {
     document.body.append(host)
     const shadow = host.attachShadow({ mode: 'open' })
     register()
-    mount(createCache({ key: 'css', container: shadow as unknown as Node }), extracted())
+    mount(createCache({ key: 'css', container: shadow as unknown as Node }), named)
 
-    expect(holdsRule(shadow)).toBe(true)
+    expect(ruleHolder(shadow)).toBe('css')
+    expect(ruleHolder(document.head)).toBeUndefined()
   })
 
   it('lands in another document’s head the cache inserts into', () => {
@@ -114,8 +133,9 @@ describe('under a cache whose container is not the document head', () => {
     document.body.append(frame)
     const frameDocument = frame.contentDocument!
     register()
-    mount(createCache({ key: 'css', container: frameDocument.head }), extracted())
+    mount(createCache({ key: 'css', container: frameDocument.head }), named)
 
-    expect(holdsRule(frameDocument.head)).toBe(true)
+    expect(ruleHolder(frameDocument.head)).toBe('css')
+    expect(ruleHolder(document.head)).toBeUndefined()
   })
 })

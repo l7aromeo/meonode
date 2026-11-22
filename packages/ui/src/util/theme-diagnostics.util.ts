@@ -399,63 +399,13 @@ export const collectThemeVarRefs = (value: unknown): ThemeVarRef[] => {
   return refs
 }
 
-/** The variables one extracted rule reads: theme variables, and the property each `--mv-*` variable is read for. */
-interface StaticRuleVars {
-  refs: ThemeVarRef[]
-  valueVars: Map<string, string>
-}
-
-/** A declaration block with no block inside it, so its text is only declarations. */
-const DECLARATION_BLOCK = /\{([^{}]*)\}/g
-
-const VALUE_VAR_REF = /var\(\s*(--mv-[\w-]+)/g
-
-/** A vendor prefix on a property, as the prefixer writes one. */
-const VENDOR_PREFIX = /^-[a-z]+-/
-
 /**
- * A CSS property as a style object spells it, so a static rule's warning names
+ * A CSS property as a style object spells it, so a named style's warning names
  * the property as the call site wrote it: `background-color` is `backgroundColor`,
  * `-webkit-user-select` is `WebkitUserSelect`, `-ms-flex` is `msFlex`.
  */
 const toStyleKey = (property: string): string =>
   property.startsWith('--') ? property : property.replace(/^-ms-/, 'ms-').replace(/-([a-z])/g, (_, letter: string) => letter.toUpperCase())
-
-/** Parsed rules, by their text: bounded by the rules the build extracted. */
-const staticRuleVars = new Map<string, StaticRuleVars>()
-
-/**
- * The variables an extracted rule reads. A declaration the prefixer copied with
- * a vendor prefix is the same reference as the one it copied, as the call site
- * wrote it once.
- * @param ruleText The rule's css text, as registered.
- * @returns Its theme variable references and its `--mv-*` variables' properties.
- */
-const varsOfStaticRule = (ruleText: string): StaticRuleVars => {
-  const known = staticRuleVars.get(ruleText)
-  if (known !== undefined) return known
-  const parsed: StaticRuleVars = { refs: [], valueVars: new Map() }
-  for (const [, block] of ruleText.matchAll(DECLARATION_BLOCK)) {
-    const declarations: [property: string, value: string][] = []
-    for (const declaration of block.split(';')) {
-      const colon = declaration.indexOf(':')
-      if (colon > 0) declarations.push([declaration.slice(0, colon).trim(), declaration.slice(colon + 1).trim()])
-    }
-    for (const [property, value] of declarations) {
-      if (!property.startsWith('--') && VENDOR_PREFIX.test(property)) {
-        const unprefixed = property.replace(VENDOR_PREFIX, '')
-        if (declarations.some(([other, otherValue]) => other === unprefixed && otherValue === value)) continue
-      }
-      const key = toStyleKey(property)
-      forEachVarRef(value, varName => {
-        if (!parsed.refs.some(([name, prop]) => name === varName && prop === key)) parsed.refs.push([varName, key])
-      })
-      for (const [, valueVar] of value.matchAll(VALUE_VAR_REF)) parsed.valueVars.set(valueVar, key)
-    }
-  }
-  staticRuleVars.set(ruleText, parsed)
-  return parsed
-}
 
 /** References of named styles, by their text: bounded by the styles the build registered. */
 const namedStyleRefs = new Map<string, ThemeVarRef[]>()
@@ -493,49 +443,6 @@ export const collectNamedThemeVarRefs = (styles: string): ThemeVarRef[] => {
   declare(styles.slice(start))
   namedStyleRefs.set(styles, refs)
   return refs
-}
-
-/** The theme variables a node's extracted styles reference, split by where they come from. */
-export interface StaticThemeVarRefs {
-  /** Those its static rules read: the same for every element with its classes. */
-  refs: ThemeVarRef[]
-  /** Those a `--mv-*` variable's value holds, by variable: only the element that sets it has them. */
-  valueRefs: [valueVar: string, refs: ThemeVarRef[]][]
-}
-
-/**
- * Every theme variable a node's extracted styles reference, as
- * `collectThemeVarRefs` gives them for the same styles uncompiled: those its
- * static rules read, and those its `--mv-*` variables' values hold, each under
- * the property the rule reads the variable for.
- * @param classes The node's static classes.
- * @param vars The node's `--mv-*` variables and their values.
- * @param ruleOf The registered text of a static class.
- * @returns The references.
- */
-export const collectStaticThemeVarRefs = (
-  classes: string | undefined,
-  vars: Readonly<Record<string, unknown>> | undefined,
-  ruleOf: (className: string) => string | undefined,
-): StaticThemeVarRefs => {
-  const refs: ThemeVarRef[] = []
-  const parsedRules: StaticRuleVars[] = []
-  for (const className of classes?.split(' ') ?? []) {
-    const ruleText = className ? ruleOf(className) : undefined
-    if (!ruleText) continue
-    const parsed = varsOfStaticRule(ruleText)
-    parsedRules.push(parsed)
-    for (const ref of parsed.refs) addThemeVarRef(refs, ref)
-  }
-  const valueRefs: [string, ThemeVarRef[]][] = []
-  for (const [valueVar, value] of Object.entries(vars ?? {})) {
-    if (typeof value !== 'string' || !value.includes('--meonode-theme-')) continue
-    const property = parsedRules.find(parsed => parsed.valueVars.has(valueVar))?.valueVars.get(valueVar) ?? ''
-    const found: ThemeVarRef[] = []
-    forEachVarRef(value, varName => addThemeVarRef(found, [varName, property]))
-    valueRefs.push([valueVar, found])
-  }
-  return { refs, valueRefs }
 }
 
 /**
@@ -749,7 +656,6 @@ export const __resetThemeDiagnostics = (): void => {
   reported.clear()
   reportedReservedOwners = new WeakSet()
   mountedVars.clear()
-  staticRuleVars.clear()
   // `NODE_ENV` is captured once at module load, so a test that stubs it needs
   // the captured value re-read. Routed through this seam because the tests that
   // stub the environment already call it immediately afterwards — putting the

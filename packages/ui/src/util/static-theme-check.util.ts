@@ -1,21 +1,19 @@
 import { ThemeContext, type ThemeContextState } from '@src/components/theme-provider.client.js'
-import { mountedThemeVarIndex, reportThemeVarRefs, type ThemeVarIndex, type ThemeVarRef } from '@src/util/theme-diagnostics.util.js'
+import { mountedThemeVarIndex, reportThemeVarRefs, type ThemeVarRef } from '@src/util/theme-diagnostics.util.js'
 
-// The browser half of the development check of extracted styles' theme
-// variables: elements under a component inside the render, which may provide
-// another theme, are checked once they are committed.
+// The browser half of the development check of named styles' theme variables:
+// elements under a component inside the render, which may provide another
+// theme, are checked once they are committed.
 
 /**
- * Theme variables of extracted styles on elements under a component inside the
+ * Theme variables of a named style on elements under a component inside the
  * render, which may provide another theme, so they are checked on each element
  * after commit, against the providers above that element.
  */
 export interface StaticThemeCandidate {
-  /** The node's static classes: every element with all of them reads `refs`. */
+  /** The node's classes: every element with all of them reads `refs`. */
   classes: string
   refs: readonly ThemeVarRef[]
-  /** Those its `--mv-*` variables' values hold, read by the element that sets the variable. */
-  valueRefs: readonly (readonly [valueVar: string, refs: readonly ThemeVarRef[]])[]
 }
 
 /** React's `$$typeof` of a context provider before React 19, where the provider was not the context itself. */
@@ -79,32 +77,19 @@ export function checkCandidates(candidates: readonly StaticThemeCandidate[], che
       }
       const context = nearestThemeContext(element)
       if (context === undefined) unread.push([element, candidate])
-      else checkElement(element, candidate, context ? context.definedVars() : null)
+      else reportThemeVarRefs(candidate.refs, context ? context.definedVars() : null)
     }
   }
   if (unread.length > 0)
     queueMicrotask(() => {
       const defined = mountedThemeVarIndex()
-      for (const [element, candidate] of unread) checkElement(element, candidate, defined)
+      for (const [, candidate] of unread) reportThemeVarRefs(candidate.refs, defined)
     })
-}
-
-/**
- * Reports what of a candidate an element reads and `defined` lacks: the theme
- * variables of its classes, and those of the `--mv-*` variables it sets.
- * @param element An element with the candidate's classes.
- * @param candidate The candidate.
- * @param defined What the providers above the element define, or `null` when there are none.
- */
-function checkElement(element: Element, { refs, valueRefs }: StaticThemeCandidate, defined: ThemeVarIndex | null): void {
-  reportThemeVarRefs(refs, defined)
-  const style = (element as HTMLElement).style
-  for (const [valueVar, ownRefs] of valueRefs) if (style?.getPropertyValue(valueVar).includes('--meonode-theme-')) reportThemeVarRefs(ownRefs, defined)
 }
 
 /** What makes two renders' candidates the same, so they are checked again only when that changes. */
 export const candidatesKey = (candidates: readonly StaticThemeCandidate[] | undefined): string =>
-  candidates ? candidates.map(({ classes, refs, valueRefs }) => `${classes}|${refs.join()}|${valueRefs.join()}`).join('\n') : ''
+  candidates ? candidates.map(({ classes, refs }) => `${classes}|${refs.join()}`).join('\n') : ''
 
 /** How often {@link checkCandidatesAfterCommit} looks again for an element not committed yet. */
 const COMMIT_RETRIES = 10

@@ -1,25 +1,30 @@
 // @vitest-environment jsdom
 //
 // The development warning for a theme token the active theme does not define,
-// for styles the compiler extracted. Uncompiled, `StyledRenderer` reports such a
-// token where it renders. Extracted, the token is in a static rule or in a
-// variable's value, and the element renders plain, so the walk's `StaticStyles`
-// checks it instead. Each case compares the warnings with those of the same call
-// site uncompiled: the same text, once each.
-import { act, type ReactElement, use } from 'react'
+// for styles the compiler named. Uncompiled, `StyledRenderer` reports such a
+// token where it renders. Named, the token is in the style's registered text or
+// in a template's value, and the element renders plain, so the walk checks it:
+// in render within its own theme scope, and on the element after commit under a
+// component that may provide another theme. Each case compares the warnings with
+// those of the same call site uncompiled: the same text, once each.
+import { serializeStyles } from '@emotion/serialize'
+import { act, createElement, type ReactElement, use } from 'react'
 import { createPortal } from 'react-dom'
 import { createRoot, type Root } from 'react-dom/client'
 import { renderToString } from 'react-dom/server'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { Div, Img, Node, PortalProvider, setDebugMode, Span, ThemeProvider, toCssValue, type NodeInstance } from '@src/main.js'
+import { Div, Img, Node, PortalProvider, setDebugMode, Span, ThemeProvider, type NodeInstance } from '@src/main.js'
 import { ThemeTokenCheck } from '@src/components/styled-renderer.client.js'
-import { StaticStyles } from '@src/components/static-styles.js'
 import { checkCandidates, nearestThemeContext } from '@src/util/static-theme-check.util.js'
 import { ThemeContext } from '@src/components/theme-provider.client.js'
 import { NodeUtil } from '@src/util/node.util.js'
+import { replaceThemeTokensWithCssVars } from '@src/util/server-theme.util.js'
+import { nameStyles } from '@src/util/style-name.util.js'
 import { __resetStaticCss, registerStaticCss } from '@src/util/static-css.util.js'
+import { ThemeUtil } from '@src/util/theme.util.js'
 import { __resetThemeDiagnostics, getTokensVarIndex, type ThemeVarIndex, type ThemeVarRef } from '@src/util/theme-diagnostics.util.js'
 import { asThemeProps } from '../_theme-props.js'
+import { templated } from './_template.js'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -34,34 +39,35 @@ const theme = {
 /** A theme for a provider nested inside the walk, defining one more token. */
 const inner = { mode: 'light', system: { accent: 'rgb(0, 128, 0)' } } as const
 
-const MISSING_COLOR = 'mn-00000000000mc'
-const DEFINED_COLOR = 'mn-00000000000dc'
-const MISSING_BG = 'mn-00000000000mb'
-const DEFINED_BG = 'mn-00000000000db'
-const HOVER_MISSING = 'mn-00000000000hm'
-const SELECTOR_MISSING = 'mn-00000000000sm'
-const WIDTH = 'mn-00000000000wd'
-const SELECT_MISSING = 'mn-00000000000us'
-const ACCENT = 'mn-00000000000ac'
-const ACCENT_BG = 'mn-00000000000ab'
+type Css = Record<string, unknown>
+
+/** Props for a node of `css` as the compiler emits it: its tokens as variables, its style named and registered. */
+function named(css: Css): Record<string, unknown> {
+  const resolved = ThemeUtil.resolveObjWithTheme(replaceThemeTokensWithCssVars(css), undefined, { processFunctions: true, themeStringsMode: 'vars' })
+  const { name, styles } = nameStyles(serializeStyles([ThemeUtil.resolveDefaultStyle(ThemeUtil.dropThemedKeys(resolved, () => {}))] as never))
+  registerStaticCss(`m-${name}`, [[name, styles]])
+  return { __meo$: 2, __meo$n: name }
+}
+
+const MISSING_COLOR: Css = { color: 'theme.primary.missing' }
+const DEFINED_COLOR: Css = { color: 'theme.primary' }
+const MISSING_BG: Css = { backgroundColor: 'theme.surface.missing' }
+const DEFINED_BG: Css = { backgroundColor: 'theme.surface' }
+const ACCENT: Css = { color: 'theme.accent' }
 
 beforeEach(() => {
   __resetStaticCss()
   __resetThemeDiagnostics()
-  registerStaticCss('diagnostics', [
-    [1, MISSING_COLOR, `.${MISSING_COLOR}{color:var(--meonode-theme-primary-missing);}`],
-    [1, DEFINED_COLOR, `.${DEFINED_COLOR}{color:var(--meonode-theme-primary);}`],
-    [1, MISSING_BG, `.${MISSING_BG}{background-color:var(--meonode-theme-surface-missing);}`],
-    [1, DEFINED_BG, `.${DEFINED_BG}{background-color:var(--meonode-theme-surface);}`],
-    [1, WIDTH, `.${WIDTH}{width:var(--mv-00000000000wd);}`],
-    // The prefixer writes a prefixed copy of the declaration; it is one token reference, as written.
-    [1, SELECT_MISSING, `.${SELECT_MISSING}{-webkit-user-select:var(--meonode-theme-select-missing);user-select:var(--meonode-theme-select-missing);}`],
-    [1, ACCENT, `.${ACCENT}{color:var(--meonode-theme-accent);}`],
-    [1, ACCENT_BG, `.${ACCENT_BG}{background-color:var(--meonode-theme-accent);}`],
-    [2, HOVER_MISSING, `.${HOVER_MISSING}:hover{color:var(--meonode-theme-hover-missing);}`],
-    [0, SELECTOR_MISSING, `.${SELECTOR_MISSING} pre:not(.a){border-color:var(--meonode-theme-border-missing);}`],
-  ])
 })
+
+/** Lets the checks after commit run: they look on the next task, then about a frame later. */
+const afterCommitChecks = () => new Promise(resolve => setTimeout(resolve, 50))
+
+/** Renders `make`'s element from a component, where an app's walk runs and reads its contexts. */
+const inRender = (make: () => ReactElement): ReactElement =>
+  createElement(function Page() {
+    return make()
+  })
 
 let warnings: string[] = []
 let originalWarn: typeof console.warn
@@ -79,106 +85,115 @@ afterEach(() => {
   document.body.innerHTML = ''
 })
 
-function mount(element: ReactElement) {
+function mount(element: () => ReactElement) {
   const container = document.createElement('div')
   document.body.append(container)
   const root = createRoot(container)
   roots.push(root)
-  act(() => root.render(element))
+  act(() => root.render(inRender(element)))
 }
 
 /** The token warnings rendering `node` gives, from a fresh record of what was reported. */
-function tokenWarnings(node: () => NodeInstance, withProvider = true): string[] {
+async function tokenWarnings(node: () => NodeInstance, withProvider = true): Promise<string[]> {
   __resetThemeDiagnostics()
   warnings = []
-  mount((withProvider ? ThemeProvider({ ...asThemeProps(theme as never), children: node() }) : node()).render() as ReactElement)
+  mount(() => (withProvider ? ThemeProvider({ ...asThemeProps(theme as never), children: node() }) : node()).render() as ReactElement)
+  await afterCommitChecks()
   return warnings.filter(text => text.includes('--meonode-theme-'))
 }
 
 /** Asserts the compiled call site warns exactly as the same call site uncompiled, and that it warns at all. */
-function warnsAsUncompiled(uncompiled: () => NodeInstance, compiled: () => NodeInstance, withProvider = true) {
-  const expected = tokenWarnings(uncompiled, withProvider)
+async function warnsAsUncompiled(uncompiled: () => NodeInstance, compiled: () => NodeInstance, withProvider = true) {
+  const expected = await tokenWarnings(uncompiled, withProvider)
   expect(expected.length).toBeGreaterThan(0)
-  expect(tokenWarnings(compiled, withProvider)).toEqual(expected)
+  expect(await tokenWarnings(compiled, withProvider)).toEqual(expected)
 }
 
 /** Asserts neither form warns. */
-function quietAsUncompiled(uncompiled: () => NodeInstance, compiled: () => NodeInstance) {
-  expect(tokenWarnings(uncompiled)).toEqual([])
-  expect(tokenWarnings(compiled)).toEqual([])
+async function quietAsUncompiled(uncompiled: () => NodeInstance, compiled: () => NodeInstance) {
+  expect(await tokenWarnings(uncompiled)).toEqual([])
+  expect(await tokenWarnings(compiled)).toEqual([])
 }
 
 /** A component that renders its children as given. */
 const Wrapper = ({ children }: { children?: unknown }) => children as ReactElement
 
-const compiled = (classes: string, rest: Record<string, unknown> = {}) => Div({ __meo$: 2, __meo$s: classes, ...rest } as never)
+/**
+ * `node` after a runtime sibling, whose rule its named style follows, so it
+ * renders as a plain element and the walk checks its tokens. With no rule
+ * before it, it would render through `StyledRenderer` as a carrier, which
+ * checks its own.
+ */
+const afterRule = (node: NodeInstance) => Div({ children: [Div({ key: 'rule', css: { order: 0 } }), node] })
 
-describe('a token the active theme does not define, extracted', () => {
-  it('warns from a static rule', () => {
-    warnsAsUncompiled(
+const compiled = (css: Css, rest: Record<string, unknown> = {}) => afterRule(Div({ key: 'named', ...named(css), ...rest } as never))
+
+describe('a token the active theme does not define, named', () => {
+  it('warns from a declaration', async () => {
+    await warnsAsUncompiled(
       () => Div({ color: 'theme.primary.missing' }),
       () => compiled(MISSING_COLOR),
     )
   })
 
-  it('warns from the branch a switch picked', () => {
+  it('warns from the branch a switch picked', async () => {
     const open = true
-    warnsAsUncompiled(
+    await warnsAsUncompiled(
       () => Div({ backgroundColor: open ? 'theme.surface.missing' : 'theme.surface' }),
       () => compiled(open ? MISSING_BG : DEFINED_BG),
     )
   })
 
   // The branch not taken holds an undefined token too, but nothing renders it.
-  it('stays quiet for the branch a switch did not pick', () => {
+  it('stays quiet for the branch a switch did not pick', async () => {
     const open = false
-    quietAsUncompiled(
+    await quietAsUncompiled(
       () => Div({ backgroundColor: open ? 'theme.surface.missing' : 'theme.surface' }),
       () => compiled(open ? MISSING_BG : DEFINED_BG),
     )
   })
 
-  it('warns from a variable’s value', () => {
+  it('warns from a variable’s value', async () => {
     const value = 'calc(4px + theme.spacing.missing)'
-    warnsAsUncompiled(
+    await warnsAsUncompiled(
       () => Div({ width: value }),
-      () => compiled(WIDTH, { __meo$v: { '--mv-00000000000wd': toCssValue('width', value) } }),
+      () => Div(templated({ width: value }, ['width']) as never),
     )
   })
 
-  it('warns from a pseudo-class rule', () => {
-    warnsAsUncompiled(
+  it('warns from a pseudo-class rule', async () => {
+    await warnsAsUncompiled(
       () => Div({ css: { '&:hover': { color: 'theme.hover.missing' } } }),
-      () => compiled(HOVER_MISSING),
+      () => compiled({ '&:hover': { color: 'theme.hover.missing' } }),
     )
   })
 
-  it('warns from a per-node selector rule', () => {
-    warnsAsUncompiled(
+  it('warns from a per-node selector rule', async () => {
+    await warnsAsUncompiled(
       () => Div({ css: { '& pre:not(.a)': { borderColor: 'theme.border.missing' } } }),
-      () => compiled(SELECTOR_MISSING),
+      () => compiled({ '& pre:not(.a)': { borderColor: 'theme.border.missing' } }),
     )
   })
 
-  it('warns once for a declaration the prefixer copied', () => {
-    warnsAsUncompiled(
+  it('warns once for a declaration the prefixer copies', async () => {
+    await warnsAsUncompiled(
       () => Div({ userSelect: 'theme.select.missing' }),
-      () => compiled(SELECT_MISSING),
+      () => compiled({ userSelect: 'theme.select.missing' }),
     )
   })
 
-  it('warns with no ThemeProvider above', () => {
-    warnsAsUncompiled(
+  it('warns with no ThemeProvider above', async () => {
+    await warnsAsUncompiled(
       () => Div({ color: 'theme.primary.missing' }),
       () => compiled(MISSING_COLOR),
       false,
     )
   })
 
-  it('warns for a node deep in the walk, under a component', () => {
-    warnsAsUncompiled(
+  it('warns for a node deep in the walk, under a component', async () => {
+    await warnsAsUncompiled(
       () => Div({ children: Node(Wrapper, { children: Span('y', { color: 'theme.primary.missing' }) }) }),
-      () => Div({ children: Node(Wrapper, { children: Span('y', { __meo$: 2, __meo$s: MISSING_COLOR } as never) }) }),
+      () => Div({ children: Node(Wrapper, { children: afterRule(Span('y', { key: 'named', ...named(MISSING_COLOR) } as never)) }) }),
     )
   })
 })
@@ -187,23 +202,23 @@ describe('a node under a component inside the walk, which may provide another th
   /** A component that renders its children inside a provider of its own, out of the walk's sight. */
   const InnerTheme = ({ children }: { children?: NodeInstance }) => ThemeProvider({ ...asThemeProps(inner as never), children }).render() as ReactElement
 
-  it('stays quiet when a provider inside the component defines the token', () => {
-    quietAsUncompiled(
+  it('stays quiet when a provider inside the component defines the token', async () => {
+    await quietAsUncompiled(
       () => Div({ children: Node(InnerTheme, { children: Span('y', { color: 'theme.accent' }) }) }),
-      () => Div({ children: Node(InnerTheme, { children: Span('y', { __meo$: 2, __meo$s: ACCENT } as never) }) }),
+      () => Div({ children: Node(InnerTheme, { children: afterRule(Span('y', { key: 'named', ...named(ACCENT) } as never)) }) }),
     )
   })
 
-  it('warns when no provider above it defines the token', () => {
-    warnsAsUncompiled(
+  it('warns when no provider above it defines the token', async () => {
+    await warnsAsUncompiled(
       () => Div({ children: Node(InnerTheme, { children: Span('y', { color: 'theme.primary.missing' }) }) }),
-      () => Div({ children: Node(InnerTheme, { children: Span('y', { __meo$: 2, __meo$s: MISSING_COLOR } as never) }) }),
+      () => Div({ children: Node(InnerTheme, { children: afterRule(Span('y', { key: 'named', ...named(MISSING_COLOR) } as never)) }) }),
     )
   })
 
   // The variables are declared on `:root`, so the page resolves a token a sibling
   // provider defines; the runtime checks the providers above the element, and so does this.
-  it('warns for a token only a sibling provider defines, as the runtime does', () => {
+  it('warns for a token only a sibling provider defines, as the runtime does', async () => {
     const page = (child: NodeInstance) =>
       Div({
         children: [
@@ -211,44 +226,44 @@ describe('a node under a component inside the walk, which may provide another th
           Node(Wrapper, { key: 'w', children: child }),
         ],
       })
-    warnsAsUncompiled(
+    await warnsAsUncompiled(
       () => page(Span('y', { color: 'theme.accent' })),
-      () => page(Span('y', { __meo$: 2, __meo$s: ACCENT } as never)),
+      () => page(afterRule(Span('y', { key: 'named', ...named(ACCENT) } as never))),
     )
   })
 
-  it('warns for a void element', () => {
-    warnsAsUncompiled(
+  it('warns for a void element', async () => {
+    await warnsAsUncompiled(
       () => Div({ children: Node(Wrapper, { children: Img({ color: 'theme.primary.missing' }) }) }),
-      () => Div({ children: Node(Wrapper, { children: Img({ __meo$: 2, __meo$s: MISSING_COLOR } as never) }) }),
+      () => Div({ children: Node(Wrapper, { children: afterRule(Img({ key: 'named', ...named(MISSING_COLOR) } as never)) }) }),
     )
   })
 
-  it('warns from a variable’s value, on the element that sets it', () => {
+  it('warns from a template’s value', async () => {
     const value = 'calc(4px + theme.spacing.missing)'
-    warnsAsUncompiled(
+    await warnsAsUncompiled(
       () => Div({ children: Node(Wrapper, { children: Div({ width: value }) }) }),
-      () => Div({ children: Node(Wrapper, { children: compiled(WIDTH, { __meo$v: { '--mv-00000000000wd': toCssValue('width', value) } }) }) }),
+      () => Div({ children: Node(Wrapper, { children: Div(templated({ width: value }, ['width']) as never) }) }),
     )
   })
 
-  // Another element with the same classes, outside that provider, does not borrow the variable.
-  it('checks a variable on the element that sets it, not on another with the same classes', () => {
-    quietAsUncompiled(
+  // Another element of the same template, outside that provider, is a style of its own.
+  it('checks a template’s value on the element it fills, not on another of the same template', async () => {
+    await quietAsUncompiled(
       () => Div({ children: [Div({ key: 'a', width: 4 }), Node(InnerTheme, { key: 'b', children: Div({ width: 'theme.accent' }) })] }),
       () =>
         Div({
           children: [
-            compiled(WIDTH, { key: 'a', __meo$v: { '--mv-00000000000wd': '4px' } }),
-            Node(InnerTheme, { key: 'b', children: compiled(WIDTH, { __meo$v: { '--mv-00000000000wd': toCssValue('width', 'theme.accent') } }) }),
+            Div({ key: 'a', ...templated({ width: 4 }, ['width']) } as never),
+            Node(InnerTheme, { key: 'b', children: Div(templated({ width: 'theme.accent' }, ['width']) as never) }),
           ],
         }),
     )
   })
 
-  // An element with only some of a candidate's classes reads only their rules.
-  it('checks an element only for a candidate whose classes it all has', () => {
-    quietAsUncompiled(
+  // An element of another style reads only its own text.
+  it('checks an element only for a candidate whose class it has', async () => {
+    await quietAsUncompiled(
       () =>
         Div({
           children: [
@@ -258,59 +273,53 @@ describe('a node under a component inside the walk, which may provide another th
         }),
       () =>
         Div({
-          children: [compiled(DEFINED_COLOR, { key: 'a' }), Node(InnerTheme, { key: 'b', children: compiled(`${DEFINED_COLOR} ${ACCENT_BG}`) })],
+          children: [
+            compiled(DEFINED_COLOR, { key: 'a' }),
+            Node(InnerTheme, { key: 'b', children: compiled({ color: 'theme.primary', backgroundColor: 'theme.accent' }) }),
+          ],
         }),
     )
   })
 
-  // The accepted cost of a shape-free check: the server cannot see into the component.
-  it('does not warn during a server render', () => {
-    __resetThemeDiagnostics()
-    warnings = []
-    NodeUtil.isServer = true
-    try {
-      renderToString(
-        ThemeProvider({
-          ...asThemeProps(theme as never),
-          children: Div({ children: Node(Wrapper, { children: compiled(MISSING_COLOR) }) }),
-        }).render() as ReactElement,
-      )
-    } finally {
-      NodeUtil.isServer = false
-    }
-    expect(warnings.filter(text => text.includes('--meonode-theme-'))).toEqual([])
+  // The accepted cost of a check that adds nothing to the render: the server
+  // cannot see the providers a component may put between the walk and the node,
+  // so the node is checked in the browser, after commit, where uncompiled it is
+  // checked on both sides.
+  it('does not warn during a server render, where uncompiled warns', () => {
+    const page = (child: NodeInstance) => ThemeProvider({ ...asThemeProps(theme as never), children: Div({ children: Node(Wrapper, { children: child }) }) })
+    expect(serverTokenWarnings(page(Div(MISSING_COLOR)))).toHaveLength(1)
+    expect(serverTokenWarnings(page(compiled(MISSING_COLOR)))).toEqual([])
   })
 })
 
-describe('a token the active theme defines, extracted', () => {
-  it('stays quiet', () => {
-    quietAsUncompiled(
+describe('a token the active theme defines, named', () => {
+  it('stays quiet', async () => {
+    await quietAsUncompiled(
       () => Div({ color: 'theme.primary', backgroundColor: 'theme.surface' }),
-      () => compiled(`${DEFINED_COLOR} ${DEFINED_BG}`),
+      () => compiled({ ...DEFINED_COLOR, ...DEFINED_BG }),
     )
   })
 
-  it('stays quiet for a token only a provider inside the walk defines', () => {
-    quietAsUncompiled(
+  it('stays quiet for a token only a provider inside the walk defines', async () => {
+    await quietAsUncompiled(
       () => Div({ children: ThemeProvider({ ...asThemeProps(inner as never), children: Span('y', { color: 'theme.accent' }) }) }),
-      () => Div({ children: ThemeProvider({ ...asThemeProps(inner as never), children: Span('y', { __meo$: 2, __meo$s: ACCENT } as never) }) }),
+      () => Div({ children: ThemeProvider({ ...asThemeProps(inner as never), children: afterRule(Span('y', { key: 'named', ...named(ACCENT) } as never)) }) }),
     )
   })
 })
 
 describe('a provider inside the walk, below its topmost host', () => {
-  // A root layout written with MeoNode: hosts above the provider in the same
-  // walk, so the walk's `StaticStyles` sits outside it.
+  // A root layout written with MeoNode: hosts above the provider in the same walk.
   const layout = (child: NodeInstance) => Div({ children: Div({ children: ThemeProvider({ ...asThemeProps(theme as never), children: child }) }) })
 
-  it('checks a node below it against it, not against what is above the walk', () => {
-    quietAsUncompiledNoOuter(
+  it('checks a node below it against it, not against what is above the walk', async () => {
+    await quietAsUncompiledNoOuter(
       () => layout(Span('y', { color: 'theme.primary' })),
-      () => layout(Span('y', { __meo$: 2, __meo$s: DEFINED_COLOR } as never)),
+      () => layout(afterRule(Span('y', { key: 'named', ...named(DEFINED_COLOR) } as never))),
     )
-    warnsAsUncompiled(
+    await warnsAsUncompiled(
       () => layout(Span('y', { color: 'theme.primary.missing' })),
-      () => layout(Span('y', { __meo$: 2, __meo$s: MISSING_COLOR } as never)),
+      () => layout(afterRule(Span('y', { key: 'named', ...named(MISSING_COLOR) } as never))),
       false,
     )
   })
@@ -321,14 +330,14 @@ describe('a provider inside the walk, below its topmost host', () => {
       warnings = []
       NodeUtil.isServer = true
       try {
-        renderToString(node.render() as ReactElement)
+        renderToString(inRender(() => node.render() as ReactElement))
       } finally {
         NodeUtil.isServer = false
       }
       return warnings.filter(text => text.includes('--meonode-theme-'))
     }
-    expect(serverWarnings(layout(Span('y', { __meo$: 2, __meo$s: DEFINED_COLOR } as never)))).toEqual([])
-    expect(serverWarnings(layout(Span('y', { __meo$: 2, __meo$s: MISSING_COLOR } as never)))).toEqual(
+    expect(serverWarnings(layout(afterRule(Span('y', { key: 'named', ...named(DEFINED_COLOR) } as never))))).toEqual([])
+    expect(serverWarnings(layout(afterRule(Span('y', { key: 'named', ...named(MISSING_COLOR) } as never))))).toEqual(
       serverWarnings(layout(Span('y', { color: 'theme.primary.missing' }))),
     )
     expect(serverWarnings(layout(Span('y', { color: 'theme.primary.missing' })))).toHaveLength(1)
@@ -336,18 +345,16 @@ describe('a provider inside the walk, below its topmost host', () => {
 })
 
 /** Asserts neither form warns, with no provider above the walk. */
-function quietAsUncompiledNoOuter(uncompiled: () => NodeInstance, compiled: () => NodeInstance) {
-  expect(tokenWarnings(uncompiled, false)).toEqual([])
-  expect(tokenWarnings(compiled, false)).toEqual([])
+async function quietAsUncompiledNoOuter(uncompiled: () => NodeInstance, compiled: () => NodeInstance) {
+  expect(await tokenWarnings(uncompiled, false)).toEqual([])
+  expect(await tokenWarnings(compiled, false)).toEqual([])
 }
 
 /** Every fiber below `container`'s root, as React holds them. */
 interface Fiber {
   type: unknown
-  dependencies: unknown
   child: Fiber | null
   sibling: Fiber | null
-  return: Fiber | null
 }
 
 function fibersOf(container: Element): Fiber[] {
@@ -363,18 +370,6 @@ function fibersOf(container: Element): Fiber[] {
   return out
 }
 
-/** The contexts a fiber read when it last rendered, as React records them. */
-const contextsRead = (fiber: Fiber): unknown[] => {
-  const read: unknown[] = []
-  for (
-    let entry = (fiber.dependencies as { firstContext?: { context: unknown; next: unknown } } | null)?.firstContext;
-    entry;
-    entry = entry.next as typeof entry
-  )
-    read.push(entry.context)
-  return read
-}
-
 /** A fiber's type, as a name a test can compare. */
 const typeName = (type: unknown): string =>
   typeof type === 'string' ? type : typeof type === 'function' ? type.name : typeof type === 'symbol' ? String(type) : type === null ? 'root' : 'object'
@@ -385,21 +380,24 @@ describe('in production', () => {
     __resetThemeDiagnostics()
   })
 
-  const tree = () =>
+  /** A node in the walk's theme scope and one under a component, of `css` named or on the runtime path. */
+  const treeOf = (style: (css: Css, rest?: Record<string, unknown>) => NodeInstance) => () =>
     ThemeProvider({
       ...asThemeProps(theme as never),
-      children: Div({ children: [compiled(MISSING_COLOR, { key: 'a' }), Node(Wrapper, { key: 'b', children: compiled(MISSING_BG) })] }),
+      children: Div({ children: [style(MISSING_COLOR, { key: 'a' }), Node(Wrapper, { key: 'b', children: style(MISSING_BG) })] }),
     })
+  const tree = treeOf(compiled)
+  const uncompiledTree = treeOf((css, rest) => Div({ ...css, ...rest }))
 
-  /** The page's markup, its fibers, and the token warnings, for one mode. */
-  function renderIn(mode: 'development' | 'production') {
+  /** The page's markup, its fibers, and the token warnings, for one mode, after the checks after commit. */
+  async function renderIn(mode: 'development' | 'production', page = tree) {
     vi.stubEnv('NODE_ENV', mode)
     __resetThemeDiagnostics()
     warnings = []
     NodeUtil.isServer = true
     let html: string
     try {
-      html = renderToString(tree().render() as ReactElement)
+      html = renderToString(inRender(() => page().render() as ReactElement))
     } finally {
       NodeUtil.isServer = false
     }
@@ -407,45 +405,38 @@ describe('in production', () => {
     document.body.append(container)
     const root = createRoot(container)
     roots.push(root)
-    act(() => root.render(tree().render() as ReactElement))
-    const fibers = fibersOf(container)
+    act(() => root.render(inRender(() => page().render() as ReactElement)))
+    await afterCommitChecks()
     return {
       html,
       warnings: warnings.filter(text => text.includes('--meonode-theme-')),
-      fibers: fibers.map(fiber => typeName(fiber.type)),
-      staticStyles: fibers.filter(fiber => fiber.type === StaticStyles),
+      fibers: fibersOf(container).map(fiber => typeName(fiber.type)),
     }
   }
 
-  it('checks nothing and reads no theme context for static css, with the same markup and fibers', () => {
-    const development = renderIn('development')
-    const production = renderIn('production')
+  it('checks nothing for named styles, with the same markup and fibers', async () => {
+    const development = await renderIn('development')
+    const production = await renderIn('production')
 
-    // The development run shows what the production run is held to: both nodes reported, the context read.
+    // The development run shows what the production run is held to: both nodes reported.
     expect(development.warnings).toHaveLength(2)
 
     expect(production.warnings).toEqual([])
-    expect(production.staticStyles.length).toBeGreaterThan(0)
-    // It reads Emotion's cache, to place the static sheets, in either build; never the theme.
-    expect(production.staticStyles.every(fiber => !contextsRead(fiber).includes(ThemeContext))).toBe(true)
-    expect(development.staticStyles.some(fiber => contextsRead(fiber).includes(ThemeContext))).toBe(true)
     expect(production.html).toBe(development.html)
     expect(production.fibers).toEqual(development.fibers)
     expect(production.fibers).not.toContain(ThemeTokenCheck.name)
   })
 
-  // `setDebugMode` can be on in a production build; it checks what it can while rendering.
-  it('with debug mode on, checks a node in the scope of StaticStyles, not one under a component', () => {
+  // `setDebugMode` can be on in a production build; it checks what it can while
+  // rendering. A production build has no check after commit, so a node under a
+  // component, which uncompiled is checked where it renders, is not.
+  it('with debug mode on, checks a node in the walk’s theme scope, not one under a component', async () => {
     setDebugMode(true)
     try {
-      const { warnings: reported } = renderIn('production')
+      expect((await renderIn('production', uncompiledTree)).warnings).toHaveLength(2)
+      const { warnings: reported } = await renderIn('production')
       expect(reported).toHaveLength(1)
       expect(reported[0]).toContain('--meonode-theme-primary-missing')
-      // A production build has no effect to check them with, so none are collected.
-      const props = staticStylesProps(tree().render())
-      expect(props.length).toBeGreaterThan(0)
-      expect(props.every(entry => !('candidates' in entry))).toBe(true)
-      expect(props.some(entry => 'checks' in entry)).toBe(true)
     } finally {
       setDebugMode(false)
     }
@@ -458,27 +449,11 @@ function serverTokenWarnings(node: NodeInstance): string[] {
   warnings = []
   NodeUtil.isServer = true
   try {
-    renderToString(node.render() as ReactElement)
+    renderToString(inRender(() => node.render() as ReactElement))
   } finally {
     NodeUtil.isServer = false
   }
   return warnings.filter(text => text.includes('--meonode-theme-'))
-}
-
-/** The props of every `StaticStyles` element in a rendered element tree. */
-function staticStylesProps(element: unknown): Record<string, unknown>[] {
-  const found: Record<string, unknown>[] = []
-  const stack = [element]
-  while (stack.length > 0) {
-    const item = stack.pop()
-    if (Array.isArray(item)) stack.push(...item)
-    else if (item && typeof item === 'object' && 'props' in item) {
-      const { type, props } = item as { type: unknown; props: Record<string, unknown> }
-      if (type === StaticStyles) found.push(props)
-      stack.push(props.children)
-    }
-  }
-  return found
 }
 
 describe('a server render in development', () => {
@@ -491,37 +466,20 @@ describe('a server render in development', () => {
     ).toHaveLength(1)
   })
 
-  // The component is above the topmost host, so `StaticStyles` renders inside it, in the node's scope.
-  it('warns for a node under a component above the topmost host', () => {
+  // The component is above the walk, which renders inside it, in the node's scope.
+  it('warns for a node under a component above the walk', () => {
     expect(
       serverTokenWarnings(
-        ThemeProvider({ ...asThemeProps(theme as never), children: Node(Wrapper, { children: Div({ children: compiled(MISSING_COLOR) }) }) }),
+        ThemeProvider({
+          ...asThemeProps(theme as never),
+          children: Node(() => Div({ children: compiled(MISSING_COLOR) }).render() as ReactElement),
+        }),
       ),
     ).toHaveLength(1)
   })
 
-  // Candidates are checked in the browser after commit; the server has no use for them.
-  it('hands StaticStyles no candidates', () => {
-    NodeUtil.isServer = true
-    try {
-      const props = staticStylesProps(Div({ children: Node(Wrapper, { children: compiled(MISSING_COLOR) }) }).render())
-      expect(props.length).toBeGreaterThan(0)
-      expect(props.every(entry => !('candidates' in entry))).toBe(true)
-    } finally {
-      NodeUtil.isServer = false
-    }
-  })
-
-  it('warns for a node checked inside StaticStyles', () => {
-    __resetThemeDiagnostics()
-    warnings = []
-    NodeUtil.isServer = true
-    try {
-      renderToString(ThemeProvider({ ...asThemeProps(theme as never), children: compiled(MISSING_COLOR) }).render() as ReactElement)
-    } finally {
-      NodeUtil.isServer = false
-    }
-    const reported = warnings.filter(text => text.includes('--meonode-theme-primary-missing'))
+  it('warns for a node in the walk’s theme scope, with the runtime’s text', () => {
+    const reported = serverTokenWarnings(ThemeProvider({ ...asThemeProps(theme as never), children: compiled(MISSING_COLOR) }))
     expect(reported).toHaveLength(1)
     expect(reported[0]).toContain('is not defined by the active theme')
   })
@@ -530,10 +488,11 @@ describe('a server render in development', () => {
 describe('reading the nearest provider through React’s fiber', () => {
   function rendered(): Element {
     mount(
-      ThemeProvider({
-        ...asThemeProps(theme as never),
-        children: Div({ children: Node(Wrapper, { children: compiled(DEFINED_COLOR, { id: 'read' }) }) }),
-      }).render() as ReactElement,
+      () =>
+        ThemeProvider({
+          ...asThemeProps(theme as never),
+          children: Div({ children: Node(Wrapper, { children: compiled(DEFINED_COLOR, { id: 'read' }) }) }),
+        }).render() as ReactElement,
     )
     return document.getElementById('read')!
   }
@@ -544,7 +503,7 @@ describe('reading the nearest provider through React’s fiber', () => {
   })
 
   it('finds none above an element with no provider', () => {
-    mount(Div({ children: compiled(DEFINED_COLOR, { id: 'bare' }) }).render() as ReactElement)
+    mount(() => Div({ children: compiled(DEFINED_COLOR, { id: 'bare' }) }).render() as ReactElement)
     expect(nearestThemeContext(document.getElementById('bare')!)).toBeNull()
   })
 
@@ -568,18 +527,20 @@ describe('an element whose fiber cannot be read', () => {
   /** Renders a candidate, takes the fiber key off its element, and checks it again. */
   // Rendered with a defined token, so nothing is reported before the check under test.
   async function checkWithoutFiber(refs: ThemeVarRef[]) {
-    const classes = DEFINED_COLOR
     mount(
-      ThemeProvider({
-        ...asThemeProps(theme as never),
-        children: Div({ children: Node(Wrapper, { children: compiled(classes, { id: 'unread' }) }) }),
-      }).render() as ReactElement,
+      () =>
+        ThemeProvider({
+          ...asThemeProps(theme as never),
+          children: Div({ children: Node(Wrapper, { children: compiled(DEFINED_COLOR, { id: 'unread' }) }) }),
+        }).render() as ReactElement,
     )
+    await afterCommitChecks()
     const element = document.getElementById('unread')!
+    const classes = element.className
     delete (element as unknown as Record<string, unknown>)[Object.keys(element).find(name => name.startsWith('__reactFiber$'))!]
     // The record of mounted providers is kept: it is what the element is checked against.
     warnings = []
-    checkCandidates([{ classes, refs, valueRefs: [] }])
+    checkCandidates([{ classes, refs }])
     const before = [...warnings]
     await Promise.resolve()
     return { before, after: warnings.filter(text => text.includes('--meonode-theme-')) }
@@ -602,27 +563,26 @@ describe('an element whose fiber cannot be read', () => {
 describe('a node in a portal under a component', () => {
   const InPortal = ({ children }: { children?: ReactElement }) => createPortal(children, document.body)
 
-  it('is checked against the providers above it in the tree, not in the document', () => {
+  it('is checked against the providers above it in the tree, not in the document', async () => {
     const InnerTheme = ({ children }: { children?: NodeInstance }) => ThemeProvider({ ...asThemeProps(inner as never), children }).render() as ReactElement
-    quietAsUncompiled(
+    await quietAsUncompiled(
       () => Div({ children: Node(InnerTheme, { children: Node(InPortal, { children: Span('y', { color: 'theme.accent' }) }) }) }),
-      () => Div({ children: Node(InnerTheme, { children: Node(InPortal, { children: Span('y', { __meo$: 2, __meo$s: ACCENT } as never) }) }) }),
+      () => Div({ children: Node(InnerTheme, { children: Node(InPortal, { children: afterRule(Span('y', { key: 'named', ...named(ACCENT) } as never)) }) }) }),
     )
-    warnsAsUncompiled(
+    await warnsAsUncompiled(
       () => Div({ children: Node(InPortal, { children: Span('y', { color: 'theme.accent' }) }) }),
-      () => Div({ children: Node(InPortal, { children: Span('y', { __meo$: 2, __meo$s: ACCENT } as never) }) }),
+      () => Div({ children: Node(InPortal, { children: afterRule(Span('y', { key: 'named', ...named(ACCENT) } as never)) }) }),
     )
   })
 })
 
 describe('a node directly under a component at the top of the walk', () => {
-  // No host can carry its `StaticStyles` above it, so that renders beside the
-  // walk's root, outside the component, and the node is checked after commit.
-  it('is checked against a provider inside the component', () => {
+  // No host of the walk is above it, so the node is checked after commit.
+  it('is checked against a provider inside the component', async () => {
     const InnerTheme = ({ children }: { children?: NodeInstance }) => ThemeProvider({ ...asThemeProps(inner as never), children }).render() as ReactElement
-    quietAsUncompiled(
+    await quietAsUncompiled(
       () => Node(InnerTheme, { children: Img({ color: 'theme.accent' }) }),
-      () => Node(InnerTheme, { children: Img({ __meo$: 2, __meo$s: ACCENT } as never) }),
+      () => Node(InnerTheme, { children: Img(named(ACCENT) as never) }),
     )
   })
 })
@@ -635,7 +595,7 @@ describe('a ThemeProvider’s tokens, read from its node', () => {
       defined = use(ThemeContext)!.definedVars()
       return null
     }
-    mount(ThemeProvider({ tokens, modes: ['light'], defaultMode: 'light', children: Node(Read) } as never).render() as ReactElement)
+    mount(() => ThemeProvider({ tokens, modes: ['light'], defaultMode: 'light', children: Node(Read) } as never).render() as ReactElement)
 
     expect([...getTokensVarIndex(tokens)]).toEqual([...defined!])
     expect(defined!.size).toBeGreaterThan(3)

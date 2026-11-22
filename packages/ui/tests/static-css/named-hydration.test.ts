@@ -19,13 +19,30 @@ type Style = ((css: Css, isStatic?: boolean) => Record<string, unknown>) & {
 }
 
 /**
- * The cache a page renders under: Emotion's default, one of its own, or one
- * that prepends, with the page's own stylesheet first in the head.
+ * The cache a page renders under: Emotion's default, one of its own, or, with
+ * the page's own stylesheet first in the head, one that prepends, one that
+ * appends, or one that inserts after an element of the page's.
  */
-type Provider = 'none' | 'cache' | 'prepend'
+type Provider = 'none' | 'cache' | 'prepend' | 'append' | 'insertion-point'
 
-/** The page's own stylesheet, which a prepending cache's rules go ahead of. */
+/** The page's own stylesheet, which a prepending cache's rules go ahead of and an appending one's after. */
 const PAGE_STYLESHEET = '<style data-page>.card{padding:0}</style>'
+
+/** The element a cache with an insertion point puts its rules right after: ahead of the page's stylesheet. */
+const INSERTION_POINT = '<meta name="emotion-insertion-point" content="">'
+
+/** The head a provider's page loads with. */
+const headOf = (provider: Provider) =>
+  provider === 'insertion-point' ? `${INSERTION_POINT}${PAGE_STYLESHEET}` : provider === 'none' || provider === 'cache' ? '' : PAGE_STYLESHEET
+
+/** Every provider, as each block of cases runs under them. */
+const PROVIDERS = [
+  ['with no cache provider', 'none'],
+  ['under a cache provider', 'cache'],
+  ['under a cache that prepends, the page’s stylesheet first', 'prepend'],
+  ['under a cache that appends, the page’s stylesheet first', 'append'],
+  ['under a cache with an insertion point ahead of the page’s stylesheet', 'insertion-point'],
+] as const
 
 /** A case's tree, built from whichever load of the package renders it. */
 type Tree = (ui: Main, react: typeof import('react'), style: Style) => import('@src/main.js').NodeInstance
@@ -186,7 +203,12 @@ async function load() {
       return tree(ui, react, styles(compiled)).render() as import('react').ReactElement
     })
     if (provider === 'none') return element
-    return react.createElement(emotion.CacheProvider, { value: createCache({ key: 'css', prepend: provider === 'prepend' }) }, element)
+    // The insertion point is the page's, so only the browser's cache has one.
+    const insertionPoint =
+      provider === 'insertion-point' && typeof document !== 'undefined'
+        ? (document.querySelector<HTMLElement>('meta[name="emotion-insertion-point"]') ?? undefined)
+        : undefined
+    return react.createElement(emotion.CacheProvider, { value: createCache({ key: 'css', prepend: provider === 'prepend', insertionPoint }) }, element)
   }
   return { react, page }
 }
@@ -202,7 +224,7 @@ async function serverThenHydrate(tree: Tree, compiled: boolean, provider: Provid
 
   // The page loads in a document of its own, with the globals a jsdom suite has.
   const browser = await builtinEnvironments.jsdom.setup(globalThis, {
-    jsdom: { html: `<!doctype html><html><head>${provider === 'prepend' ? PAGE_STYLESHEET : ''}</head><body><div id="root">${html}</div></body></html>` },
+    jsdom: { html: `<!doctype html><html><head>${headOf(provider)}</head><body><div id="root">${html}</div></body></html>` },
   })
   try {
     const client = await load()
@@ -248,11 +270,7 @@ async function serverThenHydrate(tree: Tree, compiled: boolean, provider: Provid
 
 afterAll(() => vi.resetModules())
 
-describe.each([
-  ['with no cache provider', 'none'],
-  ['under a cache provider', 'cache'],
-  ['under a cache that prepends, the page’s stylesheet first', 'prepend'],
-] as const)('a server-rendered page %s, with compiled nodes, hydrates as its runtime twin does', (_, provider) => {
+describe.each(PROVIDERS)('a server-rendered page %s, with compiled nodes, hydrates as its runtime twin does', (_, provider) => {
   it.each(Object.entries(CASES))('%s', async (_, tree) => {
     const expected = await serverThenHydrate(tree, false, provider)
     expect(expected).toMatchObject({ errors: [], idsKept: true, stylesLeftInBody: 0 })
@@ -262,11 +280,7 @@ describe.each([
   })
 })
 
-describe.each([
-  ['with no cache provider', 'none'],
-  ['under a cache provider', 'cache'],
-  ['under a cache that prepends, the page’s stylesheet first', 'prepend'],
-] as const)('a server-rendered page %s, with carriers, hydrates as its runtime twin does', (_, provider) => {
+describe.each(PROVIDERS)('a server-rendered page %s, with carriers, hydrates as its runtime twin does', (_, provider) => {
   it.each(Object.entries(CARRIER_CASES))('%s', async (_, tree) => {
     const expected = await serverThenHydrate(tree, false, provider)
     expect(expected).toMatchObject({ errors: [], idsKept: true, stylesLeftInBody: 0 })
@@ -275,14 +289,26 @@ describe.each([
   })
 })
 
-describe.each([
-  ['with no cache provider', 'none'],
-  ['under a cache provider', 'cache'],
-  ['under a cache that prepends, the page’s stylesheet first', 'prepend'],
-] as const)('a server-rendered page %s, with no carrier marked, hydrates as its runtime twin does', (_, provider) => {
+describe.each(PROVIDERS)('a server-rendered page %s, with no carrier marked, hydrates as its runtime twin does', (_, provider) => {
   it.each(Object.entries(UNMARKED_CASES))('%s', async (_, tree) => {
     const expected = await serverThenHydrate(tree, false, provider)
     expect(expected).toMatchObject({ errors: [], idsKept: true, stylesLeftInBody: 0 })
     expect(await serverThenHydrate(tree, true, provider)).toEqual(expected)
+  })
+})
+
+// The providers place the rules on either side of the page's stylesheet, so a
+// compiled page that put its rules anywhere else would not match its twin.
+describe('the providers, for the runtime twin', () => {
+  it('put the rules after the page’s stylesheet when appending, ahead of it when prepending or after an insertion point', async () => {
+    const [, tree] = Object.entries(CASES)[0]
+    const pageAt = async (provider: Provider) => {
+      const { rules } = await serverThenHydrate(tree, false, provider)
+      expect(rules.length).toBeGreaterThan(1)
+      return rules.indexOf('page') === 0 ? 'first' : rules.indexOf('page') === rules.length - 1 ? 'last' : 'between'
+    }
+    expect(await pageAt('append')).toBe('first')
+    expect(await pageAt('prepend')).toBe('last')
+    expect(await pageAt('insertion-point')).toBe('last')
   })
 })

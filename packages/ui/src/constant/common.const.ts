@@ -95,7 +95,7 @@ export function setDebugMode(enabled: boolean) {
 /**
  * The precedence of the runtime rules React hoists into the head: those of
  * server components, and the ones a client renders through React's hoistable
- * styles. The static buckets' precedences must come before it.
+ * styles.
  */
 export const RUNTIME_PRECEDENCE = 'meonode'
 
@@ -161,21 +161,6 @@ export const LIST_MARKER = '__meo$list'
 export const LOCATION_MARKER = '__meo$loc'
 
 /**
- * Marker key holding the classes of a call site's styles the compiler extracted
- * at build time, as one space-separated string. Their rules reach the page
- * through {@link registerStaticCss}; the runtime only adds the classes to the
- * element's own.
- */
-export const STATIC_CLASSES_MARKER = '__meo$s'
-
-/**
- * Marker key holding the CSS variables an extracted rule reads its runtime
- * values from: `--mv-*` names to values the compiled call site computed with
- * `toCssValue`. The runtime sets them on the element's `style`.
- */
-export const STATIC_VARS_MARKER = '__meo$v'
-
-/**
  * Marker key holding the name of a call site's whole style, which the compiler
  * serialized at build time: the name `StyledRenderer` would give the same css,
  * so the element's class is `${cache.key}-${name}`, the one it would have with
@@ -236,15 +221,6 @@ export const STATIC_SCOPE_PROP = '__meonodeStaticScope'
 export const STATIC_STYLE_PROP = '__meonodeStaticStyle'
 
 /**
- * Marker keys of a call site with one spread: the source of the static entries
- * written before it and after it. They are the css the node renders with when
- * the spread brings a key that could override, or be overridden by, a static
- * entry, as `{ ...before, ...spread, ...after }` would.
- */
-export const STATIC_BEFORE_SPREAD_MARKER = '__meo$b'
-export const STATIC_AFTER_SPREAD_MARKER = '__meo$a'
-
-/**
  * Marker key of a layout factory's call site whose initial props the compiler
  * merged itself: a fingerprint of what it merged (see `initialPropsFingerprint`).
  * When it is the factory's own, the factory uses the call site's props as given.
@@ -265,12 +241,8 @@ export const COMPILER_SCHEMA_KEYS: Readonly<
       dyn: string
       list?: string
       loc?: string
-      classes?: string
-      vars?: string
       name?: string
       template?: string
-      before?: string
-      after?: string
     }
   >
 > = {
@@ -286,12 +258,8 @@ export const COMPILER_SCHEMA_KEYS: Readonly<
     dyn: '__meo$dyn',
     list: LIST_MARKER,
     loc: LOCATION_MARKER,
-    classes: STATIC_CLASSES_MARKER,
-    vars: STATIC_VARS_MARKER,
     name: STATIC_NAME_MARKER,
     template: STATIC_TEMPLATE_MARKER,
-    before: STATIC_BEFORE_SPREAD_MARKER,
-    after: STATIC_AFTER_SPREAD_MARKER,
   },
   // Schema 3 reuses schema 2's names. `css`/`dom`/`dyn` are never present on a
   // schema 3 call site, but naming them keeps the marker-stripping loop in
@@ -303,11 +271,7 @@ export const COMPILER_SCHEMA_KEYS: Readonly<
     dyn: '__meo$dyn',
     list: LIST_MARKER,
     loc: LOCATION_MARKER,
-    classes: STATIC_CLASSES_MARKER,
-    vars: STATIC_VARS_MARKER,
     name: STATIC_NAME_MARKER,
     template: STATIC_TEMPLATE_MARKER,
-    before: STATIC_BEFORE_SPREAD_MARKER,
-    after: STATIC_AFTER_SPREAD_MARKER,
   },
 }

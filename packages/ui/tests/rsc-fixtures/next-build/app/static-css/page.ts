@@ -6,22 +6,18 @@ import { IdProbe } from '../_shared/id-probe'
 import { compiledProps } from '../_shared/compiled-props'
 
 // Compiled output written by hand in the contract's shape, for a server
-// component. The props sit in constants, so a compiled run of this suite leaves
-// the call sites as they are.
-registerStaticCss('fixture-server', [
-  [1, 'mn-00000000srv1a', '.mn-00000000srv1a{color:rgb(255, 0, 0);}'],
-  [3, 'mn-00000000srv3m', '@media (min-width: 1px){.mn-00000000srv3m{padding-left:7px;}}'],
-])
-registerStaticCss('fixture-late', [
-  [1, 'mn-0000000late1a', '.mn-0000000late1a{margin-top:3px;}'],
-  [2, 'mn-0000000late2h', '.mn-0000000late2h:hover{color:rgb(0, 128, 0);}'],
-])
+// component: each node's whole style under its name, registered by its module.
+// The props sit in constants, so a compiled run of this suite leaves the call
+// sites as they are.
+registerStaticCss('fixture-server', [['fxsrv1', 'color:rgb(255, 0, 0);@media (min-width: 1px){padding-left:7px;}']])
+registerStaticCss('fixture-late', [['fxlate1', 'margin-top:3px;&:hover{color:rgb(0, 128, 0);}']])
 
-const plain = compiledProps({ __meo$s: 'mn-00000000srv1a mn-00000000srv3m', 'data-testid': 'static-server', children: 'server' })
-const partial = compiledProps({ __meo$s: 'mn-00000000srv1a', __meo$c: { padding: '4px' }, 'data-testid': 'static-server-partial', children: 'partial' })
-const late = compiledProps({ __meo$s: 'mn-0000000late1a mn-0000000late2h', 'data-testid': 'static-late' })
+const plain = compiledProps({ __meo$n: 'fxsrv1', 'data-testid': 'static-server', children: 'server' })
+// A node with css on the runtime path, beside the named ones.
+const partial = compiledProps({ __meo$c: { color: 'rgb(255, 0, 0)', padding: '4px' }, 'data-testid': 'static-server-partial', children: 'partial' })
+const late = compiledProps({ __meo$n: 'fxlate1', 'data-testid': 'static-late' })
 
-/** Streams in after the shell, so its static css reaches the page in a later chunk. */
+/** Streams in after the shell, so its named style reaches the page in a later chunk. */
 async function Late() {
   // Request time, so the boundary streams in both builds rather than being prerendered.
   await connection()
@@ -34,7 +30,7 @@ export default function Page() {
     'data-testid': 'static-css-page',
     children: [
       Div({ ...plain, key: 'plain' } as never),
-      // `useId` inside and after a fast-path subtree, in the server tree.
+      // `useId` inside and after a named subtree, in the server tree.
       Div({ ...plain, 'data-testid': 'static-server-holder', key: 'holder', children: Node(IdProbe, { name: 'static-inside-server' }) } as never),
       Node(IdProbe, { key: 'after', name: 'static-after-server' }),
       Div({ ...partial, key: 'partial' } as never),
