@@ -39,10 +39,24 @@ export default function StyleRegistry({ children }: { children: ReactElement }) 
   // the process has rendered into every response. Compat mode keeps each rule's
   // text there for the flush. Its own plugins array keeps the rules Emotion
   // memoizes on the server with this cache, not in a process-wide memo.
-  const [cache] = useState(() => {
+  //
+  // `order` lists each id as the cache inserts it, for the flush below: where two
+  // elements' rules tie on specificity, insertion order decides the winner, as it
+  // does in Emotion's own server render and in the browser. The cache's
+  // `inserted` map cannot give that order back, since an object lists a key made
+  // only of digits before the others.
+  const [{ cache, order }] = useState(() => {
     const emotionCache = createCache({ key: 'meonode-css', stylisPlugins: [prefixer] })
     emotionCache.compat = true
-    return emotionCache
+    const insertedOrder: string[] = []
+    const insert = emotionCache.insert
+    emotionCache.insert = (selector, serialized, sheet, shouldCache) => {
+      const known = serialized.name in emotionCache.inserted
+      const rules = insert(selector, serialized, sheet, shouldCache)
+      if (!known && serialized.name in emotionCache.inserted) insertedOrder.push(serialized.name)
+      return rules
+    }
+    return { cache: emotionCache, order: insertedOrder }
   })
 
   // Which ids this render has already flushed. Shared with any other pass of the
@@ -59,8 +73,7 @@ export default function StyleRegistry({ children }: { children: ReactElement }) 
 
   // During server rendering, collect styles inserted into the cache and inline them in the HTML.
   useServerInsertedHTML(() => {
-    const ids = Object.keys(cache.inserted)
-    const newIds = ids.filter(id => !inserted.has(id) && typeof cache.inserted[id] === 'string')
+    const newIds = order.filter(id => !inserted.has(id) && typeof cache.inserted[id] === 'string')
     // Theme variables are emitted by ThemeProvider itself (a hoisted, deduped
     // `<style href precedence>`), not consumed from global state here.
     if (newIds.length === 0) {
@@ -70,10 +83,9 @@ export default function StyleRegistry({ children }: { children: ReactElement }) 
     // Mark IDs as inserted
     newIds.forEach(id => inserted.add(id))
 
-    // Ensure deterministic output by sorting ids.
-    const sortedIds = [...newIds].sort()
-    const styles = sortedIds.map(id => cache.inserted[id] as string).join('')
-    const idsString = sortedIds.join(' ')
+    // In insertion order, which is render order, so the output is as deterministic as the render.
+    const styles = newIds.map(id => cache.inserted[id] as string).join('')
+    const idsString = newIds.join(' ')
 
     // Insert a single style tag with the tracked Emotion ids.
     return createElement('style', {
