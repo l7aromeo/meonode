@@ -352,3 +352,68 @@ describe('a generated list of items each holding a component', () => {
     expect(compiled).toEqual(expected)
   })
 })
+
+// A run handed to a MeoNode component belongs to the walk that handed it: a
+// child passed through a component that renders again on its own is handed
+// that walk's run each time, never all of them.
+describe('a run handed to a Component', () => {
+  it('stays one walk’s run when the element is passed through a component that renders again', async () => {
+    const { __handedStyles } = await import('@src/util/named-style.util.js')
+    const Item = Component(() => Div({ className: 'item', ...compiledStyle({ order: 8 }) }))
+    let bump = () => {}
+    function Passing({ children }: { children: ReactNode }) {
+      const [count, setCount] = useState(0)
+      bump = () => setCount(value => value + 1)
+      return Div({
+        'data-count': count,
+        __meo$: 2,
+        __meo$p: [1],
+        children: [Span('h', compiledStyle({ order: count })), children],
+      } as never).render() as ReactElement
+    }
+    const item = Item()
+    root = createRoot(document.body.appendChild(document.createElement('div')))
+    act(() => root!.render(createElement(CacheProvider, { value: createCache({ key: 'css', speedy: true }) }, createElement(Passing, null, item))))
+    __handedStyles()
+    for (let i = 0; i < 50; i++) act(() => bump())
+    // Each render hands one style, the header's, to the one item.
+    expect(__handedStyles()).toBe(50)
+  })
+
+  it('keeps every render under StrictMode at the runtime twin’s rules', async () => {
+    const { StrictMode } = await import('react')
+    const runOnce = (style: Style) => {
+      __resetStaticCss()
+      document.head.innerHTML = ''
+      const Item = Component(() => Div({ className: 'item', ...style({ '.wrapper &': BLUE }) }))
+      const container = document.body.appendChild(document.createElement('div'))
+      const strictRoot = createRoot(container)
+      act(() =>
+        strictRoot.render(
+          createElement(
+            StrictMode,
+            null,
+            createElement(
+              CacheProvider,
+              { value: createCache({ key: 'css', speedy: true }) },
+              createElement(function Page() {
+                return Div({
+                  className: 'wrapper',
+                  ...slots(style, 1),
+                  children: [Span('s', { key: 's', ...style({ '& + .item': RED }) }), Item({ key: 'i' })],
+                }).render() as ReactElement
+              }),
+            ),
+          ),
+        ),
+      )
+      const result = rules()
+      act(() => strictRoot.unmount())
+      container.remove()
+      return result
+    }
+    const expected = runOnce(runtimeStyle)
+    expect(expected.length).toBeGreaterThan(0)
+    expect(runOnce(compiledStyle)).toEqual(expected)
+  })
+})

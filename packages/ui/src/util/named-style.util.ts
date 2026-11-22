@@ -112,28 +112,31 @@ export function serverStyleElement(cache: EmotionCache, styles: readonly NamedSt
  */
 const runsForComponent = new WeakMap<object, readonly NamedStyle[]>()
 
+/** How many handed styles components' walks began with, for tests. */
+let handedStylesSeen = 0
+
+/**
+ * How many handed styles components' walks began with since the last call. For tests.
+ * @returns The count.
+ */
+export function __handedStyles(): number {
+  const seen = handedStylesSeen
+  handedStylesSeen = 0
+  return seen
+}
+
 /** The run the next walk to begin starts with, set by a component right before its walk. */
 let inheritedRun: readonly NamedStyle[] | undefined
 
 /**
- * Hands `run` to the MeoNode component an element of `props` renders.
+ * Hands `run` to the MeoNode component an element of `props` renders. The props
+ * are always those of an element the handing walk built, so the run is that
+ * walk's alone: another walk, or another request, builds its own.
  * @param props The element's props.
  * @param run The named styles that began before it.
  */
 export function handRunTo(props: object, run: readonly NamedStyle[]): void {
-  const had = runsForComponent.get(props)
-  runsForComponent.set(props, had ? [...had, ...run] : run)
-}
-
-/**
- * Hands the run handed to an element's props to the props of its copy, which
- * React renders in its place.
- * @param from The element's props.
- * @param to The copy's.
- */
-export function passRunToCopy(from: object, to: object): void {
-  const run = runsForComponent.get(from)
-  if (run) handRunTo(to, run)
+  runsForComponent.set(props, run)
 }
 
 /**
@@ -145,6 +148,7 @@ export function passRunToCopy(from: object, to: object): void {
  */
 export function withHandedRun<T>(props: object, walk: () => T): T {
   inheritedRun = runsForComponent.get(props)
+  handedStylesSeen += inheritedRun?.length ?? 0
   try {
     return walk()
   } finally {

@@ -125,3 +125,22 @@ describe.each([
     expect(render(tree, compiledStyle, provider)).toEqual(expected)
   })
 })
+
+// An element made once and rendered by several requests: each server render
+// hands the element its own run, so a later page whose stretch before it
+// differs gets none of an earlier page's.
+describe('a Component element shared by two server renders', () => {
+  it.each([
+    ['with no cache provider', false],
+    ['under a cache provider', true],
+  ])('%s, starts each with its own page’s run', (_, provider) => {
+    const pages = (style: Style) => {
+      const Footer = Component(() => Div({ className: 'footer', ...style({ order: 9 }) }))
+      const footer = Footer({ key: 'f' })
+      const withHeader = () => Div({ ...slots(style, 1), children: [Span('h', { key: 'h', ...style({ '& ~ .footer': RED }) }), footer] })
+      const bare = () => Div({ ...slots(style, 0), children: [footer] })
+      return [render(withHeader, style, provider), render(bare, style, provider)]
+    }
+    expect(pages(compiledStyle)).toEqual(pages(runtimeStyle))
+  })
+})

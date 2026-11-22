@@ -55,7 +55,7 @@ import { passesChildrenThrough, providesTheme } from '@src/util/children-pass-th
 import { observeChildren } from '@src/util/generated-list.util.js'
 import { compileServerEmotionRule, compileServerNamedRule } from '@src/util/server-emotion.util.js'
 import { hasNamedStyles, hasStaticCss, registeredClassesOf, staticRuleOf, staticStylesOf } from '@src/util/static-css.util.js'
-import { handRunTo, namedClass, type NamedStyle, passRunToCopy, takeHandedRun, takesRun } from '@src/util/named-style.util.js'
+import { handRunTo, namedClass, type NamedStyle, takeHandedRun, takesRun } from '@src/util/named-style.util.js'
 import type { EmotionCache } from '@emotion/cache'
 import type { SerializedStyles } from '@emotion/serialize'
 import { readEmotionCache } from '@src/util/emotion-cache.util.js'
@@ -414,7 +414,7 @@ function copyProps(element: ReactElement): Record<string, unknown> {
  * @param copyQueue Frames queued by {@link resolveCopyingChild}.
  * @param disableEmotion Whether the rendering node disabled Emotion, passed on to host render props.
  */
-function drainCopies(copyQueue: CopyFrame[], disableEmotion: boolean | undefined): void {
+function drainCopies(copyQueue: CopyFrame[], disableEmotion: boolean | undefined, onCopy?: (element: ReactElement, copy: ReactElement) => void): void {
   while (copyQueue.length > 0) {
     const frame = copyQueue[copyQueue.length - 1]
     const { element } = frame
@@ -434,8 +434,7 @@ function drainCopies(copyQueue: CopyFrame[], disableEmotion: boolean | undefined
     const copy: DevElement = children === undefined ? createElement(copyType, props) : createElement(copyType, props, children as ReactNode)
     const store = (element as DevElement)._store
     if (store !== undefined && copy._store !== undefined) copy._store.validated = store.validated
-    // A run handed to the element goes with the copy React renders instead.
-    passRunToCopy(element.props as object, copy.props as object)
+    onCopy?.(element, copy)
     ;(frame.into as unknown[])[frame.at] = copy
   }
 }
@@ -813,6 +812,26 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
     let handedUnplaced = handed !== undefined
     /** The runs for MeoNode components among the walk's nodes, handed to their elements as they are built. */
     const runsForNodes = namedEnabled ? new Map<BaseNode, NamedStyle[]>() : undefined
+    /** The runs for MeoNode components' elements among the children, handed to the copies this walk builds of them. */
+    const runsForElements = namedEnabled ? new Map<ReactElement, NamedStyle[]>() : undefined
+    const handToCopy = (element: ReactElement, copy: ReactElement): void => {
+      const run = runsForElements!.get(element)
+      if (run === undefined) return
+      handRunTo(copy.props as object, run)
+      runsForElements!.delete(element)
+    }
+    /** Copies, in `list` and the lists in it, each element a run was handed to, and hands it the run. */
+    const handToUncopied = (list: ReactNode[]): void => {
+      for (let i = 0; i < list.length; i++) {
+        const child = list[i]
+        if (Array.isArray(child)) handToUncopied(child)
+        else if (isValidElement(child) && runsForElements!.has(child)) {
+          const copy = cloneElement(child)
+          handToCopy(child, copy)
+          list[i] = copy
+        }
+      }
+    }
 
     /**
      * Hands the run to the MeoNode component at a slot, whose own walk puts it in
@@ -820,7 +839,7 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
      */
     const handToComponent = (next: unknown): boolean => {
       if (pendingNamed.length === 0) return true
-      if (isValidElement(next) && takesRun(next.type)) handRunTo(next.props as object, pendingNamed)
+      if (isValidElement(next) && takesRun(next.type)) runsForElements!.set(next, [...(runsForElements!.get(next) ?? []), ...pendingNamed])
       else if (next instanceof BaseNode && takesRun(next.element)) runsForNodes!.set(next, pendingNamed)
       else return false
       pendingNamed = []
@@ -1159,7 +1178,10 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
 
             // Each element child becomes a fresh copy, as the walk would build it
             // from a node wrapping the element, and so does every element below it.
-            if (copyQueue !== undefined && copyQueue.length > 0) drainCopies(copyQueue, disableEmotion)
+            if (copyQueue !== undefined && copyQueue.length > 0) drainCopies(copyQueue, disableEmotion, runsForElements?.size ? handToCopy : undefined)
+            // An element a run was handed to and not copied is copied now, so the
+            // run goes with props this walk built, never the written element's.
+            if (runsForElements?.size) handToUncopied(finalChildren)
 
             // A built element's list is key-checked by React as the element's own
             // would be, so in development the elements its authored nodes rendered
@@ -1634,7 +1656,14 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
       // Get the final rendered element for the root node of this render cycle.
       const rootElement = renderedElements.get(this) as ReactElement<FinalNodeProps>
       // What no rule or carrier took goes to a MeoNode component at the root, or beside the root, after it.
-      if (namedEnabled && !runAfterLastRule() && !handToComponent(rootElement)) {
+      // The root's element is this walk's own, so the run goes to its props as they are.
+      const handToRoot = (): boolean => {
+        if (pendingNamed.length === 0 || !takesRun(rootElement.type)) return pendingNamed.length === 0
+        handRunTo(rootElement.props as object, pendingNamed)
+        pendingNamed = []
+        return true
+      }
+      if (namedEnabled && !runAfterLastRule() && !handToRoot()) {
         pendingCarrier = null
         flushNamed()
       }
