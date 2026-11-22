@@ -21,6 +21,7 @@ import { ThemeUtil } from '@src/util/theme.util.js'
 import { nameStyles } from '@src/util/style-name.util.js'
 import { __resetStaticCss, registerStaticCss } from '@src/util/static-css.util.js'
 import { styledRenders } from './_styled-renders.js'
+import { shaped } from './_render-shapes.js'
 
 vi.mock('@src/components/styled-renderer.client.js', async original => (await import('./_styled-renders.js')).countingStyledRenderer(original as never))
 
@@ -28,14 +29,18 @@ vi.mock('@src/components/styled-renderer.client.js', async original => (await im
 
 type Css = Record<string, unknown>
 
-/** Props for a node of `css`: as the compiler emits them for a static node, or as written. */
+/**
+ * Props for a node of `css`: as the compiler emits them for a static node, or as
+ * written. Every static node here has a component or an end of the walk on both
+ * sides, so the compiler marks each a carrier.
+ */
 type Style = (css: Css) => Record<string, unknown>
 const runtimeStyle: Style = css => ({ css })
 const compiledStyle: Style = css => {
   const resolved = ThemeUtil.resolveObjWithTheme(css, undefined, { processFunctions: true, themeStringsMode: 'vars' })
   const { name, styles } = nameStyles(serializeStyles([ThemeUtil.resolveDefaultStyle(ThemeUtil.dropThemedKeys(resolved, () => {}))] as never))
   registerStaticCss(`m-${name}`, [[name, styles]])
-  return { __meo$: 2, __meo$n: name }
+  return { __meo$: 2, __meo$n: name, __meo$r: 1 }
 }
 
 /** A component holding a count under its label, which a remount resets. */
@@ -142,7 +147,7 @@ const snapshot = () => ({ counters: counters(), rules: rules() })
  * count, then toggles the spread four times, counting each counter up after each.
  * @returns What the counters held after each step, and the key warnings React gave.
  */
-function run(testCase: Case, compiled: boolean, keyed: boolean, initially: boolean): { steps: ReturnType<typeof snapshot>[]; keyWarnings: number } {
+function runUnshaped(testCase: Case, compiled: boolean, keyed: boolean, initially: boolean): { steps: ReturnType<typeof snapshot>[]; keyWarnings: number } {
   // Only what this case registers: the written cases' styles are the compiler's, registered as the file loads.
   __resetStaticCss()
   const style = compiled ? compiledStyle : runtimeStyle
@@ -156,6 +161,7 @@ function run(testCase: Case, compiled: boolean, keyed: boolean, initially: boole
     initially,
   )
 }
+const run = shaped(runUnshaped)
 
 /** As {@link run}, for a page that `host` builds for whether its conditional or spread is in. */
 function runPage(host: (on: boolean) => NodeInstance, initially: boolean): { steps: ReturnType<typeof snapshot>[]; keyWarnings: number } {
@@ -204,8 +210,9 @@ describe.skipIf(process.env.MEONODE_COMPILED === '1').each([
       expect(expected.keyWarnings).toBe(0)
       expect(expected.steps.at(-1)!.rules.length).toBeGreaterThan(0)
       expect(run(testCase, true, keyed, initially)).toEqual(expected)
-      // The compiled tree's named nodes took the named path.
-      expect(styledRenders()).toBeLessThan(runtimeRenders)
+      // Every static node here is a carrier, which renders through the renderer
+      // its css would, and none renders through more.
+      expect(styledRenders()).toBeLessThanOrEqual(runtimeRenders)
     })
   })
 })

@@ -16,6 +16,7 @@ import { Button, Component, Div, Node, Span, type NodeInstance } from '@src/main
 import { ThemeUtil } from '@src/util/theme.util.js'
 import { nameStyles } from '@src/util/style-name.util.js'
 import { __resetStaticCss, registerStaticCss } from '@src/util/static-css.util.js'
+import { shaped } from './_render-shapes.js'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -128,7 +129,7 @@ const rules = () =>
   )
 
 /** Toggles the case four times from `initially`, counting each counter up after each step; returns what each step showed. */
-function run(page: (on: boolean) => NodeInstance, initially: boolean) {
+function runUnshaped(page: (on: boolean) => NodeInstance, initially: boolean) {
   __resetStaticCss()
   const error = vi.spyOn(console, 'error').mockImplementation(() => {})
   let toggle = () => {}
@@ -160,6 +161,7 @@ function run(page: (on: boolean) => NodeInstance, initially: boolean) {
   error.mockRestore()
   return { steps, shapes, keyWarnings }
 }
+const run = shaped(runUnshaped)
 
 describe.each([
   ['unkeyed', false],
@@ -181,7 +183,7 @@ describe.each([
 })
 
 /** Renders `tree` once under a fresh cache; returns the classes, the rules and the shape `.render()` gave. */
-function once(tree: (style: Style) => NodeInstance, style: Style) {
+function onceUnshaped(tree: (style: Style) => NodeInstance, style: Style) {
   __resetStaticCss()
   document.head.innerHTML = ''
   document.body.innerHTML = ''
@@ -206,12 +208,13 @@ function once(tree: (style: Style) => NodeInstance, style: Style) {
   root = undefined
   return result
 }
+const once = shaped(onceUnshaped)
 
 const TIES: Record<string, (style: Style) => NodeInstance> = {
   // A `Component(...)` is a component like any other: the first named node of
   // a stretch it ends is a carrier, as the compiler marks it.
   'a sibling’s & + .item against a Component sibling’s own rule': style => {
-    const Item = Component(() => Div({ 'data-n': 'i', className: 'item', ...style({ '.wrapper &': BLUE }) }))
+    const Item = Component(() => Div({ 'data-n': 'i', className: 'item', ...style({ '.wrapper &': BLUE }, carrier) }))
     return Div({
       className: 'wrapper',
       ...slots(style, 1),
@@ -219,11 +222,11 @@ const TIES: Record<string, (style: Style) => NodeInstance> = {
     })
   },
   'a static parent’s & .child against a Component child’s own .wrapper &': style => {
-    const Child = Component(() => Span('c', { 'data-n': 'c', className: 'child', ...style({ '.wrapper &': BLUE }) }))
+    const Child = Component(() => Span('c', { 'data-n': 'c', className: 'child', ...style({ '.wrapper &': BLUE }, carrier) }))
     return Div({ 'data-n': 'p', className: 'wrapper', ...style({ '& .child': RED }, carrier), ...slots(style, 0), children: Child() })
   },
   'Components between statics, written with Node': style => {
-    const Item = Component(() => Div({ 'data-n': 'i', className: 'item', ...style({ order: 7 }) }))
+    const Item = Component(() => Div({ 'data-n': 'i', className: 'item', ...style({ order: 7 }, carrier) }))
     return Div({
       ...style(GRID, carrier),
       ...slots(style, 1, 3),
@@ -308,7 +311,7 @@ describe('a generated list of items each holding a component', () => {
     ['d', 'c', 'b'],
     ['e', 'd', 'c', 'b'],
   ]
-  const runList = (style: Style, keyed: boolean) => {
+  const runList = shaped((style: Style, keyed: boolean) => {
     __resetStaticCss()
     document.head.innerHTML = ''
     document.body.innerHTML = ''
@@ -339,7 +342,7 @@ describe('a generated list of items each holding a component', () => {
     const keyWarnings = error.mock.calls.filter(call => /key/i.test(String(call[0]))).length
     error.mockRestore()
     return { steps, shapes, keyWarnings }
-  }
+  })
   it.each([
     ['unkeyed', false],
     ['keyed', true],
@@ -359,10 +362,10 @@ describe('a generated list of items each holding a component', () => {
 describe('a Component after a named sibling', () => {
   it('keeps every render under StrictMode at the runtime twin’s rules', async () => {
     const { StrictMode } = await import('react')
-    const runOnce = (style: Style) => {
+    const runOnce = shaped((style: Style) => {
       __resetStaticCss()
       document.head.innerHTML = ''
-      const Item = Component(() => Div({ className: 'item', ...style({ '.wrapper &': BLUE }) }))
+      const Item = Component(() => Div({ className: 'item', ...style({ '.wrapper &': BLUE }, carrier) }))
       const container = document.body.appendChild(document.createElement('div'))
       const strictRoot = createRoot(container)
       act(() =>
@@ -377,7 +380,7 @@ describe('a Component after a named sibling', () => {
                 return Div({
                   className: 'wrapper',
                   ...slots(style, 1),
-                  children: [Span('s', { key: 's', ...style({ '& + .item': RED }) }), Item({ key: 'i' })],
+                  children: [Span('s', { key: 's', ...style({ '& + .item': RED }, carrier) }), Item({ key: 'i' })],
                 }).render() as ReactElement
               }),
             ),
@@ -388,9 +391,9 @@ describe('a Component after a named sibling', () => {
       act(() => strictRoot.unmount())
       container.remove()
       return result
-    }
+    })
     const expected = runOnce(runtimeStyle)
-    expect(expected.length).toBeGreaterThan(0)
+    expect(expected.result.length).toBeGreaterThan(0)
     expect(runOnce(compiledStyle)).toEqual(expected)
   })
 })
@@ -402,10 +405,10 @@ describe('a Component element written twice in one host', () => {
     [' under StrictMode', true],
   ])('keeps each instance’s rules after the run before it%s', async (_, strict) => {
     const { StrictMode } = await import('react')
-    const runOnce = (style: Style) => {
+    const runOnce = shaped((style: Style) => {
       __resetStaticCss()
       document.head.innerHTML = ''
-      const Item = Component(() => Div({ className: 'item', ...style({ order: 9 }) }))
+      const Item = Component(() => Div({ className: 'item', ...style({ order: 9 }, carrier) }))
       const item = Item()
       const container = document.body.appendChild(document.createElement('div'))
       const twiceRoot = createRoot(container)
@@ -415,7 +418,7 @@ describe('a Component element written twice in one host', () => {
         createElement(function Page() {
           return Div({
             ...slots(style, 1, 3),
-            children: [Span('a', { key: 'a', ...style({ order: 1 }) }), item, Span('b', { key: 'b', ...style({ order: 2 }) }), item],
+            children: [Span('a', { key: 'a', ...style({ order: 1 }, carrier) }), item, Span('b', { key: 'b', ...style({ order: 2 }, carrier) }), item],
           }).render() as ReactElement
         }),
       )
@@ -424,9 +427,37 @@ describe('a Component element written twice in one host', () => {
       act(() => twiceRoot.unmount())
       container.remove()
       return result
-    }
+    })
     const expected = runOnce(runtimeStyle)
-    expect(expected.length).toBe(3)
+    expect(expected.result.length).toBe(3)
     expect(runOnce(compiledStyle)).toEqual(expected)
+  })
+})
+
+// Props that mark no carrier, which no compiler marking carriers emits: the
+// rules still go in as uncompiled, through a `StaticStyles` the walk adds to the
+// children, so what `.render()` returns differs, and development says so.
+describe('named nodes with no carrier marked', () => {
+  it('keep the runtime twin’s rules, and are reported once per style', () => {
+    const tree = (style: Style) =>
+      Div({
+        'data-n': 'p',
+        ...style({ '& > *': RED }),
+        ...slots(style, 1),
+        children: [Span('c', { key: 'c', 'data-n': 'c', ...style(BLUE) }), Node(Counter, { key: 'k', label: 'k' })],
+      })
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const expected = once(tree, runtimeStyle)
+    const compiled = once(tree, compiledStyle)
+    const reports = errors.mock.calls.filter(call => String(call[0]).includes('have no carrier')).length
+    errors.mockRestore()
+    expect(compiled.classes).toEqual(expected.classes)
+    expect(compiled.rules).toEqual(expected.rules)
+    // The slot before the counter holds the run as a leaf of its own.
+    expect(expected.renders[0]).toEqual({ key: null, children: [{ key: 'c', children: 'string' }, { key: 'k' }] })
+    expect(compiled.renders[0]).toEqual({ key: null, children: [{ key: 'c', children: 'string' }, { key: '__meo$slot:1' }, { key: 'k' }] })
+    expect(expected.uncarried).toEqual([])
+    expect(compiled.uncarried).toHaveLength(1)
+    expect(reports).toBe(1)
   })
 })

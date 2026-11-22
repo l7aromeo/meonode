@@ -15,6 +15,7 @@ import { Div, Span, type NodeInstance } from '@src/main.js'
 import { serializedTextOf, templated } from './_template.js'
 import { nameStyles } from '@src/util/style-name.util.js'
 import { __resetStaticCss, registerStaticCss } from '@src/util/static-css.util.js'
+import { shaped } from './_render-shapes.js'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -26,15 +27,19 @@ const inRender = (make: () => ReactElement): ReactElement =>
 
 type Css = Record<string, unknown>
 
-/** Props a node of `css` gets: `css` itself, or as the compiler emits it. */
-type Style = (css: Css, holes?: string[]) => Record<string, unknown>
+/**
+ * Props a node of `css` gets: `css` itself, or as the compiler emits it, a
+ * carrier where it marks one: the first static node of a run that a component
+ * or an end of the walk bounds on both sides.
+ */
+type Style = (css: Css, holes?: string[], carrier?: boolean) => Record<string, unknown>
 const runtimeStyle: Style = css => ({ css })
-const compiledStyle: Style = (css, holes = []) => {
-  if (holes.length > 0) return templated(css, holes)
+const compiledStyle: Style = (css, holes = [], carrier = false) => {
+  if (holes.length > 0) return templated(css, holes, carrier)
   const text = serializedTextOf(css)
   const { name } = nameStyles(serializeStyles([text] as never))
   registerStaticCss(`m-${name}`, [[name, text]])
-  return { __meo$: 2, __meo$n: name }
+  return { __meo$: 2, __meo$n: name, ...(carrier && { __meo$r: 1 }) }
 }
 
 let roots: Root[] = []
@@ -47,7 +52,7 @@ afterEach(() => {
 })
 
 /** Renders `tree` under a fresh cache; returns the elements' classes and the sheet's rules, in order. */
-function run(tree: (style: Style) => NodeInstance, style: Style) {
+function runUnshaped(tree: (style: Style) => NodeInstance, style: Style) {
   document.head.innerHTML = ''
   document.body.innerHTML = ''
   __resetStaticCss()
@@ -72,11 +77,12 @@ function run(tree: (style: Style) => NodeInstance, style: Style) {
     ),
   }
 }
+const run = shaped(runUnshaped)
 
 const CASES: Record<string, (style: Style) => NodeInstance> = {
-  'a percentage width': style => Div({ 'data-n': 'w', ...style({ width: `${37}%`, color: 'rgb(0, 0, 200)' }, ['width']) }),
+  'a percentage width': style => Div({ 'data-n': 'w', ...style({ width: `${37}%`, color: 'rgb(0, 0, 200)' }, ['width'], true) }),
   'a number given its unit, and a second hole': style =>
-    Div({ 'data-n': 'h', ...style({ height: 12 * 2, marginTop: 3, color: 'red' }, ['height', 'marginTop']) }),
+    Div({ 'data-n': 'h', ...style({ height: 12 * 2, marginTop: 3, color: 'red' }, ['height', 'marginTop'], true) }),
   'templated, named and runtime nodes interleaved': style =>
     Div({
       'data-n': 'r',
@@ -102,7 +108,7 @@ describe('a node filled from a template', () => {
   })
 
   it('follows its value when it changes, as its css would', () => {
-    const steps = (style: Style) => {
+    const steps = shaped((style: Style) => {
       document.head.innerHTML = ''
       document.body.innerHTML = ''
       __resetStaticCss()
@@ -110,7 +116,7 @@ describe('a node filled from a template', () => {
       function Bar() {
         const [progress, setProgress] = useState(10)
         grow = () => setProgress(value => value + 15)
-        return Div({ 'data-n': 'bar', ...style({ width: `${progress}%` }, ['width']) }).render() as ReactElement
+        return Div({ 'data-n': 'bar', ...style({ width: `${progress}%` }, ['width'], true) }).render() as ReactElement
       }
       const root = createRoot(document.body.appendChild(document.createElement('div')))
       roots.push(root)
@@ -123,7 +129,7 @@ describe('a node filled from a template', () => {
           [...(element.sheet?.cssRules ?? [])].map(rule => rule.cssText),
         ),
       }
-    }
+    })
     const expected = steps(runtimeStyle)
     expect(expected.rules.some(rule => rule.includes('width: 40%'))).toBe(true)
     expect(steps(compiledStyle)).toEqual(expected)

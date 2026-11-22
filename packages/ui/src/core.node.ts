@@ -55,7 +55,7 @@ import { passesChildrenThrough, providesTheme } from '@src/util/children-pass-th
 import { observeChildren } from '@src/util/generated-list.util.js'
 import { compileServerEmotionRule, compileServerNamedRule } from '@src/util/server-emotion.util.js'
 import { hasNamedStyles, hasStaticCss, registeredClassesOf, staticRuleOf, staticStylesOf } from '@src/util/static-css.util.js'
-import { namedClass, type NamedStyle } from '@src/util/named-style.util.js'
+import { namedClass, type NamedStyle, reportUncarriedRun } from '@src/util/named-style.util.js'
 import type { EmotionCache } from '@emotion/cache'
 import type { SerializedStyles } from '@emotion/serialize'
 import { readEmotionCache } from '@src/util/emotion-cache.util.js'
@@ -813,6 +813,7 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
     /** Hands the run to its carrier's `StaticStyles`, which holds its place in the carrier's rules. */
     const flushNamed = (): void => {
       if (pendingNamed.length === 0) return
+      if (isDevMode()) reportUncarriedRun(pendingNamed)
       const rules = rulesOfCarrier(pendingCarrier)
       const tail = namedTail!.get(rules)
       if (tail) tail.push(...pendingNamed)
@@ -879,6 +880,7 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
         if (slot !== undefined) {
           stackPointer--
           if (pendingNamed.length > 0 && !runAfterLastRule()) {
+            if (isDevMode()) reportUncarriedRun(pendingNamed)
             let runs = slotRuns.get(currentWork.node)
             if (!runs) slotRuns.set(currentWork.node, (runs = new Map()))
             runs.set(slot, pendingNamed)

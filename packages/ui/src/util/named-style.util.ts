@@ -103,3 +103,38 @@ export function serverStyleElement(cache: EmotionCache, styles: readonly NamedSt
   if (rules === '') return null
   return createElement('style', { key, 'data-emotion': `${cache.key}${names}`, dangerouslySetInnerHTML: { __html: rules }, nonce: cache.sheet.nonce })
 }
+
+/**
+ * How many styles {@link reportUncarriedRun} remembers having reported. A page
+ * in development can render any number over its life, so the record is dropped
+ * and started again when it fills, as the generated-list notes are.
+ */
+const UNCARRIED_REPORTS_MAX = 2000
+/** The styles whose uncarried run has been reported. */
+const uncarriedReported = new Set<string>()
+
+/**
+ * Reports, in development, a run of named styles no rule node took, which goes
+ * in through a `StaticStyles` the walk adds to the children instead: a slot's
+ * leaf, its carrier's, or one beside the root. The element `.render()` returns
+ * then differs from its uncompiled twin's. A compiler marking carriers gives the
+ * first named node of every such run `__meo$r`, so this is output of a compiler
+ * that does not, or props written by hand. Once per style while it is remembered.
+ * @param run The run.
+ */
+export function reportUncarriedRun(run: readonly NamedStyle[]): void {
+  const name = run[0]?.serialized.name
+  if (name === undefined || uncarriedReported.has(name)) return
+  if (uncarriedReported.size >= UNCARRIED_REPORTS_MAX) uncarriedReported.clear()
+  uncarriedReported.add(name)
+  console.error(
+    `[MeoNode] The named styles from \`${name}\` on have no carrier or runtime node to go in with, so a StaticStyles element is added to the children. ` +
+      'Compiled output marks the first node of such a run as a carrier (`__meo$r`); props without it come from an older compiler or were written by hand.',
+  )
+}
+
+/** Test seam: the styles whose uncarried run was reported, in order. */
+export const __uncarriedReports = (): readonly string[] => [...uncarriedReported]
+
+/** Test seam: forgets which uncarried runs were reported. */
+export const __resetUncarriedReports = (): void => uncarriedReported.clear()

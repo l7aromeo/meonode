@@ -14,6 +14,7 @@ import { Button, Component, Div, Node, Span, type NodeInstance } from '@src/main
 import { ThemeUtil } from '@src/util/theme.util.js'
 import { nameStyles } from '@src/util/style-name.util.js'
 import { __resetStaticCss, registerStaticCss } from '@src/util/static-css.util.js'
+import { shaped } from './_render-shapes.js'
 
 type Css = Record<string, unknown>
 type Style = (css: Css, options?: { carrier?: boolean; runtime?: boolean }) => Record<string, unknown>
@@ -42,25 +43,26 @@ function read(html: string): { markup: string; rules: string[] } {
   for (const [, , text] of html.matchAll(STYLE_ELEMENT)) for (const rule of text.split(/(?<=\})(?=[.@])/)) if (rule) rules.push(rule)
   return { markup: html.replace(STYLE_ELEMENT, ''), rules }
 }
-function render(tree: (style: Style) => NodeInstance, style: Style, provider: boolean) {
+function renderUnshaped(tree: (style: Style) => NodeInstance, style: Style, provider: boolean) {
   __resetStaticCss()
   const element = createElement(function Page() {
     return tree(style).render() as ReactElement
   })
   return read(renderToString(provider ? createElement(CacheProvider, { value: createCache({ key: 'css' }) }, element) : element))
 }
+const render = shaped(renderUnshaped)
 
 const CASES: Record<string, (style: Style) => NodeInstance> = {
-  'a sibling’s & + .item against a Component sibling’s own rule, no carrier': style => {
-    const Item = Component(() => Div({ className: 'item', ...style({ '.wrapper &': BLUE }) }))
-    return Div({ className: 'wrapper', ...slots(style, 1), children: [Span('s', { key: 's', ...style({ '& + .item': RED }) }), Item({ key: 'i' })] })
+  'a sibling’s & + .item against a Component sibling’s own rule': style => {
+    const Item = Component(() => Div({ className: 'item', ...style({ '.wrapper &': BLUE }, carrier) }))
+    return Div({ className: 'wrapper', ...slots(style, 1), children: [Span('s', { key: 's', ...style({ '& + .item': RED }, carrier) }), Item({ key: 'i' })] })
   },
-  'a static parent’s & .child against a Component child’s own .wrapper &, no carrier': style => {
-    const Child = Component(() => Span('c', { className: 'child', ...style({ '.wrapper &': BLUE }) }))
-    return Div({ className: 'wrapper', ...style({ '& .child': RED }), ...slots(style, 0), children: Child() })
+  'a static parent’s & .child against a Component child’s own .wrapper &': style => {
+    const Child = Component(() => Span('c', { className: 'child', ...style({ '.wrapper &': BLUE }, carrier) }))
+    return Div({ className: 'wrapper', ...style({ '& .child': RED }, carrier), ...slots(style, 0), children: Child() })
   },
   'Components between statics, written with Node, the scope root a carrier': style => {
-    const Item = Component(() => Div({ className: 'item', ...style({ order: 7 }) }))
+    const Item = Component(() => Div({ className: 'item', ...style({ order: 7 }, carrier) }))
     // With no provider the root is the scope of every walk below it, which only a carrier can give its cache to.
     return Div({
       ...style(GRID, carrier),
@@ -68,7 +70,7 @@ const CASES: Record<string, (style: Style) => NodeInstance> = {
       children: [
         Span('a', { key: 'a', ...style({ '& ~ .item': RED }) }),
         Node(Item, { key: 'i' }),
-        Span('b', { key: 'b', ...style(BLUE) }),
+        Span('b', { key: 'b', ...style(BLUE, carrier) }),
         Node(Item, { key: 'j' }),
       ],
     })
@@ -134,9 +136,9 @@ describe('a Component element shared by two server renders', () => {
     ['under a cache provider', true],
   ])('%s, starts each with its own page’s run', (_, provider) => {
     const pages = (style: Style) => {
-      const Footer = Component(() => Div({ className: 'footer', ...style({ order: 9 }) }))
+      const Footer = Component(() => Div({ className: 'footer', ...style({ order: 9 }, carrier) }))
       const footer = Footer({ key: 'f' })
-      const withHeader = () => Div({ ...slots(style, 1), children: [Span('h', { key: 'h', ...style({ '& ~ .footer': RED }) }), footer] })
+      const withHeader = () => Div({ ...slots(style, 1), children: [Span('h', { key: 'h', ...style({ '& ~ .footer': RED }, carrier) }), footer] })
       const bare = () => Div({ ...slots(style, 0), children: [footer] })
       return [render(withHeader, style, provider), render(bare, style, provider)]
     }

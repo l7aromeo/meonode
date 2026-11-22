@@ -17,6 +17,7 @@ import { ThemeUtil } from '@src/util/theme.util.js'
 import { nameStyles } from '@src/util/style-name.util.js'
 import { __resetStaticCss, registerStaticCss } from '@src/util/static-css.util.js'
 import { styledRenders } from './_styled-renders.js'
+import { shaped } from './_render-shapes.js'
 
 vi.mock('@src/components/styled-renderer.client.js', async original => (await import('./_styled-renders.js')).countingStyledRenderer(original as never))
 
@@ -39,17 +40,21 @@ function compile(css: Css): { name: string; styles: string } {
 
 /**
  * Props giving a node `css`: on the runtime path, or as the compiler emits a
- * static node. `slots` gives a host the positions the compiler marks among its
- * children, where a component may render; the runtime path has none.
+ * static node, a carrier where it marks one: the first static node of a run that
+ * a component or an end of the walk bounds on both sides. `slots` gives a host
+ * the positions the compiler marks among its children, where a component may
+ * render; the runtime path has none.
  */
-type Style = ((css: Css, isStatic?: boolean) => Record<string, unknown>) & { slots: (...paths: (number | number[])[]) => Record<string, unknown> }
+type Style = ((css: Css, isStatic?: boolean, carrier?: boolean) => Record<string, unknown>) & {
+  slots: (...paths: (number | number[])[]) => Record<string, unknown>
+}
 const runtimeStyle: Style = Object.assign((css: Css) => ({ css }), { slots: () => ({}) })
 const compiledStyle: Style = Object.assign(
-  (css: Css, isStatic = true) => {
+  (css: Css, isStatic = true, carrier = false) => {
     if (!isStatic) return { css }
     const { name, styles } = compile(css)
     registerStaticCss(`m-${name}`, [[name, styles]])
-    return { __meo$: 2, __meo$n: name }
+    return { __meo$: 2, __meo$n: name, ...(carrier && { __meo$r: 1 }) }
   },
   { slots: (...paths: (number | number[])[]) => ({ __meo$: 2, __meo$p: paths }) },
 )
@@ -60,7 +65,7 @@ type Steps = (render: (tree: (style: Style) => NodeInstance) => void) => void
 let roots: Root[] = []
 
 /** Runs a case with `style` under a fresh cache; returns the elements' classes and the sheet's rules. */
-function run(steps: Steps, style: Style): { classes: string[]; rules: string[] } {
+function runUnshaped(steps: Steps, style: Style): { classes: string[]; rules: string[] } {
   document.head.innerHTML = ''
   document.body.innerHTML = ''
   __resetStaticCss()
@@ -84,6 +89,7 @@ function run(steps: Steps, style: Style): { classes: string[]; rules: string[] }
   )
   return { classes, rules }
 }
+const run = shaped(runUnshaped)
 
 const once =
   (tree: (style: Style) => NodeInstance): Steps =>
@@ -95,10 +101,10 @@ const BLUE = { color: 'rgb(0, 0, 200)' }
 
 const CASES: Record<string, Steps> = {
   'a parent’s & > * against its static child’s colour': once(style =>
-    Div({ 'data-n': 'p', ...style({ '& > *': RED }), children: Span('c', { 'data-n': 'c', ...style(BLUE) }) }),
+    Div({ 'data-n': 'p', ...style({ '& > *': RED }, true, true), children: Span('c', { 'data-n': 'c', ...style(BLUE) }) }),
   ),
   'the same with the child’s colour under @media': once(style =>
-    Div({ 'data-n': 'p', ...style({ '& > *': RED }), children: Span('c', { 'data-n': 'c', ...style({ '@media (min-width: 1px)': BLUE }) }) }),
+    Div({ 'data-n': 'p', ...style({ '& > *': RED }, true, true), children: Span('c', { 'data-n': 'c', ...style({ '@media (min-width: 1px)': BLUE }) }) }),
   ),
   'a runtime parent’s & > * against a static child': once(style =>
     Div({ 'data-n': 'p', ...style({ '& > *': RED }, false), children: Span('c', { 'data-n': 'c', ...style(BLUE) }) }),
@@ -130,8 +136,8 @@ const CASES: Record<string, Steps> = {
     }),
   ),
   'an identical node rendered earlier': render => {
-    render(style => Div({ 'data-n': 'early', ...style(BLUE) }))
-    render(style => Div({ 'data-n': 'p', ...style({ '& > *': RED }), children: Span('c', { 'data-n': 'c', ...style(BLUE) }) }))
+    render(style => Div({ 'data-n': 'early', ...style(BLUE, true, true) }))
+    render(style => Div({ 'data-n': 'p', ...style({ '& > *': RED }, true, true), children: Span('c', { 'data-n': 'c', ...style(BLUE) }) }))
   },
   'a parent mounted around a child an earlier commit inserted': render => {
     let wrap = () => {}
@@ -139,59 +145,60 @@ const CASES: Record<string, Steps> = {
       const App = () => {
         const [wrapped, setWrapped] = useState(false)
         wrap = () => setWrapped(true)
-        const child = Span('c', { 'data-n': 'c', ...style(BLUE) })
-        return (wrapped ? Div({ 'data-n': 'p', ...style({ '& > *': RED }), children: child }) : child).render() as ReactElement
+        // Each may be the first static node of the walk, so each is a carrier.
+        const child = Span('c', { 'data-n': 'c', ...style(BLUE, true, true) })
+        return (wrapped ? Div({ 'data-n': 'p', ...style({ '& > *': RED }, true, true), children: child }) : child).render() as ReactElement
       }
       return Node(App)
     })
     act(() => wrap())
   },
   'a parent’s & .child against a component child’s own .wrapper &, the child’s position marked': once(style => {
-    const Child = () => Span('c', { 'data-n': 'c', className: 'child', ...style({ '.wrapper &': BLUE }) }).render() as ReactElement
-    return Div({ 'data-n': 'p', className: 'wrapper', ...style({ '& .child': RED }), ...style.slots(0), children: Node(Child) })
+    const Child = () => Span('c', { 'data-n': 'c', className: 'child', ...style({ '.wrapper &': BLUE }, true, true) }).render() as ReactElement
+    return Div({ 'data-n': 'p', className: 'wrapper', ...style({ '& .child': RED }, true, true), ...style.slots(0), children: Node(Child) })
   }),
   'a sibling’s & + .item against a component sibling’s own rule, its position marked': once(style => {
-    const Item = () => Div({ 'data-n': 'i', className: 'item', ...style({ '.wrapper &': BLUE }) }).render() as ReactElement
+    const Item = () => Div({ 'data-n': 'i', className: 'item', ...style({ '.wrapper &': BLUE }, true, true) }).render() as ReactElement
     return Div({
       className: 'wrapper',
       ...style.slots(1),
-      children: [Span('s', { key: 's', 'data-n': 's', ...style({ '& + .item': RED }) }), Node(Item, { key: 'i' })],
+      children: [Span('s', { key: 's', 'data-n': 's', ...style({ '& + .item': RED }, true, true) }), Node(Item, { key: 'i' })],
     })
   }),
   'a component inside a nested array, its path marked': once(style => {
-    const Item = () => Div({ 'data-n': 'i', className: 'item', ...style({ '.wrapper &': BLUE }) }).render() as ReactElement
+    const Item = () => Div({ 'data-n': 'i', className: 'item', ...style({ '.wrapper &': BLUE }, true, true) }).render() as ReactElement
     return Div({
       className: 'wrapper',
       ...style.slots([1, 1]),
       children: [
-        Span('a', { key: 'a', ...style({ order: 1 }) }),
+        Span('a', { key: 'a', ...style({ order: 1 }, true, true) }),
         [Span('s', { key: 's', 'data-n': 's', ...style({ '& + .item': RED }) }), Node(Item, { key: 'i' })],
       ],
     })
   }),
   'a generated list of components, a slot before the children as a whole': once(style => {
-    const Item = () => Div({ 'data-n': 'i', className: 'item', ...style({ '.wrapper &': BLUE }) }).render() as ReactElement
+    const Item = () => Div({ 'data-n': 'i', className: 'item', ...style({ '.wrapper &': BLUE }, true, true) }).render() as ReactElement
     return Div({
       'data-n': 'p',
       className: 'wrapper',
-      ...style({ '& .item': RED }),
+      ...style({ '& .item': RED }, true, true),
       ...style.slots([]),
       __meo$list: true,
       children: ['a', 'b'].map(key => Node(Item, { key })),
     })
   }),
   'a component that renders a built element child, its position marked': once(style => {
-    const Item = () => Div({ 'data-n': 'i', className: 'item', ...style({ '.wrapper &': BLUE }) }).render() as ReactElement
+    const Item = () => Div({ 'data-n': 'i', className: 'item', ...style({ '.wrapper &': BLUE }, true, true) }).render() as ReactElement
     return Div({
       className: 'wrapper',
       ...style.slots(1),
-      children: [Span('s', { key: 's', 'data-n': 's', ...style({ '& + .item': RED }) }), createElement(Item, { key: 'i' })],
+      children: [Span('s', { key: 's', 'data-n': 's', ...style({ '& + .item': RED }, true, true) }), createElement(Item, { key: 'i' })],
     })
   }),
   // A runtime node whose target is a component registers its class in the
   // browser; the component hands it to a static node, whose style takes it in.
   'a registered class handed to a static node': once(style => {
-    const Box = (props: { className?: string }) => Div({ 'data-n': 'box', className: props.className, ...style(BLUE) }).render() as ReactElement
+    const Box = (props: { className?: string }) => Div({ 'data-n': 'box', className: props.className, ...style(BLUE, true, true) }).render() as ReactElement
     return Div({ children: Node(Box, { ...style(RED, false), className: 'given' }) })
   }),
 }
@@ -227,8 +234,9 @@ describe('compiled nodes carrying their style’s name go into Emotion’s sheet
     const runtimeRenders = styledRenders()
     expect(expected.rules.length).toBeGreaterThan(0)
     expect(run(steps, compiledStyle)).toEqual(expected)
-    // The compiled tree's named nodes took the named path.
-    expect(styledRenders()).toBeLessThan(runtimeRenders)
+    // The compiled tree's named nodes took the named path, a carrier the
+    // renderer its css would; none renders through more.
+    expect(styledRenders()).toBeLessThanOrEqual(runtimeRenders)
   })
 })
 
@@ -248,7 +256,7 @@ describe('before a component at a position with no slot', () => {
 // same cache, so with no runtime rule on the page their rules go there too.
 describe('under a cache that prepends, with the page’s stylesheet first in the head', () => {
   it('puts the compiled rules where it puts its own, ahead of the page’s', () => {
-    const run = (style: Style) => {
+    const run = shaped((style: Style) => {
       document.head.innerHTML = '<style data-page>.card{padding:0}</style>'
       document.body.innerHTML = ''
       __resetStaticCss()
@@ -260,14 +268,14 @@ describe('under a cache that prepends, with the page’s stylesheet first in the
           createElement(
             CacheProvider,
             { value: cache },
-            inRender(() => Div({ className: 'card', ...style({ padding: 16 }) }).render() as ReactElement),
+            inRender(() => Div({ className: 'card', ...style({ padding: 16 }, true, true) }).render() as ReactElement),
           ),
         ),
       )
       return [...document.head.querySelectorAll('style')].map(element => (element.hasAttribute('data-page') ? 'page' : (element.textContent ?? '')))
-    }
+    })
     const expected = run(runtimeStyle)
-    expect(expected.indexOf('page')).toBe(expected.length - 1)
+    expect(expected.result.indexOf('page')).toBe(expected.result.length - 1)
     expect(run(compiledStyle)).toEqual(expected)
   })
 })
@@ -284,7 +292,8 @@ describe('keyed items coming into a generated list on update', () => {
     Div({
       key: id,
       'data-n': id,
-      ...style({ order: id.charCodeAt(0) }),
+      // An item may come first after the list's slot, so its call site is a carrier.
+      ...style({ order: id.charCodeAt(0) }, true, true),
       children: [
         Span('t', { 'data-n': `${id}t`, ...style({ '& + span': { color: shade(id) } }) }),
         ...(runtime === 'none' ? [] : [Span('r', { 'data-n': `${id}r`, ...style({ color: runtime === 'own' ? shade(id) : 'rgb(0, 9, 0)' }, false) })]),
@@ -294,7 +303,8 @@ describe('keyed items coming into a generated list on update', () => {
     Div({
       children: [
         Div({ key: 'list', ...style.slots([]), __meo$list: true, children: ids.map(id => item(style, id, runtime)) } as never),
-        Span('after', { key: 'after', 'data-n': 'after', ...style({ order: ids.length }) }),
+        // With no items, it would come first after the list's slot.
+        Span('after', { key: 'after', 'data-n': 'after', ...style({ order: ids.length }, true, true) }),
       ],
     })
   const SEQUENCE = [
@@ -306,7 +316,7 @@ describe('keyed items coming into a generated list on update', () => {
   ]
 
   /** Renders the sequence on one root under one cache; returns the classes and rules at each step. */
-  const runUpdates = (style: Style, runtime: 'own' | 'shared' | 'none') => {
+  const runUpdates = shaped((style: Style, runtime: 'own' | 'shared' | 'none') => {
     document.head.innerHTML = ''
     document.body.innerHTML = ''
     __resetStaticCss()
@@ -330,7 +340,7 @@ describe('keyed items coming into a generated list on update', () => {
         ),
       }
     })
-  }
+  })
 
   it.each([
     ['each with a runtime child of its own', 'own'],
@@ -340,8 +350,8 @@ describe('keyed items coming into a generated list on update', () => {
     styledRenders()
     const expected = runUpdates(runtimeStyle, runtime)
     const runtimeRenders = styledRenders()
-    expect(expected.at(-1)!.rules.length).toBeGreaterThan(0)
+    expect(expected.result.at(-1)!.rules.length).toBeGreaterThan(0)
     expect(runUpdates(compiledStyle, runtime)).toEqual(expected)
-    expect(styledRenders()).toBeLessThan(runtimeRenders)
+    expect(styledRenders()).toBeLessThanOrEqual(runtimeRenders)
   })
 })

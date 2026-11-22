@@ -47,6 +47,29 @@ const CASES: Record<string, Tree> = {
       ],
     })
   },
+  'a parent and child written twice, the parent’s & > * against the child’s own colour': (ui, _, style) => {
+    const pair = (key: number) => ui.Div({ key, ...style({ '& > *': RED }), children: ui.Span('c', style(BLUE, false)) })
+    return ui.Div({ children: [pair(1), pair(2)] })
+  },
+  'a static parent and child written twice, in one run before a runtime node': (ui, _, style) => {
+    const pair = (key: number) => ui.Div({ key, ...style({ '& > *': RED }), children: ui.Span('c', style(BLUE)) })
+    return ui.Div({ children: [pair(1), pair(2), ui.Div({ key: 3, ...style({ order: 3 }, false) })] })
+  },
+  'cards whose rules are all compiled, the page’s own rule for the class beside them': (ui, _, style) =>
+    ui.Div({
+      children: [ui.Div({ key: 1, className: 'card', ...style.carrier({ padding: 16 }) }), ui.Div({ key: 2, className: 'card', ...style({ padding: 12 }) })],
+    }),
+  'a static parent’s & > * against a runtime child': (ui, _, style) => ui.Div({ ...style({ '& > *': RED }), children: ui.Span('c', style(BLUE, false)) }),
+  'a runtime parent’s & > * against a static child': (ui, _, style) => ui.Div({ ...style({ '& > *': RED }, false), children: ui.Span('c', style(BLUE)) }),
+}
+
+/**
+ * Cases that mark no carrier, which no compiler marking carriers emits: their
+ * runs go in through leaves the walk adds, at the slots and at the end of their
+ * carrier, and development reports each. The carried cases below are the same
+ * trees as the compiler marks them.
+ */
+const UNMARKED_CASES: Record<string, Tree> = {
   'statics before components with ids, at marked positions': (ui, react, style) => {
     const Id = () => ui.Span('id', { 'data-id': react.useId(), ...style({ order: 9 }) }).render() as import('react').ReactElement
     return ui.Div({
@@ -59,22 +82,10 @@ const CASES: Record<string, Tree> = {
       ],
     })
   },
-  'a parent and child written twice, the parent’s & > * against the child’s own colour': (ui, _, style) => {
-    const pair = (key: number) => ui.Div({ key, ...style({ '& > *': RED }), children: ui.Span('c', style(BLUE, false)) })
-    return ui.Div({ children: [pair(1), pair(2)] })
-  },
-  'a static parent and child written twice, in one run before a runtime node': (ui, _, style) => {
-    const pair = (key: number) => ui.Div({ key, ...style({ '& > *': RED }), children: ui.Span('c', style(BLUE)) })
-    return ui.Div({ children: [pair(1), pair(2), ui.Div({ key: 3, ...style({ order: 3 }, false) })] })
-  },
   'a static parent and child written twice, at the end of their carrier': (ui, _, style) => {
     const pair = (key: number) => ui.Div({ key, ...style({ '& > *': RED }), children: ui.Span('c', style(BLUE)) })
     return ui.Div({ children: [pair(1), pair(2)] })
   },
-  'cards whose rules are all compiled, the page’s own rule for the class beside them': (ui, _, style) =>
-    ui.Div({ children: [ui.Div({ key: 1, className: 'card', ...style({ padding: 16 }) }), ui.Div({ key: 2, className: 'card', ...style({ padding: 12 }) })] }),
-  'a static parent’s & > * against a runtime child': (ui, _, style) => ui.Div({ ...style({ '& > *': RED }), children: ui.Span('c', style(BLUE, false)) }),
-  'a runtime parent’s & > * against a static child': (ui, _, style) => ui.Div({ ...style({ '& > *': RED }, false), children: ui.Span('c', style(BLUE)) }),
 }
 
 /** Cases with carriers in place of slots and the trailing leaf: the host and the first named node after each component. */
@@ -233,5 +244,21 @@ describe.each([
     expect(expected).toMatchObject({ errors: [], idsKept: true, stylesLeftInBody: 0 })
     expect(expected.firstPaint.length).toBeGreaterThan(0)
     expect(await serverThenHydrate(tree, true, provider)).toEqual(expected)
+  })
+})
+
+describe.each([
+  ['with no cache provider', 'none'],
+  ['under a cache provider', 'cache'],
+  ['under a cache that prepends, the page’s stylesheet first', 'prepend'],
+] as const)('a server-rendered page %s, with no carrier marked, hydrates as its runtime twin does', (_, provider) => {
+  it.each(Object.entries(UNMARKED_CASES))('%s', async (_, tree) => {
+    const expected = await serverThenHydrate(tree, false, provider)
+    expect(expected).toMatchObject({ errors: [], idsKept: true, stylesLeftInBody: 0 })
+    const compiled = await serverThenHydrate(tree, true, provider)
+    // Only the reports of the runs no carrier took, which development alone makes.
+    expect(compiled.errors.length > 0).toBe(process.env.NODE_ENV !== 'production')
+    expect(compiled.errors.every(error => error.includes('have no carrier'))).toBe(true)
+    expect({ ...compiled, errors: [] }).toEqual(expected)
   })
 })

@@ -17,6 +17,7 @@ import { Div, Span, type NodeInstance } from '@src/main.js'
 import { ThemeUtil } from '@src/util/theme.util.js'
 import { nameStyles } from '@src/util/style-name.util.js'
 import { __resetStaticCss, registerStaticCss } from '@src/util/static-css.util.js'
+import { shaped } from './_render-shapes.js'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -75,11 +76,11 @@ describe.each([
   it('under no provider, renders as its css would', () => {
     const cache = defaultCache()
     cache.registered[REGISTERED] = REGISTERED_STYLES
-    const run = (style: Style) => {
+    const run = shaped((style: Style) => {
       document.body.innerHTML = ''
       mount(tree(style, className).render() as ReactElement)
       return classes()
-    }
+    })
     const expected = run(runtimeStyle)
     expect(run(compiledStyle)).toEqual(expected)
     // The registered class's styles are in the element's own rule.
@@ -87,14 +88,14 @@ describe.each([
   })
 
   it('under a provider in the same element tree, renders as its css would', () => {
-    const run = (style: Style) => {
+    const run = shaped((style: Style) => {
       document.body.innerHTML = ''
       __resetStaticCss()
       const cache = createCache({ key: 'app', speedy: true })
       cache.registered[REGISTERED] = REGISTERED_STYLES
       mount(createElement(CacheProvider, { value: cache }, tree(style, className).render() as ReactElement))
       return { classes: classes(), rules: rulesOf(cache) }
-    }
+    })
     const expected = run(runtimeStyle)
     expect(expected.rules.length).toBeGreaterThan(0)
     expect(expected.classes.join(' ')).toContain('app-')

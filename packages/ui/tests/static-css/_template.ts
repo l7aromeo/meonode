@@ -12,9 +12,10 @@ export function serializedTextOf(css: Record<string, unknown>): string {
 /**
  * Props for a node of `css` whose `holes` keys hold values known only at run
  * time, as the compiler emits it: the text around the values registered as a
- * template, and the values as `toCssValue` writes them.
+ * template, and the values as `toCssValue` writes them; a carrier where the
+ * compiler marks one.
  */
-export function templated(css: Record<string, unknown>, holes: readonly string[]): Record<string, unknown> {
+export function templated(css: Record<string, unknown>, holes: readonly string[], carrier = false): Record<string, unknown> {
   const text = serializedTextOf(css)
   const values = holes.map(key => toCssValue(key, css[key])!)
   const chunks: string[] = []
@@ -27,5 +28,5 @@ export function templated(css: Record<string, unknown>, holes: readonly string[]
   chunks.push(rest)
   const id = `t-${holes.join('-')}-${chunks.map(chunk => chunk.length).join('.')}`
   registerStaticTemplate(id, chunks)
-  return { __meo$: 2, __meo$t: [id, ...values] }
+  return { __meo$: 2, __meo$t: [id, ...values], ...(carrier && { __meo$r: 1 }) }
 }

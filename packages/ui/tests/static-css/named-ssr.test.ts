@@ -18,6 +18,7 @@ import { nameStyles } from '@src/util/style-name.util.js'
 import { __resetStaticCss, registerStaticCss } from '@src/util/static-css.util.js'
 import { templated } from './_template.js'
 import { styledRenders } from './_styled-renders.js'
+import { shaped } from './_render-shapes.js'
 
 vi.mock('@src/components/styled-renderer.client.js', async original => (await import('./_styled-renders.js')).countingStyledRenderer(original as never))
 
@@ -36,15 +37,21 @@ function compile(css: Css): { name: string; styles: string } {
   return { name: serialized.name, styles: serialized.styles }
 }
 
-/** Props giving a node `css`, and with `slots` the positions the compiler marks among a host's children. */
-type Style = ((css: Css, isStatic?: boolean) => Record<string, unknown>) & { slots: (...paths: (number | number[])[]) => Record<string, unknown> }
+/**
+ * Props giving a node `css`, a carrier where the compiler marks one: the first
+ * static node of a run that a component or an end of the walk bounds on both
+ * sides. With `slots`, the positions the compiler marks among a host's children.
+ */
+type Style = ((css: Css, isStatic?: boolean, carrier?: boolean) => Record<string, unknown>) & {
+  slots: (...paths: (number | number[])[]) => Record<string, unknown>
+}
 const runtimeStyle: Style = Object.assign((css: Css) => ({ css }), { slots: () => ({}) })
 const compiledStyle: Style = Object.assign(
-  (css: Css, isStatic = true) => {
+  (css: Css, isStatic = true, carrier = false) => {
     if (!isStatic) return { css }
     const { name, styles } = compile(css)
     registerStaticCss(`m-${name}`, [[name, styles]])
-    return { __meo$: 2, __meo$n: name }
+    return { __meo$: 2, __meo$n: name, ...(carrier && { __meo$r: 1 }) }
   },
   { slots: (...paths: (number | number[])[]) => ({ __meo$: 2, __meo$p: paths }) },
 )
@@ -60,24 +67,25 @@ function read(html: string): { markup: string; rules: string[] } {
   return { markup: html.replace(STYLE_ELEMENT, ''), rules }
 }
 
-function render(tree: (style: Style) => NodeInstance, style: Style, provider: boolean): ReturnType<typeof read> {
+function renderUnshaped(tree: (style: Style) => NodeInstance, style: Style, provider: boolean): ReturnType<typeof read> {
   __resetStaticCss()
   const element = inRender(() => tree(style).render() as ReactElement)
   return read(renderToString(provider ? createElement(CacheProvider, { value: createCache({ key: 'css' }) }, element) : element))
 }
+const render = shaped(renderUnshaped)
 
 const RED = { color: 'rgb(200, 0, 0)' }
 const BLUE = { color: 'rgb(0, 0, 200)' }
 
 const CASES: Record<string, (style: Style) => NodeInstance> = {
-  'a parent’s & > * against its static child’s colour': style => Div({ ...style({ '& > *': RED }), children: Span('c', style(BLUE)) }),
+  'a parent’s & > * against its static child’s colour': style => Div({ ...style({ '& > *': RED }, true, true), children: Span('c', style(BLUE)) }),
   'a runtime parent’s & > * against a static child': style => Div({ ...style({ '& > *': RED }, false), children: Span('c', style(BLUE)) }),
   'a static parent and child written twice, in one run before a runtime node': style => {
     const pair = (key: number) => Div({ key, ...style({ '& > *': RED }), children: Span('c', style(BLUE)) })
     return Div({ children: [pair(1), pair(2), Div({ key: 3, ...style({ order: 3 }, false) })] })
   },
   'a static parent and child written twice, at the end of their carrier': style => {
-    const pair = (key: number) => Div({ key, ...style({ '& > *': RED }), children: Span('c', style(BLUE)) })
+    const pair = (key: number) => Div({ key, ...style({ '& > *': RED }, true, key === 1), children: Span('c', style(BLUE)) })
     return Div({ children: [pair(1), pair(2)] })
   },
   'a static parent’s & > * against a runtime child': style => Div({ ...style({ '& > *': RED }), children: Span('c', style(BLUE, false)) }),
@@ -99,15 +107,18 @@ const CASES: Record<string, (style: Style) => NodeInstance> = {
     return Div({ children: [pair(1), pair(2)] })
   },
   'a parent’s & .child against a component child’s own .wrapper &, the child’s position marked': style => {
-    const Child = () => Span('c', { className: 'child', ...style({ '.wrapper &': BLUE }) }).render() as ReactElement
-    return Div({ className: 'wrapper', ...style({ '& .child': RED }), ...style.slots(0), children: Node(Child) })
+    const Child = () => Span('c', { className: 'child', ...style({ '.wrapper &': BLUE }, true, true) }).render() as ReactElement
+    return Div({ className: 'wrapper', ...style({ '& .child': RED }, true, true), ...style.slots(0), children: Node(Child) })
   },
   'a sibling’s & + .item against a component inside a nested array, its path marked': style => {
-    const Item = () => Div({ className: 'item', ...style({ '.wrapper &': BLUE }) }).render() as ReactElement
+    const Item = () => Div({ className: 'item', ...style({ '.wrapper &': BLUE }, true, true) }).render() as ReactElement
     return Div({
       className: 'wrapper',
       ...style.slots([1, 1]),
-      children: [Span('a', { key: 'a', ...style({ order: 1 }) }), [Span('s', { key: 's', ...style({ '& + .item': RED }) }), Node(Item, { key: 'i' })]],
+      children: [
+        Span('a', { key: 'a', ...style({ order: 1 }, true, true) }),
+        [Span('s', { key: 's', ...style({ '& + .item': RED }) }), Node(Item, { key: 'i' })],
+      ],
     })
   },
   'templated nodes, a value known only at run time, among named and runtime ones': style =>
@@ -126,12 +137,12 @@ const CASES: Record<string, (style: Style) => NodeInstance> = {
   },
   'a static root over a static parent and child written twice': style => {
     const pair = (key: number) => Div({ key, ...style({ '& > *': RED }), children: Span('c', style(BLUE)) })
-    return Div({ ...style({ display: 'grid' }), children: [pair(1), pair(2)] })
+    return Div({ ...style({ display: 'grid' }, true, true), children: [pair(1), pair(2)] })
   },
   'two nodes of one style': style =>
     Div({ children: [Div({ key: 1, ...style(BLUE) }), Div({ key: 2, ...style(RED, false) }), Div({ key: 3, ...style(BLUE) })] }),
   'a registered class handed to a static node': style => {
-    const Box = (props: { className?: string }) => Div({ className: props.className, ...style(BLUE) }).render() as ReactElement
+    const Box = (props: { className?: string }) => Div({ className: props.className, ...style(BLUE, true, true) }).render() as ReactElement
     return Div({ children: Node(Box, { ...style(RED, false), className: 'given' }) })
   },
 }
@@ -148,7 +159,8 @@ describe.each([
     const runtimeRenders = styledRenders()
     expect(expected.rules.length).toBeGreaterThan(0)
     expect(render(tree, compiledStyle, provider)).toEqual(expected)
-    // The compiled tree's named nodes took the named path.
-    expect(styledRenders()).toBeLessThan(runtimeRenders)
+    // The compiled tree's named nodes took the named path, a carrier the
+    // renderer its css would; none renders through more.
+    expect(styledRenders()).toBeLessThanOrEqual(runtimeRenders)
   })
 })
