@@ -117,6 +117,16 @@ interface StaticCssState {
   headStyleCount: number
   /** The `insertionPoint` set on each cache sheet here, to tell it from one the app set. */
   ownInsertionPoints: WeakMap<object, Element>
+  /** Test seam: the registrations the loaded modules made, which a reset keeps. */
+  baseline?: Registrations
+}
+
+/** What modules register: classes, whole styles, templates, and which modules did. */
+interface Registrations {
+  classes: Map<string, StaticClass>
+  named: Map<string, string>
+  templates: Map<string, readonly string[]>
+  modules: Set<string>
 }
 
 const state = getGlobalState(Symbol.for('@meonode/ui/staticCss'), (): StaticCssState => ({
@@ -550,13 +560,24 @@ export function registerStaticTemplate(id: string, chunks: readonly string[]): v
   }
 }
 
-/** Test seam: forgets every registration, the browser sheets and what was adopted. */
+/**
+ * Test seam: keeps what the loaded modules registered so far as the baseline a
+ * reset returns to. A test file's own module, compiled, registers its styles as
+ * it loads, once, as an app's module does; a reset between its tests must not
+ * forget them.
+ */
+export function __markStaticCssBaseline(): void {
+  state.baseline = { classes: new Map(state.classes), named: new Map(state.named), templates: new Map(state.templates), modules: new Set(state.modules) }
+}
+
+/** Test seam: forgets every registration since the baseline (all of them when none is marked), the browser sheets and what was adopted. */
 export function __resetStaticCss(): void {
   for (const target of state.targets.values()) for (const element of target.sheets) element.remove()
-  state.classes.clear()
-  state.named.clear()
-  state.templates.clear()
-  state.modules.clear()
+  const baseline = state.baseline
+  state.classes = new Map(baseline?.classes)
+  state.named = new Map(baseline?.named)
+  state.templates = new Map(baseline?.templates)
+  state.modules = new Set(baseline?.modules)
   state.lists.clear()
   state.targets.clear()
   state.adopted = undefined

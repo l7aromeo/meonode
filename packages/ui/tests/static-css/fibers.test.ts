@@ -112,8 +112,7 @@ describe('named styles', () => {
     })
   })
 
-  // Extracted, the css written here is a compiled node's, which the other cases count.
-  it.skipIf(process.env.MEONODE_EXTRACTED === '1')('against the runtime path, which costs a renderer each and a leaf each until inserted', () => {
+  it('against the runtime path, which costs a renderer each and a leaf each until inserted', () => {
     const fibers = census(
       inComponent(() => Div({ children: Array.from({ length: CHILDREN }, (_, index) => Div({ key: String(index), css: { order: index + suite * 100 } })) })),
     )
@@ -249,7 +248,7 @@ describe('a card list', () => {
   const promoted = { Styled: CARDS, RuleInsertion: CARDS }
   const promotedAgain = { Styled: CARDS }
 
-  it.skipIf(process.env.MEONODE_EXTRACTED === '1').each([
+  it.each([
     ['plain', 'runtime', runtime, runtimeAgain],
     ['plain', 'carriers', carriers, carriersAgain],
     ['plain', 'unmarked', promoted, promotedAgain],
