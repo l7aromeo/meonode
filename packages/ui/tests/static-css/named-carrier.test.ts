@@ -211,6 +211,23 @@ function onceUnshaped(tree: (style: Style) => NodeInstance, style: Style) {
 const once = shaped(onceUnshaped)
 
 const TIES: Record<string, (style: Style) => NodeInstance> = {
+  // A component after a spread has no slot, so the walk makes no cut there.
+  // The static node after it begins a run the compiler marks as a carrier, since
+  // its pass cuts at the component; so it inserts its rule from its own render,
+  // after the component's, and the tie goes to it as uncompiled.
+  'a static node after a component after a spread, against the component’s own rule': style => {
+    const Item = Component(() => Div({ 'data-n': 'i', className: 'item', ...style({ '.wrapper:has(.t) &': BLUE }, carrier) }))
+    return Div({
+      className: 'wrapper',
+      ...slots(style, 0),
+      children: [
+        ...[1, 2].map(n => Span(String(n), { key: `n${n}` })),
+        Div({ key: 'r', 'data-n': 'r', ...style({ order: 1 }, { runtime: true }) }),
+        Item({ key: 'i' }),
+        Span('t', { key: 't', 'data-n': 't', className: 't', ...style({ '.wrapper:has(&) .item': RED }, carrier) }),
+      ],
+    })
+  },
   // A `Component(...)` is a component like any other: the first named node of
   // a stretch it ends is a carrier, as the compiler marks it.
   'a sibling’s & + .item against a Component sibling’s own rule': style => {
@@ -438,6 +455,22 @@ describe('a Component element written twice in one host', () => {
 // rules still go in as uncompiled, through a `StaticStyles` the walk adds to the
 // children, so what `.render()` returns differs, and development says so.
 describe('named nodes with no carrier marked', () => {
+  // The tie row of a component after a spread, with the static node after it
+  // left unmarked: no cut at the component, so its run goes in after the runtime
+  // node before it, ahead of the component's rule, and the tie flips.
+  it('let a run cross a component after a spread, where the walk has no cut', () => {
+    const tree = TIES['a static node after a component after a spread, against the component’s own rule']
+    const unmarked: Style = (css, options) => compiledStyle(css, options?.carrier && css['.wrapper:has(&) .item'] ? {} : options)
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const expected = once(tree, runtimeStyle)
+    const compiled = once(tree, unmarked)
+    errors.mockRestore()
+    const item = (rules: string[]) => rules.findIndex(rule => rule.includes('.wrapper:has(.t)'))
+    const after = (rules: string[]) => rules.findIndex(rule => rule.includes(':has(.css-'))
+    expect(item(expected.rules)).toBeLessThan(after(expected.rules))
+    expect(item(compiled.rules)).toBeGreaterThan(after(compiled.rules))
+  })
+
   it('keep the runtime twin’s rules, and are reported once per style', () => {
     const tree = (style: Style) =>
       Div({

@@ -53,6 +53,23 @@ function renderUnshaped(tree: (style: Style) => NodeInstance, style: Style, prov
 const render = shaped(renderUnshaped)
 
 const CASES: Record<string, (style: Style) => NodeInstance> = {
+  // A component after a spread has no slot, so the walk makes no cut there.
+  // The static node after it begins a run the compiler marks as a carrier, since
+  // its pass cuts at the component; so it inserts its rule from its own render,
+  // after the component's, and the tie goes to it as uncompiled.
+  'a static node after a component after a spread, against the component’s own rule': style => {
+    const Item = Component(() => Div({ className: 'item', ...style({ '.wrapper:has(.t) &': BLUE }, carrier) }))
+    return Div({
+      className: 'wrapper',
+      ...slots(style, 0),
+      children: [
+        ...[1, 2].map(n => Span(String(n), { key: `n${n}` })),
+        Div({ key: 'r', ...style({ order: 1 }, { runtime: true }) }),
+        Item({ key: 'i' }),
+        Span('t', { key: 't', className: 't', ...style({ '.wrapper:has(&) .item': RED }, carrier) }),
+      ],
+    })
+  },
   'a sibling’s & + .item against a Component sibling’s own rule': style => {
     const Item = Component(() => Div({ className: 'item', ...style({ '.wrapper &': BLUE }, carrier) }))
     return Div({ className: 'wrapper', ...slots(style, 1), children: [Span('s', { key: 's', ...style({ '& + .item': RED }, carrier) }), Item({ key: 'i' })] })
