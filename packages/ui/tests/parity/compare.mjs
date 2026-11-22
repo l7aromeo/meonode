@@ -3,17 +3,21 @@
 // planted failure can be checked for the dimension it was planted in.
 
 /** The dimensions a difference is reported under. */
-export const DIMENSIONS = ['ssr-html', 'hydration', 'console', 'tree', 'computed', 'pseudo-element', 'forced-state', 'breakpoint', 'color-scheme', 'theme-mode', 'state-step']
+export const DIMENSIONS = ['ssr-html', 'hydration', 'console', 'tree', 'computed', 'pseudo-element', 'forced-state', 'breakpoint', 'color-scheme', 'theme-mode', 'state-step', 'exact-markup', 'rule-text']
 
 /** The parts of an element's styles, by index in a record. */
-const PARTS = ['', '::before', '::after']
+const PARTS = ['', '::before', '::after', '::placeholder', '::selection']
 
 /**
  * Server HTML with what the comparison ignores taken out: style and script
- * elements, class attributes and `--mv-*` inline variables.
+ * elements, class attributes, `--mv-*` inline variables, and React's empty
+ * `<!-- -->` text separators, which render nothing and follow the number of
+ * child slots (a host with extracted styles has one more). Suspense markers
+ * (`<!--$-->` and the like) are kept.
  */
 export function normalizeHtml(html) {
   return html
+    .replaceAll('<!-- -->', '')
     .replace(/<style\b[^>]*>[\s\S]*?<\/style>/g, '')
     .replace(/<script\b[^>]*>[\s\S]*?<\/script>/g, '')
     .replace(/<link\b[^>]*>/g, '')
@@ -58,6 +62,87 @@ function envDimension(env, base) {
   if (scheme !== bs) return 'color-scheme'
   if (mode !== bm) return 'theme-mode'
   return null
+}
+
+/**
+ * Differences in the elements a case marks `data-parity-exact`, between the
+ * "off" record and the "on" one: their markup with class names, and the text
+ * of the rules naming those classes, must be the same exactly. These are the
+ * nodes that must render as the same call site with extraction off.
+ * @returns `{ dimension, where, text }` for each difference.
+ */
+export function compareExact(off, on) {
+  const out = []
+  const add = (where, text) => out.push({ dimension: 'exact-markup', where, text })
+  const a = off.exact ?? []
+  const b = on.exact ?? []
+  if (a.length !== b.length) add('marked elements', `${a.length} with extraction off, ${b.length} with it on`)
+  a.forEach((x, i) => {
+    const y = b[i]
+    if (!y) return
+    if (x.html !== y.html) add(`marked element ${i + 1}`, `markup: off ${JSON.stringify(x.html.slice(0, 200))} / on ${JSON.stringify(y.html.slice(0, 200))}`)
+    const rules = firstDifference(x.rules, y.rules)
+    if (rules) add(`marked element ${i + 1}`, `rules, ${rules}`)
+  })
+  return out
+}
+
+/** A selector with MeoNode's and Emotion's class names replaced by `.&`, so the two can be compared. */
+const normalizeSelector = selector => selector.replace(/\.(?:meonode-)?css-[\w-]+|\.mn-[\w-]+/g, '.&')
+
+/** The text of every style element in some server HTML. */
+const styleText = html => [...html.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/g)].map(m => m[1]).join('\n')
+
+/**
+ * The rules some CSS sets, read with stylis's own parser, as
+ * `<at-rule context>|<selector>|<declaration>` entries: every rule for a
+ * selector beyond an element's own class, every rule inside an at-rule (the
+ * element's own class included, so vendor-prefixed pairs there are compared),
+ * an at-rule's own descriptors (selector `@`), and each statement at-rule or
+ * empty at-rule block (selector `statement`). Class names are normalized in
+ * selectors and preludes; declarations holding a `--mv-*` variable are left
+ * out, since their value is the variable's.
+ */
+export function ruleTuples(css, compile) {
+  const out = new Set()
+  const add = (context, selector, decl) => {
+    if (!String(decl.children).includes('var(--mv-')) out.add(`${context}|${selector}|${decl.props}:${decl.children}`)
+  }
+  const walk = (nodes, context) => {
+    for (const node of nodes) {
+      if (node.type === 'decl') add(context, '@', node)
+      else if (node.type === 'rule') {
+        for (const raw of node.props) {
+          const selector = normalizeSelector(raw)
+          if (selector === '.&' && context === '') continue
+          for (const child of node.children) if (child.type === 'decl') add(context, selector, child)
+        }
+        walk(
+          node.children.filter(child => child.type !== 'decl'),
+          context,
+        )
+      } else if (Array.isArray(node.children) && node.children.length) walk(node.children, `${context}${normalizeSelector(node.value)} `)
+      else if (node.type !== 'comm') out.add(`${context}|statement|${normalizeSelector(node.value)}`)
+    }
+  }
+  walk(compile(css), '')
+  return out
+}
+
+/**
+ * Differences in the rules the server HTML of "off" and "on" set for
+ * selectors: the same selector must set the same declarations, whether or not
+ * the browser under test supports it (one that does not drops the rule, so
+ * only its text can be compared).
+ * @returns `{ dimension, where, text }` for each difference.
+ */
+export function compareRuleText(offHtml, onHtml, compile) {
+  const off = ruleTuples(styleText(offHtml), compile)
+  const on = ruleTuples(styleText(onHtml), compile)
+  const out = []
+  for (const t of off) if (!on.has(t)) out.push({ dimension: 'rule-text', where: 'server CSS', text: `only with extraction off: ${t}` })
+  for (const t of on) if (!off.has(t)) out.push({ dimension: 'rule-text', where: 'server CSS', text: `only with extraction on: ${t}` })
+  return out
 }
 
 /**

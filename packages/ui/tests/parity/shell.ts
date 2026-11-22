@@ -2,10 +2,12 @@
 //
 // A ThemeProvider with two modes and tokens that name page-level CSS variables,
 // so a mode switch changes their values the way a site's own CSS does. A small
-// control publishes the provider's `setMode` on `window.__parityShell`, which the
-// harness calls to switch modes between snapshots.
-import { createElement, useEffect, type ReactElement } from 'react'
-import { ThemeProvider, useTheme } from '@meonode/ui'
+// control (shell-control.ts) publishes the provider's `setMode` on
+// `window.__parityShell`, which the harness calls to switch modes between
+// snapshots.
+import { createElement, type ReactElement } from 'react'
+import { ThemeProvider } from '@meonode/ui'
+import { ModeControl } from './shell-control.js'
 
 /** The tokens every case may use; each names a variable the page's CSS sets per mode. */
 export const TOKENS = {
@@ -24,21 +26,6 @@ export const PAGE_CSS = [
   ':root{--parity-primary:rgb(20, 90, 200);--parity-on-primary:rgb(255, 255, 255);--parity-surface:rgb(245, 245, 245);--parity-text:rgb(17, 17, 17)}',
   '[data-theme="dark"]{--parity-primary:rgb(120, 170, 255);--parity-on-primary:rgb(0, 0, 0);--parity-surface:rgb(24, 24, 24);--parity-text:rgb(230, 230, 230)}',
 ].join('\n')
-
-declare global {
-  interface Window {
-    __parityShell?: { setMode: (mode: string) => void; mode: () => string }
-  }
-}
-
-/** Publishes the provider's mode controls for the harness. Renders nothing. */
-function ModeControl(): null {
-  const { setMode, mode } = useTheme()
-  useEffect(() => {
-    window.__parityShell = { setMode: setMode as (mode: string) => void, mode: () => mode }
-  }, [setMode, mode])
-  return null
-}
 
 /**
  * Wraps a case's element in the page's ThemeProvider.

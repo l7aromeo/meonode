@@ -8,6 +8,7 @@ import type { CaseMeta } from '../case.js'
 export const meta: CaseMeta = {
   shapes: ['value.runtime', 'value.template-runtime', 'dyn.state', 'place.style-props', 'env.ssr-hydrate'],
   routes: ['VAR', 'STATIC'],
+  routing: [{ node: 'root', route: 'VAR', extracted: ['gap', 'width', 'height'] }],
   steps: [
     { name: 'step 1', click: '[data-act="grow"]' },
     { name: 'step 2', click: '[data-act="grow"]' },
@@ -19,6 +20,7 @@ const TOKEN_NAMES = ['primary', 'text', 'surface'] as const
 export function App(): ReactElement {
   const [n, setN] = useState(1)
   return Div({
+    key: 'root',
     display: 'grid',
     gap: n * 2,
     width: `${20 * n}%`,

@@ -18,7 +18,13 @@ export const meta: CaseMeta = {
     'place.built-children',
     'env.ssr-hydrate',
   ],
-  routes: ['STATIC', 'runtime:component-target'],
+  routes: ['STATIC', 'runtime:component-target', 'runtime:local-factory', 'runtime:node-prop'],
+  routing: [
+    { node: 'card', route: 'runtime:component-target', runtime: ['padding', 'backgroundColor'] },
+    { node: 'badge2', route: 'runtime:local-factory', runtime: ['backgroundColor'] },
+    { node: 'as', route: 'runtime:node-prop', runtime: ['margin', 'css'] },
+    { node: 'outer', route: 'STATIC', extracted: ['padding'] },
+  ],
 }
 
 /** A component that renders the class and style it is given, and a height it reads as data. */
@@ -31,6 +37,7 @@ const Badge = createNode('span', { padding: '2px 6px', borderRadius: 4, backgrou
 export function App(): ReactElement {
   const built = Span('built child', { color: 'rgb(0, 100, 0)' }).render()
   return Section({
+    key: 'outer',
     padding: 8,
     className: 'outer extra',
     style: { borderTop: '1px solid rgb(0, 0, 0)' },

@@ -19,6 +19,11 @@ export const meta: CaseMeta = {
     'env.ssr-hydrate',
   ],
   routes: ['STATIC', 'runtime:theme-fn'],
+  routing: [
+    { node: 'a', route: 'STATIC', extracted: ['color', 'marginLeft'] },
+    { node: 'b', route: 'runtime:theme-fn', runtime: ['color', '&:hover'] },
+    { node: 'd', route: 'runtime:theme-fn', runtime: ['fontWeight', 'outlineColor'] },
+  ],
   steps: [
     { name: 'dark mode', mode: 'dark' },
     { name: 'light again', mode: 'light' },

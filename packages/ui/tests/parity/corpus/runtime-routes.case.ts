@@ -1,6 +1,7 @@
-// Entries that stay on the runtime path: a keyframes value, a props spread, a
-// css value from a call, a computed key, and a call site the compiler cannot
-// trace (a factory chosen at runtime).
+// Nodes and entries that stay on the runtime path: a keyframes value, a props
+// spread, css from a call, a computed key, and a call site the compiler cannot
+// trace (a factory chosen at runtime). The wrapper has no styles, so nothing
+// in this module may extract.
 import { keyframes } from '@emotion/react'
 import type { ReactElement } from 'react'
 import { Div, P, Span } from '@meonode/ui'
@@ -8,7 +9,14 @@ import type { CaseMeta } from '../case.js'
 
 export const meta: CaseMeta = {
   shapes: ['value.keyframes', 'value.string', 'place.css', 'env.ssr-hydrate'],
-  routes: ['runtime:keyframes', 'runtime:spread', 'runtime:call', 'runtime:computed-key', 'runtime:uncompiled', 'STATIC'],
+  routes: ['runtime:dynamic-value', 'runtime:spread', 'runtime:css-not-literal', 'runtime:css-spread-computed', 'runtime:untraced'],
+  routing: [
+    { node: 'kf', route: 'runtime:dynamic-value', runtime: ['animation'] },
+    { node: 'spread', route: 'runtime:spread', runtime: ['fontWeight'] },
+    { node: 'call', route: 'runtime:css-not-literal', runtime: ['css'] },
+    { node: 'computed', route: 'runtime:css-spread-computed', runtime: ['borderStyle'] },
+    { node: 'untraced', route: 'runtime:untraced', runtime: ['color', 'padding'] },
+  ],
 }
 
 const fade = keyframes`from { opacity: 0.25; } to { opacity: 1; }`
