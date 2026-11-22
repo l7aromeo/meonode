@@ -24,8 +24,9 @@
 //! the item before it.
 //!
 //! A named node is also marked wherever another call site may take its position
-//! on another render (see [`Shared`]), so a position never holds a carrier on
-//! one render and a plain host on the next.
+//! on another render (see [`Shared`]), or below a node whose position is
+//! shared, so a position never holds a carrier on one render and a plain host
+//! on the next.
 
 use std::collections::HashSet;
 
@@ -492,14 +493,18 @@ impl Visit for Walks<'_> {
 /// position is shared by both arms of a conditional, by the operands of `&&`,
 /// `||` and `??`, by the items of a variable-length region of a children
 /// array (a spread, a `.map()`, or a child that may be absent), and by every
-/// sibling after one. A keyed node is matched by its key, so it is left out.
+/// sibling after one. Where both call sites render the same element type, React
+/// keeps the fiber and matches their children by position, so every position
+/// below a shared one is shared too. A keyed node is matched by its key, so it
+/// and its subtree are left out.
 struct Shared<'a> {
     scope: &'a ModuleScope,
     carriers: &'a mut HashSet<Site>,
 }
 
 impl Shared<'_> {
-    /// Marks every named, unkeyed host call `expr` may render as at its position.
+    /// Marks every named, unkeyed host call `expr` may render as at its position,
+    /// and every one in their subtrees.
     fn share(&mut self, expr: &Expr) {
         match unwrap_transparent(expr) {
             Expr::Cond(c) => {
@@ -521,13 +526,23 @@ impl Shared<'_> {
                     self.share(r);
                 }
             }
-            Expr::Call(call) => {
-                if let Some(props) = props_of(call).filter(|p| has_key(p, MARKER_KEY))
+            Expr::Call(call) if self.scope.extractable_factory(call).is_some() => {
+                let props = props_of(call);
+                // A keyed node is matched by its key, so no other call site's
+                // fiber is kept for it, nor its children matched against another's.
+                if props.is_some_and(|p| has_key(p, "key")) {
+                    return;
+                }
+                if let Some(props) = props.filter(|p| has_key(p, MARKER_KEY))
                     && (has_key(props, NAME_KEY) || has_key(props, TEMPLATE_KEY))
                     && !has_key(props, CSS_KEY)
-                    && !has_key(props, "key")
                 {
                     self.carriers.insert(site_of(call));
+                }
+                // Where the other call site renders the same element type, React
+                // keeps the fiber and matches the children by position.
+                if let Some(children) = children_of(call) {
+                    self.share(children);
                 }
             }
             _ => {}
@@ -585,9 +600,8 @@ impl Visit for Shared<'_> {
     }
 
     fn visit_bin_expr(&mut self, bin: &BinExpr) {
-        match bin.op {
-            BinaryOp::LogicalAnd => self.share(&bin.right),
-            _ => {}
+        if bin.op == BinaryOp::LogicalAnd {
+            self.share(&bin.right);
         }
         bin.visit_children_with(self);
     }
@@ -1024,6 +1038,28 @@ mod tests {
                 "export const P = (s) => Div({ display: 'grid', 'data-i': 0, children: [Span('h', { key: 'h', fontSize: 1, 'data-i': 1 }), ...s.cards.map((c, i) => Div({ key: i, padding: 1, 'data-i': 2, children: [Span('b', { order: 1, 'data-i': 3 }), Card({ key: 'l' })] }))] })"
             ),
             set(&[0, 2])
+        );
+    }
+
+    #[test]
+    fn marks_named_nodes_under_a_shared_position() {
+        // The two arms render the same element type, so React keeps the fiber
+        // and matches their children by position: those are shared too.
+        assert_eq!(
+            carriers(
+                "export const P = (w, s) => Div({ width: w, children: [s.b ? Div({ width: w, children: [Span('a', { color: 'red', 'data-i': 1 })] }) : Div({ width: w, children: [Div({ 'data-i': 2 })] }), Div({ width: w })] })"
+            ),
+            set(&[1])
+        );
+    }
+
+    #[test]
+    fn leaves_the_subtree_of_a_keyed_shared_node_unmarked() {
+        assert_eq!(
+            carriers(
+                "export const P = (w, s) => Div({ width: w, children: [s.b ? Div({ key: 'x', width: w, children: [Span('a', { color: 'red', 'data-i': 1 })] }) : null, Div({ width: w })] })"
+            ),
+            set(&[])
         );
     }
 
