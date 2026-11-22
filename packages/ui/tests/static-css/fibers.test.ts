@@ -103,7 +103,8 @@ describe('named styles', () => {
     expect(fibers).toEqual({ mount: { App: 1, 'host:div': CHILDREN + 1, StaticStyles: 1 }, again: { App: 1, 'host:div': CHILDREN + 1 } })
   })
 
-  it('against the runtime path, which costs a renderer each and a leaf each until inserted', () => {
+  // Extracted, the css written here is a compiled node's, which the other cases count.
+  it.skipIf(process.env.MEONODE_EXTRACTED === '1')('against the runtime path, which costs a renderer each and a leaf each until inserted', () => {
     const fibers = census(
       inComponent(() => Div({ children: Array.from({ length: CHILDREN }, (_, index) => Div({ key: String(index), css: { order: index + suite * 100 } })) })),
     )
@@ -155,7 +156,12 @@ describe('named styles', () => {
   ])('add no fiber to a generated list of children, %s', (_, slots) => {
     const fibers = census(
       inComponent(() =>
-        Div({ __meo$: 2, __meo$list: true, ...slots, children: Array.from({ length: CHILDREN }, (_, index) => Div({ key: String(index), ...named(index) } as never)) } as never),
+        Div({
+          __meo$: 2,
+          __meo$list: true,
+          ...slots,
+          children: Array.from({ length: CHILDREN }, (_, index) => Div({ key: String(index), ...named(index) } as never)),
+        } as never),
       ),
     )
     expect(fibers.again).toEqual({ App: 1, 'host:div': CHILDREN + 1 })
