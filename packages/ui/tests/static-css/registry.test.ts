@@ -372,6 +372,37 @@ describe('a page the server rendered', () => {
     expect(buckets().every(sheet => sheet.rules.length === 0)).toBe(true)
   })
 
+  it('keeps a class the server sent that a module registers after the first insertion, as a lazy chunk does', () => {
+    const LATER = '.mn-0000000000009{order:9;}'
+    serverStyles([
+      [0, [], ''],
+      [1, ['mn-0000000000001', 'mn-0000000000009'], BASE + LATER],
+      [2, [], ''],
+      [3, [], ''],
+      [4, [], ''],
+    ])
+    insertStaticClasses(undefined, ['mn-0000000000001'])
+    registerStaticCss('later', [[1, 'mn-0000000000009', LATER]])
+    insertStaticClasses(undefined, ['mn-0000000000009'])
+
+    expect(buckets().every(sheet => sheet.rules.length === 0)).toBe(true)
+  })
+
+  // React's streaming runtime puts a style of a precedence the page has none of
+  // after the last hoisted style of any.
+  it('keeps a class a later chunk sent for a bucket the server had sent nothing for', () => {
+    serverStyles([[1, ['mn-0000000000001'], BASE]])
+    insertStaticClasses(undefined, ['mn-0000000000001'])
+    const streamed = document.createElement('style')
+    streamed.setAttribute('data-precedence', `${STATIC_CSS_PREFIX}2`)
+    streamed.setAttribute('data-href', `${STATIC_CSS_PREFIX}mn-0000000000003`)
+    streamed.textContent = HOVER
+    document.head.querySelector(`style[data-precedence="${STATIC_CSS_PREFIX}1"]`)!.after(streamed)
+    insertStaticClasses(undefined, ['mn-0000000000003'])
+
+    expect(buckets().every(sheet => sheet.rules.length === 0)).toBe(true)
+  })
+
   it('places its own sheets after the server’s styles of each bucket', () => {
     serverStyles([
       [0, [], ''],

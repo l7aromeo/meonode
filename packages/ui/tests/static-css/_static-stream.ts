@@ -22,7 +22,9 @@ export function Late({ data }: { data: Promise<string> }): ReactNode {
 export function Page({ data, mode }: { data: Promise<string>; mode: string }): ReactNode {
   const body = Div({
     children: [
-      mode.endsWith('bare') ? Div({ key: 'shell', id: 'shell', children: 'shell' }) : Div({ key: 'shell', __meo$: 2, __meo$s: SHELL, id: 'shell', children: 'shell' } as never),
+      mode.endsWith('bare')
+        ? Div({ key: 'shell', id: 'shell', children: 'shell' })
+        : Div({ key: 'shell', __meo$: 2, __meo$s: SHELL, id: 'shell', children: 'shell' } as never),
       Div({ key: 'shell-rt', css: { margin: 1 }, children: 'rt' }),
       createElement(Suspense, { key: 's', fallback: createElement('p', { id: 'fallback' }, 'loading') }, createElement(Late, { data })),
     ],
