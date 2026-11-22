@@ -1,6 +1,7 @@
 import type { EmotionCache } from '@emotion/cache'
 import { CacheProvider } from '@emotion/react'
 import { type Context, use } from 'react'
+import { providedWalkContexts } from '@src/util/walk-contexts.util.js'
 
 /**
  * The Emotion cache the elements of a render go under, read while it renders,
@@ -13,6 +14,9 @@ import { type Context, use } from 'react'
  * cannot be called and no cache can be known.
  */
 export function readEmotionCache(): EmotionCache | null | undefined {
+  // Handed in by the component around a walk that runs where no hook may be called.
+  const provided = providedWalkContexts()
+  if (provided) return provided.cache
   try {
     return use(CacheProvider as unknown as Context<EmotionCache | null>)
   } catch {

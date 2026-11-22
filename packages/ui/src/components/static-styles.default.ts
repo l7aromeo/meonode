@@ -8,6 +8,7 @@ import { NodeUtil } from '@src/util/node.util.js'
 import { serverStyleElement, standInServerCache } from '@src/util/named-style.util.js'
 import { type EmotionSheetPlacement, insertStaticClasses } from '@src/util/static-css.util.js'
 import { candidatesKey, checkCandidates } from '@src/util/static-theme-check.util.js'
+import { providedWalkContexts } from '@src/util/walk-contexts.util.js'
 import { reportThemeVarRefs, type ThemeVarIndex, type ThemeVarRef, unionThemeVarIndexes } from '@src/util/theme-diagnostics.util.js'
 
 export type { StaticStylesProps, StaticThemeCandidate, StaticThemeCheck } from '@src/components/static-hoistables.js'
@@ -26,11 +27,14 @@ export { checkCandidatesAfterCommit } from '@src/util/static-theme-check.util.js
  */
 export function checkThemeRefsInScope(refs: readonly ThemeVarRef[], own: ThemeVarIndex | undefined): boolean {
   let context: ThemeContextState | null
-  try {
-    context = use(ThemeContext)
-  } catch {
-    return false
-  }
+  const provided = providedWalkContexts()
+  if (provided) context = provided.theme
+  else
+    try {
+      context = use(ThemeContext)
+    } catch {
+      return false
+    }
   const outer = context ? context.definedVars() : null
   reportThemeVarRefs(refs, own ? unionThemeVarIndexes(outer, own) : outer)
   return true
