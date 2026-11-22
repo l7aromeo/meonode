@@ -588,8 +588,10 @@ insertion and its class are the ones the node would have uncompiled.
   and joins its initial props with the call's style once per site, naming the
   result as a compiled style is named; anything else it calls as written,
   `X(...args)`. Left as written: member calls, calls with a spread argument,
-  identifiers the module renders as JSX elements, `@meonode/ui`'s and
-  `@meonode/mui`'s exports, props with a spread, a computed key, a style read
+  identifiers the module renders as JSX elements, imports from any
+  `@meonode/` package (subpaths included) and from Next's font loaders
+  (`next/font/...`, `@next/font/...`, which Next compiles only as written at
+  module scope), props with a spread, a computed key, a style read
   at run time, or `theme`, `as` or `disableEmotion`, and two leading object
   literals (either could be the props). The carrier marks are those of both
   readings of such a call, a named node and a component, since only the

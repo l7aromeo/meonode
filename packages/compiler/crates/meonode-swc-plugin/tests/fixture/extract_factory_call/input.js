@@ -3,6 +3,10 @@ import { Card, Title, Pane, Badge, Panel, helper, Icon } from "./nodes";
 import Sheet from "./sheet";
 import * as Nodes from "./all";
 import { Button } from "@meonode/mui";
+import { RichTreeView } from "@meonode/mui/x-tree-view";
+import { StyleRegistry } from "@meonode/ui/nextjs-registry";
+import { Inter } from "next/font/google";
+import { Roboto } from "@next/font/google";
 // Props first, static style, as the first node of the walk: the site is a carrier.
 Card({ padding: 8, css: { "&:hover": { color: "red" } }, onClick: handle, children: "x" });
 // Children first, with props and deps.
@@ -38,5 +42,12 @@ ThemeProvider({ padding: 1 });
 const Local = (props) => props;
 Local({ padding: 1 });
 Card({ css: { ...base } });
-// @meonode/mui factories are not createNode ones: compiled as today.
+// No @meonode package exports a createNode factory (@meonode/mui's come from
+// createMuiNode): their calls are compiled as today, subpaths included.
 Button({ padding: 1 });
+RichTreeView({ padding: 1 });
+StyleRegistry({ children: body });
+// Font loaders: Next compiles each call it finds at module scope, and refuses
+// one it does not.
+const inter = Inter({ subsets: ["latin"], display: "swap" });
+const roboto = Roboto({ weight: "400" });

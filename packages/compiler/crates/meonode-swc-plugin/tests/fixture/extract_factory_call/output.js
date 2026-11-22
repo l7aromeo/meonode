@@ -4,6 +4,10 @@ import { Card, Title, Pane, Badge, Panel, helper, Icon } from "./nodes";
 import Sheet from "./sheet";
 import * as Nodes from "./all";
 import { Button } from "@meonode/mui";
+import { RichTreeView } from "@meonode/mui/x-tree-view";
+import { StyleRegistry } from "@meonode/ui/nextjs-registry";
+import { Inter } from "next/font/google";
+import { Roboto } from "@next/font/google";
 __meoCss("1cbfyawp0yl3b", [
     [
         "1aqk60jpzzigw",
@@ -120,7 +124,7 @@ Div({
     __meo$: 2,
     __meo$n: "1aqk60jpzzigw",
     __meo$r: 1,
-    __meo$k: "m3bfsvdy4fqkzz",
+    __meo$k: "m86ruxodc134b",
     children: [
         __meoFactoryCall(Badge, __meoSite11, {
             key: "a",
@@ -180,7 +184,25 @@ Card({
         ...base
     }
 });
-// @meonode/mui factories are not createNode ones: compiled as today.
+// No @meonode package exports a createNode factory (@meonode/mui's come from
+// createMuiNode): their calls are compiled as today, subpaths included.
 Button({
     padding: 1
+});
+RichTreeView({
+    padding: 1
+});
+StyleRegistry({
+    children: body
+});
+// Font loaders: Next compiles each call it finds at module scope, and refuses
+// one it does not.
+const inter = Inter({
+    subsets: [
+        "latin"
+    ],
+    display: "swap"
+});
+const roboto = Roboto({
+    weight: "400"
 });

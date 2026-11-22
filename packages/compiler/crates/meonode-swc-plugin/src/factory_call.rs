@@ -14,8 +14,9 @@
 //! props and `css`) is made of literals, so it is the same on every render:
 //! the site stands for that style. Left as written: member calls, calls with a
 //! spread argument, identifiers the module renders as JSX elements (components),
-//! `@meonode/ui`'s own exports, props with a spread or a computed key, and props
-//! holding `theme`, `as` or `disableEmotion`.
+//! imports from `@meonode/` packages and Next's font loaders (see
+//! `NON_CREATE_NODE_PREFIXES` in [`crate::extract`]), props with a spread or a
+//! computed key, and props holding `theme`, `as` or `disableEmotion`.
 //!
 //! Each site is a module-level object, `{ at }`: the index of the argument the
 //! call's props are, which the runtime compares with the factory's own (`1` for
