@@ -574,6 +574,11 @@ fn extract_factory_call() {
 }
 
 #[test]
+fn extract_numeric_keys() {
+    run_partition_with_config("extract_numeric_keys", extract_config());
+}
+
+#[test]
 fn extract_factory_call_without_runtime() {
     run_partition_with_ts("extract_factory_call_without_runtime", extract_config());
 }

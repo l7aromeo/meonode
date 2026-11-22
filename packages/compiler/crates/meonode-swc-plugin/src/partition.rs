@@ -47,7 +47,7 @@ use crate::effect::is_inline_function;
 use crate::effect::is_static_literal;
 use crate::explain;
 use crate::extract::{Factory, ModuleExtraction, ModuleScope, SLOTS_KEY, emit_module};
-use crate::keys::{is_special_key, is_stable_key_visible_special, key_name_atom};
+use crate::keys::{is_special_key, is_stable_key_visible_special, key_name_atom, plain_key};
 use crate::theme::{is_length_key, is_selector_or_at_rule, rewrite_theme_tokens_for};
 
 const MARKER_KEY: &str = "__meo$";
@@ -1052,7 +1052,10 @@ impl Rewriter<'_> {
                 .and_then(|arg| match unwrap_parens(&arg.expr) {
                     Expr::Object(obj) => obj.props.iter().find_map(|p| match p {
                         PropOrSpread::Prop(prop) => match &**prop {
-                            Prop::KeyValue(kv) if key_name_atom(&kv.key).as_ref() == "children" => {
+                            Prop::KeyValue(kv)
+                                if plain_key(&kv.key)
+                                    .is_some_and(|key| key.as_ref() == "children") =>
+                            {
                                 Some(&*kv.value)
                             }
                             _ => None,

@@ -50,7 +50,7 @@ use crate::factory_call::{
     FACTORY_CALL_EXPORT, FACTORY_CALL_LOCAL, FactorySites, SITE_PREFIX, site_name,
 };
 use crate::fingerprint;
-use crate::keys::{is_special_key, key_name_atom};
+use crate::keys::{is_special_key, key_name_atom, plain_key};
 use crate::serialize::{self, Js};
 use crate::style_name::hash_styles;
 use crate::theme::{is_length_key, rewrite_theme_tokens_for};
@@ -705,7 +705,8 @@ fn is_host_create_element(call: &CallExpr) -> bool {
             PropOrSpread::Spread(_) => false,
             PropOrSpread::Prop(prop) => match &**prop {
                 Prop::KeyValue(kv) => {
-                    key_name_atom(&kv.key).as_ref() != "children" || is_host_value(&kv.value)
+                    plain_key(&kv.key).is_none_or(|key| key.as_ref() != "children")
+                        || is_host_value(&kv.value)
                 }
                 Prop::Shorthand(id) => id.sym.as_ref() != "children",
                 _ => true,
@@ -1107,7 +1108,8 @@ fn value_text(key: &str, value: &Value) -> Option<String> {
 
 /// An object literal's entries as JavaScript evaluates it: in first-key order,
 /// each holding its last value. `None` when a spread, a computed key or an
-/// accessor makes the keys unknowable.
+/// accessor makes the keys unknowable, or a numeric key would need JavaScript's
+/// key order and number spelling.
 fn object_entries(obj: &ObjectLit) -> Option<Vec<(String, Expr)>> {
     let mut entries: Vec<(String, Expr)> = Vec::new();
     for prop in &obj.props {
@@ -1115,12 +1117,7 @@ fn object_entries(obj: &ObjectLit) -> Option<Vec<(String, Expr)>> {
             return None;
         };
         let (key, value) = match &**prop {
-            Prop::KeyValue(kv) => {
-                if matches!(kv.key, PropName::Computed(_) | PropName::BigInt(_)) {
-                    return None;
-                }
-                (key_name_atom(&kv.key).to_string(), (*kv.value).clone())
-            }
+            Prop::KeyValue(kv) => (plain_key(&kv.key)?.to_string(), (*kv.value).clone()),
             Prop::Shorthand(id) => (id.sym.to_string(), Expr::Ident(id.clone())),
             _ => return None,
         };

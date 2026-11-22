@@ -33,7 +33,7 @@ use swc_core::ecma::visit::{VisitMut, VisitMutWith};
 
 use crate::css_props::is_css_prop;
 use crate::extract::ModuleScope;
-use crate::keys::{is_special_key, key_name_atom};
+use crate::keys::{is_special_key, plain_key};
 use crate::pass_through::unwrap_transparent;
 
 /// The runtime's export, and its local name in compiled output.
@@ -180,12 +180,12 @@ fn static_style(props: &ObjectLit) -> bool {
             return false;
         };
         let (name, value) = match &**prop {
-            Prop::KeyValue(kv) => {
-                if matches!(kv.key, PropName::Computed(_)) {
-                    return false;
-                }
-                (key_name_atom(&kv.key), Some(&*kv.value))
-            }
+            Prop::KeyValue(kv) => match plain_key(&kv.key) {
+                Some(key) => (key, Some(&*kv.value)),
+                // A computed key may name a style prop; a numeric one is left
+                // to the runtime, as the compiler's own merge leaves it.
+                None => return false,
+            },
             Prop::Shorthand(id) => (id.sym.clone(), None),
             _ => return false,
         };
