@@ -1419,6 +1419,33 @@ fn is_keyframes(key: &str) -> bool {
 
 impl Block {
     /// Every property set inside, for overlap with the element's own rules.
+    /// Records each rule of this block whose selectors don't style the node
+    /// itself, for the accounting run: `reach=<selectors>;props=<own
+    /// properties>;extracted=<bool>`.
+    #[cfg(test)]
+    fn explain_reaching(&self, extracted: bool) {
+        let extracted = extracted && self.extractable;
+        if !styles_node(&self.scope.props) && !self.declarations.is_empty() {
+            let props: Vec<String> = self
+                .declarations
+                .iter()
+                .map(|(k, _)| property_name(k))
+                .collect();
+            explain::detail(format!(
+                "reach={}{};props={};extracted={extracted}",
+                self.at_rules
+                    .iter()
+                    .map(|a| format!("{a} > "))
+                    .collect::<String>(),
+                self.scope.props.join(", ").replace(NODE, "&"),
+                props.join(",")
+            ));
+        }
+        for child in &self.children {
+            child.explain_reaching(extracted);
+        }
+    }
+
     fn properties(&self, out: &mut Vec<String>) {
         for (key, _) in &self.declarations {
             out.push(property_name(key));
@@ -1865,7 +1892,7 @@ fn block_variable(key: &str, route: &Route) -> Option<Box<Expr>> {
 /// Whether each of a rule's selectors styles the node itself: its last
 /// compound names the node outside any parentheses (`&:hover`, `.dark &`),
 /// not a descendant, sibling or ancestor of it (`& p`, `.a:has(&)`).
-fn styles_node(props: &[String]) -> bool {
+pub(crate) fn styles_node(props: &[String]) -> bool {
     props.iter().all(|item| {
         let mut depth = 0i32;
         let mut quote: Option<char> = None;
@@ -2030,6 +2057,10 @@ impl ModuleScope {
         let partial = settle(&mut model);
         if partial {
             explain::note(explain::PARTIAL);
+        }
+        #[cfg(test)]
+        for block in &model.blocks {
+            block.explain_reaching(true);
         }
 
         let mut classes: Vec<String> = Vec::new();
