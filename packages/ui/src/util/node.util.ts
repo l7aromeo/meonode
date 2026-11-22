@@ -30,6 +30,7 @@ import {
   STATIC_CLASSES_MARKER,
   STATIC_NAME_MARKER,
   STATIC_SLOTS_MARKER,
+  STATIC_CARRIER_MARKER,
   STATIC_TEMPLATE_MARKER,
   STATIC_TEXT_PROP,
   STATIC_VARS_MARKER,
@@ -263,6 +264,7 @@ export class NodeUtil {
         propKey === STATIC_VARS_MARKER ||
         propKey === STATIC_NAME_MARKER ||
         propKey === STATIC_SLOTS_MARKER ||
+        propKey === STATIC_CARRIER_MARKER ||
         propKey === STATIC_TEMPLATE_MARKER ||
         propKey === STATIC_TEXT_PROP ||
         propKey === STATIC_BEFORE_SPREAD_MARKER ||
@@ -365,6 +367,7 @@ export class NodeUtil {
     // Where a component may render among the written children, for the leaves before them.
     const slots = schemaKeys.slots === undefined ? undefined : source[schemaKeys.slots]
     if (Array.isArray(slots) && slots.length > 0) result[STATIC_SLOTS_MARKER] = slots
+    if (source[STATIC_CARRIER_MARKER]) result[STATIC_CARRIER_MARKER] = 1
 
     return result as FinalNodeProps
   }

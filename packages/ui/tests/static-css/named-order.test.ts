@@ -297,7 +297,13 @@ describe('keyed items coming into a generated list on update', () => {
         Span('after', { key: 'after', 'data-n': 'after', ...style({ order: ids.length }) }),
       ],
     })
-  const SEQUENCE = [['a', 'b'], ['a', 'c', 'b'], ['c', 'a', 'b', 'd'], ['d', 'b'], ['e', 'd', 'f', 'b']]
+  const SEQUENCE = [
+    ['a', 'b'],
+    ['a', 'c', 'b'],
+    ['c', 'a', 'b', 'd'],
+    ['d', 'b'],
+    ['e', 'd', 'f', 'b'],
+  ]
 
   /** Renders the sequence on one root under one cache; returns the classes and rules at each step. */
   const runUpdates = (style: Style, runtime: 'own' | 'shared' | 'none') => {
@@ -308,7 +314,15 @@ describe('keyed items coming into a generated list on update', () => {
     const root = createRoot(document.body.appendChild(document.createElement('div')))
     roots.push(root)
     return SEQUENCE.map(ids => {
-      act(() => root.render(createElement(CacheProvider, { value: cache }, inRender(() => page(style, ids, runtime).render() as ReactElement))))
+      act(() =>
+        root.render(
+          createElement(
+            CacheProvider,
+            { value: cache },
+            inRender(() => page(style, ids, runtime).render() as ReactElement),
+          ),
+        ),
+      )
       return {
         classes: [...document.body.querySelectorAll('[data-n]')].map(element => `${element.getAttribute('data-n')}: ${element.className}`),
         rules: [...document.head.querySelectorAll<HTMLStyleElement>('style[data-emotion^="css"]')].flatMap(element =>

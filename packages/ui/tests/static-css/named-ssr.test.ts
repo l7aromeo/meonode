@@ -119,6 +119,15 @@ const CASES: Record<string, (style: Style) => NodeInstance> = {
         Div({ key: 4, ...style({ order: 4 }) }),
       ],
     }),
+  'a styled root over a static parent and child written twice': style => {
+    // With no provider, Emotion's outermost styled element shares its cache with all below it.
+    const pair = (key: number) => Div({ key, ...style({ '& > *': RED }), children: Span('c', style(BLUE)) })
+    return Div({ ...style({ display: 'grid' }, false), children: [pair(1), pair(2)] })
+  },
+  'a static root over a static parent and child written twice': style => {
+    const pair = (key: number) => Div({ key, ...style({ '& > *': RED }), children: Span('c', style(BLUE)) })
+    return Div({ ...style({ display: 'grid' }), children: [pair(1), pair(2)] })
+  },
   'two nodes of one style': style =>
     Div({ children: [Div({ key: 1, ...style(BLUE) }), Div({ key: 2, ...style(RED, false) }), Div({ key: 3, ...style(BLUE) })] }),
   'a registered class handed to a static node': style => {

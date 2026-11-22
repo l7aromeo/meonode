@@ -1,5 +1,5 @@
 'use client'
-import { RUNTIME_PRECEDENCE, STATIC_RUN_PROP, STATIC_STYLE_PROP } from '@src/constant/common.const.js'
+import { RUNTIME_PRECEDENCE, STATIC_RUN_AFTER_PROP, STATIC_RUN_PROP, STATIC_SCOPE_PROP, STATIC_STYLE_PROP } from '@src/constant/common.const.js'
 import { createElement, type ElementType, Fragment, type JSX, type ReactElement, type ReactNode, useContext, useInsertionEffect } from 'react'
 import { __unsafe_useEmotionCache as useEmotionCache, CacheProvider, jsx, ThemeContext as EmotionThemeContext } from '@emotion/react'
 import createCache, { type EmotionCache } from '@emotion/cache'
@@ -58,12 +58,26 @@ export default function StyledRenderer<E extends NodeElement, TProps extends Rec
   // in ahead of its own. With them, the server renders the element as the
   // browser does, beside MeoNode's own leaf, which renders them with its rule.
   const run = (props as Record<string, unknown>)[STATIC_RUN_PROP] as readonly NamedStyle[] | undefined
+  // And the ones that began after it, which no later rule of its render takes.
+  const given = (props as Record<string, unknown>)[STATIC_RUN_AFTER_PROP] as { run: readonly NamedStyle[] } | undefined
+  const after = given !== undefined && given.run.length > 0 ? given.run : undefined
+  // The cache of its scope on a server render with no provider, which it gives
+  // the elements below it, as Emotion gives its own to the ones below it.
+  const scope = (props as Record<string, unknown>)[STATIC_SCOPE_PROP] as EmotionCache | undefined
+  if (NodeUtil.isServer && emotionCache === null && scope !== undefined) {
+    const { element, children, ...rest } = props
+    const own =
+      run || after
+        ? renderOwnClass(props as Record<string, any>, theme, scope, emotionTheme, context, run, after)
+        : renderStyled(element, children, rest, theme, scope, emotionTheme, context)
+    return createElement(CacheProvider, { value: scope }, own)
+  }
   if (NodeUtil.isServer || emotionCache === null) {
-    if (run) return renderOwnClass(props as Record<string, any>, theme, emotionCache ?? standInServerCache(), emotionTheme, context, run)
+    if (run || after) return renderOwnClass(props as Record<string, any>, theme, emotionCache ?? standInServerCache(), emotionTheme, context, run, after)
     const { element, children, ...rest } = props
     return renderStyled(element, children, rest, theme, emotionCache, emotionTheme, context)
   }
-  return renderOwnClass(props as Record<string, any>, theme, emotionCache, emotionTheme, context, run)
+  return renderOwnClass(props as Record<string, any>, theme, emotionCache, emotionTheme, context, run, after)
 }
 
 /**
@@ -76,23 +90,26 @@ function RuleInsertion({
   serialized,
   isStringTag,
   run,
+  after,
 }: {
   cache: EmotionCache
   serialized: SerializedStyles
   isStringTag: boolean
   run?: readonly NamedStyle[]
+  after?: readonly NamedStyle[]
 }): ReactElement | null {
   // The same on every render of this leaf: a server render never renders again in the browser.
-  if (NodeUtil.isServer) return serverStyleElement(cache, run ? [...run, { serialized, isStringTag }] : [{ serialized, isStringTag }])
+  if (NodeUtil.isServer) return serverStyleElement(cache, [...(run ?? []), { serialized, isStringTag }, ...(after ?? [])])
   useInsertionEffect(() => {
     if (run) for (const style of run) insertStyles(cache, style.serialized, style.isStringTag)
     insertStyles(cache, serialized, isStringTag)
+    if (after) for (const style of after) insertStyles(cache, style.serialized, style.isStringTag)
   })
   return null
 }
 
 /** The props a styled element's own element is not given. */
-const RENDERER_ONLY = new Set(['element', 'children', 'css', 'as', STATIC_RUN_PROP, STATIC_STYLE_PROP])
+const RENDERER_ONLY = new Set(['element', 'children', 'css', 'as', STATIC_RUN_PROP, STATIC_RUN_AFTER_PROP, STATIC_SCOPE_PROP, STATIC_STYLE_PROP])
 
 /** A compiled node's style, as the compiler serialized it. */
 interface CompiledStyle {
@@ -163,6 +180,7 @@ function renderOwnClass(
   emotionTheme: unknown,
   context: ThemeContextState | null,
   run?: readonly NamedStyle[],
+  after?: readonly NamedStyle[],
 ): JSX.Element {
   const asTarget = props.as
   const renderTarget = (asTarget != null && isValidElementType(asTarget) ? asTarget : props.element) as ElementType
@@ -180,8 +198,9 @@ function renderOwnClass(
   for (const name in props) if (!RENDERER_ONLY.has(name)) hostProps[name] = props[name]
   hostProps.className = className
   const host = createElement(renderTarget, hostProps, props.children as ReactNode)
-  const pending = cache.inserted[serialized.name] === undefined || (run !== undefined && run.some(style => cache.inserted[style.serialized.name] === undefined))
-  const leaf = pending ? createElement(RuleInsertion, { cache, serialized, isStringTag, ...(run && { run }) }) : null
+  const notIn = (styles: readonly NamedStyle[] | undefined) => styles !== undefined && styles.some(style => cache.inserted[style.serialized.name] === undefined)
+  const pending = cache.inserted[serialized.name] === undefined || notIn(run) || notIn(after)
+  const leaf = pending ? createElement(RuleInsertion, { cache, serialized, isStringTag, ...(run && { run }), ...(after && { after }) }) : null
   return createElement(Fragment, null, leaf, host)
 }
 
@@ -223,8 +242,10 @@ function renderStyled(
     as: asTarget,
     className: givenClass,
     [STATIC_STYLE_PROP]: compiled,
+    [STATIC_RUN_AFTER_PROP]: _after,
+    [STATIC_SCOPE_PROP]: _scope,
     ...otherProps
-  } = props as typeof props & { [STATIC_STYLE_PROP]?: CompiledStyle }
+  } = props as typeof props & { [STATIC_STYLE_PROP]?: CompiledStyle; [STATIC_RUN_AFTER_PROP]?: unknown; [STATIC_SCOPE_PROP]?: unknown }
   let renderTarget = element as ElementType
   if (asTarget != null && isValidElementType(asTarget)) {
     renderTarget = asTarget

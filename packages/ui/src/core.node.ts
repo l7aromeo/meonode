@@ -40,6 +40,9 @@ import {
   STATIC_CLASSES_MARKER,
   STATIC_NAME_MARKER,
   STATIC_RUN_PROP,
+  STATIC_RUN_AFTER_PROP,
+  STATIC_SCOPE_PROP,
+  STATIC_CARRIER_MARKER,
   STATIC_SLOTS_MARKER,
   STATIC_STYLE_PROP,
   STATIC_TEXT_PROP,
@@ -716,10 +719,12 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
 
     // The whole styles the compiler serialized, inserted into Emotion's own sheet
     // when Emotion would insert them: each node's before the next rule of the
-    // render in the order its nodes begin, parents first. A runtime node inserts
-    // the run of them that began since the last such rule ahead of its own, from
-    // its `RuleInsertion`; the rest go in from the `StaticStyles` at the end of
-    // their carrier, its topmost host, once its subtree's rules are in.
+    // render in the order its nodes begin, parents first. A runtime node, or a
+    // named node the compiler marked as a carrier, inserts the run of them that
+    // began since the last such rule ahead of its own, from its `RuleInsertion`,
+    // and the run after it, up to a component or the end of the walk, after its
+    // own. Only with neither do they go in from a leaf: before a component's
+    // position, or the `StaticStyles` at the end of their topmost host.
     const namedEnabled = !IS_REACT_SERVER_LAYER && hasNamedStyles()
     /** The cache the render's elements go under, read once, at its first named node. */
     let walkCache: EmotionCache | undefined
@@ -740,6 +745,15 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
     }
 
     /**
+     * A server render with no cache provider above the walk: Emotion gives each
+     * outermost styled element a cache of its own, which every styled element
+     * below it shares, so each styled node's scope is that element.
+     */
+    const scopedWalk = namedEnabled && NodeUtil.isServer && readEmotionCache() === null
+    /** Each styled node's scope, when the walk is scoped. */
+    const nodeScopes = scopedWalk ? new Map<BaseNode, EmotionCache>() : undefined
+
+    /**
      * Named nodes that render through `StyledRenderer` instead, handed their
      * style: with no cache to read, neither its key nor the classes it registered,
      * which a `className` may hold, are known until the element renders under it.
@@ -749,6 +763,28 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
     const namedClasses = namedEnabled ? new Map<BaseNode, string>() : undefined
     /** The run each runtime node inserts ahead of its own rule. */
     const namedRuns = namedEnabled ? new Map<BaseNode, NamedStyle[]>() : undefined
+
+    /**
+     * What each runtime node, or carrier, inserts after its own rule: the run that
+     * began after it up to the next component or the end of the walk, when no
+     * other rule came between. Its element holds this object, filled in later.
+     */
+    const namedRunsAfter = namedEnabled ? new Map<BaseNode, { run: NamedStyle[] }>() : undefined
+    /** The last runtime node or carrier the walk began, while no component came after it. */
+    let lastRuleNode: BaseNode | null = null
+    /** Hands the run since the last rule to `lastRuleNode`, to insert after its own; whether it took it. */
+    const runAfterLastRule = (): boolean => {
+      if (pendingNamed.length === 0) return true
+      if (lastRuleNode === null) return false
+      namedRunsAfter!.get(lastRuleNode)!.run.push(...pendingNamed)
+      pendingNamed = []
+      return true
+    }
+    /** Marks `node` as one whose `StyledRenderer` inserts a rule, so a later run can follow it. */
+    const beginRuleNode = (node: BaseNode): void => {
+      if (!namedRunsAfter!.has(node)) namedRunsAfter!.set(node, { run: [] })
+      lastRuleNode = node
+    }
     /** What each carrier's `StaticStyles` inserts, once its subtree is in. */
     const namedTail = namedEnabled ? new Map<Map<string, ReactElement>, NamedStyle[]>() : undefined
 
@@ -828,6 +864,7 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
         opaqueAbove: false,
         opaqueBelowAnchor: false,
         themeOwn: undefined,
+        scope: null,
       }
 
       // Iterative depth-first traversal with explicit begin/complete phases to avoid recursion.
@@ -841,12 +878,14 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
         const slot = (currentWork as { slot?: string }).slot
         if (slot !== undefined) {
           stackPointer--
-          if (pendingNamed.length > 0) {
+          if (pendingNamed.length > 0 && !runAfterLastRule()) {
             let runs = slotRuns.get(currentWork.node)
             if (!runs) slotRuns.set(currentWork.node, (runs = new Map()))
             runs.set(slot, pendingNamed)
             pendingNamed = []
           }
+          // A component may render here: what follows is no longer next to the last rule.
+          lastRuleNode = null
           continue
         }
         const {
@@ -861,6 +900,8 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
           opaqueBelowAnchor,
           themeOwn,
         } = currentWork as typeof currentWork & { opaqueAbove: boolean; opaqueBelowAnchor: boolean; themeOwn: ThemeVarIndex | undefined }
+        /** The scope this node's children are in: the one above, or this node's if it is the outermost styled one. */
+        let childScope = (currentWork as { scope?: EmotionCache | null }).scope ?? null
 
         const getActiveTheme = (props: FinalNodeProps, current?: Theme): Theme | undefined => {
           const candidate = (props as { theme?: unknown }).theme
@@ -894,29 +935,40 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
             const carrier = anchor ?? (canAnchorRules(beginTarget, beginProps, inForeignNamespace) ? node : null)
             const name = beginProps.disableEmotion ? undefined : (beginProps[STATIC_NAME_MARKER] as string | undefined)
             const styles = name === undefined ? undefined : ((beginProps[STATIC_TEXT_PROP] as string | undefined) ?? staticStylesOf(name))
+            if (scopedWalk && (styles !== undefined || beginsStyledRenderer(beginProps))) {
+              childScope ??= createServerCssCache()
+              nodeScopes!.set(node, childScope)
+            }
             if (name !== undefined && styles === undefined && isDevMode()) {
               console.error(`[MeoNode] The static style \`${name}\` is used but no module registered it, so no rule is sent for it.`)
             }
-            if (styles !== undefined && walkHasNoCache()) {
-              // A runtime node now: it takes the run since the last rule, as one does.
+            if (styles !== undefined && (beginProps[STATIC_CARRIER_MARKER] || walkHasNoCache())) {
+              // A runtime node now: it takes the run since the last rule, as one
+              // does, and the one after it that no later rule takes.
               namedAtRender!.add(node)
               if (pendingNamed.length > 0) {
                 namedRuns!.set(node, pendingNamed)
                 pendingNamed = []
               }
+              beginRuleNode(node)
             } else if (styles !== undefined) {
+              // Following a rule, the run goes in after it; without one, at the end of its carrier.
               if (carrier !== pendingCarrier) {
-                flushNamed()
+                if (lastRuleNode === null) flushNamed()
                 pendingCarrier = carrier
               }
               const { className, style } = namedClass(cacheOfWalk(), name!, styles, beginProps.className, typeof beginTarget === 'string')
               namedClasses!.set(node, className)
+              if (scopedWalk) style.scope = childScope!
               pendingNamed.push(style)
-            } else if (pendingNamed.length > 0 && beginsStyledRenderer(beginProps)) {
+            } else if (beginsStyledRenderer(beginProps)) {
               // A run of another carrier went to it as that carrier completed, so
               // what is pending began before this node, in its carrier or in none.
-              namedRuns!.set(node, pendingNamed)
-              pendingNamed = []
+              if (pendingNamed.length > 0) {
+                namedRuns!.set(node, pendingNamed)
+                pendingNamed = []
+              }
+              beginRuleNode(node)
             }
           }
           // The same, for a `ThemedRule`, which resolves against the theme where it
@@ -990,6 +1042,7 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
                 opaqueAbove: childOpaqueAbove,
                 opaqueBelowAnchor: childOpaqueBelowAnchor,
                 themeOwn: childThemeOwn,
+                scope: childScope,
               }
             }
           }
@@ -1013,6 +1066,7 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
             [STATIC_VARS_MARKER]: staticVars,
             [STATIC_NAME_MARKER]: staticName,
             [STATIC_SLOTS_MARKER]: slotMarker,
+            [STATIC_CARRIER_MARKER]: _carrier,
             [STATIC_TEXT_PROP]: staticText,
             ...otherProps
           } = node.props
@@ -1088,10 +1142,10 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
             }
           }
 
-          // Each slot's leaf, or `null` while it holds no run, so the children keep
-          // their positions whether one renders or not. The slot of the children as
-          // a whole goes ahead of them as an argument of its own, so a generated
-          // list stays the one list React key-checks.
+          // A slot's leaf, or `null` while it holds no run, only where a run had no
+          // runtime node or carrier before it to follow; otherwise the children are
+          // as written. The slot of the children as a whole goes ahead of them as an
+          // argument of its own, so a generated list stays the one list React key-checks.
           const slots =
             slotMarker !== undefined && hostChildren === childrenInProps && builtFrom === undefined ? slotSetOf(slotMarker as readonly SlotPath[]) : undefined
           const runsHere = slots ? slotRuns.get(node) : undefined
@@ -1099,8 +1153,10 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
             const run = runsHere?.get(slotKeyOf)
             return run && namedPending(run) ? createElement(StaticStyles, { key: `${SLOT_KEY_PREFIX}${slotKeyOf}`, styles: run }) : null
           }
-          if (slots && finalChildren.length > 0) finalChildren = placeSlots(finalChildren, slots, '', leafAt)
-          const wholeSlot = slots?.keys.has('') ? [leafAt('')] : undefined
+          // Slots render only where a run had no rule to follow; with none, the children are as written.
+          const slotsHere = runsHere !== undefined && runsHere.size > 0 ? slots : undefined
+          if (slotsHere && finalChildren.length > 0) finalChildren = placeSlots(finalChildren, slotsHere, '', leafAt)
+          const wholeSlot = slotsHere?.keys.has('') ? [leafAt('')] : undefined
 
           // How the children reach `createElement` is what decides whether React
           // asks for keys. Passing them as separate arguments is React's signal
@@ -1372,6 +1428,8 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
                   ...elementProps,
                   [STATIC_STYLE_PROP]: { name: staticName, styles: namedText },
                   ...(run && { [STATIC_RUN_PROP]: run }),
+                  ...(namedRunsAfter?.has(node) && { [STATIC_RUN_AFTER_PROP]: namedRunsAfter.get(node) }),
+                  ...(nodeScopes?.has(node) && { [STATIC_SCOPE_PROP]: nodeScopes.get(node) }),
                 },
                 ...elementChildren,
               )
@@ -1390,7 +1448,14 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
               const run = namedRuns?.get(node)
               element = createElement(
                 StyledRenderer,
-                { element: renderTarget, ...elementProps, css: cssForRenderer, ...(run && { [STATIC_RUN_PROP]: run }) },
+                {
+                  element: renderTarget,
+                  ...elementProps,
+                  css: cssForRenderer,
+                  ...(run && { [STATIC_RUN_PROP]: run }),
+                  ...(namedRunsAfter?.has(node) && { [STATIC_RUN_AFTER_PROP]: namedRunsAfter.get(node) }),
+                  ...(nodeScopes?.has(node) && { [STATIC_SCOPE_PROP]: nodeScopes.get(node) }),
+                },
                 ...elementChildren,
               )
             } else if (
@@ -1504,7 +1569,7 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
           // children of their own, which a nested list would wrap in one more
           // fiber; without, they stay the one trailing list they have always been.
           // A carrier's run goes to its `StaticStyles` once its subtree is walked.
-          if (namedEnabled && pendingCarrier === node) flushNamed()
+          if (namedEnabled && pendingCarrier === node && lastRuleNode === null) flushNamed()
           const carriedRules = anchoredRules.get(node)
           if (carriedRules) {
             finishStaticSlot(carriedRules)
@@ -1536,8 +1601,8 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
 
       // Get the final rendered element for the root node of this render cycle.
       const rootElement = renderedElements.get(this) as ReactElement<FinalNodeProps>
-      // What no carrier took goes beside the root, after it.
-      if (namedEnabled) {
+      // What no rule or carrier took goes beside the root, after it.
+      if (namedEnabled && !runAfterLastRule()) {
         pendingCarrier = null
         flushNamed()
       }

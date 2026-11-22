@@ -188,12 +188,20 @@ export const STATIC_NAME_MARKER = '__meo$n'
  * Marker key holding the child positions of a host call site where a component
  * may render, which the compiler listed: a number is an index into the written
  * children array, an array is a path into nested array literals, and the empty
- * path is the children as a whole. A leaf renders before each one, holding the
- * named styles that began before it, as Emotion would have them in by then;
- * the slot is always there, `null` while it holds none, so the children keep
- * their positions.
+ * path is the children as a whole. The named styles that began before a slot
+ * must be in before the component renders its own: the last runtime node or
+ * carrier before it inserts them after its own rule. Only where none is there
+ * does a leaf render before the position, which changes the children.
  */
 export const STATIC_SLOTS_MARKER = '__meo$p'
+
+/**
+ * Marker key of a named node the compiler chose to carry the named styles that
+ * begin after it, up to the next component or the end of its render: it renders
+ * through `StyledRenderer`, as a runtime node does, so its insertion puts them
+ * in after its own, with no element added to the children.
+ */
+export const STATIC_CARRIER_MARKER = '__meo$r'
 
 /**
  * Marker key holding a call site's template and its values: the id of a
@@ -214,6 +222,20 @@ export const STATIC_TEXT_PROP = '__meonodeStaticText'
  * that began after the previous rule: it inserts them ahead of its own rule.
  */
 export const STATIC_RUN_PROP = '__meonodeStaticRun'
+
+/**
+ * The prop of a `StyledRenderer` holding, in `run`, the named styles of its
+ * render that began after it and that no later rule takes: it inserts them after
+ * its own. Filled in once the walk has passed them, after the element is built.
+ */
+export const STATIC_RUN_AFTER_PROP = '__meonodeStaticRunAfter'
+
+/**
+ * The prop of a `StyledRenderer` holding its scope on a server render with no
+ * cache provider: the outermost styled element above it, whose cache Emotion
+ * would share with it, so its rule goes out once in that scope.
+ */
+export const STATIC_SCOPE_PROP = '__meonodeStaticScope'
 
 /**
  * The prop of a `StyledRenderer` that a server component hands a compiled

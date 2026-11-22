@@ -13,6 +13,14 @@ export interface NamedStyle {
   serialized: SerializedStyles
   /** Whether the element is a host element, which `registerStyles` reads. */
   isStringTag: boolean
+
+  /**
+   * On a server render with no cache provider, the cache of the outermost styled
+   * element above the node. Emotion gives such an element a cache of its own,
+   * which every styled element below it shares, so a style goes out once per
+   * scope: again in another, not again in the same.
+   */
+  scope?: EmotionCache
 }
 
 /**
@@ -82,9 +90,12 @@ export function serverStyleElement(cache: EmotionCache, styles: readonly NamedSt
   let names = ''
   let rules = ''
   const repeats = standIns.has(cache)
-  for (const { serialized, isStringTag } of styles) {
-    if (repeats) for (let current: SerializedStyles | undefined = serialized; current !== undefined; current = current.next) delete cache.inserted[current.name]
-    const inserted = insertStyles(cache, serialized, isStringTag)
+  for (const { serialized, isStringTag, scope } of styles) {
+    // Into its scope's cache, which writes it once, as Emotion's shared one does.
+    const target = scope ?? cache
+    if (repeats && scope === undefined)
+      for (let current: SerializedStyles | undefined = serialized; current !== undefined; current = current.next) delete cache.inserted[current.name]
+    const inserted = insertStyles(target, serialized, isStringTag)
     if (inserted === undefined) continue
     rules += inserted
     for (let current: SerializedStyles | undefined = serialized; current !== undefined; current = current.next) names += ` ${current.name}`

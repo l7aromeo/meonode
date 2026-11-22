@@ -13,7 +13,11 @@ import { builtinEnvironments } from 'vitest/runtime'
 type Css = Record<string, unknown>
 type Main = typeof import('@src/main.js')
 /** Props giving a node `css`, and with `slots` the positions the compiler marks among a host's children. */
-type Style = ((css: Css, isStatic?: boolean) => Record<string, unknown>) & { slots: (...paths: (number | number[])[]) => Record<string, unknown> }
+type Style = ((css: Css, isStatic?: boolean) => Record<string, unknown>) & {
+  slots: (...paths: (number | number[])[]) => Record<string, unknown>
+  /** A static node the compiler marked to carry the named styles after it. */
+  carrier: (css: Css) => Record<string, unknown>
+}
 
 /**
  * The cache a page renders under: Emotion's default, one of its own, or one
@@ -73,6 +77,34 @@ const CASES: Record<string, Tree> = {
   'a runtime parent’s & > * against a static child': (ui, _, style) => ui.Div({ ...style({ '& > *': RED }, false), children: ui.Span('c', style(BLUE)) }),
 }
 
+/** Cases with carriers in place of slots and the trailing leaf: the host and the first named node after each component. */
+const CARRIER_CASES: Record<string, Tree> = {
+  'statics before components with ids, carried': (ui, react, style) => {
+    const Id = () => ui.Span('id', { 'data-id': react.useId(), ...style.carrier({ order: 9 }) }).render() as import('react').ReactElement
+    return ui.Div({
+      ...style.carrier({ display: 'grid' }),
+      ...style.slots(1, [2, 1], 3),
+      children: [
+        ui.Div({ key: 1, ...style({ order: 1 }) }),
+        ui.Node(Id),
+        [ui.Span('a', { key: 'a', ...style.carrier({ order: 2 }) }), ui.Node(Id, { key: 'b' })],
+        ui.Node(Id),
+      ],
+    })
+  },
+  'a static parent and child written twice, at the end, carried by the host': (ui, _, style) => {
+    const pair = (key: number) => ui.Div({ key, ...style({ '& > *': RED }), children: ui.Span('c', style(BLUE)) })
+    return ui.Div({ ...style.carrier({ display: 'grid' }), children: [pair(1), pair(2)] })
+  },
+  'statics after a runtime node, before a component with an id': (ui, react, style) => {
+    const Id = () => ui.Span('id', { 'data-id': react.useId(), ...style.carrier(BLUE) }).render() as import('react').ReactElement
+    return ui.Div({
+      ...style.slots(2),
+      children: [ui.Div({ key: 1, ...style({ order: 1 }, false) }), ui.Div({ key: 2, ...style({ order: 2 }) }), ui.Node(Id, { key: 3 })],
+    })
+  },
+}
+
 /** Loads the package afresh, so it reads whether a document exists as it loads. */
 async function load() {
   vi.resetModules()
@@ -98,7 +130,15 @@ async function load() {
         registry.registerStaticCss(`m-${name}`, [[name, text]])
         return { __meo$: 2, __meo$n: name }
       },
-      { slots: (...paths: (number | number[])[]) => (compiled ? { __meo$: 2, __meo$p: paths } : {}) },
+      {
+        slots: (...paths: (number | number[])[]) => (compiled ? { __meo$: 2, __meo$p: paths } : {}),
+        carrier: (css: Css) => {
+          if (!compiled) return { css }
+          const { name, styles: text } = compile(css)
+          registry.registerStaticCss(`m-${name}`, [[name, text]])
+          return { __meo$: 2, __meo$n: name, __meo$r: 1 }
+        },
+      },
     )
   /** The case's page, under a cache of its own unless `provider` is `'none'`, as an app with a registry renders it. */
   const page = (tree: Tree, compiled: boolean, provider: Provider) => {
@@ -179,6 +219,19 @@ describe.each([
     expect(expected).toMatchObject({ errors: [], idsKept: true, stylesLeftInBody: 0 })
     expect(expected.firstPaint.length).toBeGreaterThan(0)
     expect(expected.firstPaint).toEqual(expected.rules)
+    expect(await serverThenHydrate(tree, true, provider)).toEqual(expected)
+  })
+})
+
+describe.each([
+  ['with no cache provider', 'none'],
+  ['under a cache provider', 'cache'],
+  ['under a cache that prepends, the page’s stylesheet first', 'prepend'],
+] as const)('a server-rendered page %s, with carriers, hydrates as its runtime twin does', (_, provider) => {
+  it.each(Object.entries(CARRIER_CASES))('%s', async (_, tree) => {
+    const expected = await serverThenHydrate(tree, false, provider)
+    expect(expected).toMatchObject({ errors: [], idsKept: true, stylesLeftInBody: 0 })
+    expect(expected.firstPaint.length).toBeGreaterThan(0)
     expect(await serverThenHydrate(tree, true, provider)).toEqual(expected)
   })
 })

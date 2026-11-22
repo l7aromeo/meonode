@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 //
-// The slot before a component among a compiled host's children is always
-// there: a leaf while it holds styles, `null` while it does not. So a child
-// keeps its position, and its state, when a conditional elsewhere among the
-// children brings a static node, and its slot's leaf, in and out; and React asks
-// for no key the authored children would not need.
+// A slot before a component among a compiled host's children marks where a
+// run of named styles must be in by: a carrier before it, or the last runtime
+// node, inserts the run with its own rule, so nothing is added to the children.
+// So a child keeps its position, and its state, when a conditional elsewhere
+// among the children brings a static node in and out; and React asks for no
+// key the authored children would not need.
 import { serializeStyles } from '@emotion/serialize'
 import { act, createElement, useState, type ReactElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -50,12 +51,12 @@ function Counter() {
 }
 
 describe('a slot before a component', () => {
-  it('keeps the component’s state while a conditional static node before it comes and goes', () => {
+  it('keeps the component’s state while a conditional static node before it, its carrier, comes and goes', () => {
     let toggle = () => {}
     function Page() {
       const [shown, setShown] = useState(true)
       toggle = () => setShown(value => !value)
-      return Div({ __meo$: 2, __meo$p: [1], children: [shown && Div(staticStyle({ order: 1 })), Node(Counter)] }).render() as ReactElement
+      return Div({ __meo$: 2, __meo$p: [1], children: [shown && Div({ ...staticStyle({ order: 1 }), __meo$r: 1 }), Node(Counter)] }).render() as ReactElement
     }
     root = createRoot(document.body.appendChild(document.createElement('div')))
     act(() => root!.render(createElement(Page)))
