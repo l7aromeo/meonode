@@ -460,4 +460,34 @@ describe('named nodes with no carrier marked', () => {
     expect(compiled.uncarried).toHaveLength(1)
     expect(reports).toBe(1)
   })
+
+  // Its leaf goes once the run is in: a render after that returns the twin's tree.
+  it('return the twin’s tree once their run is in', () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const twice = shaped((style: Style) => {
+      __resetStaticCss()
+      document.head.innerHTML = ''
+      let bump = () => {}
+      function Page() {
+        const [count, setCount] = useState(0)
+        bump = () => setCount(value => value + 1)
+        return Div({ 'data-count': count, ...style({ '& > *': RED }), children: Span('c', style(BLUE)) }).render() as ReactElement
+      }
+      root = createRoot(document.body.appendChild(document.createElement('div')))
+      act(() => root!.render(createElement(CacheProvider, { value: createCache({ key: 'css', speedy: true }) }, createElement(Page))))
+      act(() => bump())
+      const result = { rules: rules() }
+      act(() => root!.unmount())
+      root = undefined
+      return result
+    })
+    const expected = twice(runtimeStyle)
+    const compiled = twice(compiledStyle)
+    errors.mockRestore()
+    expect(compiled.rules).toEqual(expected.rules)
+    const tree = { key: null, children: { key: null, children: 'string' } }
+    expect(expected.renders).toEqual([tree, tree])
+    // The first render's leaf, then none.
+    expect(compiled.renders).toEqual([{ key: null, children: [{ key: null, children: 'string' }, { key: 'mn-static' }] }, tree])
+  })
 })
