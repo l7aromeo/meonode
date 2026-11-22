@@ -2,7 +2,8 @@
 //
 // What a render with static classes costs in fibers in the browser: its static
 // nodes are their host elements alone, and the render adds one fiber for its
-// static css, whether or not its topmost host has other children.
+// static css, whether or not its topmost host has other children. Named styles
+// cost a renderer for each node that carries a run, and nothing else.
 import { act, createElement, type ReactElement } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -100,11 +101,15 @@ describe('named styles', () => {
       return tree().render() as ReactElement
     })
 
-  it('cost their host elements, and one StaticStyles for the render until its styles are in', () => {
+  // The first, with no rule before it, carries the run of the rest, as the compiler marks it.
+  it('cost their host elements, and a renderer for the first, which carries the rest', () => {
     const fibers = census(
       inComponent(() => Div({ children: Array.from({ length: CHILDREN }, (_, index) => Div({ key: String(index), ...named(index) } as never)) })),
     )
-    expect(fibers).toEqual({ mount: { App: 1, 'host:div': CHILDREN + 1, StaticStyles: 1 }, again: { App: 1, 'host:div': CHILDREN + 1 } })
+    expect(fibers).toEqual({
+      mount: { App: 1, 'host:div': CHILDREN + 1, Styled: 1, RuleInsertion: 1 },
+      again: { App: 1, 'host:div': CHILDREN + 1, Styled: 1 },
+    })
   })
 
   // Extracted, the css written here is a compiled node's, which the other cases count.
@@ -118,7 +123,7 @@ describe('named styles', () => {
     })
   })
 
-  it('cost a leaf at a slot only while its run is not in yet', () => {
+  it('cost a renderer for the first named node after each component, and each component’s own', () => {
     const Card = () => Div(named(CHILDREN - 1) as never).render() as ReactElement
     const slotted = census(
       inComponent(() =>
@@ -132,11 +137,12 @@ describe('named styles', () => {
         } as never),
       ),
     )
-    // On mount one `StaticStyles` per slot with a run, and one per Card: each
-    // Card renders before any commits, as the runtime path's leaves do.
+    // Each node after a slot begins a stretch, and each Card's root begins its
+    // own walk: every one carries, as the compiler marks them, and nothing is
+    // added at the slots.
     expect(slotted).toEqual({
-      mount: { App: 1, Card: CHILDREN, 'host:div': 2 * CHILDREN + 1, StaticStyles: 2 * CHILDREN },
-      again: { App: 1, Card: CHILDREN, 'host:div': 2 * CHILDREN + 1 },
+      mount: { App: 1, Card: CHILDREN, 'host:div': 2 * CHILDREN + 1, Styled: 2 * CHILDREN, RuleInsertion: 2 * CHILDREN },
+      again: { App: 1, Card: CHILDREN, 'host:div': 2 * CHILDREN + 1, Styled: 2 * CHILDREN },
     })
   })
 
@@ -168,7 +174,8 @@ describe('named styles', () => {
         } as never),
       ),
     )
-    expect(fibers.again).toEqual({ App: 1, 'host:div': CHILDREN + 1 })
+    // The first item carries the list's run.
+    expect(fibers.again).toEqual({ App: 1, 'host:div': CHILDREN + 1, Styled: 1 })
     expect(fibers.mount['tag 7']).toBeUndefined()
   })
 
@@ -183,20 +190,21 @@ describe('named styles', () => {
         } as never),
       ),
     )
-    // Only the Cards' own, on mount.
+    // Only the Cards' own: each Card's root carries its walk's style.
     expect(idle).toEqual({
-      mount: { App: 1, Card: CHILDREN, 'host:div': CHILDREN + 1, StaticStyles: CHILDREN },
-      again: { App: 1, Card: CHILDREN, 'host:div': CHILDREN + 1 },
+      mount: { App: 1, Card: CHILDREN, 'host:div': CHILDREN + 1, Styled: CHILDREN, RuleInsertion: CHILDREN },
+      again: { App: 1, Card: CHILDREN, 'host:div': CHILDREN + 1, Styled: CHILDREN },
     })
   })
 })
 
 // A grid of cards, each a named card with a named title and a component after
-// it, as a list page is: what each placement of the runs costs against the
-// runtime twin, with the component a plain one or a `Component(...)`.
+// it, as a list page is: what the runs cost against the runtime twin, with the
+// carriers the compiler marks and with none marked, where the walk carries at
+// the same nodes, and with the component a plain one or a `Component(...)`.
 describe('a card list', () => {
   const CARDS = 10
-  type Placement = 'runtime' | 'carriers' | 'leaves'
+  type Placement = 'runtime' | 'carriers' | 'unmarked'
   let round = 0
   /** A node's css: on the runtime path, or named as the compiler names it, a carrier where `carrier` and the placement marks them. */
   const style = (placement: Placement, css: Record<string, unknown>, carrier = false) => {
@@ -246,16 +254,14 @@ describe('a card list', () => {
   // A renderer per carrier: the grid and each card, which carry the runs of the nodes after them.
   const carriers = { Styled: CARDS + 1, RuleInsertion: CARDS + 1 }
   const carriersAgain = { Styled: CARDS + 1 }
-  // A `StaticStyles` per card's slot and one for the grid, until their styles are in.
-  const leaves = { StaticStyles: CARDS + 1 }
 
   it.skipIf(process.env.MEONODE_EXTRACTED === '1').each([
     ['plain', 'runtime', runtime, runtimeAgain],
     ['plain', 'carriers', carriers, carriersAgain],
-    ['plain', 'leaves', leaves, {}],
+    ['plain', 'unmarked', carriers, carriersAgain],
     ['Component', 'runtime', runtime, runtimeAgain],
     ['Component', 'carriers', carriers, carriersAgain],
-    ['Component', 'leaves', leaves, {}],
+    ['Component', 'unmarked', carriers, carriersAgain],
   ] as const)('with a %s component and %s', (component, placement, mount, again) => {
     expect(census(grid(placement, component))).toEqual({ mount: { ...base(component), ...mount }, again: { ...base(component), ...again } })
   })

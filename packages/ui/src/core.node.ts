@@ -27,7 +27,14 @@ import type {
   Theme,
   WorkItem,
 } from '@src/types/node.type.js'
-import { isFragment, isValidElementType, REACT_LAZY_TYPE } from '@src/helper/react-is.helper.js'
+import {
+  isFragment,
+  isValidElementType,
+  REACT_ACTIVITY_TYPE,
+  REACT_LAZY_TYPE,
+  REACT_SUSPENSE_LIST_TYPE,
+  REACT_SUSPENSE_TYPE,
+} from '@src/helper/react-is.helper.js'
 import { getComponentType, getElementTypeName, hasNoStyleTag, getGlobalState, omitUndefined } from '@src/helper/common.helper.js'
 import StyledRenderer, { ThemedRule, ThemeTokenCheck } from '@src/components/styled-renderer.client.js'
 import MeoMemo from '@src/components/meo-memo.client.js'
@@ -272,11 +279,18 @@ function collectWithSlots(parent: BaseNode, children: unknown, slots: SlotSet): 
 }
 
 /**
- * Whether `target` is a component that renders its children where it chooses,
- * after rules of its own: what a run since the last rule may not cross. MeoNode's
- * own providers render their children as given, so they are not.
+ * Whether `target` may put its children's rules out of the walk's order: what a
+ * run since the last rule may not cross. A component renders its children where
+ * it chooses, after rules of its own; a Suspense boundary may render them later,
+ * and an Activity renders hidden children later in the browser and not at all on
+ * the server. MeoNode's own providers render their children as given, so they
+ * are not.
  */
-const cutsRuleOrder = (target: unknown): boolean => mayChangeTheme(target) && !passesChildrenThrough(target)
+const cutsRuleOrder = (target: unknown): boolean =>
+  (mayChangeTheme(target) && !passesChildrenThrough(target)) ||
+  target === REACT_SUSPENSE_TYPE ||
+  target === REACT_SUSPENSE_LIST_TYPE ||
+  target === REACT_ACTIVITY_TYPE
 
 /** What a node renders: its `as` target where that is valid, else its element. */
 const renderTargetOf = (node: BaseNode): unknown => {
@@ -310,9 +324,15 @@ function mayRenderComponent(value: unknown): boolean {
  */
 const elementRendersComponent = new WeakMap<object, boolean>()
 
-/** Whether a host's child is where a run must stop: one rendering a component, entered by the walk or not. */
+/**
+ * Whether a host's child is where a run must stop: one rendering a component,
+ * entered by the walk or not, or a memoized node, which the browser renders in a
+ * walk of its own and the server in this one.
+ */
 const cutsAt = (child: unknown): boolean =>
-  NodeUtil.isNodeInstance(child) ? cutsRuleOrder(renderTargetOf(child)) : typeof child === 'object' && child !== null && mayRenderComponent(child)
+  NodeUtil.isNodeInstance(child)
+    ? cutsRuleOrder(renderTargetOf(child)) || child.dependencies !== undefined
+    : typeof child === 'object' && child !== null && mayRenderComponent(child)
 
 /**
  * `slots` with a slot right before every child that renders a component, as the
@@ -1036,7 +1056,10 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
             if (name !== undefined && styles === undefined && isDevMode()) {
               console.error(`[MeoNode] The static style \`${name}\` is used but no module registered it, so no rule is sent for it.`)
             }
-            if (styles !== undefined && (beginProps[STATIC_CARRIER_MARKER] || walkHasNoCache())) {
+            // A carrier where the compiler marks one, and also where no rule is
+            // before it since the walk's start or a cut, so a node the compiler
+            // could not mark carries all the same and no run is left without one.
+            if (styles !== undefined && (beginProps[STATIC_CARRIER_MARKER] || walkHasNoCache() || lastRuleNode === null)) {
               // A runtime node now: it takes the run since the last rule, as one
               // does, and the one after it that no later rule takes.
               namedAtRender!.add(node)
@@ -1184,10 +1207,10 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
           if (asTarget != null && isValidElementType(asTarget)) {
             renderTarget = asTarget
           }
-          // A component may insert rules of its own after its children's: the run
-          // since the last rule goes in after that rule, and what follows the
-          // component is no longer next to it.
-          if (namedEnabled && cutsRuleOrder(renderTarget)) {
+          // A component may insert rules of its own after its children's, and a
+          // boundary or a memoized node may render them apart: the run since the
+          // last rule goes in after that rule, and what follows is no longer next to it.
+          if (namedEnabled && (cutsRuleOrder(renderTarget) || node.dependencies !== undefined)) {
             runAfterLastRule()
             lastRuleNode = null
           }

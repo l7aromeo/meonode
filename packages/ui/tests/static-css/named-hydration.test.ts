@@ -64,10 +64,9 @@ const CASES: Record<string, Tree> = {
 }
 
 /**
- * Cases that mark no carrier, which no compiler marking carriers emits: their
- * runs go in through leaves the walk adds, at the slots and at the end of their
- * carrier, and development reports each. The carried cases below are the same
- * trees as the compiler marks them.
+ * Cases that mark no carrier: the walk carries each run at the first named node
+ * of its stretch, as the compiler marks one, on the server and in the browser
+ * alike. The carried cases below are the same trees as the compiler marks them.
  */
 const UNMARKED_CASES: Record<string, Tree> = {
   'statics before components with ids, at marked positions': (ui, react, style) => {
@@ -85,6 +84,31 @@ const UNMARKED_CASES: Record<string, Tree> = {
   'a static parent and child written twice, at the end of their carrier': (ui, _, style) => {
     const pair = (key: number) => ui.Div({ key, ...style({ '& > *': RED }), children: ui.Span('c', style(BLUE)) })
     return ui.Div({ children: [pair(1), pair(2)] })
+  },
+  // The browser renders a memoized node in a walk of its own, the server in the
+  // page's: both carry at the same nodes, so the ids after it are kept.
+  'statics around a memoized node, with an id after it': (ui, react, style) => {
+    const Id = () => ui.Span('id', { 'data-id': react.useId() }).render() as import('react').ReactElement
+    return ui.Div({
+      children: [
+        ui.Span('s', { key: 's', ...style({ order: 1 }) }),
+        ui.Div({ key: 'm', ...style({ order: 2 }), children: ui.Span('in', style({ order: 3 })) }, []),
+        ui.Span('t', { key: 't', ...style({ order: 4 }) }),
+        ui.Node(Id, { key: 'i' }),
+      ],
+    })
+  },
+  'statics around a hidden and a visible Activity, with an id after them': (ui, react, style) => {
+    const Id = () => ui.Span('id', { 'data-id': react.useId() }).render() as import('react').ReactElement
+    return ui.Div({
+      children: [
+        ui.Span('s', { key: 's', ...style({ order: 1 }) }),
+        ui.Activity({ key: 'h', mode: 'hidden', children: ui.Span('in', style({ order: 2 })) }),
+        ui.Activity({ key: 'v', mode: 'visible', children: ui.Span('in', style({ order: 3 })) }),
+        ui.Span('t', { key: 't', ...style({ order: 4 }) }),
+        ui.Node(Id, { key: 'i' }),
+      ],
+    })
   },
 }
 
@@ -265,10 +289,6 @@ describe.each([
   it.each(Object.entries(UNMARKED_CASES))('%s', async (_, tree) => {
     const expected = await serverThenHydrate(tree, false, provider)
     expect(expected).toMatchObject({ errors: [], idsKept: true, stylesLeftInBody: 0 })
-    const compiled = await serverThenHydrate(tree, true, provider)
-    // Only the reports of the runs no carrier took, which development alone makes.
-    expect(compiled.errors.length > 0).toBe(process.env.NODE_ENV !== 'production')
-    expect(compiled.errors.every(error => error.includes('have no carrier'))).toBe(true)
-    expect({ ...compiled, errors: [] }).toEqual(expected)
+    expect(await serverThenHydrate(tree, true, provider)).toEqual(expected)
   })
 })

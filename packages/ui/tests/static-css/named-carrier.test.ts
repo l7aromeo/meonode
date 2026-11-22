@@ -454,11 +454,13 @@ describe('a Component element written twice in one host', () => {
 // Props that mark no carrier, which no compiler marking carriers emits: the
 // rules still go in as uncompiled, through a `StaticStyles` the walk adds to the
 // children, so what `.render()` returns differs, and development says so.
+// Input the compiler did not mark: the walk carries a run at the first named
+// node with no rule before it, as the compiler marks one, so the tree, its
+// rules and every `.render()` are the runtime twin's, with nothing reported.
 describe('named nodes with no carrier marked', () => {
   // The tie row of a component after a spread, with the static node after it
   // left unmarked: the walk cuts at the component the compiler could not see,
-  // so the run goes in at the end of its carrier, after the component's rule,
-  // and is reported as having no carrier.
+  // and the static node after it carries, after the component's rule.
   it('keep a run after a component the compiler could not see, after its rule', () => {
     const tree = TIES['a static node after a component after a spread, against the component’s own rule']
     const unmarked: Style = (css, options) => compiledStyle(css, options?.carrier && css['.wrapper:has(&) .item'] ? {} : options)
@@ -467,12 +469,11 @@ describe('named nodes with no carrier marked', () => {
     const compiled = once(tree, unmarked)
     const reports = errors.mock.calls.filter(call => String(call[0]).includes('have no carrier')).length
     errors.mockRestore()
-    expect(compiled.classes).toEqual(expected.classes)
-    expect(compiled.rules).toEqual(expected.rules)
-    expect(reports).toBe(process.env.NODE_ENV === 'production' ? 0 : 1)
+    expect(compiled).toEqual(expected)
+    expect(reports).toBe(0)
   })
 
-  it('keep the runtime twin’s rules, and are reported once per style', () => {
+  it('keep the runtime twin’s tree and rules before a component', () => {
     const tree = (style: Style) =>
       Div({
         'data-n': 'p',
@@ -485,18 +486,12 @@ describe('named nodes with no carrier marked', () => {
     const compiled = once(tree, compiledStyle)
     const reports = errors.mock.calls.filter(call => String(call[0]).includes('have no carrier')).length
     errors.mockRestore()
-    expect(compiled.classes).toEqual(expected.classes)
-    expect(compiled.rules).toEqual(expected.rules)
-    // The slot before the counter holds the run as a leaf of its own.
     expect(expected.renders[0]).toEqual({ key: null, children: [{ key: 'c', children: 'string' }, { key: 'k' }] })
-    expect(compiled.renders[0]).toEqual({ key: null, children: [{ key: 'c', children: 'string' }, { key: '__meo$slot:1' }, { key: 'k' }] })
-    expect(expected.uncarried).toEqual([])
-    expect(compiled.uncarried).toHaveLength(1)
-    expect(reports).toBe(1)
+    expect(compiled).toEqual(expected)
+    expect(reports).toBe(0)
   })
 
-  // Its leaf goes once the run is in: a render after that returns the twin's tree.
-  it('return the twin’s tree once their run is in', () => {
+  it('return the twin’s tree on every render', () => {
     const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
     const twice = shaped((style: Style) => {
       __resetStaticCss()
@@ -518,10 +513,8 @@ describe('named nodes with no carrier marked', () => {
     const expected = twice(runtimeStyle)
     const compiled = twice(compiledStyle)
     errors.mockRestore()
-    expect(compiled.rules).toEqual(expected.rules)
     const tree = { key: null, children: { key: null, children: 'string' } }
     expect(expected.renders).toEqual([tree, tree])
-    // The first render's leaf, then none.
-    expect(compiled.renders).toEqual([{ key: null, children: [{ key: null, children: 'string' }, { key: 'mn-static' }] }, tree])
+    expect(compiled).toEqual(expected)
   })
 })

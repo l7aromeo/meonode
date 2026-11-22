@@ -54,3 +54,27 @@ export const shaped =
   <A extends unknown[], T extends object>(run: (...args: A) => T) =>
   (...args: A): Shaped<T> =>
     withRenderShapes(() => run(...args))
+
+/** {@link withRenderShapes} for a run that finishes later, such as one waiting on a boundary. */
+export async function withRenderShapesAsync<T extends object>(run: () => Promise<T>): Promise<Shaped<T>> {
+  const renders: unknown[] = []
+  const render = BaseNode.prototype.render
+  BaseNode.prototype.render = function (this: BaseNode, ...args: Parameters<typeof render>) {
+    const element = render.apply(this, args)
+    renders.push(structureOf(element))
+    return element
+  }
+  __resetUncarriedReports()
+  try {
+    const result = await run()
+    return Object.assign(Array.isArray(result) ? { result } : { ...result }, { renders, uncarried: __uncarriedReports() }) as Shaped<T>
+  } finally {
+    BaseNode.prototype.render = render
+  }
+}
+
+/** {@link shaped} for a run that finishes later. */
+export const shapedAsync =
+  <A extends unknown[], T extends object>(run: (...args: A) => Promise<T>) =>
+  (...args: A): Promise<Shaped<T>> =>
+    withRenderShapesAsync(() => run(...args))
