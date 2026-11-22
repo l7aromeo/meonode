@@ -41,23 +41,16 @@ function compile(css: Css): { name: string; styles: string } {
 /**
  * Props giving a node `css`: on the runtime path, or as the compiler emits a
  * static node, a carrier where it marks one: the first static node of a run that
- * a component or an end of the walk bounds on both sides. `slots` gives a host
- * the positions the compiler marks among its children, where a component may
- * render; the runtime path has none.
+ * a component or an end of the walk bounds on both sides.
  */
-type Style = ((css: Css, isStatic?: boolean, carrier?: boolean) => Record<string, unknown>) & {
-  slots: (...paths: (number | number[])[]) => Record<string, unknown>
+type Style = (css: Css, isStatic?: boolean, carrier?: boolean) => Record<string, unknown>
+const runtimeStyle: Style = (css: Css) => ({ css })
+const compiledStyle: Style = (css: Css, isStatic = true, carrier = false) => {
+  if (!isStatic) return { css }
+  const { name, styles } = compile(css)
+  registerStaticCss(`m-${name}`, [[name, styles]])
+  return { __meo$: 2, __meo$n: name, ...(carrier && { __meo$r: 1 }) }
 }
-const runtimeStyle: Style = Object.assign((css: Css) => ({ css }), { slots: () => ({}) })
-const compiledStyle: Style = Object.assign(
-  (css: Css, isStatic = true, carrier = false) => {
-    if (!isStatic) return { css }
-    const { name, styles } = compile(css)
-    registerStaticCss(`m-${name}`, [[name, styles]])
-    return { __meo$: 2, __meo$n: name, ...(carrier && { __meo$r: 1 }) }
-  },
-  { slots: (...paths: (number | number[])[]) => ({ __meo$: 2, __meo$p: paths }) },
-)
 
 /** What a case does with a render: one render, or several commits. */
 type Steps = (render: (tree: (style: Style) => NodeInstance) => void) => void
@@ -153,45 +146,41 @@ const CASES: Record<string, Steps> = {
     })
     act(() => wrap())
   },
-  'a parent’s & .child against a component child’s own .wrapper &, the child’s position marked': once(style => {
+  'a parent’s & .child against a component child’s own .wrapper &, with carriers marked': once(style => {
     const Child = () => Span('c', { 'data-n': 'c', className: 'child', ...style({ '.wrapper &': BLUE }, true, true) }).render() as ReactElement
-    return Div({ 'data-n': 'p', className: 'wrapper', ...style({ '& .child': RED }, true, true), ...style.slots(0), children: Node(Child) })
+    return Div({ 'data-n': 'p', className: 'wrapper', ...style({ '& .child': RED }, true, true), children: Node(Child) })
   }),
-  'a sibling’s & + .item against a component sibling’s own rule, its position marked': once(style => {
+  'a sibling’s & + .item against a component sibling’s own rule, with carriers marked': once(style => {
     const Item = () => Div({ 'data-n': 'i', className: 'item', ...style({ '.wrapper &': BLUE }, true, true) }).render() as ReactElement
     return Div({
       className: 'wrapper',
-      ...style.slots(1),
       children: [Span('s', { key: 's', 'data-n': 's', ...style({ '& + .item': RED }, true, true) }), Node(Item, { key: 'i' })],
     })
   }),
-  'a component inside a nested array, its path marked': once(style => {
+  'a component inside a nested array': once(style => {
     const Item = () => Div({ 'data-n': 'i', className: 'item', ...style({ '.wrapper &': BLUE }, true, true) }).render() as ReactElement
     return Div({
       className: 'wrapper',
-      ...style.slots([1, 1]),
       children: [
         Span('a', { key: 'a', ...style({ order: 1 }, true, true) }),
         [Span('s', { key: 's', 'data-n': 's', ...style({ '& + .item': RED }) }), Node(Item, { key: 'i' })],
       ],
     })
   }),
-  'a generated list of components, a slot before the children as a whole': once(style => {
+  'a generated list of components': once(style => {
     const Item = () => Div({ 'data-n': 'i', className: 'item', ...style({ '.wrapper &': BLUE }, true, true) }).render() as ReactElement
     return Div({
       'data-n': 'p',
       className: 'wrapper',
       ...style({ '& .item': RED }, true, true),
-      ...style.slots([]),
       __meo$list: true,
       children: ['a', 'b'].map(key => Node(Item, { key })),
     })
   }),
-  'a component that renders a built element child, its position marked': once(style => {
+  'a component that renders a built element child': once(style => {
     const Item = () => Div({ 'data-n': 'i', className: 'item', ...style({ '.wrapper &': BLUE }, true, true) }).render() as ReactElement
     return Div({
       className: 'wrapper',
-      ...style.slots(1),
       children: [Span('s', { key: 's', 'data-n': 's', ...style({ '& + .item': RED }, true, true) }), createElement(Item, { key: 'i' })],
     })
   }),
@@ -205,10 +194,10 @@ const CASES: Record<string, Steps> = {
 
 /**
  * Cases where a static node's rule and a component's own are in one run, and
- * the call site marks neither a slot before the component nor a carrier, as one
- * the compiler did not compile: the walk cuts at the component all the same and
- * carries at the first node of each stretch, so the run goes in ahead of the
- * component's rules, where Emotion puts it.
+ * the call site marks no carrier, as one the compiler did not compile: the walk
+ * cuts at the component all the same and carries at the first node of each
+ * stretch, so the run goes in ahead of the component's rules, where Emotion
+ * puts it.
  */
 const BEFORE_A_COMPONENT: Record<string, Steps> = {
   'a parent’s & .child against a component child’s own .wrapper &': once(style => {
@@ -241,7 +230,7 @@ describe('compiled nodes carrying their style’s name go into Emotion’s sheet
   })
 })
 
-describe('before a component at a position with no slot', () => {
+describe('before a component, with no carrier marked', () => {
   it.each(Object.entries(BEFORE_A_COMPONENT))('%s', (_, steps) => {
     const expected = run(steps, runtimeStyle)
     expect(run(steps, compiledStyle)).toEqual(expected)
@@ -279,8 +268,7 @@ describe('under a cache that prepends, with the page’s stylesheet first in the
 
 // A generated list of keyed items, updated in place: an item that comes in
 // between others brings styles not in yet, which the compiled tree inserts with
-// the next runtime node's rule or at the end of its carrier, as no item has a
-// slot of its own. React keeps each item by its key, so only the order of the
+// the rule before it. React keeps each item by its key, so only the order of the
 // rules can differ, and it must not.
 describe('keyed items coming into a generated list on update', () => {
   /** Distinct values per item, so each item's rules are its own. */
@@ -289,7 +277,7 @@ describe('keyed items coming into a generated list on update', () => {
     Div({
       key: id,
       'data-n': id,
-      // An item may come first after the list's slot, so its call site is a carrier.
+      // An item may come first in the list, so its call site is a carrier.
       ...style({ order: id.charCodeAt(0) }, true, true),
       children: [
         Span('t', { 'data-n': `${id}t`, ...style({ '& + span': { color: shade(id) } }) }),
@@ -299,8 +287,8 @@ describe('keyed items coming into a generated list on update', () => {
   const page = (style: Style, ids: string[], runtime: 'own' | 'shared' | 'none') =>
     Div({
       children: [
-        Div({ key: 'list', ...style.slots([]), __meo$list: true, children: ids.map(id => item(style, id, runtime)) } as never),
-        // With no items, it would come first after the list's slot.
+        Div({ key: 'list', __meo$list: true, children: ids.map(id => item(style, id, runtime)) } as never),
+        // With no items, it would come first after the list.
         Span('after', { key: 'after', 'data-n': 'after', ...style({ order: ids.length }, true, true) }),
       ],
     })

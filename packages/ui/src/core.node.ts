@@ -44,13 +44,12 @@ import {
   LIST_MARKER,
   LOCATION_MARKER,
   RUNTIME_PRECEDENCE,
+  STATIC_CARRIER_MARKER,
   STATIC_CLASSES_MARKER,
   STATIC_NAME_MARKER,
   STATIC_RUN_PROP,
   STATIC_RUN_AFTER_PROP,
   STATIC_SCOPE_PROP,
-  STATIC_CARRIER_MARKER,
-  STATIC_SLOTS_MARKER,
   STATIC_STYLE_PROP,
   STATIC_TEXT_PROP,
   STATIC_VARS_MARKER,
@@ -62,9 +61,8 @@ import { passesChildrenThrough, providesTheme } from '@src/util/children-pass-th
 import { observeChildren } from '@src/util/generated-list.util.js'
 import { compileServerEmotionRule, compileServerNamedRule } from '@src/util/server-emotion.util.js'
 import { hasNamedStyles, hasStaticCss, registeredClassesOf, staticRuleOf, staticStylesOf } from '@src/util/static-css.util.js'
-import { namedClass, type NamedStyle, reportUncarriedRun } from '@src/util/named-style.util.js'
+import { namedClass, type NamedStyle } from '@src/util/named-style.util.js'
 import type { EmotionCache } from '@emotion/cache'
-import type { SerializedStyles } from '@emotion/serialize'
 import { readEmotionCache } from '@src/util/emotion-cache.util.js'
 import { createServerCssCache } from '@src/util/server-css-cache.util.js'
 import {
@@ -209,76 +207,6 @@ function addStaticProps(props: Record<string, unknown>, classes: string | undefi
 const RENDER_CONTEXT_POOL_KEY = Symbol.for('@meonode/ui/BaseNode/renderContextPool')
 
 /**
- * A slot's position among a host's written children: an index into the array,
- * a path into nested array literals, or the empty path for the children as a whole.
- */
-type SlotPath = number | readonly number[]
-
-/** The prefix of a slot leaf's key, which no key a user writes is likely to share. */
-const SLOT_KEY_PREFIX = '__meo$slot:'
-
-/** A slot's position as a string: its indices joined by `.`, the empty path `''`. */
-const slotKey = (path: SlotPath): string => (typeof path === 'number' ? String(path) : path.join('.'))
-
-/** A host's slots, by key, and the keys of the arrays that hold one. */
-interface SlotSet {
-  keys: ReadonlySet<string>
-  within: ReadonlySet<string>
-}
-
-/** The slot set for a host's marker. */
-function slotSetOf(paths: readonly SlotPath[]): SlotSet {
-  const keys = new Set<string>()
-  const within = new Set<string>()
-  for (const path of paths) {
-    keys.add(slotKey(path))
-    if (typeof path !== 'number') for (let length = 1; length < path.length; length++) within.add(path.slice(0, length).join('.'))
-  }
-  return { keys, within }
-}
-
-/** The slot set for slot keys, as {@link slotKey} writes them. */
-function slotSetOfKeys(keys: Iterable<string>): SlotSet {
-  return slotSetOf([...keys].map(key => (key === '' ? [] : key.split('.').map(Number))))
-}
-
-/** Where the walk reaches a slot: right before the position it is at, after everything before it. */
-interface SlotMark {
-  slotOf: BaseNode
-  key: string
-}
-
-const isSlotMark = (value: unknown): value is SlotMark => typeof value === 'object' && value !== null && 'slotOf' in value
-
-/**
- * A host's children in the order the walk begins them, as {@link collectNodeChildren}
- * gives them, with a mark right before each slot's position, so the walk reaches
- * each slot after every node before it began and before any after it does.
- * @param parent The host.
- * @param children Its children, an array or one child.
- * @param slots Its slots.
- * @returns The children and the marks.
- */
-function collectWithSlots(parent: BaseNode, children: unknown, slots: SlotSet): unknown[] {
-  const out: unknown[] = []
-  if (slots.keys.has('')) out.push({ slotOf: parent, key: '' } satisfies SlotMark)
-  const seen = new WeakSet<object>()
-  const walk = (list: readonly unknown[], prefix: string) => {
-    if (seen.has(list)) return
-    seen.add(list)
-    for (let i = 0; i < list.length; i++) {
-      const key = prefix === '' ? String(i) : `${prefix}.${i}`
-      if (slots.keys.has(key)) out.push({ slotOf: parent, key } satisfies SlotMark)
-      const child = list[i]
-      if (Array.isArray(child)) walk(child, key)
-      else out.push(child)
-    }
-  }
-  walk(Array.isArray(children) ? children : [children], '')
-  return out
-}
-
-/**
  * Whether `target` may put its children's rules out of the walk's order: what a
  * run since the last rule may not cross. A component renders its children where
  * it chooses, after rules of its own; a Suspense boundary may render them later,
@@ -333,62 +261,6 @@ const cutsAt = (child: unknown): boolean =>
   NodeUtil.isNodeInstance(child)
     ? cutsRuleOrder(renderTargetOf(child)) || child.dependencies !== undefined
     : typeof child === 'object' && child !== null && mayRenderComponent(child)
-
-/**
- * `slots` with a slot right before every child that renders a component, as the
- * compiler marks each it can see, so a run never crosses one the compiler could
- * not see, such as one in a spread list.
- * @param children The host's children, an array or one child.
- * @param slots The slots the compiler marked, if any.
- * @returns `slots` when every such child already has one, else a new set.
- */
-function withComponentSlots(children: unknown, slots: SlotSet | undefined): SlotSet | undefined {
-  let keys: Set<string> | undefined
-  let within: Set<string> | undefined
-  // The slot of the children as a whole is right before a sole child.
-  if (!Array.isArray(children) && slots?.keys.has('')) return slots
-  const seen = new WeakSet<object>()
-  const walk = (list: readonly unknown[], prefix: string) => {
-    if (seen.has(list)) return
-    seen.add(list)
-    for (let i = 0; i < list.length; i++) {
-      const child = list[i]
-      const key = prefix === '' ? String(i) : `${prefix}.${i}`
-      if (Array.isArray(child)) walk(child, key)
-      else if (!slots?.keys.has(key) && cutsAt(child)) {
-        keys ??= new Set(slots?.keys)
-        keys.add(key)
-        if (prefix !== '') {
-          within ??= new Set(slots?.within)
-          const path = key.split('.')
-          for (let length = 1; length < path.length; length++) within.add(path.slice(0, length).join('.'))
-        }
-      }
-    }
-  }
-  walk(Array.isArray(children) ? children : [children], '')
-  return keys === undefined ? slots : { keys, within: within ?? slots?.within ?? new Set() }
-}
-
-/**
- * A host's resolved children with each slot's leaf, or `null`, right before its
- * position, nested arrays copied where one holds a slot.
- * @param list The resolved children, or a nested array of them.
- * @param slots The host's slots.
- * @param prefix The key of `list`'s position; `''` for the children themselves.
- * @param leafAt The leaf for a slot.
- * @returns The children with the slots in place.
- */
-function placeSlots(list: readonly ReactNode[], slots: SlotSet, prefix: string, leafAt: (key: string) => ReactNode): ReactNode[] {
-  const out: ReactNode[] = []
-  for (let i = 0; i < list.length; i++) {
-    const key = prefix === '' ? String(i) : `${prefix}.${i}`
-    if (slots.keys.has(key)) out.push(leafAt(key))
-    const child = list[i]
-    out.push(Array.isArray(child) && slots.within.has(key) ? placeSlots(child, slots, key, leafAt) : child)
-  }
-  return out
-}
 
 /**
  * Every `BaseNode` reachable in a children array, including inside nested arrays.
@@ -795,8 +667,7 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
     }
     const finishStaticSlot = (rules: Map<string, ReactElement>): void => {
       const lists = staticModules?.get(rules)
-      const named = namedTail?.get(rules)
-      if (!lists && !named && !staticChecks?.has(rules) && !staticCandidates?.has(rules)) return
+      if (!lists && !staticChecks?.has(rules) && !staticCandidates?.has(rules)) return
       // Gathered as the nodes completed, deepest first, and put in the order they
       // began, parents first: Emotion's order on both sides, since it inserts each
       // element's rule from a leaf rendered before the element, ahead of its subtree.
@@ -809,18 +680,11 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
       }
       const checks = staticChecks?.get(rules)
       const candidates = staticCandidates?.get(rules)
-      // Named styles alone, all in the cache already: nothing to render, and the
-      // slot keeps its place.
-      if (!lists && !checks && !candidates && !namedPending(named!)) {
-        rules.set(STATIC_STYLES_KEY, null as unknown as ReactElement)
-        return
-      }
       rules.set(
         STATIC_STYLES_KEY,
         createElement(StaticStyles, {
           key: STATIC_STYLES_KEY,
           ...(lists && { classes }),
-          ...(named && { styles: named }),
           ...(checks && { checks }),
           ...(candidates && { candidates }),
         }),
@@ -830,11 +694,13 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
     // The whole styles the compiler serialized, inserted into Emotion's own sheet
     // when Emotion would insert them: each node's before the next rule of the
     // render in the order its nodes begin, parents first. A runtime node, or a
-    // named node the compiler marked as a carrier, inserts the run of them that
-    // began since the last such rule ahead of its own, from its `RuleInsertion`,
-    // and the run after it, up to a component or the end of the walk, after its
-    // own. Only with neither do they go in from a leaf: before a component's
-    // position, or the `StaticStyles` at the end of their topmost host.
+    // named node with no rule before it since the walk's start or a cut, which
+    // renders as a carrier, inserts the run of them that began since the last
+    // such rule ahead of its own, from its `RuleInsertion`, and the run after it,
+    // up to the next cut or the end of the walk, after its own. A cut is any child
+    // that may put its rules out of the walk's order: a component, a boundary or
+    // a memoized node. So every run goes in with a rule, and nothing is added to
+    // what `.render()` returns.
     const namedEnabled = !IS_REACT_SERVER_LAYER && hasNamedStyles()
     /** The cache the render's elements go under, read once, at its first named node. */
     let walkCache: EmotionCache | undefined
@@ -876,62 +742,34 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
 
     /**
      * What each runtime node, or carrier, inserts after its own rule: the run that
-     * began after it up to the next component or the end of the walk, when no
-     * other rule came between. Its element holds this object, filled in later.
+     * began after it up to the next cut or the end of the walk, when no other
+     * rule came between. Its element holds this object, filled in later.
      */
     const namedRunsAfter = namedEnabled ? new Map<BaseNode, { run: NamedStyle[] }>() : undefined
-    /** The last runtime node or carrier the walk began, while no component came after it. */
+
+    /**
+     * The last runtime node or carrier the walk began, since its start or the
+     * last cut. A named node that begins with none is a carrier, so a run is
+     * pending only while this is set.
+     */
     let lastRuleNode: BaseNode | null = null
-    /** Hands the run since the last rule to `lastRuleNode`, to insert after its own; whether it took it. */
-    const runAfterLastRule = (): boolean => {
-      if (pendingNamed.length === 0) return true
-      if (lastRuleNode === null) return false
-      namedRunsAfter!.get(lastRuleNode)!.run.push(...pendingNamed)
+    /** The run since the last rule. */
+    let pendingNamed: NamedStyle[] = []
+    /** Hands the run since the last rule to `lastRuleNode`, to insert after its own. */
+    const runAfterLastRule = (): void => {
+      if (pendingNamed.length === 0) return
+      namedRunsAfter!.get(lastRuleNode!)!.run.push(...pendingNamed)
       pendingNamed = []
-      return true
+    }
+    /** A cut: the run since the last rule goes in after that rule, and what follows is no longer next to it. */
+    const cutRun = (): void => {
+      runAfterLastRule()
+      lastRuleNode = null
     }
     /** Marks `node` as one whose `StyledRenderer` inserts a rule, so a later run can follow it. */
     const beginRuleNode = (node: BaseNode): void => {
       if (!namedRunsAfter!.has(node)) namedRunsAfter!.set(node, { run: [] })
       lastRuleNode = node
-    }
-    /** What each carrier's `StaticStyles` inserts, once its subtree is in. */
-    const namedTail = namedEnabled ? new Map<Map<string, ReactElement>, NamedStyle[]>() : undefined
-
-    /**
-     * Whether a style of `run` is not in the render's cache yet, so a leaf must
-     * render to put it in, as `RuleInsertion` renders only while its rule is not.
-     * A server render with no provider writes each again, so its leaves always render.
-     */
-    const namedPending = (run: readonly NamedStyle[]): boolean => {
-      const inserted = cacheOfWalk().inserted
-      for (const { serialized } of run)
-        for (let current: SerializedStyles | undefined = serialized; current; current = current.next) if (inserted[current.name] === undefined) return true
-      return false
-    }
-    /** The runs a host's slots render, by slot key. */
-    const slotRuns = new Map<BaseNode, Map<string, NamedStyle[]>>()
-    /** The run since the last rule, and the carrier of its nodes. */
-    let pendingNamed: NamedStyle[] = []
-    let pendingCarrier: BaseNode | null = null
-    const rulesOfCarrier = (carrier: BaseNode | null): Map<string, ReactElement> => {
-      if (carrier === null) return rootRules
-      let rules = anchoredRules.get(carrier)
-      if (!rules) anchoredRules.set(carrier, (rules = new Map<string, ReactElement>()))
-      return rules
-    }
-    /** Hands the run to its carrier's `StaticStyles`, which holds its place in the carrier's rules. */
-    const flushNamed = (): void => {
-      if (pendingNamed.length === 0) return
-      if (isDevMode()) reportUncarriedRun(pendingNamed)
-      const rules = rulesOfCarrier(pendingCarrier)
-      const tail = namedTail!.get(rules)
-      if (tail) tail.push(...pendingNamed)
-      else {
-        namedTail!.set(rules, pendingNamed)
-        if (!rules.has(STATIC_STYLES_KEY)) rules.set(STATIC_STYLES_KEY, null as unknown as ReactElement)
-      }
-      pendingNamed = []
     }
     // The order nodes begin in, which is the order their static classes go in.
     let began = 0
@@ -987,19 +825,12 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
           stackPointer--
           continue
         }
-        // A slot: the run that began before it is the leaf's there.
-        const slot = (currentWork as { slot?: string }).slot
-        if (slot !== undefined) {
+        // A cut, right before a child that may put its rules out of the walk's
+        // order: the run since the last rule goes in after that rule, and what
+        // follows is no longer next to it.
+        if ((currentWork as { cut?: true }).cut) {
           stackPointer--
-          if (pendingNamed.length > 0 && !runAfterLastRule()) {
-            if (isDevMode()) reportUncarriedRun(pendingNamed)
-            let runs = slotRuns.get(currentWork.node)
-            if (!runs) slotRuns.set(currentWork.node, (runs = new Map()))
-            runs.set(slot, pendingNamed)
-            pendingNamed = []
-          }
-          // A component may render here: what follows is no longer next to the last rule.
-          lastRuleNode = null
+          cutRun()
           continue
         }
         const {
@@ -1046,7 +877,6 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
           // composed; a runtime node takes that run, to insert ahead of its own.
           if (namedEnabled) {
             const beginProps = node.props as Record<string, unknown>
-            const carrier = anchor ?? (canAnchorRules(beginTarget, beginProps, inForeignNamespace) ? node : null)
             const name = beginProps.disableEmotion ? undefined : (beginProps[STATIC_NAME_MARKER] as string | undefined)
             const styles = name === undefined ? undefined : ((beginProps[STATIC_TEXT_PROP] as string | undefined) ?? staticStylesOf(name))
             if (scopedWalk && (styles !== undefined || beginsStyledRenderer(beginProps))) {
@@ -1056,9 +886,10 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
             if (name !== undefined && styles === undefined && isDevMode()) {
               console.error(`[MeoNode] The static style \`${name}\` is used but no module registered it, so no rule is sent for it.`)
             }
-            // A carrier where the compiler marks one, and also where no rule is
-            // before it since the walk's start or a cut, so a node the compiler
-            // could not mark carries all the same and no run is left without one.
+            // A carrier where the compiler marks one, so it carries in every
+            // render; also where no rule is before it since the walk's start or
+            // a cut, which the compiler missed, so every run has a rule to go in
+            // with; and anywhere with no cache to read.
             if (styles !== undefined && (beginProps[STATIC_CARRIER_MARKER] || walkHasNoCache() || lastRuleNode === null)) {
               // A runtime node now: it takes the run since the last rule, as one
               // does, and the one after it that no later rule takes.
@@ -1069,18 +900,13 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
               }
               beginRuleNode(node)
             } else if (styles !== undefined) {
-              // Following a rule, the run goes in after it; without one, at the end of its carrier.
-              if (carrier !== pendingCarrier) {
-                if (lastRuleNode === null) flushNamed()
-                pendingCarrier = carrier
-              }
+              // Following a rule: the run goes in after it.
               const { className, style } = namedClass(cacheOfWalk(), name!, styles, beginProps.className, typeof beginTarget === 'string')
               namedClasses!.set(node, className)
               if (scopedWalk) style.scope = childScope!
               pendingNamed.push(style)
             } else if (beginsStyledRenderer(beginProps)) {
-              // A run of another carrier went to it as that carrier completed, so
-              // what is pending began before this node, in its carrier or in none.
+              // It takes the run since the last rule, to insert ahead of its own.
               if (pendingNamed.length > 0) {
                 namedRuns!.set(node, pendingNamed)
                 pendingNamed = []
@@ -1120,22 +946,20 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
             // other child, so they are collected here — a nested array skipped at
             // this phase would never reach `renderedElements`, and the complete
             // phase below would then fail to look it up rather than rendering it.
-            // With slots, the walk reaches each where it is among them.
-            // With named styles, every child that renders a component is a slot too.
-            const slotPaths = typeof children === 'function' ? undefined : (node.props[STATIC_SLOTS_MARKER] as readonly SlotPath[] | undefined)
-            const marked = slotPaths ? slotSetOf(slotPaths) : undefined
-            const slots = namedEnabled && typeof children !== 'function' && node._builtFrom === undefined ? withComponentSlots(children, marked) : marked
-            const pending = slots ? collectWithSlots(node, children, slots) : collectNodeChildren(childArray)
+            // With named styles, a cut goes right before each child that may put
+            // its rules out of the walk's order.
+            const pending = collectNodeChildren(childArray)
 
-            ensureCapacity(stackPointer + pending.length)
+            ensureCapacity(stackPointer + (namedEnabled ? 2 * pending.length : pending.length))
 
             for (let i = pending.length - 1; i >= 0; i--) {
               const child = pending[i]
-              if (isSlotMark(child)) {
-                workStack[stackPointer++] = { node, isProcessed: true, slot: child.key } as unknown as (typeof workStack)[number]
+              // Pushed after the child, so the walk reaches it first.
+              const cut = namedEnabled && cutsAt(child)
+              if (!NodeUtil.isNodeInstance(child)) {
+                if (cut) workStack[stackPointer++] = { node, isProcessed: true, cut: true } as unknown as (typeof workStack)[number]
                 continue
               }
-              if (!NodeUtil.isNodeInstance(child)) continue
 
               // Fiber-backed memoization: hand the subtree to React instead of
               // deriving a key for it. The child becomes terminal for this walk
@@ -1145,6 +969,7 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
               if (!NodeUtil.isServer && child.dependencies) {
                 const childKey = (child.rawProps as { key?: string | number }).key
                 renderedElements.set(child, createElement(MeoMemo, { key: childKey, node: child, deps: child.dependencies }))
+                if (cut) workStack[stackPointer++] = { node, isProcessed: true, cut: true } as unknown as (typeof workStack)[number]
                 continue
               }
 
@@ -1164,6 +989,7 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
                 themeOwn: childThemeOwn,
                 scope: childScope,
               }
+              if (cut) workStack[stackPointer++] = { node, isProcessed: true, cut: true } as unknown as (typeof workStack)[number]
             }
           }
         } else {
@@ -1182,11 +1008,10 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
             as: asTarget,
             [LIST_MARKER]: generatedChildren,
             [LOCATION_MARKER]: callSiteLocation,
+            [STATIC_CARRIER_MARKER]: _carrier,
             [STATIC_CLASSES_MARKER]: staticClasses,
             [STATIC_VARS_MARKER]: staticVars,
             [STATIC_NAME_MARKER]: staticName,
-            [STATIC_SLOTS_MARKER]: slotMarker,
-            [STATIC_CARRIER_MARKER]: _carrier,
             [STATIC_TEXT_PROP]: staticText,
             ...otherProps
           } = node.props
@@ -1210,10 +1035,7 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
           // A component may insert rules of its own after its children's, and a
           // boundary or a memoized node may render them apart: the run since the
           // last rule goes in after that rule, and what follows is no longer next to it.
-          if (namedEnabled && (cutsRuleOrder(renderTarget) || node.dependencies !== undefined)) {
-            runAfterLastRule()
-            lastRuleNode = null
-          }
+          if (namedEnabled && (cutsRuleOrder(renderTarget) || node.dependencies !== undefined)) cutRun()
           // A node in a prop is a supported pattern — a component can take one and
           // put it in its own `children`, where the walk resolves it (see
           // `tests/props-attributes.test.ts`). So this cannot be a general check.
@@ -1269,25 +1091,6 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
             }
           }
 
-          // A slot's leaf, or `null` while it holds no run, only where a run had no
-          // runtime node or carrier before it to follow; otherwise the children are
-          // as written. The slot of the children as a whole goes ahead of them as an
-          // argument of its own, so a generated list stays the one list React key-checks.
-          // A child rendering a component the compiler did not mark has a slot only once a run is there.
-          const runsHere = hostChildren === childrenInProps && builtFrom === undefined ? slotRuns.get(node) : undefined
-          const slots =
-            runsHere === undefined
-              ? undefined
-              : slotSetOfKeys([...(slotMarker !== undefined ? (slotMarker as readonly SlotPath[]).map(slotKey) : []), ...runsHere.keys()])
-          const leafAt = (slotKeyOf: string): ReactNode => {
-            const run = runsHere?.get(slotKeyOf)
-            return run && namedPending(run) ? createElement(StaticStyles, { key: `${SLOT_KEY_PREFIX}${slotKeyOf}`, styles: run }) : null
-          }
-          // Slots render only where a run had no rule to follow; with none, the children are as written.
-          const slotsHere = runsHere !== undefined && runsHere.size > 0 ? slots : undefined
-          if (slotsHere && finalChildren.length > 0) finalChildren = placeSlots(finalChildren, slotsHere, '', leafAt)
-          const wholeSlot = slotsHere?.keys.has('') ? [leafAt('')] : undefined
-
           // How the children reach `createElement` is what decides whether React
           // asks for keys. Passing them as separate arguments is React's signal
           // that a human wrote the siblings out, so it marks them validated and
@@ -1327,17 +1130,7 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
           const childArguments = generatedChildren && Array.isArray(childrenInProps) && finalChildren.length > 0 ? [finalChildren] : finalChildren
           // A built element's children reach React in the element's own shape: a
           // list as one argument, which React key-checks as it would the element's.
-          // Beside a list passed as one argument, the slot would make it a nested
-          // list, one more fiber; it goes in the list instead, keyed, as its first
-          // member, so every member keeps its place relative to the others.
-          const elementChildren =
-            builtFrom !== undefined && Array.isArray(childrenInProps)
-              ? [finalChildren]
-              : wholeSlot
-                ? childArguments !== finalChildren
-                  ? [[...wholeSlot, ...finalChildren]]
-                  : [...wholeSlot, ...childArguments]
-                : childArguments
+          const elementChildren = builtFrom !== undefined && Array.isArray(childrenInProps) ? [finalChildren] : childArguments
 
           // React's report says a key is missing; it cannot say where. Every
           // element in the tree is created inside this one `.render()` call, so
@@ -1686,8 +1479,6 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
           // it would be without them. With static css among them they go in as
           // children of their own, which a nested list would wrap in one more
           // fiber; without, they stay the one trailing list they have always been.
-          // A carrier's run goes to its `StaticStyles` once its subtree is walked.
-          if (namedEnabled && pendingCarrier === node && lastRuleNode === null) flushNamed()
           const carriedRules = anchoredRules.get(node)
           if (carriedRules) finishStaticSlot(carriedRules)
           // At the end of the children, a leaf with nothing to insert goes: what
@@ -1697,7 +1488,7 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
             // keyed, after their own: beside it, they would make it a nested list.
             const listArgument = elementChildren.length === 1 && Array.isArray(elementChildren[0]) ? (elementChildren[0] as ReactNode[]) : undefined
             element =
-              staticModules?.has(carriedRules) || namedTail?.has(carriedRules) || staticChecks?.has(carriedRules) || staticCandidates?.has(carriedRules)
+              staticModules?.has(carriedRules) || staticChecks?.has(carriedRules) || staticCandidates?.has(carriedRules)
                 ? listArgument
                   ? cloneElement(element, undefined, [...listArgument, ...carriedRules.values()])
                   : cloneElement(element, undefined, ...elementChildren, ...carriedRules.values())
@@ -1721,11 +1512,8 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
 
       // Get the final rendered element for the root node of this render cycle.
       const rootElement = renderedElements.get(this) as ReactElement<FinalNodeProps>
-      // What no rule or carrier took goes beside the root, after it.
-      if (namedEnabled && !runAfterLastRule()) {
-        pendingCarrier = null
-        flushNamed()
-      }
+      // The run since the last rule goes in after it.
+      if (namedEnabled) runAfterLastRule()
       if (namedCandidates !== undefined) checkCandidatesAfterCommit(namedCandidates)
       if (rootRules.size === 0) return rootElement
       finishStaticSlot(rootRules)

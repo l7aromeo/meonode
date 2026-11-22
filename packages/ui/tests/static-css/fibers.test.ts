@@ -128,8 +128,6 @@ describe('named styles', () => {
     const slotted = census(
       inComponent(() =>
         Div({
-          __meo$: 2,
-          __meo$p: Array.from({ length: CHILDREN }, (_, index) => 2 * index + 1),
           children: Array.from({ length: CHILDREN }, (_, index) => [
             Div({ key: `s${index}`, ...named(index) } as never),
             Node(Card, { key: `c${index}` }),
@@ -137,9 +135,9 @@ describe('named styles', () => {
         } as never),
       ),
     )
-    // Each node after a slot begins a stretch, and each Card's root begins its
+    // Each node after a Card begins a stretch, and each Card's root begins its
     // own walk: every one carries, as the compiler marks them, and nothing is
-    // added at the slots.
+    // added to the children.
     expect(slotted).toEqual({
       mount: { App: 1, Card: CHILDREN, 'host:div': 2 * CHILDREN + 1, Styled: 2 * CHILDREN, RuleInsertion: 2 * CHILDREN },
       again: { App: 1, Card: CHILDREN, 'host:div': 2 * CHILDREN + 1, Styled: 2 * CHILDREN },
@@ -160,16 +158,12 @@ describe('named styles', () => {
 
   // A generated list reaches React as one list argument. Anything beside it
   // would make it a nested list, wrapped in a fiber of its own.
-  it.each([
-    ['alone', {}],
-    ['with a slot before it as a whole', { __meo$p: [[]] }],
-  ])('add no fiber to a generated list of children, %s', (_, slots) => {
+  it('add no fiber to a generated list of children', () => {
     const fibers = census(
       inComponent(() =>
         Div({
           __meo$: 2,
           __meo$list: true,
-          ...slots,
           children: Array.from({ length: CHILDREN }, (_, index) => Div({ key: String(index), ...named(index) } as never)),
         } as never),
       ),
@@ -179,13 +173,11 @@ describe('named styles', () => {
     expect(fibers.mount['tag 7']).toBeUndefined()
   })
 
-  it('cost nothing at an idle slot', () => {
+  it('cost nothing between components', () => {
     const Card = () => Div(named(0) as never).render() as ReactElement
     const idle = census(
       inComponent(() =>
         Div({
-          __meo$: 2,
-          __meo$p: Array.from({ length: CHILDREN }, (_, index) => index),
           children: Array.from({ length: CHILDREN }, (_, index) => Node(Card, { key: `c${index}` })),
         } as never),
       ),
@@ -201,7 +193,8 @@ describe('named styles', () => {
 // A grid of cards, each a named card with a named title and a component after
 // it, as a list page is: what the runs cost against the runtime twin, with the
 // carriers the compiler marks and with none marked, where the walk carries at
-// the same nodes, and with the component a plain one or a `Component(...)`.
+// the first named node after each cut, and with the component a plain one or a
+// `Component(...)`.
 describe('a card list', () => {
   const CARDS = 10
   type Placement = 'runtime' | 'carriers' | 'unmarked'
@@ -214,7 +207,6 @@ describe('a card list', () => {
     registerStaticCss(`m-${name}`, [[name, styles]])
     return { __meo$: 2, __meo$n: name, ...(carrier && placement === 'carriers' && { [STATIC_CARRIER_MARKER]: 1 }) }
   }
-  const slots = (placement: Placement, ...paths: number[]) => (placement === 'runtime' ? {} : { __meo$: 2, __meo$p: paths })
   const Plain = () => Span('leaf').render() as ReactElement
 
   function grid(placement: Placement, component: 'plain' | 'Component'): () => ReactElement {
@@ -225,14 +217,12 @@ describe('a card list', () => {
       createElement(function App() {
         return Div({
           ...style(placement, { display: 'grid', gap: at }, true),
-          ...slots(placement, ...Array.from({ length: CARDS }, (_, index) => index + 1)),
           children: [
             Span('h', { key: 'h', ...style(placement, { fontSize: at }) }),
             ...Array.from({ length: CARDS }, (_, index) =>
               Div({
                 key: index,
                 ...style(placement, { padding: at }, true),
-                ...slots(placement, 1),
                 children: [Span('b', style(placement, { order: at }) as never), component === 'Component' ? Leaf({ key: 'l' }) : Node(Plain, { key: 'l' })],
               }),
             ),
@@ -254,14 +244,18 @@ describe('a card list', () => {
   // A renderer per carrier: the grid and each card, which carry the runs of the nodes after them.
   const carriers = { Styled: CARDS + 1, RuleInsertion: CARDS + 1 }
   const carriersAgain = { Styled: CARDS + 1 }
+  // With none marked, the walk carries at the grid and at each card after a
+  // component: every card but the first, whose run follows the grid's.
+  const promoted = { Styled: CARDS, RuleInsertion: CARDS }
+  const promotedAgain = { Styled: CARDS }
 
   it.skipIf(process.env.MEONODE_EXTRACTED === '1').each([
     ['plain', 'runtime', runtime, runtimeAgain],
     ['plain', 'carriers', carriers, carriersAgain],
-    ['plain', 'unmarked', carriers, carriersAgain],
+    ['plain', 'unmarked', promoted, promotedAgain],
     ['Component', 'runtime', runtime, runtimeAgain],
     ['Component', 'carriers', carriers, carriersAgain],
-    ['Component', 'unmarked', carriers, carriersAgain],
+    ['Component', 'unmarked', promoted, promotedAgain],
   ] as const)('with a %s component and %s', (component, placement, mount, again) => {
     expect(census(grid(placement, component))).toEqual({ mount: { ...base(component), ...mount }, again: { ...base(component), ...again } })
   })

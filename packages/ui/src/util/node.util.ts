@@ -21,17 +21,12 @@ import {
   __DEBUG__,
   COMPILED_MARKER,
   COMPILER_SCHEMA_KEYS,
-  INITIAL_PROPS_MARKER,
   isDevMode,
   LIST_MARKER,
   LOCATION_MARKER,
-  STATIC_AFTER_SPREAD_MARKER,
-  STATIC_BEFORE_SPREAD_MARKER,
+  STATIC_CARRIER_MARKER,
   STATIC_CLASSES_MARKER,
   STATIC_NAME_MARKER,
-  STATIC_SLOTS_MARKER,
-  STATIC_CARRIER_MARKER,
-  STATIC_TEMPLATE_MARKER,
   STATIC_TEXT_PROP,
   STATIC_VARS_MARKER,
   SUPPORTED_COMPILER_SCHEMAS,
@@ -248,27 +243,16 @@ export class NodeUtil {
     for (const propKey in source) {
       if (!Object.prototype.hasOwnProperty.call(source, propKey)) continue
       if (
-        propKey === COMPILED_MARKER ||
+        // Stripped on every schema, read on only some: the `__meo$` prefix is
+        // the compiler's, so no schema has a reason to forward a key wearing it,
+        // and a schema declining to *act* on a marker, or one no runtime reads
+        // any more, is no reason to let it out to the element.
+        propKey.startsWith(COMPILED_MARKER) ||
         propKey === schemaKeys.css ||
         propKey === schemaKeys.dom ||
         propKey === schemaKeys.key ||
         propKey === schemaKeys.dyn ||
-        // Stripped on every schema, read on only some: the `__meo$` prefix is
-        // the compiler's, so no schema has a reason to forward a key wearing it,
-        // and schema 1 declining to *act* on the marker is no reason to let it
-        // out to the element.
-        propKey === LIST_MARKER ||
-        propKey === LOCATION_MARKER ||
-        propKey === INITIAL_PROPS_MARKER ||
-        propKey === STATIC_CLASSES_MARKER ||
-        propKey === STATIC_VARS_MARKER ||
-        propKey === STATIC_NAME_MARKER ||
-        propKey === STATIC_SLOTS_MARKER ||
-        propKey === STATIC_CARRIER_MARKER ||
-        propKey === STATIC_TEMPLATE_MARKER ||
         propKey === STATIC_TEXT_PROP ||
-        propKey === STATIC_BEFORE_SPREAD_MARKER ||
-        propKey === STATIC_AFTER_SPREAD_MARKER ||
         NodeUtil.DESTRUCTURED_SPECIAL_KEYS.has(propKey)
       ) {
         continue
@@ -364,9 +348,8 @@ export class NodeUtil {
         )
       }
     }
-    // Where a component may render among the written children, for the leaves before them.
-    const slots = schemaKeys.slots === undefined ? undefined : source[schemaKeys.slots]
-    if (Array.isArray(slots) && slots.length > 0) result[STATIC_SLOTS_MARKER] = slots
+
+    // A carrier the compiler marked.
     if (source[STATIC_CARRIER_MARKER]) result[STATIC_CARRIER_MARKER] = 1
 
     return result as FinalNodeProps

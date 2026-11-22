@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
 //
-// A slot before a component among a compiled host's children marks where a
-// run of named styles must be in by: a carrier before it, or the last runtime
-// node, inserts the run with its own rule, so nothing is added to the children.
-// So a child keeps its position, and its state, when a conditional elsewhere
-// among the children brings a static node in and out; and React asks for no
-// key the authored children would not need.
+// A component among a compiled host's children: the run of named styles before
+// it goes in by the time it renders, with a carrier before it or the last
+// runtime node, so nothing is added to the children. So a child keeps its
+// position, and its state, when a conditional elsewhere among the children
+// brings a static node in and out; and React asks for no key the authored
+// children would not need.
 import { serializeStyles } from '@emotion/serialize'
 import { act, createElement, useState, type ReactElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -50,13 +50,13 @@ function Counter() {
   return Button(String(count), { 'data-n': 'counter', onClick: () => setCount(value => value + 1) }).render() as ReactElement
 }
 
-describe('a slot before a component', () => {
+describe('a component among a compiled host’s children', () => {
   it('keeps the component’s state while a conditional static node before it, its carrier, comes and goes', () => {
     let toggle = () => {}
     function Page() {
       const [shown, setShown] = useState(true)
       toggle = () => setShown(value => !value)
-      return Div({ __meo$: 2, __meo$p: [1], children: [shown && Div({ ...staticStyle({ order: 1 }), __meo$r: 1 }), Node(Counter)] }).render() as ReactElement
+      return Div({ children: [shown && Div({ ...staticStyle({ order: 1 }), __meo$r: 1 }), Node(Counter)] }).render() as ReactElement
     }
     root = createRoot(document.body.appendChild(document.createElement('div')))
     act(() => root!.render(createElement(Page)))
@@ -73,13 +73,12 @@ describe('a slot before a component', () => {
     expect(counter().textContent).toBe('2')
   })
 
-  it('keeps a generated list one key-checked list with a slot before it as a whole', () => {
+  it('keeps a generated list of components one key-checked list', () => {
     const error = vi.spyOn(console, 'error').mockImplementation(() => {})
     const Item = () => Span('i', staticStyle({ order: 5 })).render() as ReactElement
     const page = (keyed: boolean) =>
       Div({
         __meo$: 2,
-        __meo$p: [[]],
         __meo$list: true,
         ...staticStyle({ order: 4 }),
         children: ['a', 'b'].map(key => (keyed ? Node(Item, { key }) : Node(Item))),
@@ -97,8 +96,6 @@ describe('a slot before a component', () => {
     const error = vi.spyOn(console, 'error').mockImplementation(() => {})
     const Item = () => Span('i', staticStyle({ order: 2 })).render() as ReactElement
     const page = Div({
-      __meo$: 2,
-      __meo$p: [1, [2, 1]],
       children: [Div(staticStyle({ order: 1 })), Node(Item), [Span('a', { key: 'a', ...staticStyle({ order: 3 }) }), Node(Item, { key: 'b' })]],
     })
     root = createRoot(document.body.appendChild(document.createElement('div')))

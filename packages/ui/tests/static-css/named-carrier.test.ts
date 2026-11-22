@@ -33,8 +33,6 @@ const compiledStyle: Style = (css, options) => {
   return { __meo$: 2, __meo$n: name, ...(options?.carrier && { __meo$r: 1 }) }
 }
 const carrier = { carrier: true }
-/** The slots the compiler marks among a host's children, on the compiled tree only. */
-const slots = (style: Style, ...paths: number[]) => (style === compiledStyle ? { __meo$: 2, __meo$p: paths } : {})
 
 /** A component holding a count under its label, which a remount resets. */
 function Counter({ label }: { label: string }) {
@@ -166,7 +164,7 @@ const run = shaped(runUnshaped)
 describe.each([
   ['unkeyed', false],
   ['keyed', true],
-] as const)('%s counters around a conditional or a spread, with carriers in place of slots', (_, keyed) => {
+] as const)('%s counters around a conditional or a spread, with carriers marked', (_, keyed) => {
   describe.each([
     ['with it in at first', true],
     ['with it out at first', false],
@@ -211,15 +209,14 @@ function onceUnshaped(tree: (style: Style) => NodeInstance, style: Style) {
 const once = shaped(onceUnshaped)
 
 const TIES: Record<string, (style: Style) => NodeInstance> = {
-  // A component after a spread has no slot, so the walk makes no cut there.
-  // The static node after it begins a run the compiler marks as a carrier, since
-  // its pass cuts at the component; so it inserts its rule from its own render,
-  // after the component's, and the tie goes to it as uncompiled.
+  // A component after a spread, which the walk cuts at as at any component. The
+  // static node after it begins a run the compiler marks as a carrier, since its
+  // pass cuts at the component; so it inserts its rule from its own render, after
+  // the component's, and the tie goes to it as uncompiled.
   'a static node after a component after a spread, against the component’s own rule': style => {
     const Item = Component(() => Div({ 'data-n': 'i', className: 'item', ...style({ '.wrapper:has(.t) &': BLUE }, carrier) }))
     return Div({
       className: 'wrapper',
-      ...slots(style, 0),
       children: [
         ...[1, 2].map(n => Span(String(n), { key: `n${n}` })),
         Div({ key: 'r', 'data-n': 'r', ...style({ order: 1 }, { runtime: true }) }),
@@ -234,19 +231,17 @@ const TIES: Record<string, (style: Style) => NodeInstance> = {
     const Item = Component(() => Div({ 'data-n': 'i', className: 'item', ...style({ '.wrapper &': BLUE }, carrier) }))
     return Div({
       className: 'wrapper',
-      ...slots(style, 1),
       children: [Span('s', { key: 's', 'data-n': 's', ...style({ '& + .item': RED }, carrier) }), Item({ key: 'i' })],
     })
   },
   'a static parent’s & .child against a Component child’s own .wrapper &': style => {
     const Child = Component(() => Span('c', { 'data-n': 'c', className: 'child', ...style({ '.wrapper &': BLUE }, carrier) }))
-    return Div({ 'data-n': 'p', className: 'wrapper', ...style({ '& .child': RED }, carrier), ...slots(style, 0), children: Child() })
+    return Div({ 'data-n': 'p', className: 'wrapper', ...style({ '& .child': RED }, carrier), children: Child() })
   },
   'Components between statics, written with Node': style => {
     const Item = Component(() => Div({ 'data-n': 'i', className: 'item', ...style({ order: 7 }, carrier) }))
     return Div({
       ...style(GRID, carrier),
-      ...slots(style, 1, 3),
       children: [
         Span('a', { key: 'a', 'data-n': 'a', ...style({ '& ~ .item': RED }) }),
         Node(Item, { key: 'i' }),
@@ -294,7 +289,7 @@ const TIES: Record<string, (style: Style) => NodeInstance> = {
   },
 }
 
-describe('ties with carriers in place of slots and the trailing leaf', () => {
+describe('ties with carriers marked', () => {
   it.each(Object.entries(TIES))('%s', (_, tree) => {
     const expected = once(tree, runtimeStyle)
     expect(expected.rules.length).toBeGreaterThan(0)
@@ -316,7 +311,6 @@ describe('a generated list of items each holding a component', () => {
         Div({
           ...keyOf(keyed, id),
           ...style({ order: id.charCodeAt(0) }, carrier),
-          ...(style === compiledStyle && { __meo$p: [1] }),
           children: [Span('t', { ...keyOf(keyed, 't'), ...style({ '& + button': { color: shade(id) } }) }), counter(id, keyed)],
         }),
       ),
@@ -335,7 +329,7 @@ describe('a generated list of items each holding a component', () => {
     let setIds: (ids: string[]) => void = () => {}
     const shapes: unknown[] = []
     // React reports a missing key once per parent's name, so each run's page has its own.
-    const name = `Page${style === compiledStyle ? 'Compiled' : 'Runtime'}${keyed ? 'Keyed' : ''}`
+    const name = `Page${style === compiledStyle ? 'Compiled' : style === runtimeStyle ? 'Runtime' : 'Unmarked'}${keyed ? 'Keyed' : ''}`
     const Page = {
       [name]: function () {
         const [ids, set] = useState(SEQUENCE[0])
@@ -373,9 +367,34 @@ describe('a generated list of items each holding a component', () => {
     const { keyWarnings: _compiledWarnings, ...compiled } = runList(compiledStyle, keyed)
     expect(compiled).toEqual(expected)
   })
+
+  // Pinned: with no carrier marked, the walk carries at whichever item begins
+  // its stretch, which a reorder changes, so an item flips between its host and
+  // a renderer and React remounts it. That is why the compiler marks every item
+  // that may begin one.
+  it('remount keyed items no carrier marks, once the list reorders', () => {
+    const unmarkedStyle: Style = (css, options) => compiledStyle(css, { ...options, carrier: false })
+    const expected = runList(runtimeStyle, true)
+    const unmarked = runList(unmarkedStyle, true)
+    expect(expected.steps.map(step => step.counters)).toEqual([
+      ['a:0', 'b:0', 'c:0'],
+      ['a:1', 'b:1', 'c:1', 'd:0'],
+      ['b:2', 'c:2', 'd:1'],
+      ['d:2', 'c:3', 'b:3'],
+      ['e:0', 'd:3', 'c:4', 'b:4'],
+    ])
+    // An item remounts each time it comes to begin the list or stops beginning it.
+    expect(unmarked.steps.map(step => step.counters)).toEqual([
+      ['a:0', 'b:0', 'c:0'],
+      ['a:1', 'b:1', 'c:1', 'd:0'],
+      ['b:0', 'c:2', 'd:1'],
+      ['d:0', 'c:3', 'b:0'],
+      ['e:0', 'd:0', 'c:4', 'b:1'],
+    ])
+  })
 })
 
-// A Component after a named sibling, whose run takes a slot's leaf before it.
+// A Component after a named sibling, whose run goes in with the rule before it.
 describe('a Component after a named sibling', () => {
   it('keeps every render under StrictMode at the runtime twin’s rules', async () => {
     const { StrictMode } = await import('react')
@@ -396,7 +415,6 @@ describe('a Component after a named sibling', () => {
               createElement(function Page() {
                 return Div({
                   className: 'wrapper',
-                  ...slots(style, 1),
                   children: [Span('s', { key: 's', ...style({ '& + .item': RED }, carrier) }), Item({ key: 'i' })],
                 }).render() as ReactElement
               }),
@@ -434,7 +452,6 @@ describe('a Component element written twice in one host', () => {
         { value: createCache({ key: 'css', speedy: true }) },
         createElement(function Page() {
           return Div({
-            ...slots(style, 1, 3),
             children: [Span('a', { key: 'a', ...style({ order: 1 }, carrier) }), item, Span('b', { key: 'b', ...style({ order: 2 }, carrier) }), item],
           }).render() as ReactElement
         }),
@@ -478,7 +495,6 @@ describe('named nodes with no carrier marked', () => {
       Div({
         'data-n': 'p',
         ...style({ '& > *': RED }),
-        ...slots(style, 1),
         children: [Span('c', { key: 'c', 'data-n': 'c', ...style(BLUE) }), Node(Counter, { key: 'k', label: 'k' })],
       })
     const errors = vi.spyOn(console, 'error').mockImplementation(() => {})

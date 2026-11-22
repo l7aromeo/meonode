@@ -12,9 +12,8 @@ import { builtinEnvironments } from 'vitest/runtime'
 
 type Css = Record<string, unknown>
 type Main = typeof import('@src/main.js')
-/** Props giving a node `css`, and with `slots` the positions the compiler marks among a host's children. */
+/** Props giving a node `css`. */
 type Style = ((css: Css, isStatic?: boolean) => Record<string, unknown>) & {
-  slots: (...paths: (number | number[])[]) => Record<string, unknown>
   /** A static node the compiler marked to carry the named styles after it. */
   carrier: (css: Css) => Record<string, unknown>
 }
@@ -69,10 +68,9 @@ const CASES: Record<string, Tree> = {
  * alike. The carried cases below are the same trees as the compiler marks them.
  */
 const UNMARKED_CASES: Record<string, Tree> = {
-  'statics before components with ids, at marked positions': (ui, react, style) => {
+  'statics before components with ids': (ui, react, style) => {
     const Id = () => ui.Span('id', { 'data-id': react.useId(), ...style({ order: 9 }) }).render() as import('react').ReactElement
     return ui.Div({
-      ...style.slots(1, [2, 1], 3),
       children: [
         ui.Div({ key: 1, ...style({ order: 1 }) }),
         ui.Node(Id),
@@ -112,7 +110,7 @@ const UNMARKED_CASES: Record<string, Tree> = {
   },
 }
 
-/** Cases with carriers in place of slots and the trailing leaf: the host and the first named node after each component. */
+/** Cases with carriers marked: the host and the first named node after each component. */
 const CARRIER_CASES: Record<string, Tree> = {
   // In development a named node's theme tokens are checked with nothing added
   // to the render, so the ids below it are the runtime twin's.
@@ -120,7 +118,6 @@ const CARRIER_CASES: Record<string, Tree> = {
     const Id = () => ui.Span('id', { 'data-id': react.useId(), ...style.carrier(BLUE) }).render() as import('react').ReactElement
     return ui.Div({
       ...style.carrier({ display: 'grid' }),
-      ...style.slots(1),
       children: [ui.Span('t', { key: 't', ...style({ color: 'var(--meonode-theme-primary-missing)' }) }), ui.Node(Id, { key: 'i' })],
     })
   },
@@ -128,7 +125,6 @@ const CARRIER_CASES: Record<string, Tree> = {
     const Id = () => ui.Span('id', { 'data-id': react.useId(), ...style.carrier({ order: 9 }) }).render() as import('react').ReactElement
     return ui.Div({
       ...style.carrier({ display: 'grid' }),
-      ...style.slots(1, [2, 1], 3),
       children: [
         ui.Div({ key: 1, ...style({ order: 1 }) }),
         ui.Node(Id),
@@ -144,7 +140,6 @@ const CARRIER_CASES: Record<string, Tree> = {
   'statics after a runtime node, before a component with an id': (ui, react, style) => {
     const Id = () => ui.Span('id', { 'data-id': react.useId(), ...style.carrier(BLUE) }).render() as import('react').ReactElement
     return ui.Div({
-      ...style.slots(2),
       children: [ui.Div({ key: 1, ...style({ order: 1 }, false) }), ui.Div({ key: 2, ...style({ order: 2 }) }), ui.Node(Id, { key: 3 })],
     })
   },
@@ -176,7 +171,6 @@ async function load() {
         return { __meo$: 2, __meo$n: name }
       },
       {
-        slots: (...paths: (number | number[])[]) => (compiled ? { __meo$: 2, __meo$p: paths } : {}),
         carrier: (css: Css) => {
           if (!compiled) return { css }
           const { name, styles: text } = compile(css)

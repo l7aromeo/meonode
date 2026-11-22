@@ -69,11 +69,30 @@ const PLACEMENTS: Record<string, (style: Style, boundary: (content: NodeInstance
     }),
 }
 
+/**
+ * A memoized named node as the first child of a runtime host, as a search
+ * palette's icon is written: `Span(icon, { display, color }, [])` first in a
+ * `Row` with `css`. It follows the host's rule, so the compiler marks no carrier.
+ */
+const MEMO_FIRST: [name: string, tree: (style: Style) => NodeInstance] = [
+  'a memoized named node first under a runtime host',
+  style =>
+    Div({
+      css: { display: 'flex', gap: 4 },
+      children: [
+        Span(Span('icon'), { key: 'icon', 'data-n': 'm', ...style({ display: 'inline-flex', color: 'rgb(1, 2, 3)' }) }, []),
+        Span('x', { key: 'x', 'data-n': 'x', ...style({ order: 2 }) }),
+      ],
+    }),
+]
+
 /** Every case: the tree for a style and what the content waits for. */
-export const CASES: [name: string, tree: (style: Style, data: Promise<string>) => NodeInstance][] = Object.entries(BOUNDARIES).flatMap(
-  ([b, [wrap, component]]) =>
+export const CASES: [name: string, tree: (style: Style, data: Promise<string>) => NodeInstance][] = [
+  ...Object.entries(BOUNDARIES).flatMap(([b, [wrap, component]]) =>
     Object.entries(PLACEMENTS).map(
       ([p, placement]) =>
         [`${p}, ${b}`, (style: Style, data: Promise<string>) => placement(style, content => wrap(content, data), component ? carrier : {})] as const,
     ),
-) as never
+  ),
+  MEMO_FIRST,
+] as never

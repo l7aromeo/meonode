@@ -6,7 +6,6 @@
 // or clones the result, or React reconciling it, sees the same tree.
 import { isValidElement, type ReactNode } from 'react'
 import { BaseNode } from '@src/core.node.js'
-import { __resetUncarriedReports, __uncarriedReports } from '@src/util/named-style.util.js'
 
 /** The structure of `node`: an element's key and children, nested; anything else by kind. */
 export function structureOf(node: ReactNode): unknown {
@@ -18,17 +17,15 @@ export function structureOf(node: ReactNode): unknown {
   return node === null || node === undefined || typeof node === 'boolean' ? String(node) : typeof node
 }
 
-/** What a run returned, with the structure of its renders and the uncarried runs reported: beside an array, on an object. */
+/** What a run returned, with the structure of its renders: beside an array, on an object. */
 interface Shapes {
   renders: unknown[]
-  uncarried: readonly string[]
 }
 export type Shaped<T> = T extends readonly unknown[] ? { result: T } & Shapes : T & Shapes
 
 /**
  * Runs `run` and adds to what it returns the structure of every `.render()` it
- * made, in order, and the styles whose run no carrier or runtime node took, so
- * a comparison against the runtime twin, which has none, compares them too.
+ * made, in order, so a comparison against the runtime twin compares them too.
  * @param run The run, returning an object.
  * @returns What it returned, with `renders`; an array as `result`.
  */
@@ -40,10 +37,9 @@ export function withRenderShapes<T extends object>(run: () => T): Shaped<T> {
     renders.push(structureOf(element))
     return element
   }
-  __resetUncarriedReports()
   try {
     const result = run()
-    return Object.assign(Array.isArray(result) ? { result } : { ...result }, { renders, uncarried: __uncarriedReports() }) as Shaped<T>
+    return Object.assign(Array.isArray(result) ? { result } : { ...result }, { renders }) as Shaped<T>
   } finally {
     BaseNode.prototype.render = render
   }
@@ -64,10 +60,9 @@ export async function withRenderShapesAsync<T extends object>(run: () => Promise
     renders.push(structureOf(element))
     return element
   }
-  __resetUncarriedReports()
   try {
     const result = await run()
-    return Object.assign(Array.isArray(result) ? { result } : { ...result }, { renders, uncarried: __uncarriedReports() }) as Shaped<T>
+    return Object.assign(Array.isArray(result) ? { result } : { ...result }, { renders }) as Shaped<T>
   } finally {
     BaseNode.prototype.render = render
   }

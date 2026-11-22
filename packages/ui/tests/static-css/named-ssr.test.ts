@@ -40,21 +40,16 @@ function compile(css: Css): { name: string; styles: string } {
 /**
  * Props giving a node `css`, a carrier where the compiler marks one: the first
  * static node of a run that a component or an end of the walk bounds on both
- * sides. With `slots`, the positions the compiler marks among a host's children.
+ * sides.
  */
-type Style = ((css: Css, isStatic?: boolean, carrier?: boolean) => Record<string, unknown>) & {
-  slots: (...paths: (number | number[])[]) => Record<string, unknown>
+type Style = (css: Css, isStatic?: boolean, carrier?: boolean) => Record<string, unknown>
+const runtimeStyle: Style = (css: Css) => ({ css })
+const compiledStyle: Style = (css: Css, isStatic = true, carrier = false) => {
+  if (!isStatic) return { css }
+  const { name, styles } = compile(css)
+  registerStaticCss(`m-${name}`, [[name, styles]])
+  return { __meo$: 2, __meo$n: name, ...(carrier && { __meo$r: 1 }) }
 }
-const runtimeStyle: Style = Object.assign((css: Css) => ({ css }), { slots: () => ({}) })
-const compiledStyle: Style = Object.assign(
-  (css: Css, isStatic = true, carrier = false) => {
-    if (!isStatic) return { css }
-    const { name, styles } = compile(css)
-    registerStaticCss(`m-${name}`, [[name, styles]])
-    return { __meo$: 2, __meo$n: name, ...(carrier && { __meo$r: 1 }) }
-  },
-  { slots: (...paths: (number | number[])[]) => ({ __meo$: 2, __meo$p: paths }) },
-)
 
 const STYLE_ELEMENT = /<style data-emotion="([^"]*)"[^>]*>(.*?)<\/style>/g
 
@@ -106,15 +101,14 @@ const CASES: Record<string, (style: Style) => NodeInstance> = {
     const pair = (key: number) => Div({ key, ...style({ '& > *': RED }), children: Span('c', style(BLUE, false)) })
     return Div({ children: [pair(1), pair(2)] })
   },
-  'a parent’s & .child against a component child’s own .wrapper &, the child’s position marked': style => {
+  'a parent’s & .child against a component child’s own .wrapper &, with carriers marked': style => {
     const Child = () => Span('c', { className: 'child', ...style({ '.wrapper &': BLUE }, true, true) }).render() as ReactElement
-    return Div({ className: 'wrapper', ...style({ '& .child': RED }, true, true), ...style.slots(0), children: Node(Child) })
+    return Div({ className: 'wrapper', ...style({ '& .child': RED }, true, true), children: Node(Child) })
   },
-  'a sibling’s & + .item against a component inside a nested array, its path marked': style => {
+  'a sibling’s & + .item against a component inside a nested array': style => {
     const Item = () => Div({ className: 'item', ...style({ '.wrapper &': BLUE }, true, true) }).render() as ReactElement
     return Div({
       className: 'wrapper',
-      ...style.slots([1, 1]),
       children: [
         Span('a', { key: 'a', ...style({ order: 1 }, true, true) }),
         [Span('s', { key: 's', ...style({ '& + .item': RED }) }), Node(Item, { key: 'i' })],

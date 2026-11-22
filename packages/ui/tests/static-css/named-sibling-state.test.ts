@@ -1,15 +1,14 @@
 // @vitest-environment jsdom
 //
-// The slots among a compiled host's children sit at fixed positions: one before
-// each written child that may be a component, and for a spread one where it
-// begins and none inside or after it. React pairs unkeyed children by their
-// index, so a slot that moved with what a conditional or a spread held would
-// remount the siblings after it. Each case toggles a conditional or a spread in
-// and out and reads which components kept their state, compiled against the same
-// tree with every node's css on the runtime path, where no slot exists, and the
-// rules each step leaves in the head. The same cases written out in source run
-// against a snapshot of the uncompiled run, so the compiled suite checks the
-// slots the compiler itself marks.
+// A compiled host's children reach React as written, with nothing added among
+// them, so a conditional or a spread that comes and goes moves no sibling. React
+// pairs unkeyed children by their index, so anything the walk added that moved
+// with what a conditional or a spread held would remount the siblings after it.
+// Each case toggles a conditional or a spread in and out and reads which
+// components kept their state, compiled against the same tree with every node's
+// css on the runtime path, and the rules each step leaves in the head. The same
+// cases written out in source run against a snapshot of the uncompiled run, so
+// the compiled suite checks what the compiler itself emits.
 import createCache from '@emotion/cache'
 import { CacheProvider } from '@emotion/react'
 import { serializeStyles } from '@emotion/serialize'
@@ -52,13 +51,9 @@ function Counter({ label }: { label: string }) {
 /** A counter, keyed by its label when `keyed`. */
 const counter = (label: string, keyed: boolean) => Node(Counter, keyed ? { label, key: label } : { label })
 
-/**
- * A case: the host's written children for `on`, and the slots the compiler
- * marks among them.
- */
+/** A case: the host's written children for `on`. */
 interface Case {
   children: (on: boolean, style: Style, keyed: boolean) => unknown[]
-  slots: number[]
 }
 
 /** A key for a written child, only when the case's children are keyed. */
@@ -69,23 +64,18 @@ const BLUE = { color: 'rgb(0, 0, 200)' }
 
 const CASES: Record<string, Case> = {
   'a conditional static host, then a counter': {
-    slots: [1],
     children: (on, style, keyed) => [on && Div({ ...keyOf(keyed, 's'), ...style(RED) }), counter('b', keyed)],
   },
   'a conditional counter, then a counter': {
-    slots: [0, 1],
     children: (on, _, keyed) => [on && counter('x', keyed), counter('b', keyed)],
   },
   'a conditional counter, a static host, a counter': {
-    slots: [0, 2],
     children: (on, style, keyed) => [on && counter('x', keyed), Span('h', { ...keyOf(keyed, 'h'), ...style(BLUE) }), counter('b', keyed)],
   },
   'a counter, a conditional static host, a counter': {
-    slots: [0, 2],
     children: (on, style, keyed) => [counter('x', keyed), on && Div({ ...keyOf(keyed, 's'), ...style(RED) }), counter('b', keyed)],
   },
   'a counter, the spread, a counter': {
-    slots: [1],
     children: (on, style, keyed) => [
       counter('x', keyed),
       ...(on ? [Div({ ...keyOf(keyed, 's'), ...style(RED) }), counter('b', keyed)] : []),
@@ -93,7 +83,6 @@ const CASES: Record<string, Case> = {
     ],
   },
   'a counter, a static host, the spread, a counter': {
-    slots: [2],
     children: (on, style, keyed) => [
       counter('x', keyed),
       Span('h', { ...keyOf(keyed, 'h'), ...style(BLUE) }),
@@ -102,11 +91,9 @@ const CASES: Record<string, Case> = {
     ],
   },
   'a counter, then the spread at the end': {
-    slots: [1],
     children: (on, style, keyed) => [counter('x', keyed), ...(on ? [Div({ ...keyOf(keyed, 's'), ...style(RED) }), counter('b', keyed)] : [])],
   },
   'a counter, a static host, then the spread at the end': {
-    slots: [2],
     children: (on, style, keyed) => [
       counter('x', keyed),
       Span('h', { ...keyOf(keyed, 'h'), ...style(BLUE) }),
@@ -114,7 +101,6 @@ const CASES: Record<string, Case> = {
     ],
   },
   'the spread first, of the counter type, then a counter': {
-    slots: [0],
     children: (on, style, keyed) => [...(on ? [counter('b', keyed), Div({ ...keyOf(keyed, 's'), ...style(RED) })] : []), counter('y', keyed)],
   },
 }
@@ -155,7 +141,6 @@ function runUnshaped(testCase: Case, compiled: boolean, keyed: boolean, initiall
     on =>
       Div({
         ...style({ display: 'grid' }),
-        ...(compiled ? { __meo$: 2, __meo$p: testCase.slots } : {}),
         children: testCase.children(on, style, keyed) as never,
       }),
     initially,

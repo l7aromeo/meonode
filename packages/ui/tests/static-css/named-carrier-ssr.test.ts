@@ -27,7 +27,6 @@ const compiledStyle: Style = (css, options) => {
   return { __meo$: 2, __meo$n: name, ...(options?.carrier && { __meo$r: 1 }) }
 }
 const carrier = { carrier: true }
-const slots = (style: Style, ...paths: number[]) => (style === compiledStyle ? { __meo$: 2, __meo$p: paths } : {})
 const RED = { color: 'rgb(200, 0, 0)' }
 const BLUE = { color: 'rgb(0, 0, 200)' }
 const GRID = { display: 'grid' }
@@ -53,15 +52,14 @@ function renderUnshaped(tree: (style: Style) => NodeInstance, style: Style, prov
 const render = shaped(renderUnshaped)
 
 const CASES: Record<string, (style: Style) => NodeInstance> = {
-  // A component after a spread has no slot, so the walk makes no cut there.
-  // The static node after it begins a run the compiler marks as a carrier, since
-  // its pass cuts at the component; so it inserts its rule from its own render,
-  // after the component's, and the tie goes to it as uncompiled.
+  // A component after a spread, which the walk cuts at as at any component. The
+  // static node after it begins a run the compiler marks as a carrier, since its
+  // pass cuts at the component; so it inserts its rule from its own render, after
+  // the component's, and the tie goes to it as uncompiled.
   'a static node after a component after a spread, against the component’s own rule': style => {
     const Item = Component(() => Div({ className: 'item', ...style({ '.wrapper:has(.t) &': BLUE }, carrier) }))
     return Div({
       className: 'wrapper',
-      ...slots(style, 0),
       children: [
         ...[1, 2].map(n => Span(String(n), { key: `n${n}` })),
         Div({ key: 'r', ...style({ order: 1 }, { runtime: true }) }),
@@ -72,18 +70,17 @@ const CASES: Record<string, (style: Style) => NodeInstance> = {
   },
   'a sibling’s & + .item against a Component sibling’s own rule': style => {
     const Item = Component(() => Div({ className: 'item', ...style({ '.wrapper &': BLUE }, carrier) }))
-    return Div({ className: 'wrapper', ...slots(style, 1), children: [Span('s', { key: 's', ...style({ '& + .item': RED }, carrier) }), Item({ key: 'i' })] })
+    return Div({ className: 'wrapper', children: [Span('s', { key: 's', ...style({ '& + .item': RED }, carrier) }), Item({ key: 'i' })] })
   },
   'a static parent’s & .child against a Component child’s own .wrapper &': style => {
     const Child = Component(() => Span('c', { className: 'child', ...style({ '.wrapper &': BLUE }, carrier) }))
-    return Div({ className: 'wrapper', ...style({ '& .child': RED }, carrier), ...slots(style, 0), children: Child() })
+    return Div({ className: 'wrapper', ...style({ '& .child': RED }, carrier), children: Child() })
   },
   'Components between statics, written with Node, the scope root a carrier': style => {
     const Item = Component(() => Div({ className: 'item', ...style({ order: 7 }, carrier) }))
     // With no provider the root is the scope of every walk below it, which only a carrier can give its cache to.
     return Div({
       ...style(GRID, carrier),
-      ...slots(style, 1, 3),
       children: [
         Span('a', { key: 'a', ...style({ '& ~ .item': RED }) }),
         Node(Item, { key: 'i' }),
@@ -155,8 +152,8 @@ describe('a Component element shared by two server renders', () => {
     const pages = (style: Style) => {
       const Footer = Component(() => Div({ className: 'footer', ...style({ order: 9 }, carrier) }))
       const footer = Footer({ key: 'f' })
-      const withHeader = () => Div({ ...slots(style, 1), children: [Span('h', { key: 'h', ...style({ '& ~ .footer': RED }, carrier) }), footer] })
-      const bare = () => Div({ ...slots(style, 0), children: [footer] })
+      const withHeader = () => Div({ children: [Span('h', { key: 'h', ...style({ '& ~ .footer': RED }, carrier) }), footer] })
+      const bare = () => Div({ children: [footer] })
       return [render(withHeader, style, provider), render(bare, style, provider)]
     }
     expect(pages(compiledStyle)).toEqual(pages(runtimeStyle))

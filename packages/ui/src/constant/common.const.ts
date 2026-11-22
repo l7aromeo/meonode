@@ -185,21 +185,12 @@ export const STATIC_VARS_MARKER = '__meo$v'
 export const STATIC_NAME_MARKER = '__meo$n'
 
 /**
- * Marker key holding the child positions of a host call site where a component
- * may render, which the compiler listed: a number is an index into the written
- * children array, an array is a path into nested array literals, and the empty
- * path is the children as a whole. The named styles that began before a slot
- * must be in before the component renders its own: the last runtime node or
- * carrier before it inserts them after its own rule. Only where none is there
- * does a leaf render before the position, which changes the children.
- */
-export const STATIC_SLOTS_MARKER = '__meo$p'
-
-/**
  * Marker key of a named node the compiler chose to carry the named styles that
- * begin after it, up to the next component or the end of its render: it renders
+ * begin after it, up to the next cut or the end of its render: it renders
  * through `StyledRenderer`, as a runtime node does, so its insertion puts them
- * in after its own, with no element added to the children.
+ * in after its own, with no element added to the children. The compiler marks
+ * every call site that may begin a stretch in any render, so whether a node
+ * carries never changes from one render to the next, and React keeps it.
  */
 export const STATIC_CARRIER_MARKER = '__meo$r'
 
@@ -277,7 +268,6 @@ export const COMPILER_SCHEMA_KEYS: Readonly<
       classes?: string
       vars?: string
       name?: string
-      slots?: string
       template?: string
       before?: string
       after?: string
@@ -299,7 +289,6 @@ export const COMPILER_SCHEMA_KEYS: Readonly<
     classes: STATIC_CLASSES_MARKER,
     vars: STATIC_VARS_MARKER,
     name: STATIC_NAME_MARKER,
-    slots: STATIC_SLOTS_MARKER,
     template: STATIC_TEMPLATE_MARKER,
     before: STATIC_BEFORE_SPREAD_MARKER,
     after: STATIC_AFTER_SPREAD_MARKER,
@@ -317,7 +306,6 @@ export const COMPILER_SCHEMA_KEYS: Readonly<
     classes: STATIC_CLASSES_MARKER,
     vars: STATIC_VARS_MARKER,
     name: STATIC_NAME_MARKER,
-    slots: STATIC_SLOTS_MARKER,
     template: STATIC_TEMPLATE_MARKER,
     before: STATIC_BEFORE_SPREAD_MARKER,
     after: STATIC_AFTER_SPREAD_MARKER,
