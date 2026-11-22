@@ -5,7 +5,8 @@ import { getValueByPath } from '@src/helper/common.helper.js'
 import {
   CSS_TEXT,
   holdsReservedStylesKey,
-  isLengthFallbackList,
+  isCssTextContext,
+  isFallbackList,
   isSelectorOrAtRule,
   isSerializedRecordKey,
   isSerializedStyles,
@@ -54,8 +55,9 @@ const toThemeVarName = (p: string) => `--meonode-theme-${p.replace(/[^\w.-]/g, '
  */
 const processThemeString = (value: string, asVar: boolean, themeSystem: Record<string, unknown>, context: TokenContext): string => {
   // CSS text: a token in a prelude or a selector takes the theme's value, and a
-  // `theme.` that is only part of a name there is left as written.
-  const isCssText = value.includes('{')
+  // `theme.` that is only part of a name there is left as written. A property's
+  // value is never CSS text, so a brace in it opens no block.
+  const isCssText = isCssTextContext(context) && value.includes('{')
   // With no prelude to resolve, a `var()` rewrite reads nothing from the theme and
   // is the server's rewrite exactly, which keeps the strings it rewrites.
   if (asVar && !isCssText) return replaceThemeTokensInString(value, context)
@@ -695,10 +697,10 @@ export class ThemeUtil {
           const keys = Object.keys(currentValue)
           for (let i = keys.length - 1; i >= 0; i--) {
             const child = currentValue[keys[i]]
-            // A length property's fallback list is resolved with its key below, not
+            // A property's fallback list is resolved with its key below, not
             // as a container of its own: only what it holds is walked, so a
             // function in it runs once.
-            if (isLengthFallbackList(keys[i], child)) pushContainers(child, workStack, path)
+            if (isFallbackList(keys[i], child)) pushContainers(child, workStack, path)
             else if ((ThemeUtil.isPlainObject(child) || Array.isArray(child)) && !path.has(child)) workStack.push({ value: child, isProcessed: false })
           }
         }
@@ -729,7 +731,7 @@ export class ThemeUtil {
 
               const valueAsVar = themeStringsMode === 'vars'
               const valueProperty = valueContext(newKey, serialized)
-              if (isLengthFallbackList(key, value)) {
+              if (isFallbackList(key, value)) {
                 newValue = resolveItems(value, valueProperty, resolvedValues, theme, options)
               } else if (isThemeFunction(newValue) && processFunctions) {
                 const funcResult = callThemeFunction(newValue, theme)
