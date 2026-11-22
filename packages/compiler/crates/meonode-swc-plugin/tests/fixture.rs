@@ -506,6 +506,11 @@ fn extract_layer() {
 }
 
 #[test]
+fn extract_block_values() {
+    run_partition_with_config("extract_block_values", extract_config());
+}
+
+#[test]
 fn extract_layout() {
     run_partition_with_config("extract_layout", extract_config());
 }

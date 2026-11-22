@@ -1147,9 +1147,20 @@ impl ModuleScope {
                 block.children.push(child);
             } else {
                 let route = checked(child_key, self.route(value, 0));
+                let writable = match &route {
+                    Route::Static(_) | Route::Omit => true,
+                    // Read on the element that sets it: on another one, the
+                    // nearest ancestor's value would win where Emotion's later
+                    // rule does.
+                    Route::Var(_) | Route::Switch(..) => {
+                        styles_node(&block.scope.props)
+                            && block_variable(child_key, &route).is_some()
+                    }
+                    Route::Runtime => false,
+                };
                 if RESERVED_STYLE_KEYS.contains(&child_key.as_str())
                     || child_key.contains("theme.")
-                    || !matches!(route, Route::Static(_) | Route::Omit)
+                    || !writable
                 {
                     block.extractable = false;
                 }
@@ -1200,14 +1211,33 @@ impl Block {
 
     /// The rules, Emotion's order: own declarations, then nested rules in
     /// source order. [`NODE`] in the selectors stands for the node's class.
-    fn rules(&self, out: &mut String) -> Option<()> {
+    fn rules(&self, out: &mut String, variables: &mut Vec<Variable>) -> Option<()> {
         let mut declarations = String::new();
         for (key, route) in &self.declarations {
-            if let Route::Static(value) = route {
-                declarations.push_str(&stylis::declarations(
-                    &property_name(key),
-                    &value_text(key, value)?,
-                )?);
+            let property = property_name(key);
+            match route {
+                Route::Static(value) => {
+                    declarations
+                        .push_str(&stylis::declarations(&property, &value_text(key, value)?)?);
+                }
+                Route::Var(_) | Route::Switch(..) => {
+                    let name = format!(
+                        "{VARIABLE_PREFIX}{}",
+                        hash_styles(&format!(
+                            "{}{SEP}{}{SEP}{property}",
+                            self.at_rules.join(&SEP.to_string()),
+                            self.scope.props.join(",")
+                        ))
+                    );
+                    declarations
+                        .push_str(&stylis::declarations(&property, &format!("var({name})"))?);
+                    variables.push(Variable {
+                        name,
+                        key: key.clone(),
+                        value: block_variable(key, route)?,
+                    });
+                }
+                Route::Omit | Route::Runtime => {}
             }
         }
         if !declarations.is_empty() {
@@ -1223,7 +1253,7 @@ impl Block {
             out.push_str(&text);
         }
         for child in &self.children {
-            child.rules(out)?;
+            child.rules(out, variables)?;
         }
         Some(())
     }
@@ -1517,6 +1547,112 @@ pub struct SiteExtraction {
     pub removed_top_keys: HashSet<String>,
 }
 
+/// A CSS variable a block's rule reads, and the value the call site sets it to.
+struct Variable {
+    name: String,
+    key: String,
+    value: Box<Expr>,
+}
+
+/// `"--mv-…": __meoVal(key, value)`: a variable the call site sets, written
+/// as the runtime writes `key`'s value.
+fn variable_prop(name: &str, key: &str, value: Box<Expr>) -> PropOrSpread {
+    PropOrSpread::Prop(Box::new(Prop::KeyValue(KeyValueProp {
+        key: PropName::Str(Str::from(Atom::from(name))),
+        value: Box::new(Expr::Call(CallExpr {
+            span: DUMMY_SP,
+            ctxt: SyntaxContext::empty(),
+            callee: Callee::Expr(Box::new(Expr::Ident(Ident::new_no_ctxt(
+                Atom::from(VALUE_LOCAL),
+                DUMMY_SP,
+            )))),
+            args: vec![
+                ExprOrSpread {
+                    spread: None,
+                    expr: Box::new(str_expr(key)),
+                },
+                ExprOrSpread {
+                    spread: None,
+                    expr: value,
+                },
+            ],
+            type_args: None,
+        })),
+    })))
+}
+
+/// The run-time value a block declaration writes as a CSS variable: a VAR
+/// value, or a SWITCH whose every branch is a value. `None` for a branch that
+/// leaves the property unset (an unset variable computes to `unset`, while
+/// Emotion's missing declaration lets a lower rule apply), and for a property
+/// the prefixer rewrites by value.
+fn block_variable(key: &str, route: &Route) -> Option<Box<Expr>> {
+    fn chosen(route: &Route) -> Option<Expr> {
+        match route {
+            Route::Static(Value::Str(s)) => Some(str_expr(s)),
+            Route::Static(Value::Num(n)) => Some(Expr::Lit(Lit::Num(Number {
+                span: DUMMY_SP,
+                value: *n,
+                raw: None,
+            }))),
+            Route::Switch(test, cons, alt) => Some(Expr::Cond(CondExpr {
+                span: DUMMY_SP,
+                test: test.clone(),
+                cons: Box::new(chosen(cons)?),
+                alt: Box::new(chosen(alt)?),
+            })),
+            _ => None,
+        }
+    }
+    if stylis::is_prefixed_property(&property_name(key)) {
+        return None;
+    }
+    match route {
+        Route::Var(expr) => Some(expr.clone()),
+        Route::Switch(..) => chosen(route).map(|e| Box::new(paren(e))),
+        _ => None,
+    }
+}
+
+/// Whether each of a rule's selectors styles the node itself: its last
+/// compound names the node outside any parentheses (`&:hover`, `.dark &`),
+/// not a descendant, sibling or ancestor of it (`& p`, `.a:has(&)`).
+fn styles_node(props: &[String]) -> bool {
+    props.iter().all(|item| {
+        let mut depth = 0i32;
+        let mut quote: Option<char> = None;
+        let mut subject_names_node = false;
+        let mut chars = item.chars().peekable();
+        while let Some(ch) = chars.next() {
+            if let Some(q) = quote {
+                if ch == '\\' {
+                    chars.next();
+                } else if ch == q {
+                    quote = None;
+                }
+                continue;
+            }
+            match ch {
+                '\\' => {
+                    chars.next();
+                }
+                '"' | '\'' => quote = Some(ch),
+                '(' | '[' => depth += 1,
+                ')' | ']' => depth -= 1,
+                ' ' | '>' | '+' | '~' | '|' if depth == 0 => {
+                    // `|` alone is a namespace separator; `||` is a combinator.
+                    if ch != '|' || chars.peek() == Some(&'|') {
+                        subject_names_node = false;
+                    }
+                }
+                NODE if depth == 0 => subject_names_node = true,
+                _ => {}
+            }
+        }
+        subject_names_node
+    })
+}
+
 fn str_expr(text: &str) -> Expr {
     Expr::Lit(Lit::Str(Str::from(Atom::from(text))))
 }
@@ -1685,28 +1821,7 @@ impl ModuleScope {
                     classes.push(rule.class.clone());
                     module.add(rule);
                     module.uses_value = true;
-                    variables.push(PropOrSpread::Prop(Box::new(Prop::KeyValue(KeyValueProp {
-                        key: PropName::Str(Str::from(Atom::from(variable.as_str()))),
-                        value: Box::new(Expr::Call(CallExpr {
-                            span: DUMMY_SP,
-                            ctxt: SyntaxContext::empty(),
-                            callee: Callee::Expr(Box::new(Expr::Ident(Ident::new_no_ctxt(
-                                Atom::from(VALUE_LOCAL),
-                                DUMMY_SP,
-                            )))),
-                            args: vec![
-                                ExprOrSpread {
-                                    spread: None,
-                                    expr: Box::new(str_expr(&d.key)),
-                                },
-                                ExprOrSpread {
-                                    spread: None,
-                                    expr: expr.clone(),
-                                },
-                            ],
-                            type_args: None,
-                        })),
-                    }))));
+                    variables.push(variable_prop(&variable, &d.key, expr.clone()));
                     extracted.push(i);
                 }
                 Route::Runtime => {}
@@ -1714,8 +1829,13 @@ impl ModuleScope {
         }
 
         let mut per_node_text = String::new();
+        let mut block_variables = Vec::new();
         for block in model.blocks.iter().filter(|b| b.extractable) {
-            block.rules(&mut per_node_text)?;
+            block.rules(&mut per_node_text, &mut block_variables)?;
+        }
+        for variable in block_variables {
+            module.uses_value = true;
+            variables.push(variable_prop(&variable.name, &variable.key, variable.value));
         }
         if !per_node_text.is_empty() {
             let placeholder_class = class_name(&per_node_text);
@@ -2240,6 +2360,34 @@ mod tests {
         assert!(!requires_node(&[format!("[x=\"{NODE}\"] p")]));
         // An escaped quote does not open a string.
         assert!(requires_node(&[format!("[x=\\\"] {NODE}")]));
+    }
+
+    #[test]
+    fn a_selector_styles_the_node_when_its_last_compound_names_it() {
+        for yes in [
+            &["&"][..],
+            &["&:hover"],
+            &[".dark &"],
+            &["&::before"],
+            &["a > &.x"],
+            &["& a", "&"][1..],
+            &["svg|rect&"],
+        ] {
+            assert!(styles_node(&props(yes)), "{yes:?}");
+        }
+        for no in [
+            &["& p"][..],
+            &["& > p"],
+            &["& + .b"],
+            &["& ~ .b"],
+            &["& || td"],
+            &[".a:has(&)"],
+            &[".a:not(&)"],
+            &["&", "& p"],
+            &["[x=\"&\"] p"],
+        ] {
+            assert!(!styles_node(&props(no)), "{no:?}");
+        }
     }
 
     #[test]

@@ -533,7 +533,13 @@ was, and the runtime handles it as before.
 
 - **Written at build time:** literals, `theme.*` token strings and same-file
   `const` literals; a conditional whose branches are all of those; and a template
-  literal or arithmetic, through a variable.
+  literal or arithmetic, through a variable. Inside a nested selector whose
+  rule styles the node itself (`.dark &`, `&:where(.x)`), a template literal, an
+  arithmetic value, or a conditional whose every branch is a value is written
+  through a variable too. Under a selector reaching another element (`& p`), or
+  with a branch that sets nothing, it stays on the runtime path: the variable
+  would come from the nearest ancestor setting it, or compute to `unset`, where
+  Emotion's rule order or a lower rule decides.
 - **Left to the runtime:** identifiers and member reads (they may hold a theme
   function or nothing), calls, theme functions, fallback arrays, spreads, and
   component targets. An at-rule other than `@media`, `@supports` or
