@@ -496,8 +496,8 @@ extracts critical CSS for SSR. MeoNode names each class from a SHA-256 of the st
 styles do not share a class. Class names are not a stable API: they may change between versions.
 
 Under a Content-Security-Policy, MeoNode needs `style-src 'unsafe-inline'`: its server-rendered rules are inline
-`<style>` elements, which carry no nonce. Styles the compiler extracts at build time need the same, because their
-runtime values reach each element through its inline `style` attribute.
+`<style>` elements, which carry no nonce. Styles the compiler computes at build time (`experimental_extractCss`) go
+through the same elements, so they need nothing more.
 
 ## Why MeoNode UI?
 
