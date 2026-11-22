@@ -7,20 +7,31 @@ import { sourceAliases } from './vitest.aliases.ts'
 
 const rootDir = path.dirname(fileURLToPath(import.meta.url))
 
+/** The package specifier an app imports each entry of the sources by. */
+const ENTRY_SPECIFIERS = { main: '@meonode/ui', client: '@meonode/ui/client' } as const
+
+/** An import of an entry by its `@src` path, as the tests write it. */
+const ENTRY_IMPORT = /(\bfrom\s*)(['"])@src\/(main|client)\.js\2/g
+
+/** Whether the suites run with the plugin's css extraction on. */
+const extractCss = process.env.MEONODE_EXTRACT_CSS === '1'
+
+/** Names a wasm build to compile with instead of the ones found below. */
+const WASM_ENV = 'MEONODE_COMPILER_WASM'
+
 /**
  * Where to find the compiler's wasm artifact.
  *
- * `MEONODE_COMPILER_WASM` names one explicitly. Otherwise prefers the
+ * `MEONODE_COMPILER_WASM` names one build explicitly. Otherwise prefers the
  * published package, falls back to a sibling checkout so the compiler can be
- * exercised before release. Resolved lazily and reported
- * clearly, because a silently-missing plugin would make this whole config a
- * no-op that reports "all compiled tests pass" while compiling nothing.
+ * exercised before release. Resolved lazily and reported clearly, because a
+ * silently-missing plugin would make this whole config a no-op that reports
+ * "all compiled tests pass" while compiling nothing.
  */
 function resolveWasm(): string {
-  // A build of the plugin to test against, named explicitly, such as one not yet published.
-  const named = process.env.MEONODE_COMPILER_WASM
+  const named = process.env[WASM_ENV]
   if (named) {
-    if (!existsSync(named)) throw new Error(`MEONODE_COMPILER_WASM names no file: ${named}`)
+    if (!existsSync(named)) throw new Error(`${WASM_ENV} names a wasm that does not exist: ${named}`)
     return named
   }
   const candidates = [
@@ -42,25 +53,13 @@ function resolveWasm(): string {
  * Both are transformed on purpose. Compiling only `src` would leave the tests
  * constructing nodes the uncompiled way, which is the shape already covered.
  * The point is to exercise the marker contract through the same assertions.
+ *
+ * The tests import the factories from `@src/main.js` and `@src/client.js`. The
+ * plugin compiles them as an app's code is compiled: those imports are given
+ * the package specifiers an app imports them by, with the plugin's default
+ * options, and the specifiers resolve back to the sources under test.
+ * `MEONODE_EXTRACT_CSS=1` turns the plugin's css extraction on as well.
  */
-/** Whether the suites run with the plugin's css extraction on. */
-const extractCss = process.env.MEONODE_EXTRACT_CSS === '1'
-
-/**
- * The package's own entries, as the suites import them, and the specifiers an
- * app imports them by. The plugin extracts css only from factories imported by
- * those specifiers, so with extraction on the suites' imports are rewritten to
- * them before it runs, and they resolve back to the same sources. With it off,
- * the suites compile through `factoryModules`, as they always have.
- */
-const PACKAGE_ENTRIES = [
-  { source: '@src/main.js', specifier: '@meonode/ui', file: 'src/main.ts' },
-  { source: '@src/client.js', specifier: '@meonode/ui/client', file: 'src/client.ts' },
-] as const
-
-/** A static import or re-export of one of the package's entries, by its quoted specifier. */
-const ENTRY_IMPORT = /(\bfrom\s*)(['"])(@src\/(?:main|client)\.js)\2/g
-
 function meonodeCompilerPlugin(): Plugin {
   const wasm = resolveWasm()
   let transformed = 0
@@ -76,12 +75,10 @@ function meonodeCompilerPlugin(): Plugin {
       // Cheap prefilter: only files that actually construct nodes can compile.
       if (!code.includes('@meonode/ui') && !code.includes('@src/main.js')) return null
 
-      const source = !extractCss
-        ? code
-        : code.replace(ENTRY_IMPORT, (_, from: string, quote: string, entry: string) => {
-            const { specifier } = PACKAGE_ENTRIES.find(candidate => candidate.source === entry)!
-            return `${from}${quote}${specifier}${quote}`
-          })
+      const source = code.replace(
+        ENTRY_IMPORT,
+        (_, from: string, quote: string, entry: keyof typeof ENTRY_SPECIFIERS) => `${from}${quote}${ENTRY_SPECIFIERS[entry]}${quote}`,
+      )
       const { transform } = await import('@swc/core')
       const result = await transform(source, {
         filename: id,
@@ -90,10 +87,9 @@ function meonodeCompilerPlugin(): Plugin {
           target: 'es2022',
           parser: { syntax: 'typescript', tsx: id.endsWith('.tsx') },
           experimental: {
-            // The library's own sources import factories from `@src/main.js`
-            // and friends, which only `factoryModules` makes the plugin trace.
-            // `MEONODE_EXTRACT_CSS=1` runs the suites with the plugin's extraction on.
-            plugins: [[wasm, { factoryModules: ['@src/main.js', '@src/client.js', '@meonode/ui'], experimental_extractCss: extractCss }]],
+            // No `factoryModules`: it would compile the package's own factories
+            // as a wrapper library's, props first, which no app gets.
+            plugins: [[wasm, extractCss ? { experimental_extractCss: true } : {}]],
           },
         },
       })
@@ -111,7 +107,6 @@ function meonodeCompilerPlugin(): Plugin {
       if (extractCss && extracted === 0) {
         throw new Error('meonode-compiler extracted no css with MEONODE_EXTRACT_CSS=1 — the run would test the runtime path only.')
       }
-
       console.log(`[meonode-compiler] emitted markers into ${transformed} file(s)${extractCss ? `, named styles into ${extracted}` : ''}`)
     },
   }
@@ -121,20 +116,25 @@ export default mergeConfig(
   baseConfig,
   defineConfig({
     plugins: [meonodeCompilerPlugin()],
+    resolve: {
+      // An array here, not in `test.alias`: mergeConfig would concatenate an
+      // array with the base config's object alias and leave an entry with no
+      // `find`, which fails every import.
+      alias: Object.entries(ENTRY_SPECIFIERS).map(([entry, specifier]) => ({
+        find: new RegExp(`^${specifier.replace('/', '\\/')}$`),
+        replacement: path.resolve(rootDir, `src/${entry}.ts`),
+      })),
+    },
     test: {
-      // Vitest keys its on-disk module cache by each file and the config, not
-      // by the wasm or MEONODE_EXTRACT_CSS, so a cached transform from another
-      // build of the plugin or with extraction the other way would run instead,
-      // and the counts the guards above read would miss every cached file.
-      fsModuleCache: false,
       // The compiler rewrites `@meonode/ui` factory calls; aliasing `@src`
-      // means the library's own sources compile too, not just the tests.
-      // The package's specifiers, which the suites' imports are rewritten to,
-      // resolve to its sources, ahead of the installed package.
-      alias: [
-        ...PACKAGE_ENTRIES.map(entry => ({ find: new RegExp(`^${entry.specifier}$`), replacement: path.resolve(rootDir, entry.file) })),
-        ...(sourceAliases as Extract<typeof sourceAliases, readonly unknown[]>),
-      ],
+      // means the library's own sources compile too, not just the tests. The
+      // unit suites' aliases, so `@src` resolves to the same `.default` variants.
+      alias: sourceAliases,
+      // Vitest's module cache keys a transform by the file's source and the
+      // config, not by the wasm the config loads, so after a rebuild it would
+      // replay what the previous build compiled (#154), or a transform made
+      // with extraction the other way.
+      fsModuleCache: false,
       // Lets a test tell which mode it is running under. A few assertions are
       // legitimately mode-specific: uncompiled keys are derived from props, so
       // structurally identical nodes share one, while compiled keys come from

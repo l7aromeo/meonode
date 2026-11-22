@@ -14,13 +14,16 @@ import { Div, Span, setDebugMode } from '@src/main.js'
 import { refreshDevMode } from '@src/constant/common.const.js'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { __resetGeneratedListReport } from '@src/util/generated-list.util.js'
 
 const LIST = '__meo$list'
 const LOC = '__meo$loc'
 const HERE = 'app/page.tsx:12:3'
 
 afterEach(() => setDebugMode(false))
+// Each case renders one call site once; the line is logged once per call site.
+beforeEach(() => __resetGeneratedListReport())
 
 /** Everything MeoNode logged while rendering `build()`. */
 function meoLines(build: () => unknown): string[] {

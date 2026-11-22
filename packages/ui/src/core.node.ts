@@ -39,6 +39,8 @@ import { getComponentType, getElementTypeName, hasNoStyleTag, getGlobalState, om
 import StyledRenderer, { ThemedRule, ThemeTokenCheck } from '@src/components/styled-renderer.client.js'
 import MeoMemo from '@src/components/meo-memo.client.js'
 import {
+  COMPILED_MARKER,
+  COMPILER_SCHEMA_KEYS,
   INITIAL_PROPS_MARKER,
   isDevMode,
   LIST_MARKER,
@@ -58,7 +60,7 @@ import { checkCss, checkFactoryCss, isMergeableCss, markCombinedCssChecked } fro
 import { NodeUtil } from '@src/util/node.util.js'
 import { IS_REACT_SERVER_LAYER } from '@src/util/react-layer.util.js'
 import { passesChildrenThrough, providesTheme } from '@src/util/children-pass-through.util.js'
-import { observeChildren } from '@src/util/generated-list.util.js'
+import { noteOnce, observeChildren } from '@src/util/generated-list.util.js'
 import { compileServerEmotionRule, compileServerNamedRule } from '@src/util/server-emotion.util.js'
 import { hasNamedStyles, hasStaticCss, registeredClassesOf, staticRuleOf, staticStylesOf } from '@src/util/static-css.util.js'
 import { namedClass, type NamedStyle } from '@src/util/named-style.util.js'
@@ -287,6 +289,12 @@ function collectNodeChildren(children: readonly unknown[]): readonly unknown[] {
   }
   walk(children)
   return out
+}
+
+/** The compiler's key for the call site that wrote these props, when its marker carries one. */
+function compiledSiteKey(props: Record<string, unknown>): unknown {
+  const names = COMPILER_SCHEMA_KEYS[props[COMPILED_MARKER] as number]
+  return names === undefined ? undefined : props[names.key]
 }
 
 /**
@@ -1176,7 +1184,11 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
             // Without a location, only the mixed case is worth saying. React
             // already reports an all-unkeyed list correctly; repeating it with
             // no line number adds noise and nothing else.
-            if (missingKey && (callSiteLocation || mixed)) {
+            //
+            // Once per call site, last so only a note about to be logged is
+            // recorded: React logs its own warning once, and a component that
+            // renders often would otherwise repeat the note on every render.
+            if (missingKey && (callSiteLocation || mixed) && noteOnce(callSiteLocation, compiledSiteKey(node.rawProps), renderTarget)) {
               const spreadClause = mixed
                 ? ' Some children here do have keys: a spread puts a generated list and the siblings written beside it into one list, so React asks those siblings for keys too. Nest the generated part instead of spreading it.'
                 : ''
@@ -1617,7 +1629,8 @@ function Node<AdditionalProps, E extends NodeElementType, ExactProps extends obj
  * report sees each call the author wrote. The nodes MeoNode rebuilds from what
  * it renders (`NodeUtil`) are constructed directly and are not observed. A list
  * one of its components builds around children it was handed is recognised by
- * those children, as for any component that re-wraps its `children`.
+ * those children, as for any component that re-wraps its `children`. In
+ * development it also reports a `deps` argument that is not an array.
  *
  * Its callers keep the result in a variable rather than returning the call:
  * Safari implements proper tail calls, which drop a tail caller's frame, and
@@ -1626,8 +1639,76 @@ function Node<AdditionalProps, E extends NodeElementType, ExactProps extends obj
  */
 function buildNode(element: NodeElementType, props: object, deps: DependencyList | undefined, factory: (...args: never[]) => unknown): BaseNode {
   if (diagnosticsEnabled()) observeChildren(element, props as Record<string, unknown>, factory)
-  if (isDevMode()) NodeUtil.markWrittenOutChildren(props as Record<string, unknown>)
+  if (isDevMode()) {
+    NodeUtil.markWrittenOutChildren(props as Record<string, unknown>)
+    checkDeps(element, deps, factory)
+  }
   return new BaseNode(element, props as NodeProps, deps)
+}
+
+/** The factories `createChildrenFirstNode` made, whose first argument is `children`. */
+const childrenFirstFactories = new WeakSet<(...args: never[]) => unknown>()
+
+/** Each renderer `Component` hands to `Node`, with the name of the component it renders. */
+const componentRenderers = new WeakMap<object, string>()
+
+/**
+ * Records that `renderer` is the one `Component` made for the component named
+ * `name`, so a message about a call to that `Component` callable names it as
+ * the author wrote it rather than as `Node`.
+ */
+export function registerComponentRenderer(renderer: object, name: string): void {
+  componentRenderers.set(renderer, name)
+}
+
+/**
+ * Distinct deps messages remembered at once. A long-lived development server
+ * keeps this module for its whole life and sees a factory for every element and
+ * component it renders, so the set is dropped and started again when it fills.
+ */
+const MAX_DEPS_REPORTS = 500
+
+/** The deps messages already logged, so a call a component makes on every render is reported once. */
+const reportedDeps = new Set<string>()
+
+/** How many deps messages are remembered, and the cap, for tests. */
+export function __depsReportState(): { reported: number; cap: number } {
+  return { reported: reportedDeps.size, cap: MAX_DEPS_REPORTS }
+}
+
+/** Forgets every deps message logged, for tests. */
+export function __resetDepsReport(): void {
+  reportedDeps.clear()
+}
+
+/** The call an author wrote, named with its signature, for a message about one of its arguments. */
+function describeFactoryCall(element: NodeElementType, factory: (...args: never[]) => unknown): string {
+  if (factory === Node) {
+    const component = componentRenderers.get(element as object)
+    return component === undefined ? 'Node takes (element, props, deps)' : `Component(${component}) takes (props, deps)`
+  }
+  const name = getElementTypeName(element)
+  return childrenFirstFactories.has(factory) ? `The '${name}' factory takes (children, props, deps)` : `The '${name}' factory takes (props, deps)`
+}
+
+/**
+ * Reports a `deps` argument that is not an array. React reads deps as a list,
+ * so anything else is a mistake, most often a props object passed one place
+ * too far, as `Li('x', { key })` on a factory that takes `(props, deps)`. The
+ * call itself is left as it was; `null` and an omitted `deps` mean no
+ * memoisation, as they always have. Each distinct message is logged once, since
+ * a component makes the same call on every render.
+ */
+function checkDeps(element: NodeElementType, deps: unknown, factory: (...args: never[]) => unknown): void {
+  if (deps == null || Array.isArray(deps)) return
+  const given = typeof deps === 'object' ? 'an object' : `a ${typeof deps}`
+  const message =
+    `[MeoNode] deps must be an array, but was given ${given}. ${describeFactoryCall(element, factory)}; ` +
+    'a props object one place too far lands in deps, where it is not applied as props.'
+  if (reportedDeps.has(message)) return
+  if (reportedDeps.size >= MAX_DEPS_REPORTS) reportedDeps.clear()
+  reportedDeps.add(message)
+  console.error(message)
 }
 
 // Export the Node factory as the main export
@@ -1815,5 +1896,6 @@ export function createChildrenFirstNode<AdditionalInitialProps, E extends NodeEl
     return node
   }
   Instance.element = element
+  childrenFirstFactories.add(Instance)
   return Instance as any
 }

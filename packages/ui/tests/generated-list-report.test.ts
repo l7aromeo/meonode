@@ -86,7 +86,17 @@ describe('a call site whose unkeyed list changes length', () => {
   it('is reported for a children-first factory', () => {
     const spans = (count: number) => Span(Array.from({ length: count }, (_, i) => Span(`item ${i}`)))
     evaluate(spans, [1, 2])
-    expect(reports()).toHaveLength(1)
+    expect(reports()).toHaveLength(COMPILED ? 0 : 1)
+    if (!COMPILED) return
+    // Compiled, the call site carries the list marker, so React's own check
+    // reports the rows when they render.
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      render(spans(2).render())
+      expect(error.mock.calls.filter(([message]) => String(message).includes('unique "key" prop'))).toHaveLength(1)
+    } finally {
+      error.mockRestore()
+    }
   })
 
   it('is reported when the list also holds a nested list', () => {
@@ -395,6 +405,9 @@ describe('bounds', () => {
       Node(Row, { children: [Span('a')] })
     }
     const { groups } = __generatedListState()
+    // Compiled, the call site carries the compiler's marker and the runtime
+    // never watches it, so nothing is remembered at all.
+    if (COMPILED) return void expect(groups).toBe(0)
     expect(groups).toBeGreaterThan(0)
     expect(groups).toBeLessThanOrEqual(2000)
   })
