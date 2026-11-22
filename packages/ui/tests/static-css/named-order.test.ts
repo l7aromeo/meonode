@@ -10,6 +10,7 @@ import { CacheProvider } from '@emotion/react'
 import createCache from '@emotion/cache'
 import { serializeStyles } from '@emotion/serialize'
 import { act, createElement, useState, type ReactElement } from 'react'
+import { createPortal } from 'react-dom'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Div, Node, Span, type NodeInstance } from '@src/main.js'
@@ -59,6 +60,9 @@ let roots: Root[] = []
 
 /** Runs a case with `style` under a fresh cache; returns the elements' classes and the sheet's rules. */
 function runUnshaped(steps: Steps, style: Style): { classes: string[]; rules: string[] } {
+  // The other side's roots go first, a portal's content with them.
+  for (const root of roots) act(() => root.unmount())
+  roots = []
   document.head.innerHTML = ''
   document.body.innerHTML = ''
   __resetStaticCss()
@@ -99,6 +103,38 @@ const CASES: Record<string, Steps> = {
   'the same with the child’s colour under @media': once(style =>
     Div({ 'data-n': 'p', ...style({ '& > *': RED }, true, true), children: Span('c', { 'data-n': 'c', ...style({ '@media (min-width: 1px)': BLUE }) }) }),
   ),
+  // s3-hover: the parent's descendant rule against the child's own `:hover`.
+  'a parent’s & .child against its static child’s own :hover': once(style =>
+    Div({
+      'data-n': 'p',
+      ...style({ '& .child': RED }, true, true),
+      children: Span('c', { 'data-n': 'c', className: 'child', ...style({ '&:hover': BLUE }) }),
+    }),
+  ),
+  // (c), the source nested under its target: a backward rule on a static node
+  // against the static ancestor it styles.
+  'a static :has(&) against the static ancestor it is nested under': once(style =>
+    Div({ 'data-n': 'a', className: 'x', ...style(RED, true, true), children: Span('d', { 'data-n': 'd', ...style({ '.x:has(&)': BLUE }) }) }),
+  ),
+  // A node's own base against its own at-rule and pseudo values, after another
+  // node that used the same at-rule and pseudo values.
+  'a node’s own base against its own @media and :hover, after a node with the same at-rule and pseudo': once(style =>
+    Div({
+      children: [
+        Div({ key: 1, 'data-n': '1', ...style({ '@media (min-width: 1px)': BLUE, '&:hover': BLUE }, true, true) }),
+        Div({ key: 2, 'data-n': '2', ...style({ ...RED, '@media (min-width: 1px)': BLUE, '&:hover': BLUE }) }),
+      ],
+    }),
+  ),
+  // A portal's content, which React renders where the portal is written and the
+  // DOM holds elsewhere, against a rule of the node before it.
+  'a portal’s static content against the rule of the node rendered before it': once(style => {
+    const InPortal = () =>
+      createPortal(Span('p', { 'data-n': 'p', className: 'p', ...style({ '.wrapper ~ * &': BLUE }, true, true) }).render() as ReactElement, document.body)
+    return Div({
+      children: [Div({ key: 'w', 'data-n': 'w', className: 'wrapper', ...style({ '& ~ * .p': RED }, true, true) }), Node(InPortal, { key: 'i' })],
+    })
+  }),
   'a runtime parent’s & > * against a static child': once(style =>
     Div({ 'data-n': 'p', ...style({ '& > *': RED }, false), children: Span('c', { 'data-n': 'c', ...style(BLUE) }) }),
   ),

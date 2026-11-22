@@ -74,6 +74,17 @@ const BLUE = { color: 'rgb(0, 0, 200)' }
 
 const CASES: Record<string, (style: Style) => NodeInstance> = {
   'a parent’s & > * against its static child’s colour': style => Div({ ...style({ '& > *': RED }, true, true), children: Span('c', style(BLUE)) }),
+  'a parent’s & .child against its static child’s own :hover': style =>
+    Div({ ...style({ '& .child': RED }, true, true), children: Span('c', { className: 'child', ...style({ '&:hover': BLUE }) }) }),
+  'a static :has(&) against the static ancestor it is nested under': style =>
+    Div({ className: 'x', ...style(RED, true, true), children: Span('d', style({ '.x:has(&)': BLUE })) }),
+  'a node’s own base against its own @media and :hover, after a node with the same at-rule and pseudo': style =>
+    Div({
+      children: [
+        Div({ key: 1, ...style({ '@media (min-width: 1px)': BLUE, '&:hover': BLUE }, true, true) }),
+        Div({ key: 2, ...style({ ...RED, '@media (min-width: 1px)': BLUE, '&:hover': BLUE }) }),
+      ],
+    }),
   'a runtime parent’s & > * against a static child': style => Div({ ...style({ '& > *': RED }, false), children: Span('c', style(BLUE)) }),
   'a static parent and child written twice, in one run before a runtime node': style => {
     const pair = (key: number) => Div({ key, ...style({ '& > *': RED }), children: Span('c', style(BLUE)) })
