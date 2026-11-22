@@ -10,7 +10,7 @@ import createCache, { type EmotionCache } from '@emotion/cache'
 import { act, createElement, type ReactElement } from 'react'
 import { hydrateRoot } from 'react-dom/client'
 import { renderToString } from 'react-dom/server'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Div } from '@src/main.js'
 import { NodeUtil } from '@src/util/node.util.js'
 import { __resetStaticCss, registerStaticCss } from '@src/util/static-css.util.js'
@@ -145,5 +145,80 @@ describe('a server-rendered page, once hydrated, has its static rules where the 
     hydrateUnder(head => createCache({ key: 'css', container: head }), true)
     expect(order()).toEqual(['user', 'static', 'css'])
     expect(buckets()).toEqual(SERVER_AND_BROWSER_BUCKETS)
+  })
+})
+
+/**
+ * Renders the page on the server as a fragment, as Vite's SSR or a page template
+ * does, into `#root` of a page whose head holds `head` and the page's own
+ * stylesheet, and hydrates it there under `cache`. React leaves the styles it
+ * would hoist where they render, in `#root`.
+ */
+function hydrateFragmentUnder(cache: (head: HTMLHeadElement) => EmotionCache, head: string): void {
+  __resetStaticCss()
+  register()
+  NodeUtil.isServer = true
+  let html: string
+  try {
+    html = renderToString(createElement(Page))
+  } finally {
+    NodeUtil.isServer = false
+  }
+  document.open()
+  document.write(`<!doctype html><html><head>${head}<style data-name="user">.card{padding:0}</style></head><body><div id="root">${html}</div></body></html>`)
+  document.close()
+  __resetStaticCss()
+  register()
+  const root = document.getElementById('root')!
+  const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+  try {
+    act(() => void hydrateRoot(root, createElement(Page, { cache: cache(document.head) }), { onRecoverableError: error => console.error(error) }))
+    // Moving the styles out of `#root` leaves hydration as it was.
+    expect(errors).not.toHaveBeenCalled()
+  } finally {
+    errors.mockRestore()
+  }
+}
+
+function Page({ cache }: { cache?: EmotionCache }): ReactElement {
+  const page = Div({
+    children: [
+      Div({ __meo$: 2, __meo$s: PADDING, key: 'card', className: 'card', children: 'card' } as never),
+      Div({ key: 'runtime', css: { margin: 3 }, children: 'runtime' }),
+    ],
+  }).render() as ReactElement
+  return cache ? createElement(CacheProvider, { value: cache }, page) : page
+}
+
+/** The static styles still in the body. */
+const inBody = () => document.body.querySelectorAll('style[data-precedence^="mn-static-"], style[data-meonode-static]').length
+
+describe('a page server-rendered as a fragment, once hydrated, has its static rules where the cache’s rules are', () => {
+  // Emotion's client cache moves the server's styles out of the body into the
+  // head, to where its own tags go; the static styles go with them.
+  it('at the head’s start under a cache that prepends', () => {
+    hydrateFragmentUnder(head => createCache({ key: 'css', prepend: true, container: head }), '')
+    expect(order()).toEqual(['static', 'css', 'user'])
+    expect(buckets()).toEqual(SERVER_AND_BROWSER_BUCKETS)
+    expect(inBody()).toBe(0)
+  })
+
+  it('after the insertion point under a cache that has one', () => {
+    hydrateFragmentUnder(
+      head => createCache({ key: 'css', insertionPoint: head.querySelector<HTMLElement>('meta[name="emotion-insertion-point"]')!, container: head }),
+      '<meta name="emotion-insertion-point" content="">',
+    )
+    expect(order()).toEqual(['META', 'static', 'css', 'user'])
+    expect(buckets()).toEqual(SERVER_AND_BROWSER_BUCKETS)
+    expect(inBody()).toBe(0)
+  })
+
+  // Runtime rules inserted after hydration go to the head, so static rules left
+  // in the body would win a tie the runtime rule rendered after them wins uncompiled.
+  it('at the head’s end under a cache that appends', () => {
+    hydrateFragmentUnder(head => createCache({ key: 'css', container: head }), '')
+    expect(order()).toEqual(['user', 'static', 'css'])
+    expect(buckets()).toEqual(SERVER_AND_BROWSER_BUCKETS)
+    expect(inBody()).toBe(0)
   })
 })
