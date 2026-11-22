@@ -286,15 +286,16 @@ export class NodeUtil {
 
     // Assembled directly rather than via `omitUndefined({ ...literal })`, which
     // allocated the literal and then a filtered copy of it. Assigning only defined
-    // values reproduces `omitUndefined` exactly, including for the DOM buckets:
-    // spreading them into the literal used to let their `undefined` entries through
-    // to `omitUndefined`, which stripped them, so they are skipped here too.
+    // values reproduces `omitUndefined`. The DOM bucket comes after the top level,
+    // as the call's props come after a factory's, so its explicit `undefined`
+    // removes a top-level value: what `{ ...top, ...bucket }` then
+    // `omitUndefined` gives, and what the call uncompiled gives.
     const result: Record<string, unknown> = {}
     if (ref !== undefined) result.ref = ref
     if (key !== undefined) result.key = key
     result.css = finalCssProps
     if (passthroughDomProps !== undefined) NodeUtil._assignDefined(result, passthroughDomProps)
-    if (markerDomProps !== undefined) NodeUtil._assignDefined(result, markerDomProps)
+    if (markerDomProps !== undefined) NodeUtil._assignOver(result, markerDomProps)
     if (disableEmotion !== undefined) result.disableEmotion = disableEmotion
     result.nativeProps = nativeProps === undefined ? {} : omitUndefined(nativeProps)
     // Gated on the schema declaring the marker, so schema 1 — frozen legacy
@@ -396,6 +397,21 @@ export class NodeUtil {
       if (Object.prototype.hasOwnProperty.call(source, key) && source[key] !== undefined) {
         target[key] = source[key]
       }
+    }
+  }
+
+  /**
+   * Copies `source`'s own values onto `target`, an `undefined` one removing the
+   * key from `target`: what spreading `source` over `target` and then
+   * `omitUndefined` would leave.
+   * @param target The object to assign onto.
+   * @param source The object whose own values win.
+   */
+  private static _assignOver(target: Record<string, unknown>, source: Record<string, unknown>): void {
+    for (const key in source) {
+      if (!Object.prototype.hasOwnProperty.call(source, key)) continue
+      if (source[key] === undefined) delete target[key]
+      else target[key] = source[key]
     }
   }
 
