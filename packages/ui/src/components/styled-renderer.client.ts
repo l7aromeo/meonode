@@ -1,5 +1,5 @@
 'use client'
-import { RUNTIME_PRECEDENCE } from '@src/constant/common.const.js'
+import { RUNTIME_PRECEDENCE, STATIC_RUN_PROP } from '@src/constant/common.const.js'
 import { createElement, type ElementType, Fragment, type JSX, type ReactElement, type ReactNode, useContext, useInsertionEffect } from 'react'
 import { __unsafe_useEmotionCache as useEmotionCache, CacheProvider, jsx, ThemeContext as EmotionThemeContext } from '@emotion/react'
 import createCache, { type EmotionCache } from '@emotion/cache'
@@ -14,6 +14,7 @@ import { isValidElementType } from '@src/helper/react-is.helper.js'
 import { createServerCssCache } from '@src/util/server-css-cache.util.js'
 import { replaceThemeTokensWithCssVars } from '@src/util/server-theme.util.js'
 import { nameStyles } from '@src/util/style-name.util.js'
+import { type NamedStyle, serverStyleElement } from '@src/util/named-style.util.js'
 
 export interface StyledRendererProps<E extends NodeElement> {
   element: E
@@ -46,30 +47,53 @@ export default function StyledRenderer<E extends NodeElement, TProps extends Rec
   const mode = useThemeSnapshot(context?.store ?? null, readsTheme ? selectMode : null)
   const emotionTheme = useContext(EmotionThemeContext)
   const theme = context && mode !== undefined ? { ...context.theme, mode: mode as typeof context.theme.mode } : context?.theme
+  // The named styles of its render that began since the previous rule, which go
+  // in ahead of its own. With them, the server renders the element as the
+  // browser does, beside MeoNode's own leaf, which renders them with its rule.
+  const run = (props as Record<string, unknown>)[STATIC_RUN_PROP] as readonly NamedStyle[] | undefined
   if (NodeUtil.isServer || emotionCache === null) {
+    if (run) return renderOwnClass(props as Record<string, any>, theme, emotionCache ?? createServerCssCache(), emotionTheme, context, run)
     const { element, children, ...rest } = props
     return renderStyled(element, children, rest, theme, emotionCache, emotionTheme, context)
   }
-  return renderOwnClass(props as Record<string, any>, theme, emotionCache, emotionTheme, context)
+  return renderOwnClass(props as Record<string, any>, theme, emotionCache, emotionTheme, context, run)
 }
 
-/** Inserts one element's rule before layout effects run, where Emotion's own `Insertion` would. */
-function RuleInsertion({ cache, serialized, isStringTag }: { cache: EmotionCache; serialized: SerializedStyles; isStringTag: boolean }): null {
+/**
+ * Inserts one element's rule before layout effects run, where Emotion's own
+ * `Insertion` would, after the named styles of its render that began since the
+ * previous rule. On the server it renders them in place, as `Insertion` does.
+ */
+function RuleInsertion({
+  cache,
+  serialized,
+  isStringTag,
+  run,
+}: {
+  cache: EmotionCache
+  serialized: SerializedStyles
+  isStringTag: boolean
+  run?: readonly NamedStyle[]
+}): ReactElement | null {
+  // The same on every render of this leaf: a server render never renders again in the browser.
+  if (NodeUtil.isServer) return serverStyleElement(cache, run ? [...run, { serialized, isStringTag }] : [{ serialized, isStringTag }])
   useInsertionEffect(() => {
+    if (run) for (const style of run) insertStyles(cache, style.serialized, style.isStringTag)
     insertStyles(cache, serialized, isStringTag)
   })
   return null
 }
 
 /** The props a styled element's own element is not given. */
-const RENDERER_ONLY = new Set(['element', 'children', 'css', 'as'])
+const RENDERER_ONLY = new Set(['element', 'children', 'css', 'as', STATIC_RUN_PROP])
 
 /**
  * Renders the element with the class Emotion's `css` prop would give it under
  * MeoNode's name for its styles ({@link nameStyles}), computed here rather than
  * in Emotion's own components. It renders as Emotion's do, beside a leaf for its
  * rule, so what sits below has the place it has on the server; the leaf is there
- * only while the rule is not yet in the sheet.
+ * only while the rule, or a named style of `run`, is not yet in the sheet. On the
+ * server it renders an element this way only when the element carries a run.
  */
 function renderOwnClass(
   props: Record<string, any>,
@@ -77,6 +101,7 @@ function renderOwnClass(
   cache: EmotionCache,
   emotionTheme: unknown,
   context: ThemeContextState | null,
+  run?: readonly NamedStyle[],
 ): JSX.Element {
   const asTarget = props.as
   const renderTarget = (asTarget != null && isValidElementType(asTarget) ? asTarget : props.element) as ElementType
@@ -97,7 +122,8 @@ function renderOwnClass(
   for (const name in props) if (!RENDERER_ONLY.has(name)) hostProps[name] = props[name]
   hostProps.className = className
   const host = createElement(renderTarget, hostProps, props.children as ReactNode)
-  const leaf = cache.inserted[serialized.name] === undefined ? createElement(RuleInsertion, { cache, serialized, isStringTag }) : null
+  const pending = cache.inserted[serialized.name] === undefined || (run !== undefined && run.some(style => cache.inserted[style.serialized.name] === undefined))
+  const leaf = pending ? createElement(RuleInsertion, { cache, serialized, isStringTag, ...(run && { run }) }) : null
   return createElement(Fragment, null, leaf, host)
 }
 

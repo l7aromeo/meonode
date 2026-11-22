@@ -37,6 +37,8 @@ import {
   LOCATION_MARKER,
   RUNTIME_PRECEDENCE,
   STATIC_CLASSES_MARKER,
+  STATIC_NAME_MARKER,
+  STATIC_RUN_PROP,
   STATIC_VARS_MARKER,
 } from '@src/constant/common.const.js'
 import { checkCss, checkFactoryCss, isMergeableCss, markCombinedCssChecked } from '@src/util/css.util.js'
@@ -45,7 +47,11 @@ import { IS_REACT_SERVER_LAYER } from '@src/util/react-layer.util.js'
 import { passesChildrenThrough, providesTheme } from '@src/util/children-pass-through.util.js'
 import { observeChildren } from '@src/util/generated-list.util.js'
 import { compileServerEmotionRule } from '@src/util/server-emotion.util.js'
-import { hasStaticCss, registeredClassesOf, staticRuleOf } from '@src/util/static-css.util.js'
+import { hasNamedStyles, hasStaticCss, registeredClassesOf, staticRuleOf, staticStylesOf } from '@src/util/static-css.util.js'
+import { namedClass, type NamedStyle } from '@src/util/named-style.util.js'
+import type { EmotionCache } from '@emotion/cache'
+import { readEmotionCache } from '@src/util/emotion-cache.util.js'
+import { createServerCssCache } from '@src/util/server-css-cache.util.js'
 import { StaticStyles, type StaticThemeCandidate, type StaticThemeCheck } from '@src/components/static-styles.js'
 import { replaceThemeTokensWithCssVars } from '@src/util/server-theme.util.js'
 import {
@@ -156,6 +162,17 @@ const STATIC_STYLES_KEY = 'mn-static'
  * read under the element's own `style`, which wins a conflict.
  * @param props The element's props, a fresh object this render owns.
  */
+
+/**
+ * Whether a node renders through `StyledRenderer`, as its complete phase decides
+ * outside the server layer: css left on the runtime path, and Emotion not disabled.
+ * @param props The node's props.
+ */
+function beginsStyledRenderer(props: Record<string, unknown>): boolean {
+  const css = props.css as object | null | undefined
+  return !props.disableEmotion && !!css && Object.keys(css).length > 0
+}
+
 function addStaticProps(props: Record<string, unknown>, classes: string | undefined, vars: Record<string, unknown> | undefined): void {
   if (classes !== undefined) {
     const own = props.className
@@ -568,27 +585,74 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
         lists = []
         staticModules!.set(rules, lists)
         // Holds the map position until the carrier completes.
-        rules.set(STATIC_STYLES_KEY, null as unknown as ReactElement)
+        if (!rules.has(STATIC_STYLES_KEY)) rules.set(STATIC_STYLES_KEY, null as unknown as ReactElement)
       }
       return lists
     }
     const finishStaticSlot = (rules: Map<string, ReactElement>): void => {
       const lists = staticModules?.get(rules)
-      if (!lists) return
+      const named = namedTail?.get(rules)
+      if (!lists && !named) return
       // Gathered as the nodes completed, deepest first, and put in the order they
       // began, parents first: Emotion's order on both sides, since it inserts each
       // element's rule from a leaf rendered before the element, ahead of its subtree.
-      lists.sort((a, b) => a[0] - b[0])
       // A class several nodes use is listed for each: the server's hoistables are
       // deduped by React by `href`, and the browser inserts a class once.
       const classes: string[] = []
-      for (const [, list] of lists) for (const className of list) classes.push(className)
+      if (lists) {
+        lists.sort((a, b) => a[0] - b[0])
+        for (const [, list] of lists) for (const className of list) classes.push(className)
+      }
       const checks = staticChecks?.get(rules)
       const candidates = staticCandidates?.get(rules)
       rules.set(
         STATIC_STYLES_KEY,
-        createElement(StaticStyles, { key: STATIC_STYLES_KEY, classes, ...(checks && { checks }), ...(candidates && { candidates }) }),
+        createElement(StaticStyles, {
+          key: STATIC_STYLES_KEY,
+          ...(lists && { classes }),
+          ...(named && { styles: named }),
+          ...(checks && { checks }),
+          ...(candidates && { candidates }),
+        }),
       )
+    }
+
+    // The whole styles the compiler serialized, inserted into Emotion's own sheet
+    // when Emotion would insert them: each node's before the next rule of the
+    // render in the order its nodes begin, parents first. A runtime node inserts
+    // the run of them that began since the last such rule ahead of its own, from
+    // its `RuleInsertion`; the rest go in from the `StaticStyles` at the end of
+    // their carrier, its topmost host, once its subtree's rules are in.
+    const namedEnabled = !IS_REACT_SERVER_LAYER && hasNamedStyles()
+    /** The cache the render's elements go under, read once, at its first named node. */
+    let walkCache: EmotionCache | undefined
+    const cacheOfWalk = (): EmotionCache => (walkCache ??= readEmotionCache() ?? createServerCssCache())
+    /** Each named node's class, from its begin phase, for its complete phase. */
+    const namedClasses = namedEnabled ? new Map<BaseNode, string>() : undefined
+    /** The run each runtime node inserts ahead of its own rule. */
+    const namedRuns = namedEnabled ? new Map<BaseNode, NamedStyle[]>() : undefined
+    /** What each carrier's `StaticStyles` inserts, once its subtree is in. */
+    const namedTail = namedEnabled ? new Map<Map<string, ReactElement>, NamedStyle[]>() : undefined
+    /** The run since the last rule, and the carrier of its nodes. */
+    let pendingNamed: NamedStyle[] = []
+    let pendingCarrier: BaseNode | null = null
+    const rulesOfCarrier = (carrier: BaseNode | null): Map<string, ReactElement> => {
+      if (carrier === null) return rootRules
+      let rules = anchoredRules.get(carrier)
+      if (!rules) anchoredRules.set(carrier, (rules = new Map<string, ReactElement>()))
+      return rules
+    }
+    /** Hands the run to its carrier's `StaticStyles`, which holds its place in the carrier's rules. */
+    const flushNamed = (): void => {
+      if (pendingNamed.length === 0) return
+      const rules = rulesOfCarrier(pendingCarrier)
+      const tail = namedTail!.get(rules)
+      if (tail) tail.push(...pendingNamed)
+      else {
+        namedTail!.set(rules, pendingNamed)
+        if (!rules.has(STATIC_STYLES_KEY)) rules.set(STATIC_STYLES_KEY, null as unknown as ReactElement)
+      }
+      pendingNamed = []
     }
     // The order nodes begin in, which is the order their static classes go in.
     let began = 0
@@ -674,10 +738,35 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
           const beginAs = (node.props as { as?: NodeElementType }).as
           const beginTarget = beginAs != null && isValidElementType(beginAs) ? beginAs : node.element
           const childAnchor =
-            IS_REACT_SERVER_LAYER || staticModules !== undefined
+            IS_REACT_SERVER_LAYER || staticModules !== undefined || namedEnabled
               ? (anchor ?? (canAnchorRules(beginTarget, node.props as Record<string, unknown>, inForeignNamespace) ? node : null))
               : null
           const childInForeignNamespace = inForeignNamespace || beginTarget === 'svg' || beginTarget === 'math'
+          // A named node joins the run since the last rule, as its class is
+          // composed; a runtime node takes that run, to insert ahead of its own.
+          if (namedEnabled) {
+            const beginProps = node.props as Record<string, unknown>
+            const carrier = anchor ?? (canAnchorRules(beginTarget, beginProps, inForeignNamespace) ? node : null)
+            const name = beginProps.disableEmotion ? undefined : (beginProps[STATIC_NAME_MARKER] as string | undefined)
+            const styles = name === undefined ? undefined : staticStylesOf(name)
+            if (name !== undefined && styles === undefined && isDevMode()) {
+              console.error(`[MeoNode] The static style \`${name}\` is used but no module registered it, so no rule is sent for it.`)
+            }
+            if (styles !== undefined) {
+              if (carrier !== pendingCarrier) {
+                flushNamed()
+                pendingCarrier = carrier
+              }
+              const { className, style } = namedClass(cacheOfWalk(), name!, styles, beginProps.className, typeof beginTarget === 'string')
+              namedClasses!.set(node, className)
+              pendingNamed.push(style)
+            } else if (pendingNamed.length > 0 && beginsStyledRenderer(beginProps)) {
+              // A run of another carrier went to it as that carrier completed, so
+              // what is pending began before this node, in its carrier or in none.
+              namedRuns!.set(node, pendingNamed)
+              pendingNamed = []
+            }
+          }
           // The same, for a `ThemedRule`, which resolves against the theme where it
           // renders: the topmost host since the last component above, which may
           // supply another theme.
@@ -764,6 +853,7 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
             [LOCATION_MARKER]: callSiteLocation,
             [STATIC_CLASSES_MARKER]: staticClasses,
             [STATIC_VARS_MARKER]: staticVars,
+            [STATIC_NAME_MARKER]: _staticName,
             ...otherProps
           } = node.props
 
@@ -974,6 +1064,11 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
           // host above, for the server to send; see `StaticStyles`. A node with
           // Emotion disabled, its own or an ancestor's, takes none of them, as it
           // takes none of its css: an ancestor's reaches it here, after the build.
+          // A named node's class, composed in its begin phase as `StyledRenderer`
+          // composes one: the given classes the cache registered folded into it.
+          const ownNamedClass = namedClasses?.get(node)
+          if (ownNamedClass !== undefined) (elementProps as Record<string, unknown>).className = ownNamedClass
+
           if (!disableEmotion && (staticClasses !== undefined || staticVars !== undefined)) {
             addStaticProps(elementProps as Record<string, unknown>, staticClasses as string | undefined, staticVars as Record<string, unknown> | undefined)
             if (staticClasses !== undefined && staticModules !== undefined) {
@@ -1057,7 +1152,12 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
               // client runtime's vars-mode resolution keeps the Emotion class
               // hash identical across SSR/CSR.
               const cssForRenderer = NodeUtil.isServer ? replaceThemeTokensWithCssVars(css) : css
-              element = createElement(StyledRenderer, { element: renderTarget, ...elementProps, css: cssForRenderer }, ...elementChildren)
+              const run = namedRuns?.get(node)
+              element = createElement(
+                StyledRenderer,
+                { element: renderTarget, ...elementProps, css: cssForRenderer, ...(run && { [STATIC_RUN_PROP]: run }) },
+                ...elementChildren,
+              )
             } else if (shouldBypassStyledRendererOnServer && isStyledComponent && !NodeUtil.acceptsServerCss(renderTarget)) {
               // Emit `var(--meonode-theme-*)` on the server so the generated Emotion class
               // matches the client runtime output — unifies the class hash across SSR/CSR.
@@ -1153,12 +1253,15 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
           // it would be without them. With static css among them they go in as
           // children of their own, which a nested list would wrap in one more
           // fiber; without, they stay the one trailing list they have always been.
+          // A carrier's run goes to its `StaticStyles` once its subtree is walked.
+          if (namedEnabled && pendingCarrier === node) flushNamed()
           const carriedRules = anchoredRules.get(node)
           if (carriedRules) {
             finishStaticSlot(carriedRules)
-            element = staticModules?.has(carriedRules)
-              ? cloneElement(element, undefined, ...elementChildren, ...carriedRules.values())
-              : cloneElement(element, undefined, ...elementChildren, [...carriedRules.values()])
+            element =
+              staticModules?.has(carriedRules) || namedTail?.has(carriedRules)
+                ? cloneElement(element, undefined, ...elementChildren, ...carriedRules.values())
+                : cloneElement(element, undefined, ...elementChildren, [...carriedRules.values()])
           }
           const rulesBeside = besideRules.get(node)
           if (rulesBeside) element = createElement(Fragment, { key: element.key }, element, [...rulesBeside.values()])
@@ -1178,6 +1281,11 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
 
       // Get the final rendered element for the root node of this render cycle.
       const rootElement = renderedElements.get(this) as ReactElement<FinalNodeProps>
+      // What no carrier took goes beside the root, after it.
+      if (namedEnabled) {
+        pendingCarrier = null
+        flushNamed()
+      }
       if (rootRules.size === 0) return rootElement
       finishStaticSlot(rootRules)
 

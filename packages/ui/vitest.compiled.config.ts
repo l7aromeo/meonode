@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { defineConfig, mergeConfig, type Plugin } from 'vitest/config'
 import baseConfig from './vitest.config'
-import { sourceAliases } from './vitest.aliases'
+import { sourceAliases } from './vitest.aliases.ts'
 
 const rootDir = path.dirname(fileURLToPath(import.meta.url))
 

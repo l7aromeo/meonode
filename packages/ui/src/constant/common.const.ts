@@ -176,6 +176,21 @@ export const STATIC_CLASSES_MARKER = '__meo$s'
 export const STATIC_VARS_MARKER = '__meo$v'
 
 /**
+ * Marker key holding the name of a call site's whole style, which the compiler
+ * serialized at build time: the name `StyledRenderer` would give the same css,
+ * so the element's class is `${cache.key}-${name}`, the one it would have with
+ * extraction off. Its text reaches the page through {@link registerStaticCss},
+ * inserted where Emotion would insert it.
+ */
+export const STATIC_NAME_MARKER = '__meo$n'
+
+/**
+ * The prop of a `StyledRenderer` holding the run of named styles of its render
+ * that began after the previous rule: it inserts them ahead of its own rule.
+ */
+export const STATIC_RUN_PROP = '__meonodeStaticRun'
+
+/**
  * Marker keys of a call site with one spread: the source of the static entries
  * written before it and after it. They are the css the node renders with when
  * the spread brings a key that could override, or be overridden by, a static
@@ -198,7 +213,19 @@ export const INITIAL_PROPS_MARKER = '__meo$i'
 export const COMPILER_SCHEMA_KEYS: Readonly<
   Record<
     number,
-    { css: string; dom: string; key: string; dyn: string; list?: string; loc?: string; classes?: string; vars?: string; before?: string; after?: string }
+    {
+      css: string
+      dom: string
+      key: string
+      dyn: string
+      list?: string
+      loc?: string
+      classes?: string
+      vars?: string
+      name?: string
+      before?: string
+      after?: string
+    }
   >
 > = {
   // Schema 1 gets no `list` entry, and must not: its bucket names are unprefixed,
@@ -215,6 +242,7 @@ export const COMPILER_SCHEMA_KEYS: Readonly<
     loc: LOCATION_MARKER,
     classes: STATIC_CLASSES_MARKER,
     vars: STATIC_VARS_MARKER,
+    name: STATIC_NAME_MARKER,
     before: STATIC_BEFORE_SPREAD_MARKER,
     after: STATIC_AFTER_SPREAD_MARKER,
   },
@@ -230,6 +258,7 @@ export const COMPILER_SCHEMA_KEYS: Readonly<
     loc: LOCATION_MARKER,
     classes: STATIC_CLASSES_MARKER,
     vars: STATIC_VARS_MARKER,
+    name: STATIC_NAME_MARKER,
     before: STATIC_BEFORE_SPREAD_MARKER,
     after: STATIC_AFTER_SPREAD_MARKER,
   },

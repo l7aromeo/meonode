@@ -27,6 +27,7 @@ import {
   STATIC_AFTER_SPREAD_MARKER,
   STATIC_BEFORE_SPREAD_MARKER,
   STATIC_CLASSES_MARKER,
+  STATIC_NAME_MARKER,
   STATIC_VARS_MARKER,
   SUPPORTED_COMPILER_SCHEMAS,
 } from '@src/constant/common.const.js'
@@ -253,6 +254,7 @@ export class NodeUtil {
         propKey === INITIAL_PROPS_MARKER ||
         propKey === STATIC_CLASSES_MARKER ||
         propKey === STATIC_VARS_MARKER ||
+        propKey === STATIC_NAME_MARKER ||
         propKey === STATIC_BEFORE_SPREAD_MARKER ||
         propKey === STATIC_AFTER_SPREAD_MARKER ||
         NodeUtil.DESTRUCTURED_SPECIAL_KEYS.has(propKey)
@@ -328,6 +330,9 @@ export class NodeUtil {
     if (typeof staticClasses === 'string' && staticClasses !== '') result[STATIC_CLASSES_MARKER] = staticClasses
     const staticVars = schemaKeys.vars === undefined || spreadOverrides ? undefined : source[schemaKeys.vars]
     if (staticVars !== null && typeof staticVars === 'object') result[STATIC_VARS_MARKER] = staticVars
+    // The name of the call site's whole style, which the compiler serialized.
+    const staticName = schemaKeys.name === undefined || spreadOverrides ? undefined : source[schemaKeys.name]
+    if (typeof staticName === 'string' && staticName !== '') result[STATIC_NAME_MARKER] = staticName
 
     return result as FinalNodeProps
   }

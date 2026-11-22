@@ -53,6 +53,7 @@ beforeAll(async () => {
   }
   // The server build's own variant, which the unit suites' aliases swap for the default build's.
   vi.doMock('@src/components/static-styles.js', () => import(path.join(SRC, 'components/static-styles.ts')))
+  vi.doMock('@src/util/emotion-cache.util.js', () => import(path.join(SRC, 'util/emotion-cache.util.ts')))
   main = await import('@src/main.js')
   nodeUtil = (await import('@src/util/node.util.js')).NodeUtil
   diagnostics = await import('@src/util/theme-diagnostics.util.js')

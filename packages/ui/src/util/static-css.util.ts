@@ -48,8 +48,13 @@ import { getGlobalState } from '@src/helper/common.helper.js'
  */
 export const STATIC_CSS_BUCKETS = 5
 
-/** One extracted rule: its bucket, the class it defines, and its css text. */
-export type StaticCssRule = readonly [bucket: number, className: string, cssText: string]
+/**
+ * One extracted rule, in either of the compiler's two forms:
+ * - `[bucket, className, cssText]`: a class of its own, in one of the buckets;
+ * - `[name, styles]`: a node's whole style as Emotion serializes it, under the
+ *   name `StyledRenderer` gives it, inserted into Emotion's own sheet.
+ */
+export type StaticCssRule = readonly [bucket: number, className: string, cssText: string] | readonly [name: string, styles: string]
 
 /** Prefix of every `href` and precedence the server's static styles use. */
 export const STATIC_CSS_PREFIX = 'mn-static-'
@@ -93,6 +98,8 @@ interface StaticTarget {
 interface StaticCssState {
   /** Every registered class, by name. */
   classes: Map<string, StaticClass>
+  /** Every registered whole style, its serialized text by its name. */
+  named: Map<string, string>
   /** Every registered module id. */
   modules: Set<string>
   /** The registered classes of a `__meo$s` string, in its order. */
@@ -107,6 +114,7 @@ interface StaticCssState {
 
 const state = getGlobalState(Symbol.for('@meonode/ui/staticCss'), (): StaticCssState => ({
   classes: new Map(),
+  named: new Map(),
   modules: new Set(),
   lists: new Map(),
   targets: new Map(),
@@ -119,6 +127,12 @@ let speedy = !isDevMode()
 
 /** Whether any rule is registered. Until one is, nothing here costs a render anything, and a server render sends nothing for it. */
 export const hasStaticCss = (): boolean => state.classes.size > 0
+
+/** Whether any whole style is registered. Until one is, a render looks for none. */
+export const hasNamedStyles = (): boolean => state.named.size > 0
+
+/** The serialized text of a registered whole style, by its name, or `undefined` when none is registered. */
+export const staticStylesOf = (name: string): string | undefined => state.named.get(name)
 
 /** The registered text of a static class, or `undefined` when none is registered. */
 export const staticRuleOf = (className: string): string | undefined => state.classes.get(className)?.cssText
@@ -137,15 +151,27 @@ export const staticHref = (className: string): string => `${STATIC_CSS_PREFIX}${
  * module, at its top level. Nothing reaches the page until a node using a class
  * renders.
  *
- * A class registered by an earlier module keeps that module's rule: the same
- * node style in two modules is one class. A class whose text differs from the one
- * already registered means two builds are mixed, and in development throws.
+ * A class or name registered by an earlier module keeps that module's text: the
+ * same node style in two modules is one class. One whose text differs from the
+ * one already registered means two builds are mixed, and in development throws.
  * @param moduleId A hash of the module's rules, so the same rules register once.
- * @param rules The module's rules, each as `[bucket, className, cssText]`.
+ * @param rules The module's rules, each as `[bucket, className, cssText]` or `[name, styles]`.
  */
 export function registerStaticCss(moduleId: string, rules: readonly StaticCssRule[]): void {
   if (state.modules.has(moduleId)) return
-  for (const [bucket, className, cssText] of rules) {
+  for (const rule of rules) {
+    if (rule.length === 2) {
+      const [name, styles] = rule
+      const known = state.named.get(name)
+      if (known === undefined) state.named.set(name, styles)
+      else if (known !== styles && isDevMode()) {
+        throw new Error(
+          `[MeoNode] The static style \`${name}\` is registered with two different texts:\n  ${known}\n  ${styles}\nOutput of two different builds is loaded together.`,
+        )
+      }
+      continue
+    }
+    const [bucket, className, cssText] = rule
     if (!Number.isInteger(bucket) || bucket < 0 || bucket >= STATIC_CSS_BUCKETS) {
       if (isDevMode()) throw new Error(`[MeoNode] Static css for \`${className}\` names bucket ${bucket}; buckets are 0 to ${STATIC_CSS_BUCKETS - 1}.`)
       continue
@@ -429,6 +455,7 @@ export function splitRules(cssText: string): string[] {
 export function __resetStaticCss(): void {
   for (const target of state.targets.values()) for (const element of target.sheets) element.remove()
   state.classes.clear()
+  state.named.clear()
   state.modules.clear()
   state.lists.clear()
   state.targets.clear()

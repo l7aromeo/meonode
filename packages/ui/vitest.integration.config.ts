@@ -1,5 +1,5 @@
 import { defineConfig } from 'vitest/config'
-import { sourceAliases } from './vitest.aliases'
+import { sourceAliases } from './vitest.aliases.ts'
 
 /**
  * Editing a client component in `next dev` makes Next refresh every page connected

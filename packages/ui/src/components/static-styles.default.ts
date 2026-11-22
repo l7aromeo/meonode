@@ -1,9 +1,12 @@
 import { type ReactElement, use, useEffect, useInsertionEffect } from 'react'
 import { __unsafe_useEmotionCache as useEmotionCache } from '@emotion/react'
+import { insertStyles } from '@emotion/utils'
 import { isDevMode } from '@src/constant/common.const.js'
 import { ThemeContext } from '@src/components/theme-provider.client.js'
 import { staticHoistables, type StaticStylesProps } from '@src/components/static-hoistables.js'
 import { NodeUtil } from '@src/util/node.util.js'
+import { serverStyleElement } from '@src/util/named-style.util.js'
+import { createServerCssCache } from '@src/util/server-css-cache.util.js'
 import { type EmotionSheetPlacement, insertStaticClasses } from '@src/util/static-css.util.js'
 import { candidatesKey, checkCandidates } from '@src/util/static-theme-check.util.js'
 import { reportThemeVarRefs, unionThemeVarIndexes } from '@src/util/theme-diagnostics.util.js'
@@ -40,8 +43,9 @@ export { __resetStaticStyles } from '@src/components/static-hoistables.js'
  * @param props.classes The registered classes of the render's nodes, in the order they reach the page.
  * @param props.checks The theme variables to check while rendering, while diagnostics are on.
  * @param props.candidates The theme variables to check after commit, in a development build in the browser.
+ * @param props.styles The named styles of the render's nodes that no runtime node of it inserted, in the order they began.
  */
-export function StaticStyles({ classes, checks, candidates }: StaticStylesProps): ReactElement[] | null {
+export function StaticStyles({ classes, checks, candidates, styles }: StaticStylesProps): ReactElement[] | null {
   // `use` may be called conditionally; `checks` is only passed while diagnostics are on.
   if (checks) {
     const context = use(ThemeContext)
@@ -54,7 +58,8 @@ export function StaticStyles({ classes, checks, candidates }: StaticStylesProps)
   // the render's nodes began. The server runs no effects.
   useInsertionEffect(() => {
     if (classes) insertStaticClasses(cache?.sheet as unknown as EmotionSheetPlacement | undefined, classes)
-  }, [cache, classes])
+    if (styles && cache) for (const style of styles) insertStyles(cache, style.serialized, style.isStringTag)
+  }, [cache, classes, styles])
   // A development build has the effect on every render and a production build
   // never does, so the hooks stay the same from one render to the next.
   if (isDevMode()) {
@@ -64,5 +69,10 @@ export function StaticStyles({ classes, checks, candidates }: StaticStylesProps)
       // Keyed by content: an equal list from a later render is not checked again.
     }, [key])
   }
-  return NodeUtil.isServer ? staticHoistables(classes) : null
+  if (!NodeUtil.isServer) return null
+  // On the server, the named styles in place as Emotion's `Insertion` renders
+  // its own, then the hoistable classes.
+  const named = styles ? serverStyleElement(cache ?? createServerCssCache(), styles, 'mn-named') : null
+  const hoisted = classes ? staticHoistables(classes) : []
+  return named ? [named, ...hoisted] : hoisted
 }

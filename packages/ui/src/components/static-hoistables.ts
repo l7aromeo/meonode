@@ -1,6 +1,7 @@
 import { createElement, type ReactElement } from 'react'
 import { STATIC_CSS_BUCKETS, staticBucketOf, staticHref, staticPrecedence, staticRuleOf, STATIC_CSS_PREFIX } from '@src/util/static-css.util.js'
 import type { StaticThemeCandidate } from '@src/util/static-theme-check.util.js'
+import type { NamedStyle } from '@src/util/named-style.util.js'
 import type { ThemeVarIndex, ThemeVarRef } from '@src/util/theme-diagnostics.util.js'
 
 export type { StaticThemeCandidate }
@@ -20,9 +21,11 @@ export interface StaticThemeCheck {
  * @property classes The registered classes of the render's nodes, in the order they reach the page.
  * @property checks The theme variables to check while rendering, while diagnostics are on; never in the server layer.
  * @property candidates The theme variables to check after commit, in a development build in the browser.
+ * @property styles The named styles of the render's nodes that no runtime node of it inserted, in the order they began; never in the server layer.
  */
 export interface StaticStylesProps {
   classes?: readonly string[]
+  styles?: readonly NamedStyle[]
   checks?: readonly StaticThemeCheck[]
   candidates?: readonly StaticThemeCandidate[]
 }
