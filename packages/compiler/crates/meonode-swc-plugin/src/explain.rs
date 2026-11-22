@@ -183,19 +183,23 @@ fn kind(expr: &Expr) -> String {
 /// Records what `expr` is, as `<label>=<kind>`.
 pub fn classify(label: &'static str, expr: &Expr) {
     #[cfg(test)]
-    detail(format!("{label}={}", kind(expr)));
+    detail(|| format!("{label}={}", kind(expr)));
     #[cfg(not(test))]
     let _ = (label, expr);
 }
 
-/// Records a detail for the call site being looked at.
-pub fn detail(text: String) {
+/// Records a detail for the call site being looked at. `text` runs only in
+/// test builds.
+pub fn detail(text: impl FnOnce() -> String) {
     #[cfg(test)]
-    SITES.with(|sites| {
-        if let Some(site) = sites.borrow_mut().last_mut() {
-            site.details.push(text);
-        }
-    });
+    {
+        let text = text();
+        SITES.with(|sites| {
+            if let Some(site) = sites.borrow_mut().last_mut() {
+                site.details.push(text);
+            }
+        });
+    }
     #[cfg(not(test))]
     let _ = text;
 }
@@ -465,7 +469,7 @@ export const a = (p) => Div({ color: p.color, margin: tone.gap, padding: shade }
                         self.out.push((
                             line,
                             format!("{chain}\t{composed}"),
-                            crate::extract::styles_node(&next.props),
+                            crate::extract::styles_node_for_accounting(&next.props),
                             props,
                         ));
                     }

@@ -700,13 +700,6 @@ fn rewrite_object(
 ) {
     let filename = ctx.filename;
     let old_props = mem::take(&mut obj.props);
-    // What the spreads are, for the reason recorder's accounting run.
-    #[cfg(test)]
-    let spreads: Vec<Expr> = old_props
-        .iter()
-        .filter_map(|p| p.as_spread())
-        .map(|s| (*s.expr).clone())
-        .collect();
     let has_spread = old_props
         .iter()
         .any(|p| matches!(p, PropOrSpread::Spread(_)));
@@ -819,10 +812,6 @@ fn rewrite_object(
         explain::begin(span.lo.0);
         if has_spread {
             explain::note("a spread among the call's props");
-            #[cfg(test)]
-            for spread in &spreads {
-                explain::classify("spread", spread);
-            }
         }
     }
     let site = match extract {

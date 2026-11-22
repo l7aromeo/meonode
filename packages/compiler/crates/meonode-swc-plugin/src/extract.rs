@@ -1264,7 +1264,7 @@ impl ModuleScope {
                 if key.contains("theme.")
                     || key.starts_with(|c: char| !c.is_ascii_alphabetic() && c != '-')
                 {
-                    explain::detail(format!("key={key}"));
+                    explain::detail(|| format!("key={key}"));
                     return explain::bail("a theme token or a non-property in a key");
                 }
                 model.declarations.push(Declaration {
@@ -1317,7 +1317,7 @@ impl ModuleScope {
             // The runtime resolves theme tokens in keys.
             extractable: !key.contains("theme.") || {
                 explain::note("a theme token in a selector or at-rule key");
-                explain::detail(format!("key={key}"));
+                explain::detail(|| format!("key={key}"));
                 false
             },
         };
@@ -1431,15 +1431,17 @@ impl Block {
                 .iter()
                 .map(|(k, _)| property_name(k))
                 .collect();
-            explain::detail(format!(
-                "reach={}{};props={};extracted={extracted}",
-                self.at_rules
-                    .iter()
-                    .map(|a| format!("{a} > "))
-                    .collect::<String>(),
-                self.scope.props.join(", ").replace(NODE, "&"),
-                props.join(",")
-            ));
+            explain::detail(|| {
+                format!(
+                    "reach={}{};props={};extracted={extracted}",
+                    self.at_rules
+                        .iter()
+                        .map(|a| format!("{a} > "))
+                        .collect::<String>(),
+                    self.scope.props.join(", ").replace(NODE, "&"),
+                    props.join(",")
+                )
+            });
         }
         for child in &self.children {
             child.explain_reaching(extracted);
@@ -1889,10 +1891,16 @@ fn block_variable(key: &str, route: &Route) -> Option<Box<Expr>> {
     }
 }
 
+/// [`styles_node`], for the reason recorder's accounting run.
+#[cfg(test)]
+pub(crate) fn styles_node_for_accounting(props: &[String]) -> bool {
+    styles_node(props)
+}
+
 /// Whether each of a rule's selectors styles the node itself: its last
 /// compound names the node outside any parentheses (`&:hover`, `.dark &`),
 /// not a descendant, sibling or ancestor of it (`& p`, `.a:has(&)`).
-pub(crate) fn styles_node(props: &[String]) -> bool {
+fn styles_node(props: &[String]) -> bool {
     props.iter().all(|item| {
         let mut depth = 0i32;
         let mut quote: Option<char> = None;
