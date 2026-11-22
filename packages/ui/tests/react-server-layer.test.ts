@@ -336,8 +336,31 @@ describe('named static styles in the React Server Components layer', () => {
       registry.registerStaticCss(`m-${name}`, [[name, text]])
       return { __meo$: 2, __meo$n: name }
     }
-    return { registry, runtime, compiled }
+    /** As the compiler emits a node of `css` whose `hole` key holds a run-time value: a template and the value's text. */
+    const templated = (css: Css, hole: string): Record<string, unknown> => {
+      const resolved = ThemeUtil.resolveObjWithTheme(css, undefined, { processFunctions: true, themeStringsMode: 'vars' })
+      const text = nameStyles(serializeStyles([ThemeUtil.resolveDefaultStyle(ThemeUtil.dropThemedKeys(resolved, () => {}))] as never)).styles
+      const value = main.toCssValue(hole, css[hole])!
+      const at = text.indexOf(value)
+      registry.registerStaticTemplate(`t-${hole}`, [text.slice(0, at), text.slice(at + value.length)])
+      return { __meo$: 2, __meo$t: [`t-${hole}`, value] }
+    }
+    return { registry, runtime, compiled, templated }
   }
+
+  it('compiles a node filled from a template as its css', async () => {
+    const { registry, runtime, templated } = await styles()
+    registry.__resetStaticCss()
+    try {
+      const tree = (style: (css: Css) => Record<string, unknown>) =>
+        main.Div({ children: [main.Div({ key: 1, ...style({ width: '37%' }) }), main.Div({ key: 2, ...style({ width: '37%' }) })] })
+      const expected = shape(tree(runtime).render())
+      expect(JSON.stringify(expected)).toContain('"precedence":"meonode"')
+      expect(shape(tree(css => templated(css, 'width')).render())).toEqual(expected)
+    } finally {
+      registry.__resetStaticCss()
+    }
+  })
 
   const CASES: Record<string, (style: Style) => import('@src/main.js').NodeInstance> = {
     'a parent’s & > * against its static child’s colour': style => main.Div({ ...style({ '& > *': RED }), children: main.Span('c', style(BLUE)) }),

@@ -196,6 +196,20 @@ export const STATIC_NAME_MARKER = '__meo$n'
 export const STATIC_SLOTS_MARKER = '__meo$p'
 
 /**
+ * Marker key holding a call site's template and its values: the id of a
+ * template registered by `registerStaticTemplate`, then each hole's value as
+ * `toCssValue` writes it. Filled in, it is the call site's whole style, named
+ * as the runtime names any serialized styles, so the node is a named one.
+ */
+export const STATIC_TEMPLATE_MARKER = '__meo$t'
+
+/**
+ * The prop a node built from a template keeps its whole style's text on: it is
+ * its own, so no registry holds the text of every value it is rendered with.
+ */
+export const STATIC_TEXT_PROP = '__meonodeStaticText'
+
+/**
  * The prop of a `StyledRenderer` holding the run of named styles of its render
  * that began after the previous rule: it inserts them ahead of its own rule.
  */
@@ -242,6 +256,7 @@ export const COMPILER_SCHEMA_KEYS: Readonly<
       vars?: string
       name?: string
       slots?: string
+      template?: string
       before?: string
       after?: string
     }
@@ -263,6 +278,7 @@ export const COMPILER_SCHEMA_KEYS: Readonly<
     vars: STATIC_VARS_MARKER,
     name: STATIC_NAME_MARKER,
     slots: STATIC_SLOTS_MARKER,
+    template: STATIC_TEMPLATE_MARKER,
     before: STATIC_BEFORE_SPREAD_MARKER,
     after: STATIC_AFTER_SPREAD_MARKER,
   },
@@ -280,6 +296,7 @@ export const COMPILER_SCHEMA_KEYS: Readonly<
     vars: STATIC_VARS_MARKER,
     name: STATIC_NAME_MARKER,
     slots: STATIC_SLOTS_MARKER,
+    template: STATIC_TEMPLATE_MARKER,
     before: STATIC_BEFORE_SPREAD_MARKER,
     after: STATIC_AFTER_SPREAD_MARKER,
   },

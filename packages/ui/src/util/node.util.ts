@@ -22,6 +22,7 @@ import {
   COMPILED_MARKER,
   COMPILER_SCHEMA_KEYS,
   INITIAL_PROPS_MARKER,
+  isDevMode,
   LIST_MARKER,
   LOCATION_MARKER,
   STATIC_AFTER_SPREAD_MARKER,
@@ -29,12 +30,17 @@ import {
   STATIC_CLASSES_MARKER,
   STATIC_NAME_MARKER,
   STATIC_SLOTS_MARKER,
+  STATIC_TEMPLATE_MARKER,
+  STATIC_TEXT_PROP,
   STATIC_VARS_MARKER,
   SUPPORTED_COMPILER_SCHEMAS,
 } from '@src/constant/common.const.js'
 import { BaseNode } from '@src/core.node.js'
 import { diagnosticsEnabled } from '@src/util/theme-diagnostics.util.js'
 import { checkCss, isMergeableCss } from '@src/util/css.util.js'
+import { serializeStyles } from '@emotion/serialize'
+import { templateText } from '@src/util/static-css.util.js'
+import { nameStyles } from '@src/util/style-name.util.js'
 
 /**
  * NodeUtil provides a collection of static utility methods and properties
@@ -257,6 +263,8 @@ export class NodeUtil {
         propKey === STATIC_VARS_MARKER ||
         propKey === STATIC_NAME_MARKER ||
         propKey === STATIC_SLOTS_MARKER ||
+        propKey === STATIC_TEMPLATE_MARKER ||
+        propKey === STATIC_TEXT_PROP ||
         propKey === STATIC_BEFORE_SPREAD_MARKER ||
         propKey === STATIC_AFTER_SPREAD_MARKER ||
         NodeUtil.DESTRUCTURED_SPECIAL_KEYS.has(propKey)
@@ -335,6 +343,20 @@ export class NodeUtil {
     // The name of the call site's whole style, which the compiler serialized.
     const staticName = schemaKeys.name === undefined || spreadOverrides ? undefined : source[schemaKeys.name]
     if (typeof staticName === 'string' && staticName !== '') result[STATIC_NAME_MARKER] = staticName
+    // A template filled with the call site's values is its whole style, named
+    // as Emotion's pipeline names the text, so the node is a named one.
+    const template = schemaKeys.template === undefined || spreadOverrides ? undefined : source[schemaKeys.template]
+    if (Array.isArray(template) && typeof template[0] === 'string') {
+      const text = templateText(template[0], template.slice(1))
+      if (text !== undefined) {
+        result[STATIC_NAME_MARKER] = nameStyles(serializeStyles([text] as never)).name
+        result[STATIC_TEXT_PROP] = text
+      } else if (isDevMode()) {
+        console.error(
+          `[MeoNode] The static template \`${template[0]}\` is used but no module registered it with ${template.length - 1} holes, so the node renders unstyled.`,
+        )
+      }
+    }
     // Where a component may render among the written children, for the leaves before them.
     const slots = schemaKeys.slots === undefined ? undefined : source[schemaKeys.slots]
     if (Array.isArray(slots) && slots.length > 0) result[STATIC_SLOTS_MARKER] = slots

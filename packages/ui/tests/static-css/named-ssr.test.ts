@@ -16,6 +16,7 @@ import { Div, Node, Span, type NodeInstance } from '@src/main.js'
 import { ThemeUtil } from '@src/util/theme.util.js'
 import { nameStyles } from '@src/util/style-name.util.js'
 import { __resetStaticCss, registerStaticCss } from '@src/util/static-css.util.js'
+import { templated } from './_template.js'
 
 type Css = Record<string, unknown>
 
@@ -100,6 +101,15 @@ const CASES: Record<string, (style: Style) => NodeInstance> = {
       children: [Span('a', { key: 'a', ...style({ order: 1 }) }), [Span('s', { key: 's', ...style({ '& + .item': RED }) }), Node(Item, { key: 'i' })]],
     })
   },
+  'templated nodes, a value known only at run time, among named and runtime ones': style =>
+    Div({
+      children: [
+        Div({ key: 1, ...(style === runtimeStyle ? { css: { width: '37%' } } : templated({ width: '37%' }, ['width'])) }),
+        Div({ key: 2, ...style({ order: 2 }, false) }),
+        Div({ key: 3, ...(style === runtimeStyle ? { css: { width: '37%' } } : templated({ width: '37%' }, ['width'])) }),
+        Div({ key: 4, ...style({ order: 4 }) }),
+      ],
+    }),
   'two nodes of one style': style =>
     Div({ children: [Div({ key: 1, ...style(BLUE) }), Div({ key: 2, ...style(RED, false) }), Div({ key: 3, ...style(BLUE) })] }),
   'a registered class handed to a static node': style => {

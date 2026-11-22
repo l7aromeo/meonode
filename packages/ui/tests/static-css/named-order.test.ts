@@ -152,6 +152,17 @@ const CASES: Record<string, Steps> = {
       ],
     })
   }),
+  'a generated list of components, a slot before the children as a whole': once(style => {
+    const Item = () => Div({ 'data-n': 'i', className: 'item', ...style({ '.wrapper &': BLUE }) }).render() as ReactElement
+    return Div({
+      'data-n': 'p',
+      className: 'wrapper',
+      ...style({ '& .item': RED }),
+      ...style.slots([]),
+      __meo$list: true,
+      children: ['a', 'b'].map(key => Node(Item, { key })),
+    })
+  }),
   'a component that renders a built element child, its position marked': once(style => {
     const Item = () => Div({ 'data-n': 'i', className: 'item', ...style({ '.wrapper &': BLUE }) }).render() as ReactElement
     return Div({

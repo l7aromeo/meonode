@@ -42,6 +42,7 @@ import {
   STATIC_RUN_PROP,
   STATIC_SLOTS_MARKER,
   STATIC_STYLE_PROP,
+  STATIC_TEXT_PROP,
   STATIC_VARS_MARKER,
 } from '@src/constant/common.const.js'
 import { checkCss, checkFactoryCss, isMergeableCss, markCombinedCssChecked } from '@src/util/css.util.js'
@@ -871,7 +872,7 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
             const beginProps = node.props as Record<string, unknown>
             const carrier = anchor ?? (canAnchorRules(beginTarget, beginProps, inForeignNamespace) ? node : null)
             const name = beginProps.disableEmotion ? undefined : (beginProps[STATIC_NAME_MARKER] as string | undefined)
-            const styles = name === undefined ? undefined : staticStylesOf(name)
+            const styles = name === undefined ? undefined : ((beginProps[STATIC_TEXT_PROP] as string | undefined) ?? staticStylesOf(name))
             if (name !== undefined && styles === undefined && isDevMode()) {
               console.error(`[MeoNode] The static style \`${name}\` is used but no module registered it, so no rule is sent for it.`)
             }
@@ -984,11 +985,14 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
             [STATIC_VARS_MARKER]: staticVars,
             [STATIC_NAME_MARKER]: staticName,
             [STATIC_SLOTS_MARKER]: slotMarker,
+            [STATIC_TEXT_PROP]: staticText,
             ...otherProps
           } = node.props
 
           const activeTheme = getActiveTheme(node.props, inheritedTheme)
           const builtFrom = node._builtFrom
+          /** The text of the node's whole style: its own, filled from a template, or the registered one. */
+          const namedText = typeof staticName === 'string' ? ((staticText as string | undefined) ?? staticStylesOf(staticName)) : undefined
 
           // Resolve the element to actually render. `as` swaps the render target
           // ("render this other tag/component, keep the styles") while reusing the
@@ -1267,7 +1271,7 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
           // its carrier's `StaticStyles` renders when they share a theme scope, and
           // otherwise on the element once it is committed.
           if (ownNamedClass !== undefined && staticChecks !== undefined) {
-            const refs = collectNamedThemeVarRefs(staticStylesOf(staticName as string) ?? '')
+            const refs = collectNamedThemeVarRefs(namedText ?? '')
             if (refs.length > 0) {
               const carrier = anchor ?? (canAnchorRules(renderTarget, elementProps as Record<string, unknown>, inForeignNamespace) ? node : null)
               const rules = rulesOfCarrier(carrier)
@@ -1310,8 +1314,7 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
             const shouldBypassStyledRendererOnServer = IS_REACT_SERVER_LAYER && NodeUtil.isServer
             // In that layer a compiled node's style compiles here as css does, since
             // its output is final there too; elsewhere the walk inserted it.
-            const namedStylesHere =
-              shouldBypassStyledRendererOnServer && !disableEmotion && typeof staticName === 'string' ? staticStylesOf(staticName) : undefined
+            const namedStylesHere = shouldBypassStyledRendererOnServer && !disableEmotion ? namedText : undefined
             // A client reference renders in the browser, through `StyledRenderer`
             // as its css would; the style goes with it, since the module that
             // registered it does not load there.

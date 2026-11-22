@@ -66,6 +66,26 @@ describe('a slot before a component', () => {
     expect(counter().textContent).toBe('2')
   })
 
+  it('keeps a generated list one key-checked list with a slot before it as a whole', () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const Item = () => Span('i', staticStyle({ order: 5 })).render() as ReactElement
+    const page = (keyed: boolean) =>
+      Div({
+        __meo$: 2,
+        __meo$p: [[]],
+        __meo$list: true,
+        ...staticStyle({ order: 4 }),
+        children: ['a', 'b'].map(key => (keyed ? Node(Item, { key }) : Node(Item))),
+      })
+    root = createRoot(document.body.appendChild(document.createElement('div')))
+    act(() => root!.render(page(true).render() as ReactElement))
+    expect(error.mock.calls.map(call => String(call[0])).filter(message => /key/i.test(message))).toEqual([])
+    act(() => root!.render(page(false).render() as ReactElement))
+    // Unkeyed, React still asks for keys: the list reaches it as one list.
+    expect(error.mock.calls.map(call => String(call[0])).some(message => /key/i.test(message))).toBe(true)
+    expect(document.body.querySelectorAll('span').length).toBe(2)
+  })
+
   it('asks for no key the authored children do not need', () => {
     const error = vi.spyOn(console, 'error').mockImplementation(() => {})
     const Item = () => Span('i', staticStyle({ order: 2 })).render() as ReactElement

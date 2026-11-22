@@ -100,6 +100,8 @@ interface StaticCssState {
   classes: Map<string, StaticClass>
   /** Every registered whole style, its serialized text by its name. */
   named: Map<string, string>
+  /** Every registered template: the text around its holes, by its id. */
+  templates: Map<string, readonly string[]>
   /** Every registered module id. */
   modules: Set<string>
   /** The registered classes of a `__meo$s` string, in its order. */
@@ -115,6 +117,7 @@ interface StaticCssState {
 const state = getGlobalState(Symbol.for('@meonode/ui/staticCss'), (): StaticCssState => ({
   classes: new Map(),
   named: new Map(),
+  templates: new Map(),
   modules: new Set(),
   lists: new Map(),
   targets: new Map(),
@@ -128,11 +131,30 @@ let speedy = !isDevMode()
 /** Whether any rule is registered. Until one is, nothing here costs a render anything, and a server render sends nothing for it. */
 export const hasStaticCss = (): boolean => state.classes.size > 0
 
-/** Whether any whole style is registered. Until one is, a render looks for none. */
-export const hasNamedStyles = (): boolean => state.named.size > 0
+/** Whether any whole style or template is registered. Until one is, a render looks for none. */
+export const hasNamedStyles = (): boolean => state.named.size > 0 || state.templates.size > 0
 
 /** The serialized text of a registered whole style, by its name, or `undefined` when none is registered. */
 export const staticStylesOf = (name: string): string | undefined => state.named.get(name)
+
+/**
+ * The serialized text of a template with its holes filled, or `undefined` when
+ * no template of that id is registered or `values` do not fill its holes.
+ * @param id The template's id.
+ * @param values Each hole's value text, in order.
+ * @returns The text.
+ */
+export function templateText(id: string, values: readonly unknown[]): string | undefined {
+  const chunks = state.templates.get(id)
+  if (chunks === undefined || chunks.length !== values.length + 1) return undefined
+  let text = chunks[0]
+  for (let hole = 0; hole < values.length; hole++) {
+    const value = values[hole]
+    if (typeof value !== 'string') return undefined
+    text += value + chunks[hole + 1]
+  }
+  return text
+}
 
 /** The registered text of a static class, or `undefined` when none is registered. */
 export const staticRuleOf = (className: string): string | undefined => state.classes.get(className)?.cssText
@@ -451,11 +473,31 @@ export function splitRules(cssText: string): string[] {
   return rules
 }
 
+/**
+ * Registers a template of a whole style: its serialized text around each hole a
+ * call site fills with a value, at run time. Compiled output calls this once
+ * per template, at its module's top level. The same id registered again keeps
+ * its first text; one whose text differs means two builds are mixed, and in
+ * development throws.
+ * @param id A hash of the template's text.
+ * @param chunks The text before the first hole, between each two, and after the last.
+ */
+export function registerStaticTemplate(id: string, chunks: readonly string[]): void {
+  const known = state.templates.get(id)
+  if (known === undefined) state.templates.set(id, chunks)
+  else if (isDevMode() && (known.length !== chunks.length || known.some((chunk, index) => chunk !== chunks[index]))) {
+    throw new Error(
+      `[MeoNode] The static template \`${id}\` is registered with two different texts:\n  ${known.join('…')}\n  ${chunks.join('…')}\nOutput of two different builds is loaded together.`,
+    )
+  }
+}
+
 /** Test seam: forgets every registration, the browser sheets and what was adopted. */
 export function __resetStaticCss(): void {
   for (const target of state.targets.values()) for (const element of target.sheets) element.remove()
   state.classes.clear()
   state.named.clear()
+  state.templates.clear()
   state.modules.clear()
   state.lists.clear()
   state.targets.clear()
