@@ -21,6 +21,7 @@ Node(Card, {
 Node("section", {
     __meo$: 2,
     __meo$n: "0v0utqiwbarms",
+    __meo$r: 1,
     __meo$k: "m2f7je3rclcq1d"
 });
 Div({
@@ -52,5 +53,6 @@ Div({
 Div({
     __meo$: 2,
     __meo$n: "38c90dwgtj0in-x",
+    __meo$r: 1,
     __meo$k: "mmnxjlch36c33"
 });

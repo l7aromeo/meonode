@@ -34,36 +34,42 @@ __meoCss("0zvg167fuwg0f", [
 Div({
     __meo$: 2,
     __meo$n: "0ac9pqh0scakj",
+    __meo$r: 1,
     __meo$k: "m1zxf8g36rg3yy"
 });
 // The same style elsewhere shares the name and its registration.
 Div({
     __meo$: 2,
     __meo$n: "0ac9pqh0scakj",
+    __meo$r: 1,
     __meo$k: "mmpiex4b85z20"
 });
 // Selectors naming the node twice match what Emotion's class matches.
 Div({
     __meo$: 2,
     __meo$n: "3k19afjaelh0g",
+    __meo$r: 1,
     __meo$k: "m2sl0ljkxxg3n6"
 });
 // A label adds Emotion's suffix to the name.
 Div({
     __meo$: 2,
     __meo$n: "1bgfj5v0mqjdh-card",
+    __meo$r: 1,
     __meo$k: "m2bioptii3kaqg"
 });
 // One name per SWITCH combination, chosen at the call site.
 export const a = (p)=>Div({
         __meo$: 2,
         __meo$n: p.on ? "38a33pfafmky6" : "040n3yerwdubz",
+        __meo$r: 1,
         __meo$k: "m310hhvuka8gbv"
     });
 // Past the cap of combinations, the node stays on the runtime path.
 export const b = (p)=>Div({
         __meo$: 2,
         __meo$n: p.on ? "2100qsnzg5svg" : "39mf6eoswn4fw",
+        __meo$r: 1,
         __meo$k: "m11guxed1b4ksg"
     });
 // A value only known at run time keeps the whole node on the runtime path.

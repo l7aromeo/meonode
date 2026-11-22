@@ -49,11 +49,13 @@ export const a = (p)=>Div({
             "0j6fj2s0e4d43",
             __meoVal("color", `${p.color}`)
         ],
+        __meo$r: 1,
         __meo$k: "m2kraevimxjcwi"
     });
 export const b = (p)=>Div({
         __meo$: 2,
         __meo$n: p.on ? "25gvbuz2cy217" : "3pghyoa9mq71n",
+        __meo$r: 1,
         __meo$k: "m551qrbsxphac"
     });
 export const c = (p)=>Div({
@@ -65,11 +67,13 @@ export const c = (p)=>Div({
             "2jnzf9llrxgdn",
             __meoVal("marginTop", p.n * 2)
         ],
+        __meo$r: 1,
         __meo$k: "mg5cg4o92knmw"
     });
 export const d = (p)=>Div({
         __meo$: 2,
         __meo$n: p.on ? "01hnvshbfsnd0" : "0mdwjznn1arn1",
+        __meo$r: 1,
         __meo$k: "m3qpmewokk8af4"
     });
 export const e = (p)=>Div({
@@ -78,6 +82,7 @@ export const e = (p)=>Div({
             "2djksr5tuztki",
             __meoVal("color", `${p.color}`)
         ],
+        __meo$r: 1,
         __meo$k: "mj8u9cn0rz09m"
     });
 export const f = (p)=>Div({
@@ -86,6 +91,7 @@ export const f = (p)=>Div({
             "1l72c5arl6y9k",
             __meoVal("userSelect", `${p.color}`)
         ],
+        __meo$r: 1,
         __meo$k: "mwz1myiz8a77o"
     });
 export const g = (p)=>Div({
@@ -95,5 +101,6 @@ export const g = (p)=>Div({
             __meoVal("color", `${p.color}`),
             __meoVal("content", `"${p.color}"`)
         ],
+        __meo$r: 1,
         __meo$k: "m1arxmwskexw4t"
     });

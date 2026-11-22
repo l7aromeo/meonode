@@ -82,6 +82,9 @@ pub mod stylis;
 // Build-time CSS extraction behind `experimental_extractCss`.
 pub mod extract;
 
+// Carrier marks for the named runs of a walk (`__meo$r`).
+mod carrier;
+
 // Prop partitioning + call-site key emission. Public for the same
 // reason as `detect`.
 pub mod partition;

@@ -13,6 +13,7 @@ __meoTpl("30jzd6fjdc2jj", [
 Div({
     __meo$: 2,
     __meo$n: "1usto3jken2k7",
+    __meo$r: 1,
     __meo$k: "m15p0qybds2tjf"
 });
 Div({
@@ -21,5 +22,6 @@ Div({
         "30jzd6fjdc2jj",
         __meoVal("userSelect", `${mode}`)
     ],
+    __meo$r: 1,
     __meo$k: "m1rxoywgqq01gw"
 });
