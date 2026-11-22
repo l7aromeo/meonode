@@ -83,11 +83,17 @@ pub const INITIAL_KEY: &str = "__meo$i";
 /// Prefix of the custom properties VAR values travel in.
 const VARIABLE_PREFIX: &str = "--mv-";
 
-/// Rule buckets, in the order the runtime keeps them across modules.
-const BUCKET_BASE: u8 = 0;
-const BUCKET_PSEUDO: u8 = 1;
-const BUCKET_AT_RULE: u8 = 2;
-const BUCKET_PER_NODE: u8 = 3;
+/// Rule buckets, in the order the runtime keeps them across modules. Emotion
+/// orders a node's rules by when it first renders, so an element's own rules
+/// come after those of the elements rendered before it and before those of
+/// the elements rendered after it. Per-node rules styling elements rendered
+/// after the node (`& p`, `& + .x`) therefore come first, and those styling
+/// the node or an element rendered before it (`.dark &`, `.x:has(&)`) last.
+const BUCKET_REACHING: u8 = 0;
+const BUCKET_BASE: u8 = 1;
+const BUCKET_PSEUDO: u8 = 2;
+const BUCKET_AT_RULE: u8 = 3;
+const BUCKET_PER_NODE: u8 = 4;
 
 /// Separator between the parts of a hashed context, as the contract names it.
 const SEP: char = '\u{0}';
@@ -1385,6 +1391,10 @@ impl ModuleScope {
                 block.declarations.push((child_key.clone(), route));
             }
         }
+        if !block.declarations.is_empty() && rule_bucket(&block.scope.props).is_none() {
+            explain::note("a selector list styling elements rendered on both sides of the node");
+            block.extractable = false;
+        }
         Some(block)
     }
 
@@ -1458,8 +1468,15 @@ impl Block {
     }
 
     /// The rules, Emotion's order: own declarations, then nested rules in
-    /// source order. [`NODE`] in the selectors stands for the node's class.
-    fn rules(&self, out: &mut String, variables: &mut Vec<Variable>) -> Option<()> {
+    /// source order, each into the text of its bucket ([`rule_bucket`]):
+    /// `reaching` for [`BUCKET_REACHING`], `own` for [`BUCKET_PER_NODE`].
+    /// [`NODE`] in the selectors stands for the node's class.
+    fn rules(
+        &self,
+        reaching: &mut String,
+        own: &mut String,
+        variables: &mut Vec<Variable>,
+    ) -> Option<()> {
         let mut declarations = String::new();
         for (key, route) in &self.declarations {
             let property = property_name(key);
@@ -1498,10 +1515,15 @@ impl Block {
             for at_rule in self.at_rules.iter().rev() {
                 text = format!("{at_rule}{{{text}}}");
             }
+            let out = if rule_bucket(props)? == BUCKET_REACHING {
+                &mut *reaching
+            } else {
+                &mut *own
+            };
             out.push_str(&text);
         }
         for child in &self.children {
-            child.rules(out, variables)?;
+            child.rules(reaching, own, variables)?;
         }
         Some(())
     }
@@ -1936,6 +1958,116 @@ fn styles_node(props: &[String]) -> bool {
     })
 }
 
+/// Where the element a selector styles renders, relative to the node, in
+/// React's render order: the order Emotion inserts their rules in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Reach {
+    /// The node itself (`&:hover`, `.dark &`).
+    Node,
+    /// A descendant or a later sibling, or a descendant of one (`& p`, `& + .x`).
+    Later,
+    /// An ancestor or an earlier sibling (`.x:has(&)`, `.x:has(+ &)`).
+    Earlier,
+    /// Either side (`.x:has(&) p`), or a relation not followed here
+    /// (`:nth-child(1 of &)`, `:host(&)`).
+    Unknown,
+}
+
+/// Where a selector list item reaches; see [`Reach`]. The item names the node
+/// once (twice-named selectors never get here).
+fn reach(item: &str) -> Reach {
+    // Per open parenthesis: whether it is `:has(`.
+    let mut parens: Vec<bool> = Vec::new();
+    let mut brackets = 0u32;
+    let mut name = String::new();
+    let mut quote: Option<char> = None;
+    // The node's compound: whether it is inside `:has()` only.
+    let mut node: Option<bool> = None;
+    // Whether a top-level combinator follows the node, and a compound follows that.
+    let mut separated = false;
+    let mut beyond = false;
+    let mut chars = item.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if let Some(q) = quote {
+            if ch == '\\' {
+                chars.next();
+            } else if ch == q {
+                quote = None;
+            }
+            continue;
+        }
+        let top = parens.is_empty() && brackets == 0;
+        match ch {
+            ' ' | '>' | '+' | '~' if top => {
+                separated |= node.is_some();
+                name.clear();
+            }
+            // `||` is a combinator; `|` alone a namespace separator.
+            '|' if top && chars.peek() == Some(&'|') => {
+                chars.next();
+                separated |= node.is_some();
+                name.clear();
+            }
+            NODE => {
+                node = Some(if top {
+                    false
+                } else if brackets == 0 && parens.iter().all(|has| *has) {
+                    true
+                } else {
+                    return Reach::Unknown;
+                });
+            }
+            _ => {
+                beyond |= separated;
+                match ch {
+                    '\\' => {
+                        chars.next();
+                        name.clear();
+                    }
+                    '"' | '\'' => quote = Some(ch),
+                    '[' => brackets += 1,
+                    ']' => brackets = brackets.saturating_sub(1),
+                    '(' => {
+                        parens.push(name.eq_ignore_ascii_case("has"));
+                        name.clear();
+                    }
+                    ')' => {
+                        parens.pop();
+                        name.clear();
+                    }
+                    c if c.is_alphanumeric() || c == '-' || c == '_' => name.push(c),
+                    _ => name.clear(),
+                }
+            }
+        }
+    }
+    match (node, beyond) {
+        (Some(false), false) => Reach::Node,
+        (Some(false), true) => Reach::Later,
+        (Some(true), false) => Reach::Earlier,
+        _ => Reach::Unknown,
+    }
+}
+
+/// The bucket a per-node rule goes in, from where each of its selectors
+/// reaches: [`BUCKET_REACHING`] when every one styles an element rendered
+/// after the node, [`BUCKET_PER_NODE`] when every one styles the node or an
+/// element rendered before it. `None` when the list mixes the two or one is
+/// [`Reach::Unknown`]: no bucket keeps both orders.
+fn rule_bucket(props: &[String]) -> Option<u8> {
+    let reaches: Vec<Reach> = props.iter().map(|item| reach(item)).collect();
+    if reaches.iter().all(|r| *r == Reach::Later) {
+        Some(BUCKET_REACHING)
+    } else if reaches
+        .iter()
+        .all(|r| matches!(r, Reach::Node | Reach::Earlier))
+    {
+        Some(BUCKET_PER_NODE)
+    } else {
+        None
+    }
+}
+
 fn str_expr(text: &str) -> Expr {
     Expr::Lit(Lit::Str(Str::from(Atom::from(text))))
 }
@@ -2127,21 +2259,29 @@ impl ModuleScope {
             }
         }
 
-        let mut per_node_text = String::new();
+        let mut reaching_text = String::new();
+        let mut own_text = String::new();
         let mut block_variables = Vec::new();
         for block in model.blocks.iter().filter(|b| b.extractable) {
-            block.rules(&mut per_node_text, &mut block_variables)?;
+            block.rules(&mut reaching_text, &mut own_text, &mut block_variables)?;
         }
         for variable in block_variables {
             module.uses_value = true;
             variables.push(variable_prop(&variable.name, &variable.key, variable.value));
         }
-        if !per_node_text.is_empty() {
+        // One class per bucket: the registry keeps a class in one bucket.
+        for (bucket, per_node_text) in [
+            (BUCKET_REACHING, reaching_text),
+            (BUCKET_PER_NODE, own_text),
+        ] {
+            if per_node_text.is_empty() {
+                continue;
+            }
             let placeholder_class = class_name(&per_node_text);
             let text = per_node_text.replace(NODE, &format!(".{placeholder_class}"));
             classes.push(placeholder_class.clone());
             module.add(Rule {
-                bucket: BUCKET_PER_NODE,
+                bucket,
                 class: placeholder_class,
                 text,
             });
@@ -2744,6 +2884,69 @@ mod tests {
         ] {
             assert!(!styles_node(&props(no)), "{no:?}");
         }
+    }
+
+    #[test]
+    fn a_selector_reaches_elements_on_one_side_of_the_node() {
+        let cases: &[(&str, Reach)] = &[
+            ("&", Reach::Node),
+            ("&:hover", Reach::Node),
+            (".dark &", Reach::Node),
+            ("&::before", Reach::Node),
+            ("a > &.x", Reach::Node),
+            (".a:has(.b) &", Reach::Node),
+            ("svg|rect&", Reach::Node),
+            ("& p", Reach::Later),
+            ("& > *", Reach::Later),
+            ("&>li>a", Reach::Later),
+            ("& + .x", Reach::Later),
+            ("& ~ .x", Reach::Later),
+            ("& || td", Reach::Later),
+            ("&||td", Reach::Later),
+            ("&[a ~= b]", Reach::Node),
+            (".dark &[ data-x ]", Reach::Node),
+            (".a & .b", Reach::Later),
+            ("& .x ~ .y", Reach::Later),
+            ("& :has(> [data-sheet])", Reach::Later),
+            ("& [a~=\"b c\"]", Reach::Later),
+            ("& ::before", Reach::Later),
+            ("& svg|rect", Reach::Later),
+            (".x:has(&)", Reach::Earlier),
+            (".x:has(> &)", Reach::Earlier),
+            (".x:has(+ &)", Reach::Earlier),
+            (".x:has(~ .y &)", Reach::Earlier),
+            ("p .x:HAS(&)", Reach::Earlier),
+            (".x:has(:hover > &)", Reach::Earlier),
+            (".x:has(&) p", Reach::Unknown),
+            (".x:has(+ &) + *", Reach::Unknown),
+            (".x:nth-child(1 of &)", Reach::Unknown),
+            (":host(&)", Reach::Unknown),
+            ("p", Reach::Unknown),
+        ];
+        for (item, want) in cases {
+            assert_eq!(
+                reach(&item.replace('&', &NODE.to_string())),
+                *want,
+                "{item}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_rule_takes_the_bucket_of_where_its_selectors_reach() {
+        assert_eq!(
+            rule_bucket(&props(&["& p", "& + .x"])),
+            Some(BUCKET_REACHING)
+        );
+        assert_eq!(rule_bucket(&props(&["&:hover"])), Some(BUCKET_PER_NODE));
+        assert_eq!(rule_bucket(&props(&[".x:has(&)"])), Some(BUCKET_PER_NODE));
+        assert_eq!(
+            rule_bucket(&props(&["&", ".x:has(&)"])),
+            Some(BUCKET_PER_NODE)
+        );
+        assert_eq!(rule_bucket(&props(&["&", "& p"])), None);
+        assert_eq!(rule_bucket(&props(&["& p", ".x:has(&)"])), None);
+        assert_eq!(rule_bucket(&props(&[".x:has(&) p"])), None);
     }
 
     #[test]

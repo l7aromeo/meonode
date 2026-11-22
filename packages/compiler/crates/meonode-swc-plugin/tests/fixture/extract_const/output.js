@@ -1,13 +1,13 @@
 import { registerStaticCss as __meoCss } from "@meonode/ui";
 import { Div } from "@meonode/ui";
-__meoCss("33okzjpqylcm4", [
+__meoCss("2kzaymfc3n04a", [
     [
-        0,
+        1,
         "mn-2shynfwjolz5e",
         ".mn-2shynfwjolz5e{gap:12px;}"
     ],
     [
-        0,
+        1,
         "mn-3hnxz4pvm390a",
         ".mn-3hnxz4pvm390a{color:var(--meonode-theme-primary-main);}"
     ]

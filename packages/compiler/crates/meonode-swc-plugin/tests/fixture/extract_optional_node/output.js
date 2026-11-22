@@ -1,63 +1,58 @@
 import { registerStaticCss as __meoCss } from "@meonode/ui";
 import { Div } from "@meonode/ui";
-__meoCss("31w2hzj3je8nh", [
+__meoCss("35tht0exdvqxh", [
     [
-        0,
+        1,
         "mn-2qn1mhrn05kv2",
         ".mn-2qn1mhrn05kv2{margin:1px;}"
     ],
     [
-        3,
-        "mn-1yofffsi3vjq4",
-        ".mn-1yofffsi3vjq4,.mn-1yofffsi3vjq4 .other{color:red;}"
-    ],
-    [
-        0,
-        "mn-0e47bwo0vm4o6",
-        ".mn-0e47bwo0vm4o6{-webkit-flex-shrink:0;-ms-flex-negative:0;flex-shrink:0;}"
-    ],
-    [
-        0,
-        "mn-35l163g1tjy26",
-        ".mn-35l163g1tjy26{min-height:0;}"
-    ],
-    [
-        0,
-        "mn-0zzfi4vug0nqv",
-        ".mn-0zzfi4vug0nqv{min-width:0;}"
-    ],
-    [
-        0,
+        1,
         "mn-15jkadap5xnc2",
         ".mn-15jkadap5xnc2{margin:2px;}"
     ],
     [
-        3,
+        4,
         "mn-146ubdx9vp6s2",
         ".a:has(.mn-146ubdx9vp6s2){color:red;}"
     ],
     [
-        0,
+        1,
+        "mn-0e47bwo0vm4o6",
+        ".mn-0e47bwo0vm4o6{-webkit-flex-shrink:0;-ms-flex-negative:0;flex-shrink:0;}"
+    ],
+    [
+        1,
+        "mn-35l163g1tjy26",
+        ".mn-35l163g1tjy26{min-height:0;}"
+    ],
+    [
+        1,
+        "mn-0zzfi4vug0nqv",
+        ".mn-0zzfi4vug0nqv{min-width:0;}"
+    ],
+    [
+        1,
         "mn-33ysw3g90cnvn",
         ".mn-33ysw3g90cnvn{margin:3px;}"
     ],
     [
-        1,
+        2,
         "mn-1o5kov332d8x8",
         ".mn-1o5kov332d8x8:not(.a){color:red;}"
     ],
     [
-        0,
+        1,
         "mn-36ua9zx9jya6w",
         ".mn-36ua9zx9jya6w{margin:4px;}"
     ],
     [
-        1,
+        2,
         "mn-0apew9ru4aw4m",
         ".mn-0apew9ru4aw4m::-webkit-input-placeholder{color:gray;}.mn-0apew9ru4aw4m::-moz-placeholder{color:gray;}.mn-0apew9ru4aw4m:-ms-input-placeholder{color:gray;}.mn-0apew9ru4aw4m::placeholder{color:gray;}"
     ],
     [
-        2,
+        3,
         "mn-2dkx0503h7lq2",
         "@media (min-width: 600px){.mn-2dkx0503h7lq2::-webkit-input-placeholder{color:silver;}.mn-2dkx0503h7lq2::-moz-placeholder{color:silver;}.mn-2dkx0503h7lq2:-ms-input-placeholder{color:silver;}.mn-2dkx0503h7lq2::placeholder{color:silver;}}"
     ]
@@ -216,8 +211,16 @@ Div({
 });
 Div({
     __meo$: 2,
-    __meo$s: "mn-2qn1mhrn05kv2 mn-1yofffsi3vjq4 mn-0e47bwo0vm4o6 mn-35l163g1tjy26 mn-0zzfi4vug0nqv",
-    __meo$k: "m3o0gqxecxodmy"
+    __meo$s: "mn-2qn1mhrn05kv2",
+    __meo$k: "m3o0gqxecxodmy",
+    __meo$dyn: [
+        "css"
+    ],
+    css: {
+        "&, .other": {
+            color: "red"
+        }
+    }
 });
 Div({
     __meo$: 2,

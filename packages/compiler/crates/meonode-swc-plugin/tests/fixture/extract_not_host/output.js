@@ -1,24 +1,24 @@
 import { registerStaticCss as __meoCss } from "@meonode/ui";
 import { Div, Node } from "@meonode/ui";
 import { Card } from "./card";
-__meoCss("00oe6oy5i7iur", [
+__meoCss("0tw1ge7rs9f5y", [
     [
-        0,
+        1,
         "mn-350ngwob8xscz",
         ".mn-350ngwob8xscz{padding:8px;}"
     ],
     [
-        0,
+        1,
         "mn-0e47bwo0vm4o6",
         ".mn-0e47bwo0vm4o6{-webkit-flex-shrink:0;-ms-flex-negative:0;flex-shrink:0;}"
     ],
     [
-        0,
+        1,
         "mn-35l163g1tjy26",
         ".mn-35l163g1tjy26{min-height:0;}"
     ],
     [
-        0,
+        1,
         "mn-0zzfi4vug0nqv",
         ".mn-0zzfi4vug0nqv{min-width:0;}"
     ]

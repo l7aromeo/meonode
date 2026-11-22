@@ -1,8 +1,8 @@
 import { registerStaticCss as __meoCss } from "@meonode/ui";
 import { Div } from "@meonode/ui";
-__meoCss("2b32u19rt120o", [
+__meoCss("2medrgu64jzew", [
     [
-        0,
+        1,
         "mn-3ira0mmss1bvp",
         ".mn-3ira0mmss1bvp{padding:4px;}"
     ]

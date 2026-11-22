@@ -456,6 +456,11 @@ fn extract_per_node() {
 }
 
 #[test]
+fn extract_reaching() {
+    run_partition_with_config("extract_reaching", extract_config());
+}
+
+#[test]
 fn extract_not_host() {
     run_partition_with_config("extract_not_host", extract_config());
 }
