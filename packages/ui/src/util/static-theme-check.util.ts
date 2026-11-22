@@ -55,36 +55,50 @@ export function nearestThemeContext(element: Element): ThemeContextState | null 
 
 /**
  * Checks each element that carries a candidate's classes against the providers
- * above it. An element without React's fiber to read is checked against every
- * mounted provider instead, once the commit's effects have run: a provider above
- * records its tokens in an effect that runs after this one.
+ * above it, once per candidate when `checked` is given.
+ *
+ * An element without a fiber to read is server markup React has not hydrated
+ * yet, or one whose internals this check cannot read. Unless `final`, it is left
+ * unchecked and its candidate returned, to be looked at again: until React
+ * hydrates it, the providers above it may not be mounted. When `final`, it is
+ * checked against every mounted provider instead, once the commit's effects have
+ * run, since a provider above records its tokens in an effect that runs after
+ * this check.
  * @param candidates The render's candidates.
  * @param checked When given, the candidates each element was checked for, by
  * {@link candidatesKey}: an element is checked once per candidate.
+ * @param final Whether to check an element without a fiber now, against the mounted providers.
+ * @returns The candidates with an element left unchecked.
  */
-export function checkCandidates(candidates: readonly StaticThemeCandidate[], checked?: WeakMap<Element, Set<string>>): void {
-  const unread: [Element, StaticThemeCandidate][] = []
+export function checkCandidates(candidates: readonly StaticThemeCandidate[], checked?: WeakMap<Element, Set<string>>, final = true): StaticThemeCandidate[] {
+  const unread: StaticThemeCandidate[] = []
+  const deferred: StaticThemeCandidate[] = []
   for (const candidate of candidates) {
     const names = candidate.classes.split(' ')
+    const key = candidatesKey([candidate])
     for (const element of document.getElementsByClassName(names[0])) {
       if (!names.every(name => element.classList.contains(name))) continue
+      let seen = checked?.get(element)
+      if (seen?.has(key)) continue
+      const context = nearestThemeContext(element)
+      if (context === undefined && !final) {
+        if (!deferred.includes(candidate)) deferred.push(candidate)
+        continue
+      }
       if (checked !== undefined) {
-        let seen = checked.get(element)
         if (!seen) checked.set(element, (seen = new Set()))
-        const key = candidatesKey([candidate])
-        if (seen.has(key)) continue
         seen.add(key)
       }
-      const context = nearestThemeContext(element)
-      if (context === undefined) unread.push([element, candidate])
+      if (context === undefined) unread.push(candidate)
       else reportThemeVarRefs(candidate.refs, context ? context.definedVars() : null)
     }
   }
   if (unread.length > 0)
     queueMicrotask(() => {
       const defined = mountedThemeVarIndex()
-      for (const [, candidate] of unread) reportThemeVarRefs(candidate.refs, defined)
+      for (const candidate of unread) reportThemeVarRefs(candidate.refs, defined)
     })
+  return deferred
 }
 
 /** What makes two renders' candidates the same, so they are checked again only when that changes. */
@@ -95,6 +109,15 @@ export const candidatesKey = (candidates: readonly StaticThemeCandidate[] | unde
 const COMMIT_RETRIES = 10
 /** The wait between those looks, about a frame. */
 const COMMIT_RETRY_MS = 16
+
+/**
+ * How often it looks again, past {@link COMMIT_RETRIES}, for an element in the
+ * server's markup that React has not hydrated: about two seconds more, as a
+ * development build hydrates a large page in more than a few frames. A
+ * hydration slower than that, on a slow device, warns again: a bound chosen
+ * for a development-only check.
+ */
+const HYDRATION_RETRIES = 125
 /** The candidates each committed element was checked for, so a later render of the same element does not check it again. */
 let checkedElements = new WeakMap<Element, Set<string>>()
 
@@ -102,21 +125,25 @@ let checkedElements = new WeakMap<Element, Set<string>>()
  * Checks candidates once their elements are committed, from a walk, which has
  * no effect of its own to run after commit: on the next task, and again about a
  * frame later for a candidate none of whose elements is in the document yet, as
- * a render React interrupts commits later. Development only, in the browser.
+ * a render React interrupts commits later. An element in the server's markup
+ * that React has not hydrated is looked at again for longer, until React
+ * hydrates it. Development only, in the browser.
  * @param candidates The walk's candidates.
  */
 export function checkCandidatesAfterCommit(candidates: readonly StaticThemeCandidate[]): void {
-  const look = (pending: readonly StaticThemeCandidate[], tries: number) =>
+  const look = (pending: readonly StaticThemeCandidate[], attempt: number) =>
     setTimeout(
       () => {
-        const committed = pending.filter(({ classes }) => document.getElementsByClassName(classes.split(' ')[0]).length > 0)
-        if (committed.length > 0) checkCandidates(committed, checkedElements)
-        const later = pending.filter(candidate => !committed.includes(candidate))
-        if (later.length > 0 && tries > 1) look(later, tries - 1)
+        const last = attempt === COMMIT_RETRIES + HYDRATION_RETRIES
+        const inDocument = pending.filter(({ classes }) => document.getElementsByClassName(classes.split(' ')[0]).length > 0)
+        const unhydrated = inDocument.length > 0 ? checkCandidates(inDocument, checkedElements, last) : []
+        const absent = attempt < COMMIT_RETRIES ? pending.filter(candidate => !inDocument.includes(candidate)) : []
+        const next = [...absent, ...unhydrated]
+        if (next.length > 0 && !last) look(next, attempt + 1)
       },
-      tries === COMMIT_RETRIES ? 0 : COMMIT_RETRY_MS,
+      attempt === 1 ? 0 : COMMIT_RETRY_MS,
     )
-  look(candidates, COMMIT_RETRIES)
+  look(candidates, 1)
 }
 
 /** Test seam: forgets which elements were checked. */
