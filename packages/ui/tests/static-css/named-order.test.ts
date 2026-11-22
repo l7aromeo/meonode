@@ -271,3 +271,63 @@ describe('under a cache that prepends, with the page’s stylesheet first in the
     expect(run(compiledStyle)).toEqual(expected)
   })
 })
+
+// A generated list of keyed items, updated in place: an item that comes in
+// between others brings styles not in yet, which the compiled tree inserts with
+// the next runtime node's rule or at the end of its carrier, as no item has a
+// slot of its own. React keeps each item by its key, so only the order of the
+// rules can differ, and it must not.
+describe('keyed items coming into a generated list on update', () => {
+  /** Distinct values per item, so each item's rules are its own. */
+  const shade = (id: string) => `rgb(${id.charCodeAt(0)}, 0, 0)`
+  const item = (style: Style, id: string, runtime: 'own' | 'shared' | 'none') =>
+    Div({
+      key: id,
+      'data-n': id,
+      ...style({ order: id.charCodeAt(0) }),
+      children: [
+        Span('t', { 'data-n': `${id}t`, ...style({ '& + span': { color: shade(id) } }) }),
+        ...(runtime === 'none' ? [] : [Span('r', { 'data-n': `${id}r`, ...style({ color: runtime === 'own' ? shade(id) : 'rgb(0, 9, 0)' }, false) })]),
+      ],
+    })
+  const page = (style: Style, ids: string[], runtime: 'own' | 'shared' | 'none') =>
+    Div({
+      children: [
+        Div({ key: 'list', ...style.slots([]), __meo$list: true, children: ids.map(id => item(style, id, runtime)) } as never),
+        Span('after', { key: 'after', 'data-n': 'after', ...style({ order: ids.length }) }),
+      ],
+    })
+  const SEQUENCE = [['a', 'b'], ['a', 'c', 'b'], ['c', 'a', 'b', 'd'], ['d', 'b'], ['e', 'd', 'f', 'b']]
+
+  /** Renders the sequence on one root under one cache; returns the classes and rules at each step. */
+  const runUpdates = (style: Style, runtime: 'own' | 'shared' | 'none') => {
+    document.head.innerHTML = ''
+    document.body.innerHTML = ''
+    __resetStaticCss()
+    const cache = createCache({ key: 'css', speedy: true })
+    const root = createRoot(document.body.appendChild(document.createElement('div')))
+    roots.push(root)
+    return SEQUENCE.map(ids => {
+      act(() => root.render(createElement(CacheProvider, { value: cache }, inRender(() => page(style, ids, runtime).render() as ReactElement))))
+      return {
+        classes: [...document.body.querySelectorAll('[data-n]')].map(element => `${element.getAttribute('data-n')}: ${element.className}`),
+        rules: [...document.head.querySelectorAll<HTMLStyleElement>('style[data-emotion^="css"]')].flatMap(element =>
+          [...(element.sheet?.cssRules ?? [])].map(rule => rule.cssText),
+        ),
+      }
+    })
+  }
+
+  it.each([
+    ['each with a runtime child of its own', 'own'],
+    ['each with a runtime child whose rule is in already', 'shared'],
+    ['with no runtime child', 'none'],
+  ] as const)('%s', (_, runtime) => {
+    styledRenders()
+    const expected = runUpdates(runtimeStyle, runtime)
+    const runtimeRenders = styledRenders()
+    expect(expected.at(-1)!.rules.length).toBeGreaterThan(0)
+    expect(runUpdates(compiledStyle, runtime)).toEqual(expected)
+    expect(styledRenders()).toBeLessThan(runtimeRenders)
+  })
+})
