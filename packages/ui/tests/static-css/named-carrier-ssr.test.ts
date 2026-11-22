@@ -10,7 +10,7 @@ import { serializeStyles } from '@emotion/serialize'
 import { createElement, useState, type ReactElement } from 'react'
 import { renderToString } from 'react-dom/server'
 import { afterEach, describe, expect, it } from 'vitest'
-import { Button, Div, Node, Span, type NodeInstance } from '@src/main.js'
+import { Button, Component, Div, Node, Span, type NodeInstance } from '@src/main.js'
 import { ThemeUtil } from '@src/util/theme.util.js'
 import { nameStyles } from '@src/util/style-name.util.js'
 import { __resetStaticCss, registerStaticCss } from '@src/util/static-css.util.js'
@@ -26,6 +26,7 @@ const compiledStyle: Style = (css, options) => {
   return { __meo$: 2, __meo$n: name, ...(options?.carrier && { __meo$r: 1 }) }
 }
 const carrier = { carrier: true }
+const slots = (style: Style, ...paths: number[]) => (style === compiledStyle ? { __meo$: 2, __meo$p: paths } : {})
 const RED = { color: 'rgb(200, 0, 0)' }
 const BLUE = { color: 'rgb(0, 0, 200)' }
 const GRID = { display: 'grid' }
@@ -50,6 +51,28 @@ function render(tree: (style: Style) => NodeInstance, style: Style, provider: bo
 }
 
 const CASES: Record<string, (style: Style) => NodeInstance> = {
+  'a sibling’s & + .item against a Component sibling’s own rule, no carrier': style => {
+    const Item = Component(() => Div({ className: 'item', ...style({ '.wrapper &': BLUE }) }))
+    return Div({ className: 'wrapper', ...slots(style, 1), children: [Span('s', { key: 's', ...style({ '& + .item': RED }) }), Item({ key: 'i' })] })
+  },
+  'a static parent’s & .child against a Component child’s own .wrapper &, no carrier': style => {
+    const Child = Component(() => Span('c', { className: 'child', ...style({ '.wrapper &': BLUE }) }))
+    return Div({ className: 'wrapper', ...style({ '& .child': RED }), ...slots(style, 0), children: Child() })
+  },
+  'Components between statics, written with Node, the scope root a carrier': style => {
+    const Item = Component(() => Div({ className: 'item', ...style({ order: 7 }) }))
+    // With no provider the root is the scope of every walk below it, which only a carrier can give its cache to.
+    return Div({
+      ...style(GRID, carrier),
+      ...slots(style, 1, 3),
+      children: [
+        Span('a', { key: 'a', ...style({ '& ~ .item': RED }) }),
+        Node(Item, { key: 'i' }),
+        Span('b', { key: 'b', ...style(BLUE) }),
+        Node(Item, { key: 'j' }),
+      ],
+    })
+  },
   'a parent’s & .child against a component child’s own .wrapper &': style => {
     const Child = () => Span('c', { className: 'child', ...style({ '.wrapper &': BLUE }, carrier) }).render() as ReactElement
     return Div({ className: 'wrapper', ...style({ '& .child': RED }, carrier), children: Node(Child) })

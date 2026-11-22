@@ -4,6 +4,7 @@ import type { Children, ComponentNode, DependencyList, HasCSSCompatibleStyleProp
 import type { ReactElement, ReactNode } from 'react'
 import { getElementTypeName } from '@src/helper/common.helper.js'
 import { NodeUtil } from '@src/util/node.util.js'
+import { TAKES_RUN, withHandedRun } from '@src/util/named-style.util.js'
 
 /**
  * Props definition for components wrapped using the `Component` higher-order function.
@@ -113,17 +114,20 @@ export function Component<TProps extends Record<string, any> | undefined>(compon
     const result = component(props)
 
     if (result instanceof BaseNode || NodeUtil.isNodeInstance(result)) {
-      return Node(result.element, result.rawProps).render()
+      // Its walk begins with the named styles handed to it, which began before it.
+      return withHandedRun(props as object, () => Node(result.element, result.rawProps).render())
     }
 
     return result as ReactNode
   }
   Renderer.displayName = `Renderer(${displayName})`
+  ;(Renderer as { [TAKES_RUN]?: boolean })[TAKES_RUN] = true
   ;(Renderer as { __meonodeAcceptsServerCss?: boolean }).__meonodeAcceptsServerCss = true
 
   function Func(props: Partial<ComponentCallProps<TProps>> = {}, deps?: DependencyList) {
-    return Node(Renderer, props as never, deps).render()
+    return withHandedRun(props, () => Node(Renderer, props as never, deps).render())
   }
+  ;(Func as { [TAKES_RUN]?: boolean })[TAKES_RUN] = true
   Func.displayName = `Component(${displayName})`
   ;(Func as { __meonodeAcceptsServerCss?: boolean }).__meonodeAcceptsServerCss = true
   // Signals that this target runs its own `Node()` over whatever props it is

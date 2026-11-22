@@ -103,3 +103,71 @@ export function serverStyleElement(cache: EmotionCache, styles: readonly NamedSt
   if (rules === '') return null
   return createElement('style', { key, 'data-emotion': `${cache.key}${names}`, dangerouslySetInnerHTML: { __html: rules }, nonce: cache.sheet.nonce })
 }
+
+/**
+ * The runs handed to MeoNode's own components, by the props of their element:
+ * the named styles that began before the component in the walk that renders it,
+ * which its own walk puts in ahead of its rules. Kept for every render of those
+ * props, since React may render a component again with the same ones.
+ */
+const runsForComponent = new WeakMap<object, readonly NamedStyle[]>()
+
+/** The run the next walk to begin starts with, set by a component right before its walk. */
+let inheritedRun: readonly NamedStyle[] | undefined
+
+/**
+ * Hands `run` to the MeoNode component an element of `props` renders.
+ * @param props The element's props.
+ * @param run The named styles that began before it.
+ */
+export function handRunTo(props: object, run: readonly NamedStyle[]): void {
+  const had = runsForComponent.get(props)
+  runsForComponent.set(props, had ? [...had, ...run] : run)
+}
+
+/**
+ * Hands the run handed to an element's props to the props of its copy, which
+ * React renders in its place.
+ * @param from The element's props.
+ * @param to The copy's.
+ */
+export function passRunToCopy(from: object, to: object): void {
+  const run = runsForComponent.get(from)
+  if (run) handRunTo(to, run)
+}
+
+/**
+ * Runs `walk` with the run handed to the component rendering `props`, which the
+ * walk begins with.
+ * @param props The component's props.
+ * @param walk Its walk.
+ * @returns What the walk returns.
+ */
+export function withHandedRun<T>(props: object, walk: () => T): T {
+  inheritedRun = runsForComponent.get(props)
+  try {
+    return walk()
+  } finally {
+    inheritedRun = undefined
+  }
+}
+
+/**
+ * The run handed to the component whose walk is beginning, once.
+ * @returns The run, or `undefined`.
+ */
+export function takeHandedRun(): readonly NamedStyle[] | undefined {
+  const run = inheritedRun
+  inheritedRun = undefined
+  return run
+}
+
+/** Marks a MeoNode component whose walk takes the run handed to it. */
+export const TAKES_RUN = '__meonodeTakesRun'
+
+/**
+ * Whether an element of `type` is a MeoNode component whose walk takes a handed run.
+ * @param type The element's type.
+ * @returns Whether it takes one.
+ */
+export const takesRun = (type: unknown): boolean => typeof type === 'function' && (type as { [TAKES_RUN]?: boolean })[TAKES_RUN] === true

@@ -12,7 +12,7 @@ import { serializeStyles } from '@emotion/serialize'
 import { act, Children, createElement, isValidElement, useState, type ReactElement, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { Button, Div, Node, Span, type NodeInstance } from '@src/main.js'
+import { Button, Component, Div, Node, Span, type NodeInstance } from '@src/main.js'
 import { ThemeUtil } from '@src/util/theme.util.js'
 import { nameStyles } from '@src/util/style-name.util.js'
 import { __resetStaticCss, registerStaticCss } from '@src/util/static-css.util.js'
@@ -32,6 +32,8 @@ const compiledStyle: Style = (css, options) => {
   return { __meo$: 2, __meo$n: name, ...(options?.carrier && { __meo$r: 1 }) }
 }
 const carrier = { carrier: true }
+/** The slots the compiler marks among a host's children, on the compiled tree only. */
+const slots = (style: Style, ...paths: number[]) => (style === compiledStyle ? { __meo$: 2, __meo$p: paths } : {})
 
 /** A component holding a count under its label, which a remount resets. */
 function Counter({ label }: { label: string }) {
@@ -206,6 +208,31 @@ function once(tree: (style: Style) => NodeInstance, style: Style) {
 }
 
 const TIES: Record<string, (style: Style) => NodeInstance> = {
+  'a sibling’s & + .item against a Component sibling’s own rule, no carrier': style => {
+    const Item = Component(() => Div({ 'data-n': 'i', className: 'item', ...style({ '.wrapper &': BLUE }) }))
+    return Div({
+      className: 'wrapper',
+      ...slots(style, 1),
+      children: [Span('s', { key: 's', 'data-n': 's', ...style({ '& + .item': RED }) }), Item({ key: 'i' })],
+    })
+  },
+  'a static parent’s & .child against a Component child’s own .wrapper &, no carrier': style => {
+    const Child = Component(() => Span('c', { 'data-n': 'c', className: 'child', ...style({ '.wrapper &': BLUE }) }))
+    return Div({ 'data-n': 'p', className: 'wrapper', ...style({ '& .child': RED }), ...slots(style, 0), children: Child() })
+  },
+  'Components between statics, written with Node, no carrier': style => {
+    const Item = Component(() => Div({ 'data-n': 'i', className: 'item', ...style({ order: 7 }) }))
+    return Div({
+      ...style(GRID),
+      ...slots(style, 1, 3),
+      children: [
+        Span('a', { key: 'a', 'data-n': 'a', ...style({ '& ~ .item': RED }) }),
+        Node(Item, { key: 'i' }),
+        Span('b', { key: 'b', 'data-n': 'b', ...style(BLUE) }),
+        Node(Item, { key: 'j' }),
+      ],
+    })
+  },
   'a parent’s & .child against a component child’s own .wrapper &': style => {
     const Child = () => Span('c', { 'data-n': 'c', className: 'child', ...style({ '.wrapper &': BLUE }, carrier) }).render() as ReactElement
     return Div({ 'data-n': 'p', className: 'wrapper', ...style({ '& .child': RED }, carrier), children: Node(Child) })
