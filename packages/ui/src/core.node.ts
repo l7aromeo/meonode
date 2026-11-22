@@ -811,12 +811,14 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
     let handedUnplaced = handed !== undefined
     /** The runs for MeoNode components among the walk's nodes, handed to their elements as they are built. */
     const runsForNodes = namedEnabled ? new Map<BaseNode, NamedStyle[]>() : undefined
+
     /**
      * The runs for MeoNode components' elements among a host's children, by the
      * slot key of their position: the same element can sit at two positions, each
      * with a run of its own.
      */
     const runsForElements = namedEnabled ? new Map<BaseNode, Map<string, NamedStyle[]>>() : undefined
+
     /**
      * Hands each run in `runs` to the element at its position in `list`, the
      * host's resolved children: the copy this walk built there, so the run goes

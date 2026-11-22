@@ -6,7 +6,12 @@
 import { act, createElement, type ReactElement } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { Div, Node, type NodeInstance } from '@src/main.js'
+import { serializeStyles } from '@emotion/serialize'
+import { Component, Div, Node, Span, type NodeInstance } from '@src/main.js'
+import { STATIC_CARRIER_MARKER } from '@src/constant/common.const.js'
+import { TAKES_RUN } from '@src/util/named-style.util.js'
+import { nameStyles } from '@src/util/style-name.util.js'
+import { ThemeUtil } from '@src/util/theme.util.js'
 import { __resetStaticCss, registerStaticCss } from '@src/util/static-css.util.js'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -184,5 +189,81 @@ describe('named styles', () => {
       mount: { App: 1, Card: CHILDREN, 'host:div': CHILDREN + 1, StaticStyles: CHILDREN },
       again: { App: 1, Card: CHILDREN, 'host:div': CHILDREN + 1 },
     })
+  })
+})
+
+// A grid of cards, each a named card with a named title and a component after
+// it, as a list page is: what each placement of the runs costs against the
+// runtime twin, with the component a plain one or a `Component(...)`.
+describe('a card list', () => {
+  const CARDS = 10
+  type Placement = 'runtime' | 'carriers' | 'handoff' | 'leaves'
+  let round = 0
+  /** A node's css: on the runtime path, or named as the compiler names it, a carrier where `carrier` and the placement marks them. */
+  const style = (placement: Placement, css: Record<string, unknown>, carrier = false) => {
+    if (placement === 'runtime') return { css }
+    const resolved = ThemeUtil.resolveObjWithTheme(css, undefined, { processFunctions: true, themeStringsMode: 'vars' })
+    const { name, styles } = nameStyles(serializeStyles([ThemeUtil.resolveDefaultStyle(ThemeUtil.dropThemedKeys(resolved, () => {}))] as never))
+    registerStaticCss(`m-${name}`, [[name, styles]])
+    return { __meo$: 2, __meo$n: name, ...(carrier && placement === 'carriers' && { [STATIC_CARRIER_MARKER]: 1 }) }
+  }
+  const slots = (placement: Placement, ...paths: number[]) => (placement === 'runtime' ? {} : { __meo$: 2, __meo$p: paths })
+  const Plain = () => Span('leaf').render() as ReactElement
+
+  function grid(placement: Placement, component: 'plain' | 'Component'): () => ReactElement {
+    // Each row names styles no earlier row put in the page's cache.
+    const at = ++round
+    const Leaf = Component(() => Span('leaf'))
+    // With the handoff off, a `Component(...)` takes a slot's leaf as any component does.
+    if (placement === 'leaves' && component === 'Component') ((Leaf() as ReactElement).type as unknown as Record<string, unknown>)[TAKES_RUN] = false
+    return () =>
+      createElement(function App() {
+        return Div({
+          ...style(placement, { display: 'grid', gap: at }, true),
+          ...slots(placement, ...Array.from({ length: CARDS }, (_, index) => index + 1)),
+          children: [
+            Span('h', { key: 'h', ...style(placement, { fontSize: at }) }),
+            ...Array.from({ length: CARDS }, (_, index) =>
+              Div({
+                key: index,
+                ...style(placement, { padding: at }, true),
+                ...slots(placement, 1),
+                children: [Span('b', style(placement, { order: at }) as never), component === 'Component' ? Leaf({ key: 'l' }) : Node(Plain, { key: 'l' })],
+              }),
+            ),
+          ],
+        } as never).render() as ReactElement
+      })
+  }
+
+  const RENDERER = 'Renderer(AnonymousFunctionComponent)'
+  const base = (component: 'plain' | 'Component') => ({
+    App: 1,
+    'host:div': CARDS + 1,
+    'host:span': 2 * CARDS + 1,
+    [component === 'plain' ? 'Plain' : RENDERER]: CARDS,
+  })
+  // A renderer per styled node and a leaf each until inserted, as Emotion's css prop costs.
+  const runtime = { Styled: 2 * CARDS + 2, RuleInsertion: 2 * CARDS + 2 }
+  const runtimeAgain = { Styled: 2 * CARDS + 2 }
+  // A renderer per carrier: the grid and each card, which carry the runs of the nodes after them.
+  const carriers = { Styled: CARDS + 1, RuleInsertion: CARDS + 1 }
+  const carriersAgain = { Styled: CARDS + 1 }
+  // A `StaticStyles` per card's slot and one for the grid, until their styles are in.
+  const leaves = { StaticStyles: CARDS + 1 }
+
+  it.skipIf(process.env.MEONODE_EXTRACTED === '1').each([
+    ['plain', 'runtime', runtime, runtimeAgain],
+    ['plain', 'carriers', carriers, carriersAgain],
+    ['plain', 'leaves', leaves, {}],
+    ['Component', 'runtime', runtime, runtimeAgain],
+    ['Component', 'carriers', carriers, carriersAgain],
+    // The run before each card's component goes to the component's own walk, whose
+    // span has no rule to take it: it carries it as an added child, which makes its
+    // text a fiber of its own.
+    ['Component', 'handoff', { StaticStyles: CARDS + 1, 'tag 6': CARDS }, {}],
+    ['Component', 'leaves', leaves, {}],
+  ] as const)('with a %s component and %s', (component, placement, mount, again) => {
+    expect(census(grid(placement, component))).toEqual({ mount: { ...base(component), ...mount }, again: { ...base(component), ...again } })
   })
 })
