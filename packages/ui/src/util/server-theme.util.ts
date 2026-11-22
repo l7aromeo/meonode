@@ -1,7 +1,8 @@
 import type { Theme } from '@src/types/node.type.js'
 import {
   CSS_TEXT,
-  isLengthFallbackList,
+  isCssTextContext,
+  isFallbackList,
   isLengthProperty,
   isSerializedRecordKey,
   isSerializedStyles,
@@ -202,8 +203,9 @@ export const replaceThemeTokensInString = (input: string, context: TokenContext)
 const rewriteString = (input: string, context: TokenContext): string => {
   themeRegex.lastIndex = 0
   // In CSS text a token in a prelude or a selector needs the theme's concrete
-  // value, so it is left for the resolver that has the theme.
-  const isCssText = input.includes('{')
+  // value, so it is left for the resolver that has the theme. A property's value
+  // is never CSS text, so a brace in it opens no block.
+  const isCssText = isCssTextContext(context) && input.includes('{')
   let hasChanged = false
   const next = input.replace(themeRegex, (match, path: string, offset: number) => {
     if (isCssText && isInPrelude(input, offset)) return match
@@ -399,9 +401,9 @@ export function replaceThemeTokensWithCssVars<T>(value: T): T {
         const keys = Object.keys(obj)
         for (let i = keys.length - 1; i >= 0; i--) {
           const child = obj[keys[i]]
-          // A length property's fallback list is converted with its key below, not
+          // A property's fallback list is converted with its key below, not
           // as a container of its own, so only what it holds is walked.
-          if (isLengthFallbackList(keys[i], child)) pushContainers(child, workStack, path)
+          if (isFallbackList(keys[i], child)) pushContainers(child, workStack, path)
           else if ((isPlainObject(child) || Array.isArray(child)) && !path.has(child)) workStack.push({ value: child, isProcessed: false })
         }
       }
@@ -426,7 +428,7 @@ export function replaceThemeTokensWithCssVars<T>(value: T): T {
               continue
             } else if (typeof v === 'string') {
               newValue = replaceThemeTokensInString(v, valueContext(key, serialized))
-            } else if (isLengthFallbackList(key, v)) {
+            } else if (isFallbackList(key, v)) {
               newValue = convertItems(v, key, resolvedValues)
             } else if (isPlainObject(v) || Array.isArray(v)) {
               newValue = resolvedValues.get(v) ?? v
