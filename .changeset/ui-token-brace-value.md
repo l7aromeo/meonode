@@ -1,0 +1,5 @@
+---
+'@meonode/ui': patch
+---
+
+A style value that holds a theme token and a brace, such as `color: 'theme.primary {a}'`, is now written the same way in a client component and a server component, uncompiled and compiled, so the node gets one class in all of them (Fixes #152). The token becomes its CSS variable and the rest of the value is kept as written, as `@meonode/compiler` writes it at build time. In an uncompiled client component the declaration used to come out empty, `color:;`, because the value was read as CSS text and the token's "block" left out; it is now `color:var(--meonode-theme-primary) {a};`. Each item of a fallback list such as `color: ['red', value]` is read as that property's value under any property, custom properties included, not only under a length property. CSS text is unchanged: a token in a prelude or a selector of a `css` string, or of a string item in a `css` array, still takes the theme's value, and a block whose prelude names a value the theme lacks is still left out.
