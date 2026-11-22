@@ -46,7 +46,7 @@ use crate::detect::{self, ChildrenOrigin, Decision};
 use crate::effect::is_inline_function;
 use crate::effect::is_static_literal;
 use crate::explain;
-use crate::extract::{Factory, ModuleExtraction, ModuleScope, emit_module};
+use crate::extract::{Factory, ModuleExtraction, ModuleScope, SLOTS_KEY, emit_module};
 use crate::keys::{is_special_key, is_stable_key_visible_special, key_name_atom};
 use crate::theme::{is_length_key, is_selector_or_at_rule, rewrite_theme_tokens_for};
 
@@ -967,6 +967,7 @@ impl VisitMut for Rewriter<'_> {
         } else {
             None
         };
+        let slots = self.slots(call, props_arg_idx);
         let Some(arg) = call.args.get_mut(props_arg_idx) else {
             return;
         };
@@ -982,7 +983,45 @@ impl VisitMut for Rewriter<'_> {
         } else {
             stamp_call_site_key(obj, &self.ctx, span, children);
         }
+        if let Some(slots) = slots {
+            obj.props.push(PropOrSpread::Prop(Box::new(Prop::KeyValue(KeyValueProp {
+                key: PropName::Ident(IdentName::new(Atom::from(SLOTS_KEY), swc_core::common::DUMMY_SP)),
+                value: Box::new(slots),
+            }))));
+        }
     }
+}
+
+impl Rewriter<'_> {
+    /// The slot marker for a host call site's children, with extraction on.
+    /// A component target would receive changed children, so only hosts carry
+    /// one. Children marked generated (`__meo$list`) carry one too: a single
+    /// value of unknown kind is position 0, and a generated array's items are
+    /// the runtime's keyed-item rule's.
+    fn slots(&self, call: &CallExpr, props_arg_idx: usize) -> Option<Expr> {
+        let (scope, _) = self.extract.as_ref()?;
+        scope.extractable_factory(call)?;
+        let from_props = call.args.get(props_arg_idx).and_then(|arg| match unwrap_parens(&arg.expr) {
+            Expr::Object(obj) => obj.props.iter().find_map(|p| match p {
+                PropOrSpread::Prop(prop) => match &**prop {
+                    Prop::KeyValue(kv) if key_name_atom(&kv.key).as_ref() == "children" => Some(&*kv.value),
+                    _ => None,
+                },
+                PropOrSpread::Spread(_) => None,
+            }),
+            _ => None,
+        });
+        // A children-first call: the children are the argument before the props.
+        let positional = (props_arg_idx > 0).then(|| &*call.args[0].expr);
+        scope.slots(from_props.or(positional)?)
+    }
+}
+
+fn unwrap_parens(mut expr: &Expr) -> &Expr {
+    while let Expr::Paren(paren) = expr {
+        expr = &paren.expr;
+    }
+    expr
 }
 
 /// Runs detection over `program`, then rewrites every `Decision::Compilable`

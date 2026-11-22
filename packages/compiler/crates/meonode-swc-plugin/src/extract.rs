@@ -68,6 +68,11 @@ pub const TEMPLATE_KEY: &str = "__meo$t";
 /// characters, so a node whose own text holds one stays on the runtime path.
 const HOLE_OPEN: char = '\u{E000}';
 const HOLE_CLOSE: char = '\u{E001}';
+/// On a host call site with written-out children: the positions of the children
+/// that may render a component, each before which the runtime keeps a slot for
+/// the static styles that began before it. A number is an index into the
+/// children; an array is a path into nested array literals.
+pub const SLOTS_KEY: &str = "__meo$p";
 /// On a layout factory's call site whose initial props were merged here: their
 /// fingerprint, which tells a runtime with the same initial props to skip its
 /// own merge.
@@ -263,6 +268,194 @@ impl ModuleScope {
             return tag.then_some(Factory::Host);
         }
         None
+    }
+}
+
+impl ModuleScope {
+    /// The `__meo$p` value for a host call site's written-out `children`: every
+    /// position not proved to render only hosts the runtime walks, or nothing
+    /// (see [`walked`](Self::walked)). A single child is position 0. In an array
+    /// literal, nothing at or after a spread is marked: its positions move at
+    /// run time. `None` when no position is marked.
+    pub fn slots(&self, children: &Expr) -> Option<Expr> {
+        let mut paths: Vec<Vec<usize>> = Vec::new();
+        match unwrap_transparent(children) {
+            Expr::Array(array) => self.array_slots(array, &mut Vec::new(), &mut paths),
+            child => {
+                if !self.walked(child) {
+                    paths.push(vec![0]);
+                }
+            }
+        }
+        if paths.is_empty() {
+            return None;
+        }
+        let number = |n: usize| {
+            Some(ExprOrSpread {
+                spread: None,
+                expr: Box::new(Expr::Lit(Lit::Num(Number::from(n as f64)))),
+            })
+        };
+        let elems = paths
+            .into_iter()
+            .map(|path| match path.as_slice() {
+                [index] => number(*index),
+                _ => Some(ExprOrSpread {
+                    spread: None,
+                    expr: Box::new(Expr::Array(ArrayLit {
+                        span: DUMMY_SP,
+                        elems: path.into_iter().map(number).collect(),
+                    })),
+                }),
+            })
+            .collect();
+        Some(Expr::Array(ArrayLit {
+            span: DUMMY_SP,
+            elems,
+        }))
+    }
+
+    fn array_slots(&self, array: &ArrayLit, path: &mut Vec<usize>, out: &mut Vec<Vec<usize>>) {
+        for (index, elem) in array.elems.iter().enumerate() {
+            // A hole is `undefined`, which renders nothing.
+            let Some(elem) = elem else {
+                continue;
+            };
+            if elem.spread.is_some() {
+                return;
+            }
+            path.push(index);
+            match unwrap_transparent(&elem.expr) {
+                Expr::Array(inner) => self.array_slots(inner, path, out),
+                child => {
+                    if !self.walked(child) {
+                        out.push(path.clone());
+                    }
+                }
+            }
+            path.pop();
+        }
+    }
+
+    /// Whether `child` renders only what the runtime's walk sees in order:
+    /// literals, which render text or nothing, and calls of the host
+    /// factories, which carry their own markers, through conditionals whose
+    /// every branch is such a child. A built element (JSX, `createElement`) is
+    /// one only when everything inside it is a literal or such an element,
+    /// since the walk does not enter it.
+    fn walked(&self, child: &Expr) -> bool {
+        match unwrap_transparent(child) {
+            Expr::Lit(_) | Expr::Tpl(_) => true,
+            Expr::Ident(id) => id.sym.as_ref() == "undefined",
+            Expr::Unary(u) => u.op == UnaryOp::Void,
+            Expr::Array(array) => array
+                .elems
+                .iter()
+                .all(|e| e.as_ref().is_none_or(|e| e.spread.is_none() && self.walked(&e.expr))),
+            Expr::Cond(c) => self.walked(&c.cons) && self.walked(&c.alt),
+            // A falsy left side is a primitive, which renders text or nothing.
+            Expr::Bin(b) if b.op == BinaryOp::LogicalAnd => self.walked(&b.right),
+            Expr::Bin(b) if matches!(b.op, BinaryOp::LogicalOr | BinaryOp::NullishCoalescing) => {
+                self.walked(&b.left) && self.walked(&b.right)
+            }
+            Expr::Call(call) => {
+                self.extractable_factory(call).is_some() || is_host_create_element(call)
+            }
+            Expr::JSXElement(element) => is_host_jsx(element),
+            Expr::JSXFragment(fragment) => fragment.children.iter().all(is_host_jsx_child),
+            _ => false,
+        }
+    }
+}
+
+/// Whether `expr` is a literal: text or nothing once rendered.
+fn is_literal(expr: &Expr) -> bool {
+    match unwrap_transparent(expr) {
+        Expr::Lit(_) | Expr::Tpl(_) => true,
+        Expr::Ident(id) => id.sym.as_ref() == "undefined",
+        _ => false,
+    }
+}
+
+/// `createElement('tag', props, ...children)` whose props, when they hold
+/// `children`, and children are literals or host elements.
+fn is_host_create_element(call: &CallExpr) -> bool {
+    let Callee::Expr(callee) = &call.callee else {
+        return false;
+    };
+    let named = match &**callee {
+        Expr::Ident(id) => id.sym.as_ref() == "createElement",
+        Expr::Member(m) => matches!(&m.prop, MemberProp::Ident(p) if p.sym.as_ref() == "createElement"),
+        _ => false,
+    };
+    let Some((tag, rest)) = call.args.split_first() else {
+        return false;
+    };
+    if !named || tag.spread.is_some() || !matches!(unwrap_transparent(&tag.expr), Expr::Lit(Lit::Str(_))) {
+        return false;
+    }
+    let Some((props, children)) = rest.split_first() else {
+        return true;
+    };
+    let props_ok = match unwrap_transparent(&props.expr) {
+        Expr::Lit(Lit::Null(_)) => true,
+        Expr::Ident(id) => id.sym.as_ref() == "undefined",
+        Expr::Object(obj) => obj.props.iter().all(|p| match p {
+            PropOrSpread::Spread(_) => false,
+            PropOrSpread::Prop(prop) => match &**prop {
+                Prop::KeyValue(kv) => key_name_atom(&kv.key).as_ref() != "children" || is_host_value(&kv.value),
+                Prop::Shorthand(id) => id.sym.as_ref() != "children",
+                _ => true,
+            },
+        }),
+        _ => false,
+    };
+    props_ok && children.iter().all(|c| c.spread.is_none() && is_host_value(&c.expr))
+}
+
+/// A value inside a built element that renders only text or host elements.
+fn is_host_value(expr: &Expr) -> bool {
+    match unwrap_transparent(expr) {
+        Expr::Array(array) => array
+            .elems
+            .iter()
+            .all(|e| e.as_ref().is_none_or(|e| e.spread.is_none() && is_host_value(&e.expr))),
+        Expr::JSXElement(element) => is_host_jsx(element),
+        Expr::JSXFragment(fragment) => fragment.children.iter().all(is_host_jsx_child),
+        Expr::Call(call) => is_host_create_element(call),
+        other => is_literal(other),
+    }
+}
+
+/// A JSX element with a lowercase tag, no `children` attribute beyond a
+/// literal, and only literal or host children.
+fn is_host_jsx(element: &JSXElement) -> bool {
+    let JSXElementName::Ident(name) = &element.opening.name else {
+        return false;
+    };
+    if !name.sym.starts_with(|c: char| c.is_ascii_lowercase()) {
+        return false;
+    }
+    let attrs_ok = element.opening.attrs.iter().all(|attr| match attr {
+        JSXAttrOrSpread::SpreadElement(_) => false,
+        JSXAttrOrSpread::JSXAttr(attr) => {
+            !matches!(&attr.name, JSXAttrName::Ident(n) if n.sym.as_ref() == "children")
+                || matches!(&attr.value, None | Some(JSXAttrValue::Str(_)))
+        }
+    });
+    attrs_ok && element.children.iter().all(is_host_jsx_child)
+}
+
+fn is_host_jsx_child(child: &JSXElementChild) -> bool {
+    match child {
+        JSXElementChild::JSXText(_) => true,
+        JSXElementChild::JSXExprContainer(container) => match &container.expr {
+            JSXExpr::JSXEmptyExpr(_) => true,
+            JSXExpr::Expr(expr) => is_host_value(expr),
+        },
+        JSXElementChild::JSXElement(element) => is_host_jsx(element),
+        JSXElementChild::JSXFragment(fragment) => fragment.children.iter().all(is_host_jsx_child),
+        JSXElementChild::JSXSpreadChild(_) => false,
     }
 }
 

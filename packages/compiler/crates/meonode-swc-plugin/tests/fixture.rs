@@ -461,6 +461,29 @@ fn extract_names() {
 }
 
 #[test]
+fn extract_slots() {
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixture/extract_slots");
+    let config = extract_config();
+    test_fixture(
+        Syntax::Es(EsSyntax {
+            jsx: true,
+            ..Default::default()
+        }),
+        &|_t| {
+            (
+                resolver(Mark::new(), Mark::new(), false),
+                Partition {
+                    config: config.clone(),
+                },
+            )
+        },
+        &dir.join("input.js"),
+        &dir.join("output.js"),
+        FixtureTestConfig::default(),
+    );
+}
+
+#[test]
 fn extract_not_host() {
     run_partition_with_config("extract_not_host", extract_config());
 }
