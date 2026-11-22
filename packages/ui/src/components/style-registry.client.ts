@@ -3,6 +3,7 @@ import { createElement, type ReactElement, useContext, useState } from 'react'
 import { CacheProvider } from '@emotion/react'
 import createCache from '@emotion/cache'
 import { Node } from '@src/core.node.js'
+import { NodeUtil } from '@src/util/node.util.js'
 import { prefixer } from '@src/util/emotion-prefixer.util.js'
 import { ServerInsertedHTMLContext, useServerInsertedHTML } from 'next/navigation.js'
 
@@ -40,23 +41,29 @@ export default function StyleRegistry({ children }: { children: ReactElement }) 
   // text there for the flush. Its own plugins array keeps the rules Emotion
   // memoizes on the server with this cache, not in a process-wide memo.
   //
-  // `order` lists each id as the cache inserts it, for the flush below: where two
-  // elements' rules tie on specificity, insertion order decides the winner, as it
-  // does in Emotion's own server render and in the browser. The cache's
-  // `inserted` map cannot give that order back, since an object lists a key made
-  // only of digits before the others.
-  const [{ cache, order }] = useState(() => {
+  // On the server, `order` lists each id as the cache inserts it, for the flush
+  // below: where two elements' rules tie on specificity, insertion order decides
+  // the winner, as it does in Emotion's own server render and in the browser. The
+  // cache's `inserted` map cannot give that order back, since an object lists a
+  // key made only of digits before the others. The browser never flushes, so its
+  // cache keeps Emotion's own `insert` and nothing records the order there.
+  const [{ cache, order, flushed }] = useState(() => {
     const emotionCache = createCache({ key: 'meonode-css', stylisPlugins: [prefixer] })
     emotionCache.compat = true
     const insertedOrder: string[] = []
-    const insert = emotionCache.insert
-    emotionCache.insert = (selector, serialized, sheet, shouldCache) => {
-      const known = serialized.name in emotionCache.inserted
-      const rules = insert(selector, serialized, sheet, shouldCache)
-      if (!known && serialized.name in emotionCache.inserted) insertedOrder.push(serialized.name)
-      return rules
+    if (NodeUtil.isServer) {
+      const insert = emotionCache.insert
+      emotionCache.insert = (selector, serialized, sheet, shouldCache) => {
+        const known = serialized.name in emotionCache.inserted
+        const rules = insert(selector, serialized, sheet, shouldCache)
+        if (!known && serialized.name in emotionCache.inserted) insertedOrder.push(serialized.name)
+        return rules
+      }
     }
-    return { cache: emotionCache, order: insertedOrder }
+    // How far into `order` this instance's flushes have read. `order` only grows,
+    // so each flush reads only what came after the last one. Per instance, unlike
+    // the set of flushed ids, since each pass of a render has an order of its own.
+    return { cache: emotionCache, order: insertedOrder, flushed: { upTo: 0 } }
   })
 
   // Which ids this render has already flushed. Shared with any other pass of the
@@ -73,7 +80,12 @@ export default function StyleRegistry({ children }: { children: ReactElement }) 
 
   // During server rendering, collect styles inserted into the cache and inline them in the HTML.
   useServerInsertedHTML(() => {
-    const newIds = order.filter(id => !inserted.has(id) && typeof cache.inserted[id] === 'string')
+    const newIds: string[] = []
+    for (let index = flushed.upTo; index < order.length; index++) {
+      const id = order[index]
+      if (!inserted.has(id) && typeof cache.inserted[id] === 'string') newIds.push(id)
+    }
+    flushed.upTo = order.length
     // Theme variables are emitted by ThemeProvider itself (a hoisted, deduped
     // `<style href precedence>`), not consumed from global state here.
     if (newIds.length === 0) {

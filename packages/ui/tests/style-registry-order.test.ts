@@ -13,7 +13,7 @@ import { createRequire } from 'node:module'
 import { ServerInsertedHTMLContext } from 'next/navigation.js'
 import { createElement, Fragment, type ReactElement, type ReactNode } from 'react'
 import { renderToString } from 'react-dom/server'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import StyleRegistry from '@src/components/style-registry.client.js'
 import { Div, Node, Span } from '@src/main.js'
 
@@ -134,5 +134,65 @@ describe('a tie between two elements under StyleRegistry', () => {
 
     expect(inserted.length).toBe(2)
     expect([...inserted].sort()).not.toEqual(inserted)
+  })
+})
+
+/** Server-renders one StyleRegistry per page in `passes` under one inserted-HTML list, as Next's two prerender passes do. */
+function streamWithRegistry(...passes: string[][]) {
+  const callbacks: (() => ReactNode)[] = []
+  const caches: EmotionCache[] = []
+  const provide = (callback: () => ReactNode) => callbacks.push(callback)
+  for (const names of passes) {
+    function Capture(): ReactElement {
+      caches.push(cacheOf())
+      return createElement(InsertNamed, { names })
+    }
+    renderToString(
+      createElement(ServerInsertedHTMLContext.Provider, { value: provide }, createElement(StyleRegistry, null, Node(Capture).render() as ReactElement)),
+    )
+  }
+  return {
+    /** Inserts styles into the first pass's cache, as a later streamed boundary would. */
+    insert: (more: string[]) => more.forEach(name => insertStyles(caches[0], { name, styles: `--order-${name}:1;`, next: undefined }, false)),
+    /** The ids each pass's flush writes, called in pass order. */
+    flush: () => callbacks.map(callback => flushedIds(renderToString(createElement(Fragment, null, callback())))),
+  }
+}
+
+describe('a streamed StyleRegistry flush', () => {
+  it('writes only what was inserted since the last flush, in order', () => {
+    const page = streamWithRegistry(['a', 'b'])
+    expect(page.flush()).toEqual([['a', 'b']])
+    page.insert(['c', 'a', 'd'])
+    expect(page.flush()).toEqual([['c', 'd']])
+    expect(page.flush()).toEqual([[]])
+  })
+
+  it('looks only at styles inserted since the last flush', () => {
+    // Reading every earlier id again on each flush makes a page with k flushes cost O(n·k).
+    const earlier = Array.from({ length: 50 }, (_, index) => `earlier-${index}`)
+    const page = streamWithRegistry(earlier)
+    expect(page.flush()).toEqual([earlier])
+    page.insert(['late'])
+    const looked: unknown[] = []
+    const has = Set.prototype.has
+    const spy = vi.spyOn(Set.prototype, 'has').mockImplementation(function (this: Set<unknown>, value: unknown) {
+      looked.push(value)
+      return has.call(this, value)
+    })
+    let flushed: string[][]
+    try {
+      flushed = page.flush()
+    } finally {
+      spy.mockRestore()
+    }
+    expect(flushed).toEqual([['late']])
+    expect(earlier.filter(id => looked.includes(id))).toEqual([])
+  })
+
+  it('writes a rule only the second prerender pass inserted, wherever it sits in that pass', () => {
+    // Both passes share what was flushed; each reads its own cache from its own start.
+    const page = streamWithRegistry(['a', 'b', 'c'], ['x', 'a', 'b'])
+    expect(page.flush()).toEqual([['a', 'b', 'c'], ['x']])
   })
 })
