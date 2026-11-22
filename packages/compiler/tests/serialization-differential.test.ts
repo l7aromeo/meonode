@@ -19,7 +19,7 @@ import { transform } from '@swc/core'
 import { createElement, type ReactNode } from 'react'
 import { renderToString } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
-import { type Call, corpusCalls, PROPS } from './serialization-corpus'
+import { type Call, CORPUS_CONSTS, corpusCalls, PROPS } from './serialization-corpus'
 
 /** The compiler under test: `MEONODE_DIFFERENTIAL_WASM`, or the package's own build. */
 const WASM_PATH = path.resolve(process.env.MEONODE_DIFFERENTIAL_WASM ?? path.resolve(import.meta.dirname, '../npm/meonode_swc_plugin.wasm'))
@@ -47,7 +47,8 @@ function moduleOf(calls: readonly Call[]): string {
     (c, i) =>
       `  (p) => ${c.call.replace('ATTR_PAIR', `${JSON.stringify(CASE_ATTRIBUTE)}: "${i}-pair"`).replace('ATTR', `${JSON.stringify(CASE_ATTRIBUTE)}: "${i}"`)},`,
   )
-  return `import { Center, Column, Div, Grid, Row } from '@meonode/ui'\nexport const cases = [\n${lines.join('\n')}\n]\n`
+  const consts = Object.entries(CORPUS_CONSTS).map(([name, value]) => `const ${name} = ${value}\n`).join('')
+  return `import { Center, Column, Div, Grid, Row } from '@meonode/ui'\n${consts}export const cases = [\n${lines.join('\n')}\n]\n`
 }
 
 async function compile(code: string, file: string, extract: boolean): Promise<string> {

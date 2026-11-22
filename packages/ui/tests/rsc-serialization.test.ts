@@ -17,7 +17,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createElement, isValidElement, type ReactElement, type ReactNode } from 'react'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
-import { corpusCalls, PROPS } from '../../compiler/tests/serialization-corpus'
+import { CORPUS_CONSTS, corpusCalls, PROPS } from '../../compiler/tests/serialization-corpus'
 
 const require = createRequire(import.meta.url)
 const REACT_SERVER_ENTRY = path.join(path.dirname(require.resolve('react/package.json')), 'react.react-server.js')
@@ -39,7 +39,8 @@ const calls = corpusCalls()
 /** Each call as a function of the factories and the run-time props. */
 const caseFns: CaseFn[] = calls.map((c, i) => {
   const body = c.call.replace('ATTR_PAIR', `${JSON.stringify(CASE_ATTRIBUTE)}: "${i}-pair"`).replace('ATTR', `${JSON.stringify(CASE_ATTRIBUTE)}: "${i}"`)
-  const fn = new Function('Div', 'Row', 'Column', 'Center', 'Grid', 'p', `return ${body}`)
+  const consts = Object.entries(CORPUS_CONSTS).map(([name, value]) => `const ${name} = ${value};`).join('')
+  const fn = new Function('Div', 'Row', 'Column', 'Center', 'Grid', 'p', `${consts} return ${body}`)
   return (f, p) => fn(f.Div, f.Row, f.Column, f.Center, f.Grid, p)
 })
 
@@ -67,7 +68,7 @@ const KNOWN_DIFFERENCES: { pattern: RegExp; reason: string }[] = [
   },
   {
     // Named by the compiler, as the client names it.
-    pattern: /^(var )?token with a brace$/,
+    pattern: /^(var |const )?token with a brace$/,
     reason: "a value holding a token and a brace: the client reads it as CSS text and drops the token's block, the server keeps it",
   },
 ]

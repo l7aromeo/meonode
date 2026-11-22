@@ -6,6 +6,15 @@ import { type Case, type Css, cases, PROPS } from './selector-grammar'
 
 export { PROPS }
 
+/**
+ * Top-level `const` bindings the calls may read, as source: the module the
+ * calls are written in declares each, so the compiler resolves them as it
+ * resolves a same-file constant.
+ */
+export const CORPUS_CONSTS: Record<string, string> = {
+  BRACE_VALUE: `'theme.primary {a}'`,
+}
+
 /** `css` as JavaScript source. */
 function source(css: Css): string {
   const entries = Object.entries(css).map(
@@ -79,6 +88,7 @@ const SERIAL_CALLS: readonly Call[] = [
   { name: 'animation', call: `Div({ ATTR, css: { animation: 'spin 1s linear' } })` },
   { name: 'important', call: `Div({ ATTR, color: 'red !important' })` },
   { name: 'token with a brace', call: `Div({ ATTR, css: { color: 'theme.primary {a}' } })` },
+  { name: 'const token with a brace', call: `Div({ ATTR, css: { color: BRACE_VALUE } })` },
   { name: 'switch', call: `Div({ ATTR, color: p.on ? 'red' : 'blue' })` },
   { name: 'switch in defaults', call: `Div({ ATTR, display: p.on ? 'flex' : 'block' })` },
   { name: 'switch nested', call: `Div({ ATTR, css: { '&:hover': { color: p.on ? 'red' : undefined } } })` },
