@@ -55,7 +55,7 @@ import { passesChildrenThrough, providesTheme } from '@src/util/children-pass-th
 import { observeChildren } from '@src/util/generated-list.util.js'
 import { compileServerEmotionRule, compileServerNamedRule } from '@src/util/server-emotion.util.js'
 import { hasNamedStyles, hasStaticCss, registeredClassesOf, staticRuleOf, staticStylesOf } from '@src/util/static-css.util.js'
-import { handRunTo, namedClass, type NamedStyle, takeHandedRun, takesRun } from '@src/util/named-style.util.js'
+import { namedClass, type NamedStyle } from '@src/util/named-style.util.js'
 import type { EmotionCache } from '@emotion/cache'
 import type { SerializedStyles } from '@emotion/serialize'
 import { readEmotionCache } from '@src/util/emotion-cache.util.js'
@@ -228,8 +228,6 @@ function slotSetOf(paths: readonly SlotPath[]): SlotSet {
 interface SlotMark {
   slotOf: BaseNode
   key: string
-  /** The child at the position, which a run before it may be handed to. */
-  next?: unknown
 }
 
 const isSlotMark = (value: unknown): value is SlotMark => typeof value === 'object' && value !== null && 'slotOf' in value
@@ -252,8 +250,8 @@ function collectWithSlots(parent: BaseNode, children: unknown, slots: SlotSet): 
     seen.add(list)
     for (let i = 0; i < list.length; i++) {
       const key = prefix === '' ? String(i) : `${prefix}.${i}`
+      if (slots.keys.has(key)) out.push({ slotOf: parent, key } satisfies SlotMark)
       const child = list[i]
-      if (slots.keys.has(key)) out.push({ slotOf: parent, key, next: child } satisfies SlotMark)
       if (Array.isArray(child)) walk(child, key)
       else out.push(child)
     }
@@ -804,61 +802,8 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
     /** The runs a host's slots render, by slot key. */
     const slotRuns = new Map<BaseNode, Map<string, NamedStyle[]>>()
     /** The run since the last rule, and the carrier of its nodes. */
-    // A MeoNode component's walk begins with the run handed to it, which began before it.
-    const handed = namedEnabled ? takeHandedRun() : undefined
-    let pendingNamed: NamedStyle[] = handed ? [...handed] : []
-    /** Whether the handed run waits for the walk's first named node, to go with it. */
-    let handedUnplaced = handed !== undefined
-    /** The runs for MeoNode components among the walk's nodes, handed to their elements as they are built. */
-    const runsForNodes = namedEnabled ? new Map<BaseNode, NamedStyle[]>() : undefined
-
-    /**
-     * The runs for MeoNode components' elements among a host's children, by the
-     * slot key of their position: the same element can sit at two positions, each
-     * with a run of its own.
-     */
-    const runsForElements = namedEnabled ? new Map<BaseNode, Map<string, NamedStyle[]>>() : undefined
-
-    /**
-     * Hands each run in `runs` to the element at its position in `list`, the
-     * host's resolved children: the copy this walk built there, so the run goes
-     * with props of this render, never the written element's. An element child
-     * stays in a node's children only when processing them kept it for copying,
-     * so every one is copied; one that is not is left without the run.
-     */
-    const handToElements = (list: ReactNode[], written: readonly unknown[], runs: Map<string, NamedStyle[]>): void => {
-      for (const [key, run] of runs) {
-        let into = list as unknown[]
-        let from = written
-        const path = key.split('.')
-        for (let depth = 0; depth < path.length - 1; depth++) {
-          into = into[Number(path[depth])] as unknown[]
-          from = from[Number(path[depth])] as unknown[]
-        }
-        const at = Number(path[path.length - 1])
-        const child = into[at]
-        if (isValidElement(child) && child !== from[at]) handRunTo(child.props as object, run)
-      }
-    }
-
-    /**
-     * Hands the run to the MeoNode component at a slot, whose own walk puts it in
-     * ahead of its rules, as a rule node would: nothing is added to the children.
-     */
-    const handToComponent = (host: BaseNode, key: string, next: unknown): boolean => {
-      if (pendingNamed.length === 0) return true
-      if (isValidElement(next) && takesRun(next.type)) {
-        let runs = runsForElements!.get(host)
-        if (!runs) runsForElements!.set(host, (runs = new Map()))
-        runs.set(key, pendingNamed)
-      } else if (next instanceof BaseNode && takesRun(next.element)) runsForNodes!.set(next, pendingNamed)
-      else return false
-      pendingNamed = []
-      return true
-    }
-    // A handed run goes with the walk's topmost host, as the run of its first named node would.
-    let pendingCarrier: BaseNode | null =
-      handed !== undefined && canAnchorRules(this.element, this.props as Record<string, unknown>, false) ? (this as BaseNode) : null
+    let pendingNamed: NamedStyle[] = []
+    let pendingCarrier: BaseNode | null = null
     const rulesOfCarrier = (carrier: BaseNode | null): Map<string, ReactElement> => {
       if (carrier === null) return rootRules
       let rules = anchoredRules.get(carrier)
@@ -933,7 +878,7 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
         const slot = (currentWork as { slot?: string }).slot
         if (slot !== undefined) {
           stackPointer--
-          if (pendingNamed.length > 0 && !runAfterLastRule() && !handToComponent(currentWork.node, slot, (currentWork as { next?: unknown }).next)) {
+          if (pendingNamed.length > 0 && !runAfterLastRule()) {
             let runs = slotRuns.get(currentWork.node)
             if (!runs) slotRuns.set(currentWork.node, (runs = new Map()))
             runs.set(slot, pendingNamed)
@@ -1009,11 +954,9 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
             } else if (styles !== undefined) {
               // Following a rule, the run goes in after it; without one, at the end of its carrier.
               if (carrier !== pendingCarrier) {
-                // A handed run has no carrier of its own: it goes with the first one's.
-                if (lastRuleNode === null && !handedUnplaced) flushNamed()
+                if (lastRuleNode === null) flushNamed()
                 pendingCarrier = carrier
               }
-              handedUnplaced = false
               const { className, style } = namedClass(cacheOfWalk(), name!, styles, beginProps.className, typeof beginTarget === 'string')
               namedClasses!.set(node, className)
               if (scopedWalk) style.scope = childScope!
@@ -1069,7 +1012,7 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
             for (let i = pending.length - 1; i >= 0; i--) {
               const child = pending[i]
               if (isSlotMark(child)) {
-                workStack[stackPointer++] = { node, isProcessed: true, slot: child.key, next: child.next } as unknown as (typeof workStack)[number]
+                workStack[stackPointer++] = { node, isProcessed: true, slot: child.key } as unknown as (typeof workStack)[number]
                 continue
               }
               if (!NodeUtil.isNodeInstance(child)) continue
@@ -1190,8 +1133,6 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
             // Each element child becomes a fresh copy, as the walk would build it
             // from a node wrapping the element, and so does every element below it.
             if (copyQueue !== undefined && copyQueue.length > 0) drainCopies(copyQueue, disableEmotion)
-            const runsHanded = runsForElements?.get(node)
-            if (runsHanded !== undefined) handToElements(finalChildren, childArray, runsHanded)
 
             // A built element's list is key-checked by React as the element's own
             // would be, so in development the elements its authored nodes rendered
@@ -1655,9 +1596,6 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
             if (store !== undefined && rendered !== undefined) rendered.validated = store.validated
           }
 
-          const handedHere = runsForNodes?.get(node)
-          if (handedHere) handRunTo(element.props as object, handedHere)
-
           // Store the rendered element so parent nodes can reference it.
           renderedElements.set(node, element)
         }
@@ -1665,15 +1603,8 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
 
       // Get the final rendered element for the root node of this render cycle.
       const rootElement = renderedElements.get(this) as ReactElement<FinalNodeProps>
-      // What no rule or carrier took goes to a MeoNode component at the root, or beside the root, after it.
-      // The root's element is this walk's own, so the run goes to its props as they are.
-      const handToRoot = (): boolean => {
-        if (pendingNamed.length === 0 || !takesRun(rootElement.type)) return pendingNamed.length === 0
-        handRunTo(rootElement.props as object, pendingNamed)
-        pendingNamed = []
-        return true
-      }
-      if (namedEnabled && !runAfterLastRule() && !handToRoot()) {
+      // What no rule or carrier took goes beside the root, after it.
+      if (namedEnabled && !runAfterLastRule()) {
         pendingCarrier = null
         flushNamed()
       }

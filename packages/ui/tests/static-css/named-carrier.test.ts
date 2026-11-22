@@ -208,27 +208,29 @@ function once(tree: (style: Style) => NodeInstance, style: Style) {
 }
 
 const TIES: Record<string, (style: Style) => NodeInstance> = {
-  'a sibling’s & + .item against a Component sibling’s own rule, no carrier': style => {
+  // A `Component(...)` is a component like any other: the first named node of
+  // a stretch it ends is a carrier, as the compiler marks it.
+  'a sibling’s & + .item against a Component sibling’s own rule': style => {
     const Item = Component(() => Div({ 'data-n': 'i', className: 'item', ...style({ '.wrapper &': BLUE }) }))
     return Div({
       className: 'wrapper',
       ...slots(style, 1),
-      children: [Span('s', { key: 's', 'data-n': 's', ...style({ '& + .item': RED }) }), Item({ key: 'i' })],
+      children: [Span('s', { key: 's', 'data-n': 's', ...style({ '& + .item': RED }, carrier) }), Item({ key: 'i' })],
     })
   },
-  'a static parent’s & .child against a Component child’s own .wrapper &, no carrier': style => {
+  'a static parent’s & .child against a Component child’s own .wrapper &': style => {
     const Child = Component(() => Span('c', { 'data-n': 'c', className: 'child', ...style({ '.wrapper &': BLUE }) }))
-    return Div({ 'data-n': 'p', className: 'wrapper', ...style({ '& .child': RED }), ...slots(style, 0), children: Child() })
+    return Div({ 'data-n': 'p', className: 'wrapper', ...style({ '& .child': RED }, carrier), ...slots(style, 0), children: Child() })
   },
-  'Components between statics, written with Node, no carrier': style => {
+  'Components between statics, written with Node': style => {
     const Item = Component(() => Div({ 'data-n': 'i', className: 'item', ...style({ order: 7 }) }))
     return Div({
-      ...style(GRID),
+      ...style(GRID, carrier),
       ...slots(style, 1, 3),
       children: [
         Span('a', { key: 'a', 'data-n': 'a', ...style({ '& ~ .item': RED }) }),
         Node(Item, { key: 'i' }),
-        Span('b', { key: 'b', 'data-n': 'b', ...style(BLUE) }),
+        Span('b', { key: 'b', 'data-n': 'b', ...style(BLUE, carrier) }),
         Node(Item, { key: 'j' }),
       ],
     })
@@ -353,33 +355,8 @@ describe('a generated list of items each holding a component', () => {
   })
 })
 
-// A run handed to a MeoNode component belongs to the walk that handed it: a
-// child passed through a component that renders again on its own is handed
-// that walk's run each time, never all of them.
-describe('a run handed to a Component', () => {
-  it('stays one walk’s run when the element is passed through a component that renders again', async () => {
-    const { __handedStyles } = await import('@src/util/named-style.util.js')
-    const Item = Component(() => Div({ className: 'item', ...compiledStyle({ order: 8 }) }))
-    let bump = () => {}
-    function Passing({ children }: { children: ReactNode }) {
-      const [count, setCount] = useState(0)
-      bump = () => setCount(value => value + 1)
-      return Div({
-        'data-count': count,
-        __meo$: 2,
-        __meo$p: [1],
-        children: [Span('h', compiledStyle({ order: count })), children],
-      } as never).render() as ReactElement
-    }
-    const item = Item()
-    root = createRoot(document.body.appendChild(document.createElement('div')))
-    act(() => root!.render(createElement(CacheProvider, { value: createCache({ key: 'css', speedy: true }) }, createElement(Passing, null, item))))
-    __handedStyles()
-    for (let i = 0; i < 50; i++) act(() => bump())
-    // Each render hands one style, the header's, to the one item.
-    expect(__handedStyles()).toBe(50)
-  })
-
+// A Component after a named sibling, whose run takes a slot's leaf before it.
+describe('a Component after a named sibling', () => {
   it('keeps every render under StrictMode at the runtime twin’s rules', async () => {
     const { StrictMode } = await import('react')
     const runOnce = (style: Style) => {
@@ -418,13 +395,12 @@ describe('a run handed to a Component', () => {
   })
 })
 
-describe('a run handed to a Component element written twice in one host', () => {
-  // Each position's run goes to the copy there, as each instance's rules follow
-  // the run before it uncompiled.
+describe('a Component element written twice in one host', () => {
+  // Each instance's rules follow the run before it, as uncompiled.
   it.each([
     ['', false],
     [' under StrictMode', true],
-  ])('goes to the copy at its own position%s', async (_, strict) => {
+  ])('keeps each instance’s rules after the run before it%s', async (_, strict) => {
     const { StrictMode } = await import('react')
     const runOnce = (style: Style) => {
       __resetStaticCss()

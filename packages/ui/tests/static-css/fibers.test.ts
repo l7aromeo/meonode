@@ -9,7 +9,6 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { serializeStyles } from '@emotion/serialize'
 import { Component, Div, Node, Span, type NodeInstance } from '@src/main.js'
 import { STATIC_CARRIER_MARKER } from '@src/constant/common.const.js'
-import { TAKES_RUN } from '@src/util/named-style.util.js'
 import { nameStyles } from '@src/util/style-name.util.js'
 import { ThemeUtil } from '@src/util/theme.util.js'
 import { __resetStaticCss, registerStaticCss } from '@src/util/static-css.util.js'
@@ -197,7 +196,7 @@ describe('named styles', () => {
 // runtime twin, with the component a plain one or a `Component(...)`.
 describe('a card list', () => {
   const CARDS = 10
-  type Placement = 'runtime' | 'carriers' | 'handoff' | 'leaves'
+  type Placement = 'runtime' | 'carriers' | 'leaves'
   let round = 0
   /** A node's css: on the runtime path, or named as the compiler names it, a carrier where `carrier` and the placement marks them. */
   const style = (placement: Placement, css: Record<string, unknown>, carrier = false) => {
@@ -214,8 +213,6 @@ describe('a card list', () => {
     // Each row names styles no earlier row put in the page's cache.
     const at = ++round
     const Leaf = Component(() => Span('leaf'))
-    // With the handoff off, a `Component(...)` takes a slot's leaf as any component does.
-    if (placement === 'leaves' && component === 'Component') ((Leaf() as ReactElement).type as unknown as Record<string, unknown>)[TAKES_RUN] = false
     return () =>
       createElement(function App() {
         return Div({
@@ -258,10 +255,6 @@ describe('a card list', () => {
     ['plain', 'leaves', leaves, {}],
     ['Component', 'runtime', runtime, runtimeAgain],
     ['Component', 'carriers', carriers, carriersAgain],
-    // The run before each card's component goes to the component's own walk, whose
-    // span has no rule to take it: it carries it as an added child, which makes its
-    // text a fiber of its own.
-    ['Component', 'handoff', { StaticStyles: CARDS + 1, 'tag 6': CARDS }, {}],
     ['Component', 'leaves', leaves, {}],
   ] as const)('with a %s component and %s', (component, placement, mount, again) => {
     expect(census(grid(placement, component))).toEqual({ mount: { ...base(component), ...mount }, again: { ...base(component), ...again } })

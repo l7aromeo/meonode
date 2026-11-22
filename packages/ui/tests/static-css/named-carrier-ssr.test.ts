@@ -126,9 +126,8 @@ describe.each([
   })
 })
 
-// An element made once and rendered by several requests: each server render
-// hands the element its own run, so a later page whose stretch before it
-// differs gets none of an earlier page's.
+// An element made once and rendered by several requests: a later page whose
+// stretch before it differs gets none of an earlier page's run.
 describe('a Component element shared by two server renders', () => {
   it.each([
     ['with no cache provider', false],
