@@ -1709,7 +1709,7 @@ interface FactoryShape {
  * registry `@meonode/ui/factory-call` reads, with the join for its calls.
  */
 function brandFactory(factory: (...args: never[]) => unknown, shape: FactoryShape): void {
-  factoryBrands.set(factory, { join: (callee, site, args) => joinFactoryCall(shape, callee, site, args) })
+  factoryBrands.set(factory, { join: (callee, site, args, caller) => joinFactoryCall(shape, callee, site, args, caller) })
 }
 
 /**
@@ -1810,9 +1810,16 @@ function joinStyle(merged: Record<string, unknown>, own: string | undefined): Jo
  * @param factory The factory.
  * @param site The call site, hoisted by the compiler.
  * @param args The call's arguments, as written.
+ * @param caller The function the call site called, left out of the stack a development report shows.
  * @returns What `factory(...args)` returns, with the style named.
  */
-function joinFactoryCall(brand: FactoryShape, factory: (...args: never[]) => unknown, site: FactoryCallSite, args: unknown[]): unknown {
+function joinFactoryCall(
+  brand: FactoryShape,
+  factory: (...args: never[]) => unknown,
+  site: FactoryCallSite,
+  args: unknown[],
+  caller: (...args: never[]) => unknown,
+): unknown {
   const props = args[site.at]
   if (
     site.at !== brand.propsAt ||
@@ -1841,7 +1848,12 @@ function joinFactoryCall(brand: FactoryShape, factory: (...args: never[]) => unk
   }
   // Held again if the registry was cleared since the join.
   if (staticStylesOf(style.name) === undefined) registerNamedText(style.name, style.styles)
-  const built = withoutStylePart(combineFactoryProps(brand.initialProps, props))
+  const combined = combineFactoryProps(brand.initialProps, props)
+  // The check the call uncompiled gets, on the props it would build with: the
+  // marker set below would skip it, though the compiler left the call's list
+  // undecided unless its props carry a marker of their own.
+  if (diagnosticsEnabled()) observeChildren(brand.element, brand.propsAt === 1 ? { ...combined, children: args[0] } : combined, caller)
+  const built = withoutStylePart(combined)
   built[COMPILED_MARKER] = 2
   built[STATIC_NAME_MARKER] = style.name
   if (site.r === 1) built[STATIC_CARRIER_MARKER] = 1

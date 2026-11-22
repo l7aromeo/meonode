@@ -275,6 +275,54 @@ describe('in development', () => {
     // The site's own style still joins.
     expect(nameOf(call(Panel, site, { padding: 4 }))).toBeDefined()
   })
+
+  // The compiler marks no list decision on a call it joins at run time, so the
+  // call gets the check the call uncompiled gets, naming the line it is on.
+  const panelSite = { at: 0 }
+  const labelSite = { at: 1 }
+  it.each([
+    [
+      'a createNode factory',
+      (rows: unknown[]) => call(Panel, panelSite, { padding: 4, children: rows }),
+      (rows: unknown[]) => {
+        const props = { padding: 4, children: rows }
+        return Panel(props)
+      },
+    ],
+    [
+      'a children-first factory',
+      (rows: unknown[]) => call(Label, labelSite, rows, { color: RED }),
+      (rows: unknown[]) => {
+        const props = { color: RED }
+        return Label(rows, props)
+      },
+    ],
+  ])('reports an unkeyed list generated at a joined call of %s, as the call uncompiled', (_, joined, uncompiled) => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const reports = () => warn.mock.calls.filter(([message]) => String(message).startsWith('[MeoNode] A `children` list without keys'))
+    const rows = (count: number) => Array.from({ length: count }, () => Div({ children: 'row' }))
+    const evaluate = (build: (rows: unknown[]) => NodeInstance) => [2, 3].map(count => build(rows(count)))
+    for (const node of evaluate(joined)) expect(nameOf(node)).toBeDefined()
+    evaluate(uncompiled)
+    expect(reports()).toHaveLength(2)
+    for (const [, site] of reports())
+      expect(
+        String((site as Error).stack)
+          .split('\n')
+          .find(line => /^\s+at /.test(line)),
+      ).toContain('factory-call.test.ts')
+  })
+
+  // A call the compiler marked (a `factoryModules` import's, with extraction
+  // off's marks) decided its list already: neither side reports it.
+  it('leaves the report to the marks of a joined call the compiler marked, as the call uncompiled', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const site = { at: 0 }
+    const props = (count: number) => ({ __meo$: 3, __meo$k: 'mk', padding: 4, children: Array.from({ length: count }, () => Div({ children: 'row' })) })
+    for (const count of [2, 3]) expect(nameOf(call(Panel, site, props(count)))).toBeDefined()
+    for (const count of [2, 3]) Panel(props(count))
+    expect(warn.mock.calls.filter(([message]) => String(message).startsWith('[MeoNode] A `children` list without keys'))).toEqual([])
+  })
 })
 
 describe('the registry', () => {

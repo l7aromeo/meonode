@@ -21,9 +21,10 @@ export interface FactoryCallSite {
 export interface FactoryBrand {
   /**
    * Calls `callee` for `site` with `args`, as `callee(...args)` would, its style
-   * joined with the factory's initial props.
+   * joined with the factory's initial props. `caller` is the function the call
+   * site called, which development reports leave out of the stack they show.
    */
-  join(callee: (...args: never[]) => unknown, site: FactoryCallSite, args: unknown[]): unknown
+  join(callee: (...args: never[]) => unknown, site: FactoryCallSite, args: unknown[], caller: (...args: never[]) => unknown): unknown
 }
 
 /**
@@ -50,5 +51,7 @@ export const factoryBrands: WeakMap<object, FactoryBrand> = ((globalThis as Reco
  */
 export function __meoFactoryCall(callee: unknown, site: FactoryCallSite, ...args: unknown[]): unknown {
   const brand = typeof callee === 'function' ? factoryBrands.get(callee) : undefined
-  return brand === undefined ? (callee as (...called: unknown[]) => unknown)(...args) : brand.join(callee as (...called: never[]) => unknown, site, args)
+  return brand === undefined
+    ? (callee as (...called: unknown[]) => unknown)(...args)
+    : brand.join(callee as (...called: never[]) => unknown, site, args, __meoFactoryCall as (...called: never[]) => unknown)
 }
