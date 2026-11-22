@@ -39,7 +39,9 @@ const calls = corpusCalls()
 /** Each call as a function of the factories and the run-time props. */
 const caseFns: CaseFn[] = calls.map((c, i) => {
   const body = c.call.replace('ATTR_PAIR', `${JSON.stringify(CASE_ATTRIBUTE)}: "${i}-pair"`).replace('ATTR', `${JSON.stringify(CASE_ATTRIBUTE)}: "${i}"`)
-  const consts = Object.entries(CORPUS_CONSTS).map(([name, value]) => `const ${name} = ${value};`).join('')
+  const consts = Object.entries(CORPUS_CONSTS)
+    .map(([name, value]) => `const ${name} = ${value};`)
+    .join('')
   const fn = new Function('Div', 'Row', 'Column', 'Center', 'Grid', 'p', `${consts} return ${body}`)
   return (f, p) => fn(f.Div, f.Row, f.Column, f.Center, f.Grid, p)
 })
@@ -65,11 +67,6 @@ const KNOWN_DIFFERENCES: { pattern: RegExp; reason: string }[] = [
     // On the runtime path, extraction or not.
     pattern: /^spelling .*"@(media|supports|container) [^"]*theme\./,
     reason: 'a theme token in an at-rule key: with no theme in scope the server names the class after the whole css and leaves the key to ThemedRule',
-  },
-  {
-    // Named by the compiler, as the client names it.
-    pattern: /^(var |const )?token with a brace$/,
-    reason: "a value holding a token and a brace: the client reads it as CSS text and drops the token's block, the server keeps it",
   },
 ]
 

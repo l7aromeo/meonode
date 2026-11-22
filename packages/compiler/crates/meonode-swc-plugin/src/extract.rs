@@ -1128,14 +1128,6 @@ impl ModuleScope {
             return Some(Entry::Value(leaf));
         }
         if is_string_or_number(value) {
-            if let Expr::Tpl(tpl) = unwrap_transparent(value) {
-                let written: String = tpl.quasis.iter().map(|q| q.raw.as_str()).collect();
-                if holds_token_and_brace(&written) {
-                    return explain::bail(
-                        "a value holding a theme token and a brace, which the client and server layers write apart",
-                    );
-                }
-            }
             if depth == 0 && DEFAULT_READ_KEYS.contains(&key) {
                 return explain::bail(
                     "a value only the call site knows in a key the defaults read",
@@ -1273,19 +1265,7 @@ fn hole_marker(index: usize) -> String {
 
 /// A known string as text, or `None` when it holds a hole marker.
 fn known_text(text: &str) -> Option<String> {
-    if holds_token_and_brace(text) {
-        return explain::bail(
-            "a value holding a theme token and a brace, which the client and server layers write apart",
-        );
-    }
     (!text.contains([HOLE_OPEN, HOLE_CLOSE])).then(|| text.to_string())
-}
-
-/// Whether `text` holds a theme token and a brace. The client reads such a
-/// value as CSS text and drops the block the token is in; the server layer
-/// keeps it. Neither result can be written at build time for both.
-fn holds_token_and_brace(text: &str) -> bool {
-    text.contains("theme.") && text.contains('{')
 }
 
 /// Serialized text with hole markers as the chunks around them and the hole
