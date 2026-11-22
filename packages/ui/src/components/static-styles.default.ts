@@ -5,8 +5,7 @@ import { isDevMode } from '@src/constant/common.const.js'
 import { ThemeContext } from '@src/components/theme-provider.client.js'
 import { staticHoistables, type StaticStylesProps } from '@src/components/static-hoistables.js'
 import { NodeUtil } from '@src/util/node.util.js'
-import { serverStyleElement } from '@src/util/named-style.util.js'
-import { createServerCssCache } from '@src/util/server-css-cache.util.js'
+import { serverStyleElement, standInServerCache } from '@src/util/named-style.util.js'
 import { type EmotionSheetPlacement, insertStaticClasses } from '@src/util/static-css.util.js'
 import { candidatesKey, checkCandidates } from '@src/util/static-theme-check.util.js'
 import { reportThemeVarRefs, unionThemeVarIndexes } from '@src/util/theme-diagnostics.util.js'
@@ -72,7 +71,7 @@ export function StaticStyles({ classes, checks, candidates, styles }: StaticStyl
   if (!NodeUtil.isServer) return null
   // On the server, the named styles in place as Emotion's `Insertion` renders
   // its own, then the hoistable classes.
-  const named = styles ? serverStyleElement(cache ?? createServerCssCache(), styles, 'mn-named') : null
+  const named = styles ? serverStyleElement(cache ?? standInServerCache(), styles, 'mn-named') : null
   const hoisted = classes ? staticHoistables(classes) : []
   return named ? [named, ...hoisted] : hoisted
 }

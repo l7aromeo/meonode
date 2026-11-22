@@ -5,7 +5,7 @@
 // writes each runtime node's rule in place, before its element; a compiled
 // node's goes in with the rule of the next runtime node, or at the end of its
 // carrier. So the elements and their classes must match, and the rules must
-// reach the page in the same order, each the first time it does.
+// reach the page in the same order, a rule written again counted again.
 import { CacheProvider } from '@emotion/react'
 import createCache from '@emotion/cache'
 import { serializeStyles } from '@emotion/serialize'
@@ -37,11 +37,11 @@ const compiledStyle: Style = (css, isStatic = true) => {
 
 const STYLE_ELEMENT = /<style data-emotion="([^"]*)"[^>]*>(.*?)<\/style>/g
 
-/** The page's markup without its style elements, and the rules they hold, each the first time it appears. */
+/** The page's markup without its style elements, and the rules they hold, in order. */
 function read(html: string): { markup: string; rules: string[] } {
   const rules: string[] = []
   for (const [, , text] of html.matchAll(STYLE_ELEMENT)) {
-    for (const rule of text.split(/(?<=\})(?=[.@])/)) if (rule && !rules.includes(rule)) rules.push(rule)
+    for (const rule of text.split(/(?<=\})(?=[.@])/)) if (rule) rules.push(rule)
   }
   return { markup: html.replace(STYLE_ELEMENT, ''), rules }
 }
@@ -58,6 +58,14 @@ const BLUE = { color: 'rgb(0, 0, 200)' }
 const CASES: Record<string, (style: Style) => NodeInstance> = {
   'a parent’s & > * against its static child’s colour': style => Div({ ...style({ '& > *': RED }), children: Span('c', style(BLUE)) }),
   'a runtime parent’s & > * against a static child': style => Div({ ...style({ '& > *': RED }, false), children: Span('c', style(BLUE)) }),
+  'a static parent and child written twice, in one run before a runtime node': style => {
+    const pair = (key: number) => Div({ key, ...style({ '& > *': RED }), children: Span('c', style(BLUE)) })
+    return Div({ children: [pair(1), pair(2), Div({ key: 3, ...style({ order: 3 }, false) })] })
+  },
+  'a static parent and child written twice, at the end of their carrier': style => {
+    const pair = (key: number) => Div({ key, ...style({ '& > *': RED }), children: Span('c', style(BLUE)) })
+    return Div({ children: [pair(1), pair(2)] })
+  },
   'a static parent’s & > * against a runtime child': style => Div({ ...style({ '& > *': RED }), children: Span('c', style(BLUE, false)) }),
   'a runtime grandparent and a static parent reaching one element': style =>
     Div({ ...style({ '& .t': RED }, false), children: Div({ ...style({ '& .t': BLUE }), children: Span('t', { className: 't' }) }) }),
@@ -72,6 +80,10 @@ const CASES: Record<string, (style: Style) => NodeInstance> = {
         Div({ key: 7, ...style({ order: 7 }) }),
       ],
     }),
+  'a parent and child written twice, the parent’s & > * against the child’s own colour': style => {
+    const pair = (key: number) => Div({ key, ...style({ '& > *': RED }), children: Span('c', style(BLUE, false)) })
+    return Div({ children: [pair(1), pair(2)] })
+  },
   'two nodes of one style': style =>
     Div({ children: [Div({ key: 1, ...style(BLUE) }), Div({ key: 2, ...style(RED, false) }), Div({ key: 3, ...style(BLUE) })] }),
   'a registered class handed to a static node': style => {

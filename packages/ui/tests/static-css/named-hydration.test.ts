@@ -31,6 +31,18 @@ const CASES: Record<string, Tree> = {
       ],
     })
   },
+  'a parent and child written twice, the parent’s & > * against the child’s own colour': (ui, _, style) => {
+    const pair = (key: number) => ui.Div({ key, ...style({ '& > *': RED }), children: ui.Span('c', style(BLUE, false)) })
+    return ui.Div({ children: [pair(1), pair(2)] })
+  },
+  'a static parent and child written twice, in one run before a runtime node': (ui, _, style) => {
+    const pair = (key: number) => ui.Div({ key, ...style({ '& > *': RED }), children: ui.Span('c', style(BLUE)) })
+    return ui.Div({ children: [pair(1), pair(2), ui.Div({ key: 3, ...style({ order: 3 }, false) })] })
+  },
+  'a static parent and child written twice, at the end of their carrier': (ui, _, style) => {
+    const pair = (key: number) => ui.Div({ key, ...style({ '& > *': RED }), children: ui.Span('c', style(BLUE)) })
+    return ui.Div({ children: [pair(1), pair(2)] })
+  },
   'a static parent’s & > * against a runtime child': (ui, _, style) => ui.Div({ ...style({ '& > *': RED }), children: ui.Span('c', style(BLUE, false)) }),
   'a runtime parent’s & > * against a static child': (ui, _, style) => ui.Div({ ...style({ '& > *': RED }, false), children: ui.Span('c', style(BLUE)) }),
 }
@@ -87,14 +99,10 @@ async function serverThenHydrate(tree: Tree, compiled: boolean, provider: boolea
     const { act } = client.react
     const container = document.getElementById('root')!
     const ids = () => [...container.querySelectorAll('[data-id]')].map(element => element.getAttribute('data-id'))
-    /** The rules of the page's style elements, in document order, each the first time it appears. */
-    const rules = () => [
-      ...new Set(
-        [...document.querySelectorAll<HTMLStyleElement>('style[data-emotion]')].flatMap(element =>
-          [...(element.sheet?.cssRules ?? [])].map(rule => rule.cssText),
-        ),
-      ),
-    ]
+    // A rule written again counts again: the later copy is the one a tie goes to.
+    /** The rules of the page's style elements, in document order. */
+    const rules = () =>
+      [...document.querySelectorAll<HTMLStyleElement>('style[data-emotion]')].flatMap(element => [...(element.sheet?.cssRules ?? [])].map(rule => rule.cssText))
     const element = client.page(tree, compiled, provider)
     // What the browser paints before any script runs: Emotion's cache has
     // moved the server's styles into the head by now, as it does on load.

@@ -2,6 +2,7 @@ import type { EmotionCache } from '@emotion/cache'
 import { serializeStyles, type SerializedStyles } from '@emotion/serialize'
 import { getRegisteredStyles, insertStyles, registerStyles } from '@emotion/utils'
 import { createElement, type ReactElement } from 'react'
+import { createServerCssCache } from '@src/util/server-css-cache.util.js'
 import { nameStyles } from '@src/util/style-name.util.js'
 
 /**
@@ -47,6 +48,25 @@ export function namedClass(
 }
 
 /**
+ * The caches a server render stands in with where no provider gives one. Emotion
+ * renders each element there under a cache of its own, so every rule goes out
+ * where the element is, again when another element wrote it already; these
+ * caches are shared by a run of styles, so they write each again instead.
+ */
+const standIns = new WeakSet<EmotionCache>()
+
+/**
+ * A cache for a server render that has no provider, which writes every style it
+ * is handed, as Emotion's cache of one element would.
+ * @returns The cache.
+ */
+export function standInServerCache(): EmotionCache {
+  const cache = createServerCssCache()
+  standIns.add(cache)
+  return cache
+}
+
+/**
  * Inserts styles into a server render's cache, and renders what Emotion's own
  * `Insertion` renders for them there: one `<style data-emotion>` in place, with
  * the rules of those the cache did not hold yet, which Emotion's cache in the
@@ -61,7 +81,9 @@ export function namedClass(
 export function serverStyleElement(cache: EmotionCache, styles: readonly NamedStyle[], key?: string): ReactElement | null {
   let names = ''
   let rules = ''
+  const repeats = standIns.has(cache)
   for (const { serialized, isStringTag } of styles) {
+    if (repeats) for (let current: SerializedStyles | undefined = serialized; current !== undefined; current = current.next) delete cache.inserted[current.name]
     const inserted = insertStyles(cache, serialized, isStringTag)
     if (inserted === undefined) continue
     rules += inserted

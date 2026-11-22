@@ -14,7 +14,7 @@ import { isValidElementType } from '@src/helper/react-is.helper.js'
 import { createServerCssCache } from '@src/util/server-css-cache.util.js'
 import { replaceThemeTokensWithCssVars } from '@src/util/server-theme.util.js'
 import { nameStyles } from '@src/util/style-name.util.js'
-import { type NamedStyle, serverStyleElement } from '@src/util/named-style.util.js'
+import { type NamedStyle, serverStyleElement, standInServerCache } from '@src/util/named-style.util.js'
 
 export interface StyledRendererProps<E extends NodeElement> {
   element: E
@@ -52,7 +52,7 @@ export default function StyledRenderer<E extends NodeElement, TProps extends Rec
   // browser does, beside MeoNode's own leaf, which renders them with its rule.
   const run = (props as Record<string, unknown>)[STATIC_RUN_PROP] as readonly NamedStyle[] | undefined
   if (NodeUtil.isServer || emotionCache === null) {
-    if (run) return renderOwnClass(props as Record<string, any>, theme, emotionCache ?? createServerCssCache(), emotionTheme, context, run)
+    if (run) return renderOwnClass(props as Record<string, any>, theme, emotionCache ?? standInServerCache(), emotionTheme, context, run)
     const { element, children, ...rest } = props
     return renderStyled(element, children, rest, theme, emotionCache, emotionTheme, context)
   }
