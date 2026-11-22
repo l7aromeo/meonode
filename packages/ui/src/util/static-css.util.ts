@@ -99,7 +99,7 @@ interface StaticCssState {
   lists: Map<string, readonly string[]>
   /** The browser's static sheets, per container. */
   targets: Map<Node, StaticTarget>
-  /** Classes the server already sent with this page, read once in the browser. */
+  /** Classes the server already sent with this page, read at the first insertion in the browser and as streamed boundaries bring more. */
   adopted: Set<string> | undefined
   /** The `insertionPoint` set on each cache sheet here, to tell it from one the app set. */
   ownInsertionPoints: WeakMap<object, Element>
@@ -183,8 +183,9 @@ export function registeredClassesOf(classes: string): readonly string[] {
 
 /**
  * The classes the server sent with this page, from the `data-href` of the styles
- * React hoisted. Read once, at the first insertion in the browser, during the
- * page's first commit.
+ * React hoisted. Read at the first insertion in the browser, during the page's
+ * first commit; a boundary streamed later brings its own, which
+ * {@link sentLater} finds.
  */
 function adoptedClasses(): Set<string> {
   if (state.adopted) return state.adopted
@@ -198,6 +199,23 @@ function adoptedClasses(): Set<string> {
   }
   state.adopted = adopted
   return adopted
+}
+
+/**
+ * Whether the server sent `className` in a style that arrived after the first
+ * read: a Suspense boundary streamed later carries its hoistables in its own
+ * chunk, which React's streaming runtime puts beside the styles of the same
+ * precedence, in the head once the first insertion moved those there, or at its
+ * start with none. The boundary hydrates after that, so its classes are found
+ * there by the time its nodes insert them.
+ * @param head The document head.
+ * @param className A class not inserted in the head's sheets yet.
+ * @returns Whether it is on the page, now among the adopted classes if so.
+ */
+function sentLater(head: HTMLHeadElement, className: string): boolean {
+  if (head.querySelector(`style[data-precedence^="${STATIC_CSS_PREFIX}"][data-href~="${staticHref(className)}"]`) === null) return false
+  state.adopted!.add(className)
+  return true
 }
 
 /**
@@ -330,8 +348,13 @@ export function insertStaticClasses(sheet: EmotionSheetPlacement | undefined, cl
   if (classNames.length === 0) return
   const target = targetFor(sheet)
   const container = sheet?.container ?? document.head
-  const adopted = container === document.head ? adoptedClasses() : undefined
-  insertInto(target, adopted ? classNames.filter(className => !adopted.has(className)) : classNames)
+  if (container !== document.head) return insertInto(target, classNames)
+  const adopted = adoptedClasses()
+  const head = document.head
+  insertInto(
+    target,
+    classNames.filter(className => !adopted.has(className) && (target.inserted.has(className) || !sentLater(head, className))),
+  )
 }
 
 function insertInto(target: StaticTarget, classNames: readonly string[]): void {
