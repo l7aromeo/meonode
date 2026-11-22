@@ -1,6 +1,6 @@
 import { registerStaticCss as __meoCss } from "@meonode/ui";
 import { Div } from "@meonode/ui";
-__meoCss("3l5vfo61dfx4a", [
+__meoCss("2vd09g34hxlnz", [
     [
         0,
         "mn-0qaad860omepl",
@@ -35,6 +35,21 @@ __meoCss("3l5vfo61dfx4a", [
         4,
         "mn-3pirq8qyw1bak",
         ".dark .mn-3pirq8qyw1bak{color:red;}"
+    ],
+    [
+        2,
+        "mn-31m795q72to1h",
+        ".mn-31m795q72to1h:hover{color:red;}"
+    ],
+    [
+        0,
+        "mn-1bin3pxff4i2d",
+        ".mn-1bin3pxff4i2d:hover .x{color:green;}"
+    ],
+    [
+        1,
+        "mn-38omq5rsyxko1",
+        ".mn-38omq5rsyxko1{color:red;}"
     ]
 ]);
 // Later elements only: one rule in the reaching bucket.
@@ -78,6 +93,44 @@ Div({
     css: {
         ".x:has(&) p": {
             color: "red"
+        }
+    }
+});
+// A rule reaching other elements never competes with the node's own rules.
+Div({
+    __meo$: 2,
+    __meo$s: "mn-31m795q72to1h mn-1bin3pxff4i2d mn-0e47bwo0vm4o6 mn-35l163g1tjy26 mn-0zzfi4vug0nqv",
+    __meo$k: "m6z9oddacr7p1"
+});
+Div({
+    __meo$: 2,
+    __meo$s: "mn-38omq5rsyxko1",
+    __meo$k: "mpjkmk5mkk17b",
+    __meo$dyn: [
+        "css"
+    ],
+    css: {
+        "& p": {
+            color: "var(--meonode-theme-primary)",
+            "@layer x": {
+                color: "blue"
+            }
+        }
+    }
+});
+// One that may style the node itself still does.
+Div({
+    __meo$: 2,
+    __meo$c: {
+        color: "red"
+    },
+    __meo$k: "mplrf210l2sfj",
+    __meo$dyn: [
+        "css"
+    ],
+    css: {
+        ".x:has(+ &) + *": {
+            color: "blue"
         }
     }
 });

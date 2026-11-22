@@ -9,3 +9,8 @@ Div({ css: { ".dark &": { color: "red", "& .x": { color: "green" } }, "& + .y": 
 Div({ css: { "&, & p": { color: "red" } } });
 // An element that may render on either side stays on the runtime path.
 Div({ css: { ".x:has(&) p": { color: "red" } } });
+// A rule reaching other elements never competes with the node's own rules.
+Div({ css: { "&:hover": { color: "red", "& .x": { color: "green" } } } });
+Div({ color: "red", css: { "& p": { color: "theme.primary", "@layer x": { color: "blue" } } } });
+// One that may style the node itself still does.
+Div({ color: "red", css: { ".x:has(+ &) + *": { color: "blue" } } });

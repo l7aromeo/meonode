@@ -1428,7 +1428,6 @@ fn is_keyframes(key: &str) -> bool {
 }
 
 impl Block {
-    /// Every property set inside, for overlap with the element's own rules.
     /// Records each rule of this block whose selectors don't style the node
     /// itself, for the accounting run: `reach=<selectors>;props=<own
     /// properties>;extracted=<bool>`.
@@ -1458,12 +1457,22 @@ impl Block {
         }
     }
 
-    fn properties(&self, out: &mut Vec<String>) {
-        for (key, _) in &self.declarations {
-            out.push(property_name(key));
+    /// Every property set inside by a rule that may style the node, for
+    /// overlap with the node's own rules. A rule styling only other elements
+    /// never competes with them.
+    fn node_properties(&self, out: &mut Vec<String>) {
+        if self
+            .scope
+            .props
+            .iter()
+            .any(|item| matches!(reach(item), Reach::Node | Reach::Unknown))
+        {
+            for (key, _) in &self.declarations {
+                out.push(property_name(key));
+            }
         }
         for child in &self.children {
-            child.properties(out);
+            child.node_properties(out);
         }
     }
 
@@ -1597,7 +1606,7 @@ fn settle(model: &mut Model) -> bool {
         // split from it, a static rule would lose its order against the block.
         let mut runtime_block_properties = Vec::new();
         for block in model.blocks.iter().filter(|b| !b.extractable) {
-            block.properties(&mut runtime_block_properties);
+            block.node_properties(&mut runtime_block_properties);
         }
         for (i, d) in decls.iter().enumerate() {
             if d.route.is_static_path()
@@ -1623,7 +1632,7 @@ fn settle(model: &mut Model) -> bool {
                 continue;
             }
             let mut properties = Vec::new();
-            block.properties(&mut properties);
+            block.node_properties(&mut properties);
             let clashes = properties
                 .iter()
                 .any(|p| pseudo_properties.iter().any(|q| overlaps(p, q)))
