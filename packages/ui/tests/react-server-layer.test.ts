@@ -373,6 +373,27 @@ describe('named static styles in the React Server Components layer', () => {
     }
   })
 
+  // With no theme in scope here, the theme variables go to a check where the
+  // providers are, as a server rule's do; diagnostics are on in a test run.
+  it('hands the theme variables of a named node to a check, as its css’s', async () => {
+    const { registry, runtime, compiled } = await styles()
+    const { replaceThemeTokensWithCssVars } = await import('@src/util/server-theme.util.js')
+    registry.__resetStaticCss()
+    try {
+      const css = { color: 'theme.primary.missing' }
+      const tree = (style: Style) => main.Div({ children: main.Div(style(replaceThemeTokensWithCssVars(css))) })
+      const checks = (value: unknown): unknown[] =>
+        JSON.stringify(shape(value))
+          .match(/"type":"ClientReference","key":"[^"]*:check","props":\{"refs":(\[[^\]]*\])/g)
+          ?.map(found => found.slice(found.indexOf('"refs":') + 7)) ?? []
+      const expected = checks(tree(runtime).render())
+      expect(expected.length).toBe(1)
+      expect(checks(tree(compiled).render())).toEqual(expected)
+    } finally {
+      registry.__resetStaticCss()
+    }
+  })
+
   it.each(Object.entries(CASES))('%s', async (_, tree) => {
     const { registry, runtime, compiled } = await styles()
     registry.__resetStaticCss()

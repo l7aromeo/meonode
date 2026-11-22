@@ -10,10 +10,13 @@ import { serializeStyles } from '@emotion/serialize'
 import { act, createElement, type ReactElement, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { renderToString } from 'react-dom/server'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { STATIC_STYLE_PROP } from '@src/constant/common.const.js'
 import StyledRenderer from '@src/components/styled-renderer.client.js'
+import { ThemeProvider } from '@src/main.js'
 import { NodeUtil } from '@src/util/node.util.js'
+import { replaceThemeTokensWithCssVars } from '@src/util/server-theme.util.js'
+import { __resetThemeDiagnostics } from '@src/util/theme-diagnostics.util.js'
 import { ThemeUtil } from '@src/util/theme.util.js'
 import { nameStyles } from '@src/util/style-name.util.js'
 
@@ -96,5 +99,23 @@ describe('a client reference’s StyledRenderer given a compiled style', () => {
     const expected = render(STYLES.css)
     expect(expected).toContain('class="given css-')
     expect(render(STYLES['the compiled style'])).toEqual(expected)
+  })
+
+  it('warns for a theme token the theme in scope lacks, as its css does', () => {
+    const css = replaceThemeTokensWithCssVars({ color: 'theme.primary.missing' })
+    const warnings = (style: Record<string, unknown>) => {
+      __resetThemeDiagnostics()
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const root = createRoot(document.body.appendChild(document.createElement('div')))
+      const theme = { tokens: { primary: { default: 'rgb(0, 0, 255)' } }, modes: ['light'], defaultMode: 'light' }
+      act(() => root.render(ThemeProvider({ ...theme, children: page(style, false) } as never).render() as ReactElement))
+      act(() => root.unmount())
+      const found = warn.mock.calls.map(call => String(call[0])).filter(text => text.includes('--meonode-theme-'))
+      warn.mockRestore()
+      return found
+    }
+    const expected = warnings({ css })
+    expect(expected.length).toBeGreaterThan(0)
+    expect(warnings({ [STATIC_STYLE_PROP]: compile(css) })).toEqual(expected)
   })
 })

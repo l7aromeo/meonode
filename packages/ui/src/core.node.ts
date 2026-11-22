@@ -59,6 +59,7 @@ import { StaticStyles, type StaticThemeCandidate, type StaticThemeCheck } from '
 import { replaceThemeTokensWithCssVars } from '@src/util/server-theme.util.js'
 import {
   addThemeVarRef,
+  collectNamedThemeVarRefs,
   collectStaticThemeVarRefs,
   collectThemeVarRefs,
   diagnosticsEnabled,
@@ -680,7 +681,7 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
     const finishStaticSlot = (rules: Map<string, ReactElement>): void => {
       const lists = staticModules?.get(rules)
       const named = namedTail?.get(rules)
-      if (!lists && !named) return
+      if (!lists && !named && !staticChecks?.has(rules) && !staticCandidates?.has(rules)) return
       // Gathered as the nodes completed, deepest first, and put in the order they
       // began, parents first: Emotion's order on both sides, since it inserts each
       // element's rule from a leaf rendered before the element, ahead of its subtree.
@@ -749,7 +750,8 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
     // In development, the theme tokens of extracted styles are checked where the
     // providers are, as `StyledRenderer` checks a styled element's, by the
     // `StaticStyles` of each rules map; see there. Production builds none of this.
-    const staticChecks = staticModules !== undefined && diagnosticsEnabled() ? new Map<Map<string, ReactElement>, StaticThemeCheck[]>() : undefined
+    const staticChecks =
+      (staticModules !== undefined || namedEnabled) && diagnosticsEnabled() ? new Map<Map<string, ReactElement>, StaticThemeCheck[]>() : undefined
     // Checked after commit, which only a development build's `StaticStyles` does, and only in the browser.
     const staticCandidates =
       staticChecks !== undefined && isDevMode() && !NodeUtil.isServer && !IS_REACT_SERVER_LAYER
@@ -1242,6 +1244,29 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
             }
           }
 
+          // A named node's theme variables, checked as a static class's are: where
+          // its carrier's `StaticStyles` renders when they share a theme scope, and
+          // otherwise on the element once it is committed.
+          if (ownNamedClass !== undefined && staticChecks !== undefined) {
+            const refs = collectNamedThemeVarRefs(staticStylesOf(staticName as string) ?? '')
+            if (refs.length > 0) {
+              const carrier = anchor ?? (canAnchorRules(renderTarget, elementProps as Record<string, unknown>, inForeignNamespace) ? node : null)
+              const rules = rulesOfCarrier(carrier)
+              if (carrier !== null ? !opaqueBelowAnchor : !opaqueAbove) {
+                const checks = staticChecks.get(rules) ?? []
+                staticChecks.set(rules, checks)
+                checks.push(themeOwn ? { refs, own: themeOwn } : { refs })
+              } else if (staticCandidates !== undefined) {
+                const candidates = staticCandidates.get(rules) ?? []
+                staticCandidates.set(rules, candidates)
+                candidates.push({ classes: ownNamedClass, refs, valueRefs: [] })
+              }
+              // Holds the map position for its `StaticStyles` until the carrier completes.
+              if ((staticChecks.has(rules) || staticCandidates?.has(rules)) && !rules.has(STATIC_STYLES_KEY))
+                rules.set(STATIC_STYLES_KEY, null as unknown as ReactElement)
+            }
+          }
+
           let element: ReactElement<FinalNodeProps>
 
           // Handle fragments specially: create fragment element with key and children.
@@ -1308,6 +1333,8 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
               let themed: CssProp | undefined
               if (serverNamedStyles !== undefined) {
                 rule = compileServerNamedRule(staticName as string, serverNamedStyles, elementProps.className, { share: typeof renderTarget !== 'string' })
+                // With a theme in scope, checked here, as css is above; with none, where the providers are, below.
+                if (activeTheme) reportThemeVarRefs(collectNamedThemeVarRefs(serverNamedStyles), getThemeVarIndex(activeTheme))
               } else {
                 // Emit `var(--meonode-theme-*)` on the server so the generated Emotion class
                 // matches the client runtime output — unifies the class hash across SSR/CSR.
@@ -1382,8 +1409,8 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
                 // The tokens compiled here are checked where the providers are.
                 // `ThemedRule` checks its own part. Only while diagnostics are on,
                 // so production output carries nothing for it.
-                if (!activeTheme && plain !== undefined && diagnosticsEnabled()) {
-                  const refs = collectThemeVarRefs(plain)
+                if (!activeTheme && diagnosticsEnabled()) {
+                  const refs = plain !== undefined ? collectThemeVarRefs(plain) : collectNamedThemeVarRefs(serverNamedStyles ?? '')
                   if (refs.length > 0) {
                     const ruleKey = `${rule.id}:check`
                     carryWithTheme(ruleKey, createElement(ThemeTokenCheck, { key: ruleKey, refs }))

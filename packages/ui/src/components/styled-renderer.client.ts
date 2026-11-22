@@ -9,7 +9,14 @@ import { NodeUtil } from '@src/util/node.util.js'
 import type { CssProp, NodeElement, Theme } from '@src/types/node.type.js'
 import { ThemeContext, type ThemeContextState, type ThemeSnapshot, useThemeSnapshot } from '@src/components/theme-provider.client.js'
 import { ThemeUtil } from '@src/util/theme.util.js'
-import { diagnosticsEnabled, reportThemeIssues, reportThemeVarRefs, reportUnresolvedThemeKey, type ThemeVarRef } from '@src/util/theme-diagnostics.util.js'
+import {
+  collectNamedThemeVarRefs,
+  diagnosticsEnabled,
+  reportThemeIssues,
+  reportThemeVarRefs,
+  reportUnresolvedThemeKey,
+  type ThemeVarRef,
+} from '@src/util/theme-diagnostics.util.js'
 import { isValidElementType } from '@src/helper/react-is.helper.js'
 import { createServerCssCache } from '@src/util/server-css-cache.util.js'
 import { replaceThemeTokensWithCssVars } from '@src/util/server-theme.util.js'
@@ -117,6 +124,18 @@ function cssOf(css: unknown, theme: Theme | undefined, context: ThemeContextStat
 }
 
 /**
+ * A compiled style's text as it goes to Emotion, its theme variables reported
+ * against the theme in scope in development, as {@link cssOf} reports css's.
+ * @param compiled The compiled style.
+ * @param context The theme context.
+ * @returns The text.
+ */
+function textOf(compiled: CompiledStyle, context: ThemeContextState | null): string {
+  if (diagnosticsEnabled()) reportThemeVarRefs(collectNamedThemeVarRefs(compiled.styles), context ? context.definedVars() : null)
+  return compiled.styles
+}
+
+/**
  * The serialized styles for an element's css and the registered styles folded
  * into it. A compiled style with nothing folded in keeps the compiler's name.
  * @param registered The element's css, then the styles folded in.
@@ -150,7 +169,7 @@ function renderOwnClass(
   const givenClass = props.className
   let className = ''
   const compiled = props[STATIC_STYLE_PROP] as CompiledStyle | undefined
-  const registered: unknown[] = [compiled ? compiled.styles : cssOf(props.css, theme, context)]
+  const registered: unknown[] = [compiled ? textOf(compiled, context) : cssOf(props.css, theme, context)]
   if (typeof givenClass === 'string') className = getRegisteredStyles(cache.registered, registered as string[], givenClass)
   else if (givenClass != null) className = `${givenClass as string} `
   const serialized = serializedOf(registered, compiled, emotionTheme)
@@ -217,7 +236,7 @@ function renderStyled(
   // to execute any callable theme refs and to expand string tokens that
   // may have been provided directly via `css` rather than via `elementProps`.
   // A compiled style comes serialized already.
-  const cssForEmotion = compiled ? compiled.styles : cssOf(css, theme, context)
+  const cssForEmotion = compiled ? textOf(compiled, context) : cssOf(css, theme, context)
 
   // With no cache above it — only on the server, since the browser always has
   // Emotion's default one — Emotion would create a `css` cache here itself, whose

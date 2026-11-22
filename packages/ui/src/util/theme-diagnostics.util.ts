@@ -457,6 +457,44 @@ const varsOfStaticRule = (ruleText: string): StaticRuleVars => {
   return parsed
 }
 
+/** References of named styles, by their text: bounded by the styles the build registered. */
+const namedStyleRefs = new Map<string, ThemeVarRef[]>()
+
+/**
+ * Every theme variable a compiled node's whole style references, as
+ * `collectThemeVarRefs` gives them for the css it was written from: each under
+ * the property it is the value of, as the css spells it. The text is Emotion's
+ * serialized styles, before any prefixing, so each declaration is one the call
+ * site wrote, at the top level or inside a nested selector or at-rule.
+ * @param styles The style's serialized text, as registered.
+ * @returns Its references.
+ */
+export const collectNamedThemeVarRefs = (styles: string): ThemeVarRef[] => {
+  const known = namedStyleRefs.get(styles)
+  if (known !== undefined) return known
+  const refs: ThemeVarRef[] = []
+  const declare = (text: string) => {
+    const colon = text.indexOf(':')
+    if (colon <= 0) return
+    const key = toStyleKey(text.slice(0, colon).trim())
+    forEachVarRef(text.slice(colon + 1), varName => addThemeVarRef(refs, [varName, key]))
+  }
+  // What comes before a `{` is a selector or an at-rule's prelude; what a `;`
+  // or a `}` ends is a declaration.
+  let start = 0
+  for (let i = 0; i < styles.length; i++) {
+    const char = styles[i]
+    if (char === '{') start = i + 1
+    else if (char === ';' || char === '}') {
+      declare(styles.slice(start, i))
+      start = i + 1
+    }
+  }
+  declare(styles.slice(start))
+  namedStyleRefs.set(styles, refs)
+  return refs
+}
+
 /** The theme variables a node's extracted styles reference, split by where they come from. */
 export interface StaticThemeVarRefs {
   /** Those its static rules read: the same for every element with its classes. */
