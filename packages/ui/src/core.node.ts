@@ -292,9 +292,23 @@ const renderTargetOf = (node: BaseNode): unknown => {
 function mayRenderComponent(value: unknown): boolean {
   if (Array.isArray(value)) return value.some(mayRenderComponent)
   if (NodeUtil.isNodeInstance(value)) return cutsRuleOrder(renderTargetOf(value)) || mayRenderComponent(value.props.children)
-  if (isValidElement(value)) return cutsRuleOrder(value.type) || mayRenderComponent((value.props as { children?: unknown }).children)
+  if (isValidElement(value)) {
+    let holds = elementRendersComponent.get(value)
+    if (holds === undefined) {
+      holds = cutsRuleOrder(value.type) || mayRenderComponent((value.props as { children?: unknown }).children)
+      elementRendersComponent.set(value, holds)
+    }
+    return holds
+  }
   return typeof value === 'object' && value !== null && (value as { $$typeof?: unknown }).$$typeof === REACT_LAZY_TYPE
 }
+
+/**
+ * Whether each element seen may render a component, so an element given again,
+ * such as one built once and passed on every render, is not walked again. An
+ * element never changes once created, so the answer holds for its lifetime.
+ */
+const elementRendersComponent = new WeakMap<object, boolean>()
 
 /** Whether a host's child is where a run must stop: one rendering a component, entered by the walk or not. */
 const cutsAt = (child: unknown): boolean =>
