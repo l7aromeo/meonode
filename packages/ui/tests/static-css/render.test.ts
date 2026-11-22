@@ -95,13 +95,15 @@ describe('a node whose styles were all extracted', () => {
     expect(el.style.getPropertyValue('--mv-000000000000w')).toBe('')
   })
 
-  it('carries the server’s static styles as one slot after its own children, which renders nothing here', () => {
+  // As a child of its own, not a nested list, which would cost one more fiber.
+  it('carries the server’s static styles as one keyed child after its own children, which renders nothing here', () => {
     const element = Div({ children: [compiled({ key: 'a' }), Span('y')] }).render() as ReactElement<{ children: unknown[] }>
     const children = element.props.children
-    const slot = children[children.length - 1] as ReactElement[]
+    const slot = children[children.length - 1] as ReactElement
 
-    expect(Array.isArray(slot)).toBe(true)
-    expect(slot.map(child => child.type)).toEqual([StaticStyles])
+    expect(children).toHaveLength(3)
+    expect(slot.type).toBe(StaticStyles)
+    expect(slot.key).toBe('mn-static')
     expect(mount(element).innerHTML).toBe(`<div><div class="${RED} ${WIDE} ${HOVER}" style="--mv-000000000000w: 8px;"></div><span>y</span></div>`)
     // The browser's rules are the registry's own sheets; React is handed none.
     expect(document.head.querySelectorAll('style[data-precedence]')).toHaveLength(0)

@@ -1,8 +1,5 @@
-import path from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vitest/config'
-
-const rootDir = path.dirname(fileURLToPath(import.meta.url))
+import { sourceAliases } from './vitest.aliases'
 
 /**
  * Editing a client component in `next dev` makes Next refresh every page connected
@@ -19,10 +16,7 @@ export default defineConfig({
     globalSetup: ['./tests/globalSetup.rsc.ts'],
     teardownTimeout: 120_000,
     testTimeout: 120_000,
-    alias: {
-      '@src': path.resolve(rootDir, 'src'),
-      '@tests': path.resolve(rootDir, 'tests'),
-    },
+    alias: sourceAliases,
     projects: [
       {
         extends: true,

@@ -51,6 +51,8 @@ beforeAll(async () => {
   for (const [specifier, names] of exportsOf) {
     vi.doMock(specifier, () => Object.fromEntries(names.map(name => [name, clientReference(`${specifier}#${name}`)])))
   }
+  // The server build's own variant, which the unit suites' aliases swap for the default build's.
+  vi.doMock('@src/components/static-styles.js', () => import(path.join(SRC, 'components/static-styles.ts')))
   main = await import('@src/main.js')
   nodeUtil = (await import('@src/util/node.util.js')).NodeUtil
   diagnostics = await import('@src/util/theme-diagnostics.util.js')
@@ -174,17 +176,15 @@ describe('static css in the React Server Components layer', () => {
           ],
         })
         .render() as ReactElement<{ children: unknown[] }>
+      // With static css among them, the host's rules follow its three children as children of their own.
       const children = root.props.children
-      const slot = children[children.length - 1] as ReactElement<{ precedence?: string; classes?: string[] }>[]
+      const slot = children.slice(3) as ReactElement<{ precedence?: string; classes?: string[] }>[]
 
       expect(slot.map(element => (element.type === StaticStyles ? 'static' : element.props.precedence))).toEqual(['static', 'meonode', 'meonode'])
       expect(slot[0].props.classes).toEqual([RED, MEDIA])
 
-      // No `StaticInsertion` in this layer: its output is only ever hoisted.
-      const [insertion, hoisted] = (
-        StaticStyles(slot[0].props as never) as ReactElement<{ children: [unknown, ReactElement<{ href: string; precedence: string }>[]] }>
-      ).props.children
-      expect(insertion).toBeNull()
+      // Nothing to insert in this layer: its output is only ever hoisted.
+      const hoisted = StaticStyles(slot[0].props as never) as ReactElement<{ href: string; precedence: string }>[]
       expect(hoisted.map(element => [element.props.href, element.props.precedence])).toEqual([
         ['mn-static-0', 'mn-static-0'],
         ['mn-static-1', 'mn-static-1'],
@@ -215,7 +215,8 @@ describe('static css in the React Server Components layer', () => {
     registry.registerStaticCss('rsc-tokens', [[1, MISSING, `.${MISSING}{color:var(--meonode-theme-primary-missing);}`]])
     try {
       const root = main.Div({ children: [main.Div({ __meo$: 2, __meo$s: MISSING, key: 'static' } as never)] }).render() as ReactElement<{ children: unknown[] }>
-      const slot = root.props.children[root.props.children.length - 1] as ReactElement<{ refs?: unknown }>[]
+      // The host's rules, among its children, as static css puts them.
+      const slot = [root.props.children].flat(Infinity) as ReactElement<{ refs?: unknown }>[]
       const checks = slot.filter(element => element.type === ThemeTokenCheck)
 
       expect(checks.map(element => element.props.refs)).toEqual([[['--meonode-theme-primary-missing', 'color']]])
@@ -240,7 +241,9 @@ describe('static css in the React Server Components layer', () => {
           children: [main.Div({ __meo$: 2, __meo$s: MISSING, key: 'static' } as never)],
         } as never)
         .render() as ReactElement<{ children: unknown[] }>
-      const slot = root.props.children[root.props.children.length - 1] as ReactElement[]
+      // The host's rules, among its children, as static css puts them.
+
+      const slot = [root.props.children].flat(Infinity) as ReactElement[]
 
       expect(slot.filter(element => element.type === ThemeTokenCheck)).toEqual([])
       expect(warn.mock.calls.map(([text]) => String(text)).filter(text => text.includes('--meonode-theme-primary-missing'))).toHaveLength(1)
@@ -262,7 +265,8 @@ describe('static css in the React Server Components layer', () => {
     registry.registerStaticCss('rsc-debug', [[1, MISSING, `.${MISSING}{color:var(--meonode-theme-primary-missing);}`]])
     try {
       const root = main.Div({ children: [main.Div({ __meo$: 2, __meo$s: MISSING, key: 'static' } as never)] }).render() as ReactElement<{ children: unknown[] }>
-      const slot = root.props.children[root.props.children.length - 1] as ReactElement<{ refs?: unknown }>[]
+      // The host's rules, among its children, as static css puts them.
+      const slot = [root.props.children].flat(Infinity) as ReactElement<{ refs?: unknown }>[]
       expect(slot.filter(element => element.type === ThemeTokenCheck).map(element => element.props.refs)).toEqual([
         [['--meonode-theme-primary-missing', 'color']],
       ])

@@ -1,10 +1,9 @@
-'use client'
-import { type ReactElement, useEffect, useInsertionEffect } from 'react'
-import { __unsafe_useEmotionCache as useEmotionCache } from '@emotion/react'
-import { isDevMode } from '@src/constant/common.const.js'
 import { ThemeContext, type ThemeContextState } from '@src/components/theme-provider.client.js'
-import { type EmotionSheetPlacement, insertStaticClasses } from '@src/util/static-css.util.js'
 import { mountedThemeVarIndex, reportThemeVarRefs, type ThemeVarIndex, type ThemeVarRef } from '@src/util/theme-diagnostics.util.js'
+
+// The browser half of the development check of extracted styles' theme
+// variables: elements under a component inside the render, which may provide
+// another theme, are checked once they are committed.
 
 /**
  * Theme variables of extracted styles on elements under a component inside the
@@ -95,33 +94,5 @@ function checkElement(element: Element, { refs, valueRefs }: StaticThemeCandidat
 }
 
 /** What makes two renders' candidates the same, so they are checked again only when that changes. */
-const candidatesKey = (candidates: readonly StaticThemeCandidate[] | undefined): string =>
+export const candidatesKey = (candidates: readonly StaticThemeCandidate[] | undefined): string =>
   candidates ? candidates.map(({ classes, refs, valueRefs }) => `${classes}|${refs.join()}|${valueRefs.join()}`).join('\n') : ''
-
-/**
- * The browser side of `StaticStyles`: inserts its render's classes into the
- * static sheets, and in a development build checks its candidates once they are
- * committed. A client module, so the server layer, whose React has neither
- * context nor effects, never loads Emotion or these hooks.
- * @param props.classes The render's classes, in the order its nodes began, parents first.
- * @param props.candidates The theme variables to check after commit.
- */
-export function StaticInsertion({ classes, candidates }: { classes?: readonly string[]; candidates?: readonly StaticThemeCandidate[] }): ReactElement | null {
-  // Where MeoNode's runtime rules go, so the static ones go right before them.
-  const cache = useEmotionCache()
-  // Before layout effects and paint, as Emotion inserts its own, in the order
-  // the render's nodes began.
-  useInsertionEffect(() => {
-    if (classes) insertStaticClasses(cache?.sheet as unknown as EmotionSheetPlacement | undefined, classes)
-  }, [cache, classes])
-  // A development build has the effect on every render and a production build
-  // never does, so the hooks stay the same from one render to the next.
-  if (isDevMode()) {
-    const key = candidatesKey(candidates)
-    useEffect(() => {
-      if (candidates) checkCandidates(candidates)
-      // Keyed by content: an equal list from a later render is not checked again.
-    }, [key])
-  }
-  return null
-}

@@ -1148,13 +1148,17 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
             }
           }
 
-          // A host carrying rules gets them as one trailing keyed slot, after its
-          // own children, so none of those shift and the element stays the one
-          // element it would be without them.
+          // A host carrying rules gets them after its own children, every one
+          // keyed, so none of those shift and the element stays the one element
+          // it would be without them. With static css among them they go in as
+          // children of their own, which a nested list would wrap in one more
+          // fiber; without, they stay the one trailing list they have always been.
           const carriedRules = anchoredRules.get(node)
           if (carriedRules) {
             finishStaticSlot(carriedRules)
-            element = cloneElement(element, undefined, ...elementChildren, [...carriedRules.values()])
+            element = staticModules?.has(carriedRules)
+              ? cloneElement(element, undefined, ...elementChildren, ...carriedRules.values())
+              : cloneElement(element, undefined, ...elementChildren, [...carriedRules.values()])
           }
           const rulesBeside = besideRules.get(node)
           if (rulesBeside) element = createElement(Fragment, { key: element.key }, element, [...rulesBeside.values()])

@@ -28,8 +28,9 @@ const input = {
  *
  * - the default build, `dist/{esm,cjs}`, which the server-rendering pass and the
  *   browser load. It swaps in the `.default` variants of the modules below, so the
- *   code only the React Server Components layer runs folds out of it, and its
- *   entries refuse to load in that layer.
+ *   code only the React Server Components layer runs folds out of it, the code
+ *   only the other layers run stays out of the server build, and its entries
+ *   refuse to load in that layer.
  * - the server build, `dist/rsc/{esm,cjs}`, which bundlers load in the React Server
  *   Components layer through the `react-server` export condition.
  *
@@ -42,6 +43,7 @@ const input = {
 const DEFAULT_BUILD_MODULES: Alias[] = [
   { find: '@src/util/react-layer.util.js', replacement: path.join(SRC_DIR, 'util/react-layer.default.util.ts') },
   { find: '@src/util/server-layer-guard.js', replacement: path.join(SRC_DIR, 'util/server-layer-guard.default.ts') },
+  { find: '@src/components/static-styles.js', replacement: path.join(SRC_DIR, 'components/static-styles.default.ts') },
 ]
 
 const clientModuleCache = new Map<string, boolean>()
