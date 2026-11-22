@@ -7,6 +7,7 @@ import { createRoot } from 'react-dom/client'
 // entry offers them, and both resolve to the one registry.
 export { registerStaticCss, registerStaticTemplate, type StaticCssRule } from '@src/util/static-css.util.js'
 export { toCssValue } from '@src/util/css-value.util.js'
+export { __meoFactoryCall, type FactoryCallSite } from '@src/core.node.js'
 
 /**
  * Renders a Meonode instance into a DOM container.

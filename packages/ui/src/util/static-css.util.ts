@@ -42,7 +42,11 @@ const state = getGlobalState(Symbol.for('@meonode/ui/staticCss'), (): StaticCssS
   modules: new Set(),
 }))
 
-/** Whether any whole style or template is registered. Until one is, a render looks for none. */
+/**
+ * Whether any whole style or template is registered. Until one is, a render
+ * looks for none. A call through `__meoFactoryCall` registers its style when
+ * its node is built, before any walk that holds the node begins.
+ */
 export const hasNamedStyles = (): boolean => state.named.size > 0 || state.templates.size > 0
 
 /** The serialized text of a registered whole style, by its name, or `undefined` when none is registered. */
@@ -90,6 +94,24 @@ export function registerStaticCss(moduleId: string, rules: readonly StaticCssRul
     }
   }
   state.modules.add(moduleId)
+}
+
+/**
+ * Registers the whole style of a call of an imported factory that
+ * `__meoFactoryCall` joined with the factory's initial props, under its name.
+ * The text is computed at run time, the same for every call of that site, so
+ * it is bounded by the call sites that were built.
+ * @param name The style's name.
+ * @param styles Its serialized text.
+ * @returns Whether the name now holds this text: `false` when another text holds it.
+ */
+export function registerNamedText(name: string, styles: string): boolean {
+  const known = state.named.get(name)
+  if (known === undefined) {
+    state.named.set(name, styles)
+    return true
+  }
+  return known === styles
 }
 
 /**

@@ -60,7 +60,10 @@ import { IS_REACT_SERVER_LAYER } from '@src/util/react-layer.util.js'
 import { passesChildrenThrough, providesTheme } from '@src/util/children-pass-through.util.js'
 import { noteOnce, observeChildren } from '@src/util/generated-list.util.js'
 import { compileServerEmotionRule, compileServerNamedRule } from '@src/util/server-emotion.util.js'
-import { hasNamedStyles, staticStylesOf } from '@src/util/static-css.util.js'
+import { hasNamedStyles, registerNamedText, staticStylesOf } from '@src/util/static-css.util.js'
+import { nameStyles } from '@src/util/style-name.util.js'
+import CSSPropertySet from '@src/constant/css-properties.const.js'
+import { serializeStyles } from '@emotion/serialize'
 import { namedClass, type NamedStyle } from '@src/util/named-style.util.js'
 import type { EmotionCache } from '@emotion/cache'
 import { readEmotionCache } from '@src/util/emotion-cache.util.js'
@@ -1598,19 +1601,25 @@ function stylesSomething(css: unknown): boolean {
  * as a plain object whose `theme.*` tokens may already have been replaced.
  */
 function combineFactoryProps(initialProps: Record<string, unknown> | undefined, props: Record<string, unknown> | undefined): Record<string, unknown> {
+  // Checked before they are combined, so an error names the `css` it was written in.
+  checkFactoryCss(initialProps?.css)
+  checkCss(props?.css)
+  const combined = mergeFactoryProps(initialProps, props)
+  // Made only of what was just checked, so the node does not walk it again.
+  markCombinedCssChecked(combined.css)
+  return combined
+}
+
+/** {@link combineFactoryProps}'s merge, without its development checks. */
+function mergeFactoryProps(initialProps: Record<string, unknown> | undefined, props: Record<string, unknown> | undefined): Record<string, unknown> {
   const combined: Record<string, unknown> = { ...initialProps, ...props }
   const factoryCss = initialProps?.css
   const callSiteCss = props?.css
-  // Checked before they are combined, so an error names the `css` it was written in.
-  checkFactoryCss(factoryCss)
-  checkCss(callSiteCss)
   if (isMergeableCss(factoryCss) && isMergeableCss(callSiteCss)) {
     combined.css = mergeCss(factoryCss, callSiteCss)
   } else if (stylesSomething(factoryCss) && stylesSomething(callSiteCss)) {
     combined.css = [factoryCss, callSiteCss]
   }
-  // Made only of what was just checked, so the node does not walk it again.
-  markCombinedCssChecked(combined.css)
   return combined
 }
 
@@ -1687,6 +1696,163 @@ function factoryProps(initialProps: Record<string, unknown> | undefined, props: 
   return combineFactoryProps(initialProps, props)
 }
 
+/** What `__meoFactoryCall` reads of a factory: its element, its initial props, and which argument holds a call's props. */
+interface FactoryBrand {
+  element: NodeElementType
+  initialProps: Record<string, unknown> | undefined
+  propsAt: 0 | 1
+}
+
+/** Every factory `createNode` and `createChildrenFirstNode` made, by its callable. */
+const factoryBrands = new WeakMap<object, FactoryBrand>()
+
+/**
+ * A call site of an imported factory, as the compiler hoists it to its module's
+ * top level: `at` is the argument it found the call's props in. Only `at` and
+ * the object's identity are read.
+ */
+export interface FactoryCallSite {
+  readonly at: number
+}
+
+/**
+ * A site's style joined with its factory's initial props: the name and text
+ * `StyledRenderer` gives it, and, for the development check, the fingerprint of
+ * the call's own style. `null` when the site keeps the runtime path.
+ */
+type JoinedStyle = { name: string; styles: string; own: string | undefined } | null
+
+/**
+ * Each site's joined style, with the factory it was joined for. A site calls one
+ * binding, so it holds one; a factory module evaluated again (a hot update)
+ * gives the binding a new factory, which replaces it.
+ */
+const joinedStyles = new WeakMap<FactoryCallSite, { factory: object; style: JoinedStyle }>()
+
+/** The sites already reported in development for a call whose own style is not the one its site was joined with. */
+const reportedSites = new WeakSet<FactoryCallSite>()
+
+/** Whether `value` is an object literal's kind of object. */
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (typeof value !== 'object' || value === null) return false
+  const prototype = Object.getPrototypeOf(value)
+  return prototype === Object.prototype || prototype === null
+}
+
+/** The style part of props: `css` and every CSS property key, in their order. */
+function stylePartOf(props: Record<string, unknown>): Record<string, unknown> {
+  const style: Record<string, unknown> = {}
+  for (const key of Object.keys(props)) if (key === 'css' || CSSPropertySet.has(key)) style[key] = props[key]
+  return style
+}
+
+/** Props without their style part. */
+function withoutStylePart(props: Record<string, unknown>): Record<string, unknown> {
+  const rest: Record<string, unknown> = {}
+  for (const key of Object.keys(props)) if (key !== 'css' && !CSSPropertySet.has(key)) rest[key] = props[key]
+  return rest
+}
+
+/** Whether a style value is one `processProps` writes before the others. */
+const isPrimitiveStyle = (value: unknown): boolean => typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
+
+/** Whether a plain-data style holds a `styles` key at any depth, which Emotion reserves. */
+function holdsStylesKey(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null) return false
+  for (const key of Object.keys(value)) if (key === 'styles' || holdsStylesKey((value as Record<string, unknown>)[key])) return true
+  return false
+}
+
+/**
+ * The whole style of merged props as a compiled name: the `css` `processProps`
+ * assembles from them (primitive flat props, then the other flat props, then
+ * `css` over them), through the steps the compiler serializes a named style
+ * with. `null` keeps the site on the runtime path: the style holds a value that
+ * is not plain data (a function, an array, `undefined`, a `css()` result), a
+ * `styles` key, or a key holding a theme token, whose value a theme decides; it
+ * has no key, so the node renders no class, or serializes to nothing; or its
+ * name holds another text.
+ */
+function joinStyle(merged: Record<string, unknown>, own: string | undefined): JoinedStyle {
+  const primitives: Record<string, unknown> = {}
+  const others: Record<string, unknown> = {}
+  for (const key of Object.keys(merged)) {
+    if (key === 'css' || !CSSPropertySet.has(key)) continue
+    if (isPrimitiveStyle(merged[key])) primitives[key] = merged[key]
+    else others[key] = merged[key]
+  }
+  const css = merged.css
+  if (css !== undefined && !isPlainObject(css)) return null
+  const whole = { ...primitives, ...others, ...css }
+  // A node with no style keys renders no class, which a name would give it.
+  if (Object.keys(whole).length === 0 || initialPropsFingerprint(whole) === undefined || holdsStylesKey(whole)) return null
+  const resolved = ThemeUtil.resolveObjWithTheme(whole, undefined, { processFunctions: true, themeStringsMode: 'vars' })
+  let themedKey = false
+  const kept = ThemeUtil.dropThemedKeys(resolved, () => {
+    themedKey = true
+  })
+  if (themedKey) return null
+  const { name, styles } = nameStyles(serializeStyles([ThemeUtil.resolveDefaultStyle(kept)] as never))
+  if (styles === '' || !registerNamedText(name, styles)) return null
+  return { name, styles, own }
+}
+
+/**
+ * Calls an imported factory for a call site the compiler could not merge, since
+ * the factory's initial props are in another module: `__meoFactoryCall(Panel,
+ * site, ...args)` stands for `Panel(...args)`. The call site's style can't vary
+ * between renders, so its first call joins it with the factory's initial
+ * props, and every call renders a named node under that style, its other props
+ * merged as the factory merges them. Anything else is called as written: a
+ * callee no `createNode` made, a site whose `at` is not the argument the
+ * factory reads its props from, props that are not an object literal's, a
+ * `theme` or `disableEmotion` in the call's or the factory's props, and a style
+ * {@link joinStyle} keeps on the runtime path. In development, a call whose own
+ * style is not its site's first call's is reported once and called as written.
+ * @param callee The binding the call site calls.
+ * @param site The call site, hoisted by the compiler.
+ * @param args The call's arguments, as written.
+ * @returns What `callee(...args)` returns, with the style named.
+ */
+export function __meoFactoryCall(callee: unknown, site: FactoryCallSite, ...args: unknown[]): unknown {
+  const brand = typeof callee === 'function' ? factoryBrands.get(callee) : undefined
+  const props = args[site.at]
+  if (
+    brand === undefined ||
+    site.at !== brand.propsAt ||
+    !isPlainObject(props) ||
+    'theme' in props ||
+    'disableEmotion' in props ||
+    (brand.initialProps !== undefined && ('theme' in brand.initialProps || 'disableEmotion' in brand.initialProps))
+  ) {
+    return (callee as (...called: unknown[]) => unknown)(...args)
+  }
+  const factory = callee as (...called: unknown[]) => unknown
+  let joined = joinedStyles.get(site)
+  if (joined === undefined || joined.factory !== factory) {
+    joined = { factory, style: joinStyle(mergeFactoryProps(brand.initialProps, props), initialPropsFingerprint(stylePartOf(props))) }
+    joinedStyles.set(site, joined)
+  }
+  const style = joined.style
+  if (style === null) return factory(...args)
+  if (isDevMode() && initialPropsFingerprint(stylePartOf(props)) !== style.own) {
+    if (!reportedSites.has(site)) {
+      reportedSites.add(site)
+      console.error(
+        `[MeoNode] A call of the '${getElementTypeName(brand.element)}' factory compiled as static has a style other than its first call's, so it renders on the runtime path. The compiler marked a call whose style varies.`,
+      )
+    }
+    return factory(...args)
+  }
+  // Held again if the registry was cleared since the join.
+  if (staticStylesOf(style.name) === undefined) registerNamedText(style.name, style.styles)
+  const built = withoutStylePart(combineFactoryProps(brand.initialProps, props))
+  built[COMPILED_MARKER] = 2
+  built[STATIC_NAME_MARKER] = style.name
+  if (brand.propsAt === 1) built.children = args[0]
+  return buildNode(brand.element, built, args[brand.propsAt + 1] as DependencyList | undefined, factory)
+}
+
 /**
  * Creates a curried node factory for a given React element or component type.
  * This is useful for creating reusable, specialized factory functions (e.g., `const Div = createNode('div')`).
@@ -1721,6 +1887,7 @@ export function createNode<AdditionalInitialProps, E extends NodeElementType, Ex
     return node
   }
   Instance.element = element
+  factoryBrands.set(Instance, { element, initialProps: initialProps as Record<string, unknown> | undefined, propsAt: 0 })
   return Instance as any
 }
 
@@ -1760,5 +1927,6 @@ export function createChildrenFirstNode<AdditionalInitialProps, E extends NodeEl
   }
   Instance.element = element
   childrenFirstFactories.add(Instance)
+  factoryBrands.set(Instance, { element, initialProps: initialProps as Record<string, unknown> | undefined, propsAt: 1 })
   return Instance as any
 }

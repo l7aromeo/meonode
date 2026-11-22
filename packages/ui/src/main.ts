@@ -10,6 +10,7 @@ export { themeScript, THEME_SCRIPT_CSP_HASH, type ThemeScriptConfig } from '@src
 // Compiled output: the rules and values of the styles the compiler extracted
 export { registerStaticCss, registerStaticTemplate, type StaticCssRule } from '@src/util/static-css.util.js'
 export { toCssValue } from '@src/util/css-value.util.js'
+export { __meoFactoryCall, type FactoryCallSite } from '@src/core.node.js'
 
 // Core
 export { Node, createNode, createChildrenFirstNode } from '@src/core.node.js'

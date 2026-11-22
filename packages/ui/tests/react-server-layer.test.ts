@@ -248,6 +248,37 @@ describe('named static styles in the React Server Components layer', () => {
     }
   })
 
+  // A call of an imported factory the compiler joins (`__meoFactoryCall`)
+  // renders a named node, here as a template's or a named node's does.
+  it('renders a joined call of an imported factory as the call uncompiled', async () => {
+    const { registry } = await styles()
+    registry.__resetStaticCss()
+    try {
+      type Make = (props: Record<string, unknown>) => import('@src/main.js').NodeInstance
+      const Panel = main.createNode('section', { padding: 8, css: { color: 'rgb(200, 0, 0)' } } as never) as unknown as Make
+      const site = { at: 0 }
+      const joined: Make = props => main.__meoFactoryCall(Panel, site, props) as ReturnType<Make>
+      expect((joined({ padding: 4 }).props as Record<string, unknown>).__meo$n).toBeDefined()
+      const tree = (make: Make) => main.Div({ children: [make({ key: 'a', padding: 4, children: 'x' }), make({ key: 'b', padding: 4 })] })
+      const expected = shape(tree(Panel).render())
+      expect(JSON.stringify(expected)).toContain('"precedence":"meonode"')
+      expect(shape(tree(joined).render())).toEqual(expected)
+
+      // Over a client reference, the joined style goes with the element.
+      const Link = clientReference('next/link#default')
+      const Linked = main.createNode(Link as never, { padding: 8 } as never) as unknown as Make
+      const element = (main.__meoFactoryCall(Linked, { at: 0 }, { href: '/a', padding: 4 }) as ReturnType<Make>).render() as ReactElement<
+        Record<string, unknown>
+      >
+      const style = element.props.__meonodeStaticStyle as { name: string; styles: string }
+      expect(style.styles).toBe(registry.staticStylesOf(style.name))
+      expect(style.styles).toContain('padding:4px;')
+      expect(element.props.css).toBeUndefined()
+    } finally {
+      registry.__resetStaticCss()
+    }
+  })
+
   // With no theme in scope here, the theme variables go to a check where the
   // providers are, as a server rule's do; diagnostics are on in a test run.
   it('hands the theme variables of a named node to a check, as its css’s', async () => {
