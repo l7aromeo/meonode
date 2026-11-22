@@ -22,7 +22,8 @@ Div({
         Node(Card, {}),
     ],
 });
-// A single child, or a children-first call's first argument, is position 0.
+// A single child, or a children-first call's first argument, is the empty path:
+// a slot before the value as a whole.
 Span(label, { padding: 4 });
 Div({ children: Node(Card, {}) });
 // Literals and host-only built elements take none.

@@ -274,16 +274,20 @@ impl ModuleScope {
 impl ModuleScope {
     /// The `__meo$p` value for a host call site's written-out `children`: every
     /// position not proved to render only hosts the runtime walks, or nothing
-    /// (see [`walked`](Self::walked)). A single child is position 0. In an array
+    /// (see [`walked`](Self::walked)). A single child that is not an array
+    /// literal is the empty path: a slot before the children value as a whole,
+    /// which the runtime renders as it is. In an array
     /// literal, nothing at or after a spread is marked: its positions move at
     /// run time. `None` when no position is marked.
     pub fn slots(&self, children: &Expr) -> Option<Expr> {
         let mut paths: Vec<Vec<usize>> = Vec::new();
         match unwrap_transparent(children) {
             Expr::Array(array) => self.array_slots(array, &mut Vec::new(), &mut paths),
+            // The empty path: a slot before the children value as a whole,
+            // which the runtime leaves as it is.
             child => {
                 if !self.walked(child) {
-                    paths.push(vec![0]);
+                    paths.push(Vec::new());
                 }
             }
         }

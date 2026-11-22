@@ -86,97 +86,98 @@ Div({
         11
     ]
 });
-// A single child, or a children-first call's first argument, is position 0.
+// A single child, or a children-first call's first argument, is the empty path:
+// a slot before the value as a whole.
 Span(label, {
     __meo$: 2,
     __meo$n: "2scoofan7u119",
-    __meo$k: "m2dpilmtni7n8v",
+    __meo$k: "m1i9vrn1065hf3",
     __meo$list: 1,
     __meo$p: [
-        0
+        []
     ]
 });
 Div({
     __meo$: 2,
-    __meo$k: "m6mel3iy10rg3",
+    __meo$k: "m1ifog2zmu0dwt",
     children: Node(Card, {
         __meo$: 2,
-        __meo$k: "m48xlbigs95yv"
+        __meo$k: "mwcsm5o7iasam"
     }),
     __meo$p: [
-        0
+        []
     ]
 });
 // Literals and host-only built elements take none.
 Div({
     __meo$: 2,
-    __meo$k: "m3lsq0wd5yq6ut",
+    __meo$k: "m2bmet5ummxrko",
     children: "text"
 });
 Div({
     __meo$: 2,
-    __meo$k: "m1mvryawj6xmir",
+    __meo$k: "m1wgtiwyp1p1zn",
     __meo$list: 1,
     children: createElement("p", null, "hi")
 });
 Div({
     __meo$: 2,
-    __meo$k: "m2p1yowjta7jg",
+    __meo$k: "m3snerkol2x14l",
     __meo$list: 1,
     children: <p>hi <b>there</b></p>
 });
 // A built element holding anything else is opaque to the walk.
 Div({
     __meo$: 2,
-    __meo$k: "m11xo2945ba9qt",
+    __meo$k: "m1o54uc85xsct6",
     __meo$list: 1,
     children: createElement("p", null, Node(Card, {
         __meo$: 2,
-        __meo$k: "ml30r7pfd2wl6"
+        __meo$k: "muedzbaryv473"
     })),
     __meo$p: [
-        0
+        []
     ]
 });
 Div({
     __meo$: 2,
-    __meo$k: "m155pa6waqlncd",
+    __meo$k: "m18yz8rg1hah65",
     __meo$list: 1,
     children: <p>{label}</p>,
     __meo$p: [
-        0
+        []
     ]
 });
 Div({
     __meo$: 2,
-    __meo$k: "m21psw38xk9a2g",
+    __meo$k: "m78lugxl44m2c",
     __meo$list: 1,
     children: <Card/>,
     __meo$p: [
-        0
+        []
     ]
 });
 Div({
     __meo$: 2,
-    __meo$k: "m3omhg5j103rpo",
+    __meo$k: "m1g0xdn8y1dg8n",
     __meo$list: 1,
     children: createElement(Card, null, "hi"),
     __meo$p: [
-        0
+        []
     ]
 });
 // A generated list is one position; its items take the runtime's keyed-item rule.
 Div({
     __meo$: 2,
-    __meo$k: "m3jrkqghavha82",
+    __meo$k: "m32vg7ym5orjpp",
     __meo$list: 1,
     children: rows.map((row)=>Div({
             __meo$: 2,
-            __meo$k: "mex0wt7r5g9lp",
+            __meo$k: "minmk0uel7sc1",
             key: row
         })),
     __meo$p: [
-        0
+        []
     ]
 });
 // A layout factory is a host.
@@ -184,11 +185,11 @@ Row({
     __meo$: 2,
     __meo$n: "2clwfawpu9xmz",
     __meo$i: "display:flex;flexDirection:row;",
-    __meo$k: "m2e8ao907553ch",
+    __meo$k: "m14wsbo5ei4ta0",
     children: [
         Node(Card, {
             __meo$: 2,
-            __meo$k: "m2i7ymtf4rgzcz"
+            __meo$k: "m1at7spirp09eg"
         })
     ],
     __meo$p: [
@@ -198,11 +199,11 @@ Row({
 // A component target would receive changed children: no marker.
 Node(Card, {
     __meo$: 2,
-    __meo$k: "m19fo8v9bax1u3",
+    __meo$k: "m295xw2r2s5o3a",
     children: [
         Node(Card, {
             __meo$: 2,
-            __meo$k: "mis4jxcw2sbnt"
+            __meo$k: "m19xg9mqey2jgc"
         })
     ]
 });
