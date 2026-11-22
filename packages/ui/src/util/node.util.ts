@@ -282,10 +282,12 @@ export class NodeUtil {
     const passthroughDomProps = passthrough === undefined ? undefined : getDOMProps(passthrough)
 
     // Precedence mirrors legacy's "call props override initial props" merge: top-level
-    // passthrough < compiler-classified `c`/`d` < explicit `css` prop. Always a fresh
-    // object, never an alias of the compiler's bucket, so downstream consumers keep
-    // the same ownership guarantees the legacy path gave them. A `css` that is not a
-    // map is composed after the flat props instead; see `isSpreadableCss`.
+    // passthrough < compiler-classified `c`/`d` < explicit `css` prop. The flat props
+    // are then written in legacy's order, primitive values first (see
+    // `primitivesFirst`), so a compiled node serializes to the same text and class.
+    // Always a fresh object, never an alias of the compiler's bucket, so downstream
+    // consumers keep the same ownership guarantees the legacy path gave them. A `css`
+    // that is not a map is composed after the flat props instead; see `isSpreadableCss`.
     // A call site with one spread keeps its static entries' source either side of
     // it. When the spread brings a CSS key, `css`, `as` or `theme`, a static class
     // could be overridden by it, override it, or land on another element, so the
@@ -298,10 +300,13 @@ export class NodeUtil {
     const spreadOverrides =
       (staticBefore !== undefined || staticAfter !== undefined) &&
       ((passthroughCssProps !== undefined && Object.keys(passthroughCssProps).length > 0) || css !== undefined || 'as' in source || 'theme' in source)
-    const flatCssProps = spreadOverrides
+    const merged = spreadOverrides
       ? { ...staticBefore, ...passthroughCssProps, ...markerCssProps, ...staticAfter }
-      : { ...passthroughCssProps, ...markerCssProps }
-    const finalCssProps = NodeUtil.isSpreadableCss(css) ? { ...flatCssProps, ...css } : [flatCssProps, css]
+      : passthroughCssProps === undefined
+        ? markerCssProps
+        : { ...passthroughCssProps, ...markerCssProps }
+    const flatCssProps = merged === undefined ? undefined : NodeUtil.primitivesFirst(merged)
+    const finalCssProps = NodeUtil.isSpreadableCss(css) ? { ...flatCssProps, ...css } : [{ ...flatCssProps }, css]
 
     if (__DEBUG__) {
       // A `c`/`d` bucket containing a special key (e.g. `ref`, `children`) would silently
@@ -362,6 +367,43 @@ export class NodeUtil {
     if (Array.isArray(slots) && slots.length > 0) result[STATIC_SLOTS_MARKER] = slots
 
     return result as FinalNodeProps
+  }
+
+  /**
+   * Whether a flat style prop's value is a primitive: a string, number or boolean.
+   * Both paths write a node's flat style props with these first.
+   * @param value The prop's value.
+   * @returns `true` for a string, number or boolean.
+   */
+  private static isPrimitiveStyleValue(value: unknown): boolean {
+    const type = typeof value
+    return type === 'string' || type === 'number' || type === 'boolean'
+  }
+
+  /**
+   * `props` with its primitive values first and every other value (objects, arrays,
+   * `null`, `undefined`, functions) after them, each group in `props`' own order: the
+   * order the uncompiled path writes a node's flat style props in. Where two of them
+   * write one property, the later one wins, so the order decides the computed style
+   * as well as the serialized text and its class.
+   * @param props Flat style props.
+   * @returns `props` itself when already in that order, otherwise a reordered copy.
+   */
+  private static primitivesFirst(props: Record<string, unknown>): Record<string, unknown> {
+    let sawOther = false
+    let ordered = true
+    for (const key in props) {
+      if (!NodeUtil.isPrimitiveStyleValue(props[key])) sawOther = true
+      else if (sawOther) {
+        ordered = false
+        break
+      }
+    }
+    if (ordered) return props
+    const primitives: Record<string, unknown> = {}
+    const others: Record<string, unknown> = {}
+    for (const key in props) (NodeUtil.isPrimitiveStyleValue(props[key]) ? primitives : others)[key] = props[key]
+    return Object.assign(primitives, others)
   }
 
   /**
@@ -480,8 +522,7 @@ export class NodeUtil {
     for (let i = 0; i < keys.length; i++) {
       const key = keys[i]
       const value = (restRawProps as Record<string, unknown>)[key]
-      const type = typeof value
-      if (type === 'string' || type === 'number' || type === 'boolean') {
+      if (NodeUtil.isPrimitiveStyleValue(value)) {
         cacheableProps[key] = value
       } else {
         nonCacheableProps[key] = value
