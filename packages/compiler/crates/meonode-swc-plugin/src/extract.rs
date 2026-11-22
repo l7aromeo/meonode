@@ -46,12 +46,19 @@ use crate::explain;
 use crate::extract_tables::{
     InitialProps, InitialValue, is_host_factory, is_unitless, layout_factory,
 };
+use crate::factory_call::{
+    FACTORY_CALL_EXPORT, FACTORY_CALL_LOCAL, FactorySites, SITE_PREFIX, site_name,
+};
 use crate::fingerprint;
 use crate::keys::{is_special_key, key_name_atom};
 use crate::serialize::{self, Js};
 use crate::style_name::hash_styles;
 use crate::theme::{is_length_key, rewrite_theme_tokens_for};
 
+/// Modules whose factories are built without `createNode`, so a call of one is
+/// never joined at run time: `@meonode/mui`'s come from `createMuiNode`. Their
+/// calls stay as they are compiled today.
+const NON_CREATE_NODE_MODULES: &[&str] = &["@meonode/mui"];
 /// The module the runtime helpers are imported from.
 const UI_MODULE: &str = "@meonode/ui";
 const UI_MODULE_CLIENT: &str = "@meonode/ui/client";
@@ -115,6 +122,8 @@ pub struct ModuleExtraction {
     seen: HashSet<String>,
     templates: Vec<Template>,
     seen_templates: HashSet<String>,
+    /// The sites of the module's rewritten calls of imported factories.
+    pub(crate) sites: FactorySites,
 }
 
 impl ModuleExtraction {
@@ -131,7 +140,7 @@ impl ModuleExtraction {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.rules.is_empty() && self.templates.is_empty()
+        self.rules.is_empty() && self.templates.is_empty() && self.sites.is_empty()
     }
 }
 
@@ -152,6 +161,10 @@ pub struct ModuleScope {
     local_defs: Vec<LocalFactory>,
     /// Their bindings, to their index in `local_defs`.
     local_factories: HashMap<(Atom, SyntaxContext), usize>,
+    /// Bindings imported from modules other than `@meonode/ui` and not rendered
+    /// as JSX elements anywhere in the module: what a call of an imported
+    /// factory may be (see [`crate::factory_call`]).
+    imported_callees: HashSet<(Atom, SyntaxContext)>,
     /// Whether the module already uses one of the helper names.
     name_taken: bool,
 }
@@ -171,6 +184,9 @@ impl ModuleScope {
                 scope.collect_import(import);
             }
         }
+        for name in jsx_element_names(module) {
+            scope.imported_callees.remove(&name);
+        }
         for item in &module.body {
             match item {
                 ModuleItem::Stmt(Stmt::Decl(Decl::Var(var)))
@@ -184,9 +200,15 @@ impl ModuleScope {
                 _ => {}
             }
         }
-        scope.name_taken = [REGISTER_LOCAL, VALUE_LOCAL, TEMPLATE_LOCAL]
-            .iter()
-            .any(|name| module_mentions(module, name));
+        scope.name_taken = [
+            REGISTER_LOCAL,
+            VALUE_LOCAL,
+            TEMPLATE_LOCAL,
+            FACTORY_CALL_LOCAL,
+        ]
+        .iter()
+        .any(|name| module_mentions(module, |sym| sym == *name))
+            || module_mentions(module, |sym| sym.starts_with(SITE_PREFIX));
         if scope.name_taken {
             return None;
         }
@@ -199,6 +221,18 @@ impl ModuleScope {
         }
         let src = import.src.value.as_str().unwrap_or_default();
         if src != UI_MODULE && src != UI_MODULE_CLIENT {
+            if NON_CREATE_NODE_MODULES.contains(&src) {
+                return;
+            }
+            for spec in &import.specifiers {
+                let local = match spec {
+                    ImportSpecifier::Named(named) if !named.is_type_only => &named.local,
+                    ImportSpecifier::Default(default) => &default.local,
+                    _ => continue,
+                };
+                self.imported_callees
+                    .insert((local.sym.clone(), local.ctxt));
+            }
             return;
         }
         for spec in &import.specifiers {
@@ -334,6 +368,11 @@ impl ModuleScope {
                 children_first,
             });
         }
+    }
+
+    /// Whether the binding `sym` in `ctxt` is one a call of an imported factory may be.
+    pub fn is_imported_callee(&self, sym: &Atom, ctxt: SyntaxContext) -> bool {
+        self.imported_callees.contains(&(sym.clone(), ctxt))
     }
 
     /// The initial props `factory` merges in front of a call's.
@@ -878,7 +917,7 @@ fn object_expr(entries: &[(String, Expr)]) -> Expr {
             .iter()
             .map(|(key, value)| {
                 PropOrSpread::Prop(Box::new(Prop::KeyValue(KeyValueProp {
-                    key: PropName::Str(Str::from(Atom::from(key.as_str()))),
+                    key: prop_name(key),
                     value: Box::new(value.clone()),
                 })))
             })
@@ -886,23 +925,43 @@ fn object_expr(entries: &[(String, Expr)]) -> Expr {
     })
 }
 
-/// Whether any identifier in `module` is spelled `name`.
-fn module_mentions(module: &Module, name: &str) -> bool {
+/// Whether any identifier in `module` has a name `matches` accepts.
+fn module_mentions(module: &Module, matches: impl Fn(&str) -> bool) -> bool {
     use swc_core::ecma::visit::{Visit, VisitWith};
-    struct Finder<'a> {
-        name: &'a str,
+    struct Finder<F> {
+        matches: F,
         found: bool,
     }
-    impl Visit for Finder<'_> {
+    impl<F: Fn(&str) -> bool> Visit for Finder<F> {
         fn visit_ident(&mut self, id: &Ident) {
-            if id.sym.as_ref() == self.name {
+            if (self.matches)(id.sym.as_ref()) {
                 self.found = true;
             }
         }
     }
-    let mut finder = Finder { name, found: false };
+    let mut finder = Finder {
+        matches,
+        found: false,
+    };
     module.visit_with(&mut finder);
     finder.found
+}
+
+/// The bindings `module` renders as JSX elements (`<Card />`): components.
+fn jsx_element_names(module: &Module) -> HashSet<(Atom, SyntaxContext)> {
+    use swc_core::ecma::visit::{Visit, VisitWith};
+    #[derive(Default)]
+    struct Names(HashSet<(Atom, SyntaxContext)>);
+    impl Visit for Names {
+        fn visit_jsx_element_name(&mut self, name: &JSXElementName) {
+            if let JSXElementName::Ident(id) = name {
+                self.0.insert((id.sym.clone(), id.ctxt));
+            }
+        }
+    }
+    let mut names = Names::default();
+    module.visit_with(&mut names);
+    names.0
 }
 
 /// Reads through parentheses and TypeScript-only wrappers, which leave the
@@ -1801,6 +1860,9 @@ pub fn emit_module(module: &mut Module, extraction: &ModuleExtraction) {
         specifiers.push(named_import(TEMPLATE_EXPORT, TEMPLATE_LOCAL));
         specifiers.push(named_import(VALUE_EXPORT, VALUE_LOCAL));
     }
+    if !extraction.sites.is_empty() {
+        specifiers.push(named_import(FACTORY_CALL_EXPORT, FACTORY_CALL_LOCAL));
+    }
     let import = ModuleItem::ModuleDecl(ModuleDecl::Import(ImportDecl {
         span: DUMMY_SP,
         specifiers,
@@ -1874,6 +1936,32 @@ pub fn emit_module(module: &mut Module, extraction: &ModuleExtraction) {
         ));
     }
 
+    // Each site of a call of an imported factory, `const __meoSiteN = { at, r }`.
+    for (index, site) in extraction.sites.sites.iter().enumerate() {
+        let mut props = vec![(
+            String::from("at"),
+            Expr::Lit(Lit::Num(Number::from(site.at as f64))),
+        )];
+        if site.carrier {
+            props.push((String::from("r"), Expr::Lit(Lit::Num(Number::from(1.0)))));
+        }
+        items.push(ModuleItem::Stmt(Stmt::Decl(Decl::Var(Box::new(VarDecl {
+            span: DUMMY_SP,
+            ctxt: SyntaxContext::empty(),
+            kind: VarDeclKind::Const,
+            declare: false,
+            decls: vec![VarDeclarator {
+                span: DUMMY_SP,
+                name: Pat::Ident(BindingIdent::from(Ident::new_no_ctxt(
+                    Atom::from(site_name(index)),
+                    DUMMY_SP,
+                ))),
+                init: Some(Box::new(object_expr(&props))),
+                definite: false,
+            }],
+        })))));
+    }
+
     // After the last import, so the calls run before any code below them.
     let at = module
         .body
@@ -1899,10 +1987,8 @@ fn named_import(exported: &str, local: &str) -> ImportSpecifier {
     ImportSpecifier::Named(ImportNamedSpecifier {
         span: DUMMY_SP,
         local: Ident::new_no_ctxt(Atom::from(local), DUMMY_SP),
-        imported: Some(ModuleExportName::Ident(Ident::new_no_ctxt(
-            Atom::from(exported),
-            DUMMY_SP,
-        ))),
+        imported: (exported != local)
+            .then(|| ModuleExportName::Ident(Ident::new_no_ctxt(Atom::from(exported), DUMMY_SP))),
         is_type_only: false,
     })
 }

@@ -1094,6 +1094,21 @@ pub fn transform_program(
     let mut key_only: HashMap<(u32, u32), (usize, ChildrenOrigin)> = HashMap::new();
     let mut synthesize: HashMap<(u32, u32), usize> = HashMap::new();
 
+    // Calls of imported factories first, written as `__meoFactoryCall(...)`, so
+    // detection below sees them as the plain calls they become, and compiles
+    // the factory calls among their arguments as it does any.
+    let mut extract = if config.experimental_extract_css {
+        ModuleScope::collect(program).map(|scope| (scope, ModuleExtraction::default()))
+    } else {
+        None
+    };
+    if let (Some((scope, extraction)), Program::Module(module)) = (&mut extract, &mut *program) {
+        extraction.sites = crate::factory_call::rewrite(module, scope);
+    }
+    let has_sites = extract
+        .as_ref()
+        .is_some_and(|(_, extraction)| !extraction.sites.is_empty());
+
     for d in detect::detect(&*program, config) {
         let span_key = (d.span.lo.0, d.span.hi.0);
         match d.decision {
@@ -1110,15 +1125,10 @@ pub fn transform_program(
         }
     }
 
-    if compilable.is_empty() && key_only.is_empty() && synthesize.is_empty() {
+    if compilable.is_empty() && key_only.is_empty() && synthesize.is_empty() && !has_sites {
         return;
     }
 
-    let extract = if config.experimental_extract_css {
-        ModuleScope::collect(program).map(|scope| (scope, ModuleExtraction::default()))
-    } else {
-        None
-    };
     let mut rewriter = Rewriter {
         ctx: SiteContext {
             filename,
@@ -1131,8 +1141,8 @@ pub fn transform_program(
         extract,
     };
     program.visit_mut_with(&mut rewriter);
-    if let (Some((scope, extraction)), Program::Module(module)) = (&rewriter.extract, program) {
-        crate::carrier::mark(module, scope);
+    if let (Some((scope, extraction)), Program::Module(module)) = (&mut rewriter.extract, program) {
+        crate::carrier::mark(module, scope, &mut extraction.sites);
         emit_module(module, extraction);
     }
 }

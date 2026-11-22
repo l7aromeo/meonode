@@ -119,11 +119,27 @@ fn run_partition(case: &str) {
 /// Like [`run_partition`], but with a caller-supplied [`CompileConfig`] — for
 /// the config-driven `factoryModules` fixtures.
 fn run_partition_with_config(case: &str, config: CompileConfig) {
+    run_partition_with_syntax(case, config, EsSyntax::default());
+}
+
+/// Like [`run_partition_with_config`], with JSX parsed.
+fn run_partition_with_jsx(case: &str, config: CompileConfig) {
+    run_partition_with_syntax(
+        case,
+        config,
+        EsSyntax {
+            jsx: true,
+            ..EsSyntax::default()
+        },
+    );
+}
+
+fn run_partition_with_syntax(case: &str, config: CompileConfig, syntax: EsSyntax) {
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixture")
         .join(case);
     test_fixture(
-        Syntax::Es(EsSyntax::default()),
+        Syntax::Es(syntax),
         &|_t| {
             (
                 resolver(Mark::new(), Mark::new(), false),
@@ -546,4 +562,9 @@ fn extract_layout() {
 #[test]
 fn extract_local_factory() {
     run_partition_with_config("extract_local_factory", extract_config());
+}
+
+#[test]
+fn extract_factory_call() {
+    run_partition_with_jsx("extract_factory_call", extract_config());
 }

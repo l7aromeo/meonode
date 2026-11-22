@@ -577,6 +577,23 @@ insertion and its class are the ones the node would have uncompiled.
   `children`, an integer-like key, a component selector, or the compiler's own
   marker keys, and calls whose `css` the runtime would compose as
   `[factoryCss, callSiteCss]` rather than merge.
+- **Factories imported from another module.** Their initial props are not
+  readable here, so a call of one is joined at run time: a direct call of an
+  imported identifier written with a capital, given no arguments or a props
+  object literal whose CSS props and `css` are literals, becomes
+  `__meoFactoryCall(X, __meoSiteN, ...args)`, its arguments as written. Each
+  site is a module-level `{ at }` (the props' index among the arguments) with
+  `r: 1` where the node is a carrier. The runtime checks that `X` is a
+  `createNode` or `createChildrenFirstNode` factory taking its props at `at`,
+  and joins its initial props with the call's style once per site, naming the
+  result as a compiled style is named; anything else it calls as written,
+  `X(...args)`. Left as written: member calls, calls with a spread argument,
+  identifiers the module renders as JSX elements, `@meonode/ui`'s and
+  `@meonode/mui`'s exports, props with a spread, a computed key, a style read
+  at run time, or `theme`, `as` or `disableEmotion`, and two leading object
+  literals (either could be the props). The carrier marks are those of both
+  readings of such a call, a named node and a component, since only the
+  runtime knows which it is.
 
 Off by default. With the option off, the output is exactly what it is without
 this option.
@@ -601,6 +618,7 @@ requirements](#runtime-version-requirements) rather than emitted.
 | `__meo$t` | In place of `__meo$n`, when the style holds values only the call site knows: `[templateId, ...valueTexts]`, or a conditional choosing between such arrays. The template's chunks, one more than its values, are registered under its id; joined with the values in order they are the serialized styles. |
 | `__meo$r` | With `experimental_extractCss`, `1` on a named call site (`__meo$n` or `__meo$t`) that renders as a carrier: through `StyledRenderer`, which inserts the run of named styles that begins at it where it renders, so no element is added to the children. The runtime makes a named node with no runtime node or carrier before it, since the walk's start or a component, a carrier; the mark goes on every node that may be one under some combination of the walk's conditions, and on every named node whose position another call site may take on another render (an arm of a conditional, an operand of `&&`, `\|\|` or `??`, an item of a spread, a `.map()` or a child that may be absent, and every child after one, and every named node below one of those, unless it or a node above it there has a `key`), so a node's element type is the same on every render. A memoized node (a host call given `deps`) counts as a component before and after it, since the runtime cuts before it and the browser renders it in a walk of its own; Suspense, SuspenseList and Activity are components. |
 | `__meo$i` | On a layout or same-module factory's call site with `__meo$n` or `__meo$t`: the fingerprint of the initial props merged into it, as the runtime's `initialPropsFingerprint` writes it: entries in JavaScript's key order (not sorted), each key and string length-prefixed in UTF-16 code units (`{k7:displays4:flexk13:flexDirections3:row}` for `Row`). A runtime whose factory has the same fingerprint skips its own merge. |
+| `__meoFactoryCall(X, site, ...args)` | A call of an imported factory, joined at run time (see above). `site` is a module-level `{ at, r? }`: the index of the props among `args`, and `r: 1` where the node built is a carrier. |
 | `__meo$loc` | `file:line:column` of a call site carrying `__meo$list`, emitted only when [`callSiteLocations`](#callsitelocations--where-a-generated-list-was-written) is enabled. |
 
 Forward-compat policy: the runtime checks `__meo$` against the schema

@@ -35,6 +35,7 @@ use swc_core::ecma::ast::*;
 use swc_core::ecma::visit::{Visit, VisitMut, VisitMutWith, VisitWith};
 
 use crate::extract::{ModuleScope, NAME_KEY, SLOTS_KEY, TEMPLATE_KEY};
+use crate::factory_call::FactorySites;
 use crate::pass_through::unwrap_transparent;
 
 /// Marker key of a named node chosen to carry the run of named styles that
@@ -176,6 +177,43 @@ fn children_of(call: &CallExpr) -> Option<&Expr> {
 
 /// A host's slots (`__meo$p`): each a path of indices into its children,
 /// the empty path before a children value that is not an array.
+/// A rewritten call of an imported factory, `__meoFactoryCall(X, site, ...args)`,
+/// read as the node it builds: its props, its children and whether it is given
+/// `deps`, by the factory's own argument order (`at`, the props' index).
+struct FactoryCall<'c> {
+    props: Option<&'c ObjectLit>,
+    children: Option<&'c Expr>,
+    memo: bool,
+}
+
+fn factory_call<'c>(call: &'c CallExpr, sites: &FactorySites) -> Option<FactoryCall<'c>> {
+    let at = sites.site_of(call)?.at;
+    let args = call.args.get(2..).unwrap_or_default();
+    let props = args
+        .get(at)
+        .and_then(|arg| match unwrap_transparent(&arg.expr) {
+            Expr::Object(obj) => Some(obj),
+            _ => None,
+        });
+    let children = if at == 0 {
+        props.and_then(|p| value_of(p, "children"))
+    } else {
+        args.first().map(|arg| &*arg.expr)
+    };
+    let memo = args
+        .get(at + 1)
+        .is_some_and(|deps| match unwrap_transparent(&deps.expr) {
+            Expr::Ident(id) => id.sym.as_ref() != "undefined",
+            Expr::Unary(u) => u.op != UnaryOp::Void,
+            _ => true,
+        });
+    Some(FactoryCall {
+        props,
+        children,
+        memo,
+    })
+}
+
 fn slots_of(props: &ObjectLit) -> Vec<Vec<usize>> {
     let index = |e: &Expr| match e {
         Expr::Lit(Lit::Num(n)) => Some(n.value as usize),
@@ -264,6 +302,11 @@ pub(crate) fn map_returns(call: &CallExpr) -> Vec<&Expr> {
 /// Reads walks and collects the carriers' call sites.
 struct Walks<'a> {
     scope: &'a ModuleScope,
+    /// The rewritten calls of imported factories.
+    sites: &'a FactorySites,
+    /// Whether such a call is read as the named node the runtime builds when it
+    /// joins the call, or as a component, which it is when the callee is one.
+    factory_calls_named: bool,
     /// Host calls already read as part of a walk.
     consumed: HashSet<Site>,
     carriers: HashSet<Site>,
@@ -298,6 +341,38 @@ impl Walks<'_> {
             }
             Expr::Array(array) => self.emit_array(array, optional, &[], &mut Vec::new(), out),
             Expr::Call(call) if is_map(call) => self.emit_list(call, out),
+            // A call of an imported factory, read as the named node the runtime
+            // builds when it joins the call (on the other reading it is a
+            // component, below).
+            Expr::Call(call) if self.factory_calls_named && self.sites.site_of(call).is_some() => {
+                let Some(node) = factory_call(call, self.sites) else {
+                    return;
+                };
+                let site = site_of(call);
+                self.consumed.insert(site);
+                if node.memo {
+                    push(out, Kind::Component);
+                }
+                let at = out.len();
+                out.push(Token {
+                    kind: Kind::Named,
+                    optional,
+                    site: Some(site),
+                    end: 0,
+                });
+                if let Some(children) = node.children {
+                    match unwrap_transparent(children) {
+                        Expr::Array(array) => {
+                            self.emit_array(array, optional, &[], &mut Vec::new(), out)
+                        }
+                        child => self.emit(child, optional, out),
+                    }
+                }
+                out[at].end = out.len();
+                if node.memo {
+                    push(out, Kind::Component);
+                }
+            }
             Expr::Call(call) if self.is_host(call) => {
                 let site = site_of(call);
                 self.consumed.insert(site);
@@ -465,7 +540,9 @@ impl Walks<'_> {
 
 impl Visit for Walks<'_> {
     fn visit_call_expr(&mut self, call: &CallExpr) {
-        if self.is_host(call) && !self.consumed.contains(&site_of(call)) {
+        let root =
+            self.is_host(call) || (self.factory_calls_named && self.sites.site_of(call).is_some());
+        if root && !self.consumed.contains(&site_of(call)) {
             let mut tokens = vec![Token {
                 kind: Kind::Start,
                 optional: false,
@@ -499,6 +576,7 @@ impl Visit for Walks<'_> {
 /// and its subtree are left out.
 struct Shared<'a> {
     scope: &'a ModuleScope,
+    sites: &'a FactorySites,
     carriers: &'a mut HashSet<Site>,
 }
 
@@ -524,6 +602,18 @@ impl Shared<'_> {
             Expr::Call(call) if is_map(call) => {
                 for r in map_returns(call) {
                     self.share(r);
+                }
+            }
+            Expr::Call(call) if self.sites.site_of(call).is_some() => {
+                let Some(node) = factory_call(call, self.sites) else {
+                    return;
+                };
+                if node.props.is_some_and(|p| has_key(p, "key")) {
+                    return;
+                }
+                self.carriers.insert(site_of(call));
+                if let Some(children) = node.children {
+                    self.share(children);
                 }
             }
             Expr::Call(call) if self.scope.extractable_factory(call).is_some() => {
@@ -608,7 +698,9 @@ impl Visit for Shared<'_> {
 
     fn visit_call_expr(&mut self, call: &CallExpr) {
         // A host's children, or a `children` prop handed to whatever renders it.
-        let children = if self.scope.extractable_factory(call).is_some() {
+        let children = if let Some(node) = factory_call(call, self.sites) {
+            node.children
+        } else if self.scope.extractable_factory(call).is_some() {
             children_of(call)
         } else {
             props_of(call).and_then(|props| value_of(props, "children"))
@@ -657,18 +749,35 @@ impl VisitMut for Marker<'_> {
 }
 
 /// Marks the carriers of every walk in `module`, then drops the slots it read.
-pub fn mark(module: &mut Module, scope: &ModuleScope) {
-    let mut walks = Walks {
-        scope,
-        consumed: HashSet::new(),
-        carriers: HashSet::new(),
-    };
-    module.visit_with(&mut walks);
+pub fn mark(module: &mut Module, scope: &ModuleScope, sites: &mut FactorySites) {
+    // A call of an imported factory is a named node or a component, which only
+    // the runtime knows. A mark is never wrong, only one missing is, so the
+    // marks are those of both readings.
+    let mut carriers = HashSet::new();
+    for factory_calls_named in [false, true] {
+        let mut walks = Walks {
+            scope,
+            sites,
+            factory_calls_named,
+            consumed: HashSet::new(),
+            carriers: HashSet::new(),
+        };
+        module.visit_with(&mut walks);
+        carriers.extend(walks.carriers);
+    }
     module.visit_with(&mut Shared {
         scope,
-        carriers: &mut walks.carriers,
+        sites,
+        carriers: &mut carriers,
     });
-    module.visit_mut_with(&mut Marker(&walks.carriers));
+    module.visit_mut_with(&mut Marker(&carriers));
+    // A call of an imported factory carries its mark on its site, which the
+    // runtime copies onto the node it builds.
+    for (span, &index) in &sites.by_span {
+        if carriers.contains(span) {
+            sites.sites[index].carrier = true;
+        }
+    }
 }
 
 #[cfg(test)]

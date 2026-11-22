@@ -65,6 +65,9 @@ pub mod detect;
 // The fingerprint of a factory's initial props, as the runtime writes it.
 mod fingerprint;
 
+// Calls of imported factories, joined with their defaults at run time.
+mod factory_call;
+
 // Tables extraction reads from @meonode/ui and Emotion (see
 // scripts/codegen-extract-tables.ts).
 mod extract_tables;
