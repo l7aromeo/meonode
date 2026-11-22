@@ -17,8 +17,8 @@
 //! marked when, for some combination of its conditions, it is first in a
 //! stretch whose left end is the walk's start or a component and whose right
 //! end is a component or the walk's end. A component here is any slot of a
-//! host (`__meo$p`), where the runtime's walk cuts whatever renders there, or
-//! a child that may be one. Over a conditional, a spread and a
+//! host, a position the extraction marks as one that may render a component
+//! (`__meo$p`, which this pass removes once read), or a child that may be one. Over a conditional, a spread and a
 //! generated list every member is optional, and a `.map()` item is read twice
 //! so an item's nodes see the item before it and the item after it.
 
@@ -379,18 +379,21 @@ impl Visit for Walks<'_> {
     }
 }
 
-/// Adds the mark to the carriers' compiled props.
+/// Adds the mark to the carriers' compiled props, and takes the slots out of
+/// every compiled call site's: they are this pass's input only.
 struct Marker<'a>(&'a HashSet<Site>);
 
 impl VisitMut for Marker<'_> {
     fn visit_mut_call_expr(&mut self, call: &mut CallExpr) {
         call.visit_mut_children_with(self);
-        if !self.0.contains(&site_of(call)) {
-            return;
-        }
+        let carrier = self.0.contains(&site_of(call));
         for arg in &mut call.args {
             let Expr::Object(obj) = &mut *arg.expr else { continue };
-            if !has_key(obj, MARKER_KEY) || has_key(obj, CARRIER_KEY) {
+            if !has_key(obj, MARKER_KEY) {
+                continue;
+            }
+            obj.props.retain(|p| key_name(p) != Some(SLOTS_KEY));
+            if !carrier || has_key(obj, CARRIER_KEY) {
                 continue;
             }
             let at = obj
@@ -410,7 +413,7 @@ impl VisitMut for Marker<'_> {
     }
 }
 
-/// Marks the carriers of every walk in `module`.
+/// Marks the carriers of every walk in `module`, then drops the slots it read.
 pub fn mark(module: &mut Module, scope: &ModuleScope) {
     let mut walks = Walks {
         scope,
@@ -418,9 +421,7 @@ pub fn mark(module: &mut Module, scope: &ModuleScope) {
         carriers: HashSet::new(),
     };
     module.visit_with(&mut walks);
-    if !walks.carriers.is_empty() {
-        module.visit_mut_with(&mut Marker(&walks.carriers));
-    }
+    module.visit_mut_with(&mut Marker(&walks.carriers));
 }
 
 #[cfg(test)]

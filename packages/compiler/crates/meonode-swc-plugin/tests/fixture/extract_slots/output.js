@@ -66,26 +66,6 @@ Div({
             __meo$: 2,
             __meo$k: "m3e4t0avtpzkfy"
         })
-    ],
-    __meo$p: [
-        1,
-        3,
-        5,
-        6,
-        7,
-        8,
-        9,
-        [
-            10,
-            1
-        ],
-        [
-            10,
-            2,
-            0
-        ],
-        11,
-        12
     ]
 });
 // A single child, or a children-first call's first argument, is the empty path:
@@ -95,10 +75,7 @@ Span(label, {
     __meo$n: "2scoofan7u119",
     __meo$r: 1,
     __meo$k: "m1i9vrn1065hf3",
-    __meo$list: 1,
-    __meo$p: [
-        []
-    ]
+    __meo$list: 1
 });
 Div({
     __meo$: 2,
@@ -106,10 +83,7 @@ Div({
     children: Node(Card, {
         __meo$: 2,
         __meo$k: "mwcsm5o7iasam"
-    }),
-    __meo$p: [
-        []
-    ]
+    })
 });
 // Literals and host-only built elements take none.
 Div({
@@ -137,37 +111,25 @@ Div({
     children: createElement("p", null, Node(Card, {
         __meo$: 2,
         __meo$k: "muedzbaryv473"
-    })),
-    __meo$p: [
-        []
-    ]
+    }))
 });
 Div({
     __meo$: 2,
     __meo$k: "m18yz8rg1hah65",
     __meo$list: 1,
-    children: <p>{label}</p>,
-    __meo$p: [
-        []
-    ]
+    children: <p>{label}</p>
 });
 Div({
     __meo$: 2,
     __meo$k: "m78lugxl44m2c",
     __meo$list: 1,
-    children: <Card/>,
-    __meo$p: [
-        []
-    ]
+    children: <Card/>
 });
 Div({
     __meo$: 2,
     __meo$k: "m1g0xdn8y1dg8n",
     __meo$list: 1,
-    children: createElement(Card, null, "hi"),
-    __meo$p: [
-        []
-    ]
+    children: createElement(Card, null, "hi")
 });
 // A generated list is one position; its items take the runtime's keyed-item rule.
 Div({
@@ -178,10 +140,7 @@ Div({
             __meo$: 2,
             __meo$k: "minmk0uel7sc1",
             key: row
-        })),
-    __meo$p: [
-        []
-    ]
+        }))
 });
 // A layout factory is a host.
 Row({
@@ -195,9 +154,6 @@ Row({
             __meo$: 2,
             __meo$k: "m1at7spirp09eg"
         })
-    ],
-    __meo$p: [
-        0
     ]
 });
 // A component target would receive changed children: no marker.
@@ -232,10 +188,6 @@ Div({
             __meo$: 2,
             __meo$k: "m2w8tuulnfaw2m"
         })
-    ],
-    __meo$p: [
-        0,
-        1
     ]
 });
 Div({
@@ -250,10 +202,6 @@ Div({
                 key: row
             })),
         label
-    ],
-    __meo$p: [
-        0,
-        1
     ]
 });
 Div({
@@ -271,10 +219,6 @@ Div({
             label
         ] : [],
         label
-    ],
-    __meo$p: [
-        0,
-        1
     ]
 });
 // A spread whose branches are empty or start with a walked child needs none.
@@ -289,8 +233,5 @@ Div({
             label
         ] : [],
         label
-    ],
-    __meo$p: [
-        0
     ]
 });
