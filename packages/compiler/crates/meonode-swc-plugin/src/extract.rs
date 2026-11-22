@@ -276,9 +276,11 @@ impl ModuleScope {
     /// position not proved to render only hosts the runtime walks, or nothing
     /// (see [`walked`](Self::walked)). A single child that is not an array
     /// literal is the empty path: a slot before the children value as a whole,
-    /// which the runtime renders as it is. In an array
-    /// literal, nothing at or after a spread is marked: its positions move at
-    /// run time. `None` when no position is marked.
+    /// which the runtime renders as it is. In an array literal, a spread's
+    /// written index is marked when its first item may need a slot (see
+    /// [`may_start_unwalked`](Self::may_start_unwalked)), and nothing inside or
+    /// after it: those positions move with its length at run time. `None` when
+    /// no position is marked.
     pub fn slots(&self, children: &Expr) -> Option<Expr> {
         let mut paths: Vec<Vec<usize>> = Vec::new();
         match unwrap_transparent(children) {
@@ -326,6 +328,15 @@ impl ModuleScope {
                 continue;
             };
             if elem.spread.is_some() {
+                // The spread starts at its written index whatever it holds, so a
+                // slot there keeps every sibling's index fixed. Positions inside
+                // and after it move with its length: a slot there would pair the
+                // unkeyed siblings after it differently from an uncompiled render.
+                if self.may_start_unwalked(&elem.expr) {
+                    path.push(index);
+                    out.push(path.clone());
+                    path.pop();
+                }
                 return;
             }
             path.push(index);
@@ -341,6 +352,27 @@ impl ModuleScope {
         }
     }
 
+    /// Whether the first item a spread of `spread` gives may be a position the
+    /// marker names: always, unless `spread` is a conditional over array
+    /// literals whose branches are empty or start with a walked child.
+    fn may_start_unwalked(&self, spread: &Expr) -> bool {
+        let Expr::Cond(cond) = unwrap_transparent(spread) else {
+            return true;
+        };
+        [&cond.cons, &cond.alt]
+            .into_iter()
+            .any(|branch| match unwrap_transparent(branch) {
+                Expr::Array(array) => match array.elems.first() {
+                    None => false,
+                    // A hole starts the branch with `undefined`, and what follows it
+                    // may be anything.
+                    Some(None) => true,
+                    Some(Some(first)) => first.spread.is_some() || !self.walked(&first.expr),
+                },
+                _ => true,
+            })
+    }
+
     /// Whether `child` renders only what the runtime's walk sees in order:
     /// literals, which render text or nothing, and calls of the host
     /// factories, which carry their own markers, through conditionals whose
@@ -352,10 +384,10 @@ impl ModuleScope {
             Expr::Lit(_) | Expr::Tpl(_) => true,
             Expr::Ident(id) => id.sym.as_ref() == "undefined",
             Expr::Unary(u) => u.op == UnaryOp::Void,
-            Expr::Array(array) => array
-                .elems
-                .iter()
-                .all(|e| e.as_ref().is_none_or(|e| e.spread.is_none() && self.walked(&e.expr))),
+            Expr::Array(array) => array.elems.iter().all(|e| {
+                e.as_ref()
+                    .is_none_or(|e| e.spread.is_none() && self.walked(&e.expr))
+            }),
             Expr::Cond(c) => self.walked(&c.cons) && self.walked(&c.alt),
             // A falsy left side is a primitive, which renders text or nothing.
             Expr::Bin(b) if b.op == BinaryOp::LogicalAnd => self.walked(&b.right),
@@ -389,13 +421,18 @@ fn is_host_create_element(call: &CallExpr) -> bool {
     };
     let named = match &**callee {
         Expr::Ident(id) => id.sym.as_ref() == "createElement",
-        Expr::Member(m) => matches!(&m.prop, MemberProp::Ident(p) if p.sym.as_ref() == "createElement"),
+        Expr::Member(m) => {
+            matches!(&m.prop, MemberProp::Ident(p) if p.sym.as_ref() == "createElement")
+        }
         _ => false,
     };
     let Some((tag, rest)) = call.args.split_first() else {
         return false;
     };
-    if !named || tag.spread.is_some() || !matches!(unwrap_transparent(&tag.expr), Expr::Lit(Lit::Str(_))) {
+    if !named
+        || tag.spread.is_some()
+        || !matches!(unwrap_transparent(&tag.expr), Expr::Lit(Lit::Str(_)))
+    {
         return false;
     }
     let Some((props, children)) = rest.split_first() else {
@@ -407,23 +444,28 @@ fn is_host_create_element(call: &CallExpr) -> bool {
         Expr::Object(obj) => obj.props.iter().all(|p| match p {
             PropOrSpread::Spread(_) => false,
             PropOrSpread::Prop(prop) => match &**prop {
-                Prop::KeyValue(kv) => key_name_atom(&kv.key).as_ref() != "children" || is_host_value(&kv.value),
+                Prop::KeyValue(kv) => {
+                    key_name_atom(&kv.key).as_ref() != "children" || is_host_value(&kv.value)
+                }
                 Prop::Shorthand(id) => id.sym.as_ref() != "children",
                 _ => true,
             },
         }),
         _ => false,
     };
-    props_ok && children.iter().all(|c| c.spread.is_none() && is_host_value(&c.expr))
+    props_ok
+        && children
+            .iter()
+            .all(|c| c.spread.is_none() && is_host_value(&c.expr))
 }
 
 /// A value inside a built element that renders only text or host elements.
 fn is_host_value(expr: &Expr) -> bool {
     match unwrap_transparent(expr) {
-        Expr::Array(array) => array
-            .elems
-            .iter()
-            .all(|e| e.as_ref().is_none_or(|e| e.spread.is_none() && is_host_value(&e.expr))),
+        Expr::Array(array) => array.elems.iter().all(|e| {
+            e.as_ref()
+                .is_none_or(|e| e.spread.is_none() && is_host_value(&e.expr))
+        }),
         Expr::JSXElement(element) => is_host_jsx(element),
         Expr::JSXFragment(fragment) => fragment.children.iter().all(is_host_jsx_child),
         Expr::Call(call) => is_host_create_element(call),
@@ -1095,7 +1137,9 @@ impl ModuleScope {
                 }
             }
             if depth == 0 && DEFAULT_READ_KEYS.contains(&key) {
-                return explain::bail("a value only the call site knows in a key the defaults read");
+                return explain::bail(
+                    "a value only the call site knows in a key the defaults read",
+                );
             }
             if VALUE_READ_KEYS.contains(&key) {
                 return explain::bail("a value only the call site knows in a key Emotion reads");
@@ -1204,7 +1248,9 @@ fn bigint_cannot_move(obj: &[(String, Js)], flat_leaves: &[(Vec<String>, Leaf)])
     };
     obj.iter().enumerate().all(|(at, (key, _))| {
         !arithmetic(key)
-            || (obj[..at].iter().all(|(k, v)| is_primitive(v) && !arithmetic(k))
+            || (obj[..at]
+                .iter()
+                .all(|(k, v)| is_primitive(v) && !arithmetic(k))
                 && obj[at + 1..].iter().all(|(_, v)| !is_primitive(v)))
     })
 }
@@ -1228,7 +1274,9 @@ fn hole_marker(index: usize) -> String {
 /// A known string as text, or `None` when it holds a hole marker.
 fn known_text(text: &str) -> Option<String> {
     if holds_token_and_brace(text) {
-        return explain::bail("a value holding a theme token and a brace, which the client and server layers write apart");
+        return explain::bail(
+            "a value holding a theme token and a brace, which the client and server layers write apart",
+        );
     }
     (!text.contains([HOLE_OPEN, HOLE_CLOSE])).then(|| text.to_string())
 }
@@ -1290,11 +1338,17 @@ fn choose(
         let mut flat_obj = Vec::new();
         let mut css_obj = Vec::new();
         for (index, ((path, _), value)) in leaves.iter().zip(chosen.iter()).enumerate() {
-            let obj = if index < flat { &mut flat_obj } else { &mut css_obj };
+            let obj = if index < flat {
+                &mut flat_obj
+            } else {
+                &mut css_obj
+            };
             set_path(obj, path, value.clone());
         }
         if !bigint_cannot_move(&flat_obj, &leaves[..flat]) {
-            return explain::bail("arithmetic in a flat style prop whose place a BigInt result would change");
+            return explain::bail(
+                "arithmetic in a flat style prop whose place a BigInt result would change",
+            );
         }
         return name_of(&style_object(flat_obj, css_obj));
     };

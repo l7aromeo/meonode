@@ -83,7 +83,8 @@ Div({
             2,
             0
         ],
-        11
+        11,
+        12
     ]
 });
 // A single child, or a children-first call's first argument, is the empty path:
@@ -205,5 +206,88 @@ Node(Card, {
             __meo$: 2,
             __meo$k: "m19xg9mqey2jgc"
         })
+    ]
+});
+// A spread's own index is marked when its first item may need a slot; nothing
+// inside or after it is.
+Div({
+    __meo$: 2,
+    __meo$k: "mh5xoo56go89o",
+    __meo$list: 1,
+    children: [
+        Node(Card, {
+            __meo$: 2,
+            __meo$k: "m2dqpor1ktgacy"
+        }),
+        ...on ? [
+            Node(Card, {
+                __meo$: 2,
+                __meo$k: "m2jj5ylqhh2gxl"
+            })
+        ] : [],
+        Node(Card, {
+            __meo$: 2,
+            __meo$k: "m2w8tuulnfaw2m"
+        })
+    ],
+    __meo$p: [
+        0,
+        1
+    ]
+});
+Div({
+    __meo$: 2,
+    __meo$k: "m3b7i45jow1eiv",
+    __meo$list: 1,
+    children: [
+        label,
+        ...rows.map((row)=>Node(Card, {
+                __meo$: 2,
+                __meo$k: "m1vackx4dl57is",
+                key: row
+            })),
+        label
+    ],
+    __meo$p: [
+        0,
+        1
+    ]
+});
+Div({
+    __meo$: 2,
+    __meo$k: "mbuk1ul63laxe",
+    __meo$list: 1,
+    children: [
+        label,
+        ...on ? [
+            label
+        ] : [
+            Div()
+        ],
+        ...on ? [
+            label
+        ] : [],
+        label
+    ],
+    __meo$p: [
+        0,
+        1
+    ]
+});
+// A spread whose branches are empty or start with a walked child needs none.
+Div({
+    __meo$: 2,
+    __meo$k: "mth7n7tfxd1ny",
+    __meo$list: 1,
+    children: [
+        label,
+        ...on ? [
+            Div(),
+            label
+        ] : [],
+        label
+    ],
+    __meo$p: [
+        0
     ]
 });

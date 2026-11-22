@@ -41,3 +41,10 @@ Div({ children: rows.map((row) => Div({ key: row })) });
 Row({ children: [Node(Card, {})] });
 // A component target would receive changed children: no marker.
 Node(Card, { children: [Node(Card, {})] });
+// A spread's own index is marked when its first item may need a slot; nothing
+// inside or after it is.
+Div({ children: [Node(Card, {}), ...(on ? [Node(Card, {})] : []), Node(Card, {})] });
+Div({ children: [label, ...rows.map((row) => Node(Card, { key: row })), label] });
+Div({ children: [label, ...(on ? [label] : [Div()]), ...(on ? [label] : []), label] });
+// A spread whose branches are empty or start with a walked child needs none.
+Div({ children: [label, ...(on ? [Div(), label] : []), label] });
