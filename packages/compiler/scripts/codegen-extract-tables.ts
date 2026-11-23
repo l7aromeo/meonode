@@ -174,7 +174,9 @@ async function prefixerCases(uiDir: string): Promise<[string, number, string][]>
 async function selectorCases(uiDir: string): Promise<[string[], string][]> {
   const { prefixer } = await import(join(uiDir, 'src/util/emotion-prefixer.util.ts'))
   const { default: createCache } = await import(join(uiDir, 'node_modules/@emotion/cache/dist/emotion-cache.cjs.js')).catch(() => import('@emotion/cache'))
-  const { serializeStyles } = await import(join(uiDir, 'node_modules/@emotion/serialize/dist/emotion-serialize.cjs.js')).catch(() => import('@emotion/serialize'))
+  const { serializeStyles } = await import(join(uiDir, 'node_modules/@emotion/serialize/dist/emotion-serialize.cjs.js')).catch(
+    () => import('@emotion/serialize'),
+  )
   const grammar = await import('../tests/selector-grammar')
   const cache = createCache({ key: 'css', stylisPlugins: [prefixer] })
   const sheet = { insert() {} }
@@ -186,12 +188,20 @@ async function selectorCases(uiDir: string): Promise<[string[], string][]> {
   const steps = ['&:hover', ':hover', '::before', '& > p', '.dark &', '& + &', '&, ::after', ':not(&)', '& .b, & .c', '[data-x="a,b"] &']
   for (const a of steps) for (const b of steps) chains.push([a, b])
   for (const a of steps.slice(0, 5)) for (const b of steps) for (const c of steps.slice(0, 4)) chains.push([a, b, c])
-  const atRules = [...grammar.AT_RULES, '@media  (min-width:  1px)', '@media(min-width:1px)', '@media screen,print', '@supports not (display: grid)', '@media screen and (min-width: 1px) and (max-width: 2px)']
+  const atRules = [
+    ...grammar.AT_RULES,
+    '@media  (min-width:  1px)',
+    '@media(min-width:1px)',
+    '@media screen,print',
+    '@supports not (display: grid)',
+    '@media screen and (min-width: 1px) and (max-width: 2px)',
+  ]
   for (const at of atRules) {
     chains.push([at])
     for (const step of steps) chains.push([at, step], [step, at], [step, at, '&:focus'], [at, atRules[0], step])
   }
-  for (const key of ['& > p', '.dark &', '&:hover, &:focus', ':is(&, .a) p', '& + &', '&  ~  .b', ':hover']) for (const ws of grammar.WHITESPACE) chains.push([ws(key)])
+  for (const key of ['& > p', '.dark &', '&:hover, &:focus', ':is(&, .a) p', '& + &', '&  ~  .b', ':hover'])
+    for (const ws of grammar.WHITESPACE) chains.push([ws(key)])
   // Parentheses after no colon, and an escaped comma, which compat splits
   // only in rules it composes again.
   for (const key of ['p(&)', 'a\\,b, c', '.a\\,b &']) chains.push([key], [':hover', key], ['&:hover', key])
@@ -238,10 +248,11 @@ async function defaultCases(uiDir: string): Promise<[Record<string, unknown>, Re
   const objects: Record<string, unknown>[] = []
   for (const key of keys) for (const value of DEFAULT_SAMPLES[key]) objects.push({ [key]: value })
   const deciding = ['display', 'overflow', 'flexDirection', 'flexWrap', 'flexFlow', 'flex', 'flexShrink']
-  for (const a of deciding) for (const b of deciding) {
-    if (a >= b) continue
-    for (const va of DEFAULT_SAMPLES[a]) for (const vb of DEFAULT_SAMPLES[b]) objects.push({ display: 'flex', [a]: va, [b]: vb })
-  }
+  for (const a of deciding)
+    for (const b of deciding) {
+      if (a >= b) continue
+      for (const va of DEFAULT_SAMPLES[a]) for (const vb of DEFAULT_SAMPLES[b]) objects.push({ display: 'flex', [a]: va, [b]: vb })
+    }
   for (const input of objects) {
     const out = ThemeUtil.resolveDefaultStyle({ ...input }) as Record<string, unknown>
     const defaults: Record<string, unknown> = {}
@@ -332,11 +343,7 @@ async function layoutFactories(uiDir: string, host: Set<string>): Promise<Layout
     const initial = nodeProps(factory, childrenFirst, undefined)
     const entries = Object.entries(initial)
     if (entries.length === 0) continue
-    const flat = entries.every(
-      ([key, value]) =>
-        key !== 'css' &&
-        (typeof value === 'string' || (typeof value === 'number' && Number.isFinite(value))),
-    )
+    const flat = entries.every(([key, value]) => key !== 'css' && (typeof value === 'string' || (typeof value === 'number' && Number.isFinite(value))))
     if (childrenFirst || !flat) {
       skippedLayoutFactories.push(name)
       continue

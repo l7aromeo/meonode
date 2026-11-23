@@ -179,7 +179,10 @@ function needed(sequence: Token[]): Set<number> {
   const out = new Set<number>()
   sequence.forEach((token, i) => {
     if (token.kind !== 'named') return
-    const before = sequence.slice(0, i).reverse().find(t => t.kind !== 'plain')
+    const before = sequence
+      .slice(0, i)
+      .reverse()
+      .find(t => t.kind !== 'plain')
     if (before?.kind === 'start' || before?.kind === 'component') out.add(token.id)
   })
   return out
@@ -201,66 +204,83 @@ function marks(value: unknown, out = { marked: new Set<number>(), named: new Set
 
 const suite = (name: string, memo: boolean, count: number) =>
   describe(name, async () => {
-  const generate = generator(SEED, memo)
-  const cases = Array.from({ length: count }, generate)
-  const module = `import { Div, Node } from '@meonode/ui'\nconst Card = () => null\nexport const cases = [\n${cases.map(c => `  s => ${c.source},`).join('\n')}\n]\n`
-  const { code } = await transform(module, {
-    filename: 'carriers.js',
-    jsc: { target: 'es2022', parser: { syntax: 'ecmascript' }, experimental: { plugins: [[WASM_PATH, { experimental_extractCss: true }]] } },
-  })
-  // Every binding the compiled module imports, as a stub: the factories build
-  // plain objects, the registration helpers do nothing.
-  const imported = [...code.matchAll(/import \{([^}]*)\} from "@meonode\/ui"/g)].flatMap(m => m[1].split(',').map(s => s.trim().split(/\s+as\s+/).at(-1)!))
-  const stubs: Record<string, unknown> = {
-    Div: (props?: Record<string, unknown>, deps?: unknown): Built => ({ kind: 'host', props, deps }),
-    Node: (): Built => ({ kind: 'component' }),
-  }
-  const names = [...new Set(['Div', 'Node', ...imported])]
-  const body = code.replace(/^import .*$/gm, '').replace('export const cases =', 'return')
-  const compiled = new Function(...names, body)(...names.map(n => stubs[n] ?? ((...args: unknown[]) => String(args.at(-1))))) as ((s: Record<string, unknown>) => unknown)[]
-
-  /** Every render of a case: each combination of flags and list length. */
-  const renders = (i: number) =>
-    Array.from({ length: 2 ** FLAGS.length }, (_, combo) => combo).flatMap(combo =>
-      LENGTHS.map(length => {
-        const s: Record<string, unknown> = Object.fromEntries(FLAGS.map((flag, bit) => [flag, Boolean(combo & (1 << bit))]))
-        // A style on some renders and none on others.
-        s.css = s.c ? { margin: 1 } : undefined
-        s.items = Array.from({ length }, (_, k) => k)
-        // The props of a host the compiler leaves to the runtime.
-        s.loose = s.b ? { css: { margin: 1 } } : {}
-        // Deps that are a list on some renders and `undefined` on others.
-        s.deps = s.a ? [1] : undefined
-        // Every read of unknown kind (`s.u<id>`) is a component.
-        return compiled[i](new Proxy(s, { get: (target, key) => (typeof key === 'string' && /^u\d+$/.test(key) ? { kind: 'component' } : target[key as string]) }))
-      }),
+    const generate = generator(SEED, memo)
+    const cases = Array.from({ length: count }, generate)
+    const module = `import { Div, Node } from '@meonode/ui'\nconst Card = () => null\nexport const cases = [\n${cases.map(c => `  s => ${c.source},`).join('\n')}\n]\n`
+    const { code } = await transform(module, {
+      filename: 'carriers.js',
+      jsc: { target: 'es2022', parser: { syntax: 'ecmascript' }, experimental: { plugins: [[WASM_PATH, { experimental_extractCss: true }]] } },
+    })
+    // Every binding the compiled module imports, as a stub: the factories build
+    // plain objects, the registration helpers do nothing.
+    const imported = [...code.matchAll(/import \{([^}]*)\} from "@meonode\/ui"/g)].flatMap(m =>
+      m[1].split(',').map(s =>
+        s
+          .trim()
+          .split(/\s+as\s+/)
+          .at(-1)!,
+      ),
     )
-
-  it('compiles every case, and generates walks with and without conditions that need carriers', () => {
-    expect(compiled).toHaveLength(count)
-    const needing = cases.map((_, i) => renders(i).some(r => neededOnEither(r).size > 0))
-    expect(cases.filter((c, i) => c.conditional && needing[i]).length).toBeGreaterThan(count / 5)
-    expect(cases.filter((c, i) => !c.conditional && needing[i]).length).toBeGreaterThan(count / 20)
-  })
-
-  it.each(cases.map((c, i) => [c.source, i] as const))('%s', (_, i) => {
-    const want = new Set<number>()
-    const got = new Set<number>()
-    const named = new Set<number>()
-    for (const render of renders(i)) {
-      for (const id of neededOnEither(render)) want.add(id)
-      const m = marks(render)
-      m.marked.forEach(id => got.add(id))
-      m.named.forEach(id => named.add(id))
+    const stubs: Record<string, unknown> = {
+      Div: (props?: Record<string, unknown>, deps?: unknown): Built => ({ kind: 'host', props, deps }),
+      Node: (): Built => ({ kind: 'component' }),
     }
-    // Every node a render needs a carrier at carries the mark.
-    expect([...want].filter(id => !got.has(id)), 'unmarked').toEqual([])
-    // Only named nodes carry it.
-    expect([...got].filter(id => !named.has(id)), 'not named').toEqual([])
-    // Without conditions there is one render, and the mark is exactly what it needs.
-    if (!cases[i].conditional) expect([...got].sort()).toEqual([...want].sort())
+    const names = [...new Set(['Div', 'Node', ...imported])]
+    const body = code.replace(/^import .*$/gm, '').replace('export const cases =', 'return')
+    const compiled = new Function(...names, body)(...names.map(n => stubs[n] ?? ((...args: unknown[]) => String(args.at(-1))))) as ((
+      s: Record<string, unknown>,
+    ) => unknown)[]
+
+    /** Every render of a case: each combination of flags and list length. */
+    const renders = (i: number) =>
+      Array.from({ length: 2 ** FLAGS.length }, (_, combo) => combo).flatMap(combo =>
+        LENGTHS.map(length => {
+          const s: Record<string, unknown> = Object.fromEntries(FLAGS.map((flag, bit) => [flag, Boolean(combo & (1 << bit))]))
+          // A style on some renders and none on others.
+          s.css = s.c ? { margin: 1 } : undefined
+          s.items = Array.from({ length }, (_, k) => k)
+          // The props of a host the compiler leaves to the runtime.
+          s.loose = s.b ? { css: { margin: 1 } } : {}
+          // Deps that are a list on some renders and `undefined` on others.
+          s.deps = s.a ? [1] : undefined
+          // Every read of unknown kind (`s.u<id>`) is a component.
+          return compiled[i](
+            new Proxy(s, { get: (target, key) => (typeof key === 'string' && /^u\d+$/.test(key) ? { kind: 'component' } : target[key as string]) }),
+          )
+        }),
+      )
+
+    it('compiles every case, and generates walks with and without conditions that need carriers', () => {
+      expect(compiled).toHaveLength(count)
+      const needing = cases.map((_, i) => renders(i).some(r => neededOnEither(r).size > 0))
+      expect(cases.filter((c, i) => c.conditional && needing[i]).length).toBeGreaterThan(count / 5)
+      expect(cases.filter((c, i) => !c.conditional && needing[i]).length).toBeGreaterThan(count / 20)
+    })
+
+    it.each(cases.map((c, i) => [c.source, i] as const))('%s', (_, i) => {
+      const want = new Set<number>()
+      const got = new Set<number>()
+      const named = new Set<number>()
+      for (const render of renders(i)) {
+        for (const id of neededOnEither(render)) want.add(id)
+        const m = marks(render)
+        m.marked.forEach(id => got.add(id))
+        m.named.forEach(id => named.add(id))
+      }
+      // Every node a render needs a carrier at carries the mark.
+      expect(
+        [...want].filter(id => !got.has(id)),
+        'unmarked',
+      ).toEqual([])
+      // Only named nodes carry it.
+      expect(
+        [...got].filter(id => !named.has(id)),
+        'not named',
+      ).toEqual([])
+      // Without conditions there is one render, and the mark is exactly what it needs.
+      if (!cases[i].conditional) expect([...got].sort()).toEqual([...want].sort())
+    })
   })
-})
 
 suite('the carrier mark over generated walks', false, CASES)
 suite('the carrier mark over generated walks with memoized hosts', true, MEMO_CASES)

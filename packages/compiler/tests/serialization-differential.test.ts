@@ -49,7 +49,9 @@ function moduleOf(calls: readonly Call[]): string {
     (c, i) =>
       `  (p) => ${c.call.replace('ATTR_PAIR', `${JSON.stringify(CASE_ATTRIBUTE)}: "${i}-pair"`).replace('ATTR', `${JSON.stringify(CASE_ATTRIBUTE)}: "${i}"`)},`,
   )
-  const consts = Object.entries(CORPUS_CONSTS).map(([name, value]) => `const ${name} = ${value}\n`).join('')
+  const consts = Object.entries(CORPUS_CONSTS)
+    .map(([name, value]) => `const ${name} = ${value}\n`)
+    .join('')
   return `import { Center, Column, Div, Grid, Row } from '@meonode/ui'\n${consts}export const cases = [\n${lines.join('\n')}\n]\n`
 }
 
@@ -207,7 +209,12 @@ describe('serialization differential', () => {
     const compiledModule = await load<{ cases: CompiledModule['cases'] }>(extractedCode, 'serial.on')
     const recorderModule = await import(recorder)
     const keys = (await import(pathToFileURL(THEME_KEY_UTIL).href)) as ThemeKeyUtil
-    const module: CompiledModule = { cases: compiledModule.cases, registered: recorderModule.registered, templates: recorderModule.templates, nameTemplate: recorderModule.nameTemplate }
+    const module: CompiledModule = {
+      cases: compiledModule.cases,
+      registered: recorderModule.registered,
+      templates: recorderModule.templates,
+      nameTemplate: recorderModule.nameTemplate,
+    }
 
     const mismatches: string[] = []
     let extracted = 0
@@ -228,7 +235,11 @@ describe('serialization differential', () => {
         }
       }
     }
-    await writeFile(path.join(TMP_DIR, 'serialization-differential.mismatches.txt'), `${all.length} cases, ${styled} runtime-styled nodes, ${extracted} compiled nodes, ${mismatches.length} mismatches\n${mismatches.join('\n')}`, 'utf8')
+    await writeFile(
+      path.join(TMP_DIR, 'serialization-differential.mismatches.txt'),
+      `${all.length} cases, ${styled} runtime-styled nodes, ${extracted} compiled nodes, ${mismatches.length} mismatches\n${mismatches.join('\n')}`,
+      'utf8',
+    )
     await writeFile(path.join(TMP_DIR, 'serialization-differential.routes.txt'), `${routes.join('\n')}\n`, 'utf8')
     // A run that compares nothing passes on any compiler.
     expect(styled, 'runtime-styled nodes read').toBeGreaterThan(0)

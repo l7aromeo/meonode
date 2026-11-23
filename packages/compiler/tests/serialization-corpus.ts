@@ -179,7 +179,6 @@ function orderCalls(): Call[] {
   return out
 }
 
-
 /** Every call the differential compares, in its order. */
 export function corpusCalls(): Call[] {
   return [...grammarCalls(cases()), ...SERIAL_CALLS, ...VAR_CALLS, ...orderCalls()]
