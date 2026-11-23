@@ -126,6 +126,7 @@ describe('leavesOpen', () => {
     ['a `(` in a single-quoted string with an escaped quote', ".a::before{content:'\\'(';}"],
     ['a `(` in a comment', '.a{padding:1px;/* ( */}'],
     ['a `(` in an unquoted url', '.a{background:url(a(b);}'],
+    ['a `(` in an unquoted url in capitals', '.a{background:URL(a(b);}'],
     ['an escaped `(`', '.a\\(b{color:red;}'],
     ['a `(` in a string a newline ends', '.a::before{content:"(\n;}'],
     ['a quoted url', '.a{background:url("a(b");}'],
@@ -142,6 +143,8 @@ describe('leavesOpen', () => {
     ['an unclosed string', '.x::before{content:"a;}'],
     ['an unclosed comment', '.x{padding:1px;}/* a'],
     ['an unclosed unquoted url', '.x{background:url(a.png;}'],
+    ['an unclosed unquoted url outside any block', '@import url(a.css'],
+    ['an unquoted url whose only `)` is escaped', '.x{background:url(a\\);}'],
     ['an unclosed `{`', '.x{padding:1px;'],
     ['an unclosed string in a function named like url', '.x{width:myurl(a"b);}'],
   ])('reads %s as open', (_, text) => {

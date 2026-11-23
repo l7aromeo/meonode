@@ -20,8 +20,19 @@ export function terminateRules(text: string): string {
   return text === '' || RULE_ENDS.includes(text[text.length - 1]!) ? text : `${text};`
 }
 
-/** The character a CSS parser closes each block it opens with. */
-const CLOSERS: Readonly<Record<string, string>> = { '(': ')', '[': ']', '{': '}' }
+/** Character codes the scan reads. */
+const BACKSLASH = 92
+const SLASH = 47
+const STAR = 42
+const DOUBLE_QUOTE = 34
+const SINGLE_QUOTE = 39
+const NEWLINE = 10
+const OPEN_PAREN = 40
+const CLOSE_PAREN = 41
+const OPEN_BRACKET = 91
+const CLOSE_BRACKET = 93
+const OPEN_BRACE = 123
+const CLOSE_BRACE = 125
 
 /** Whether `code` can be part of an identifier, as CSS tokenizing reads one: a letter, digit, `-`, `_` or non-ASCII. */
 function isNameCode(code: number): boolean {
@@ -30,7 +41,7 @@ function isNameCode(code: number): boolean {
 
 /** Whether `code` is CSS whitespace. */
 function isSpaceCode(code: number): boolean {
-  return code === 32 || code === 9 || code === 10 || code === 12 || code === 13
+  return code === 32 || code === 9 || code === NEWLINE || code === 12 || code === 13
 }
 
 /**
@@ -38,10 +49,13 @@ function isSpaceCode(code: number): boolean {
  * CSS tokenizing reads as one token, `(` and all, up to its `)`.
  */
 function startsUrlToken(text: string, at: number): boolean {
-  if (at < 3 || text.slice(at - 3, at).toLowerCase() !== 'url' || (at > 3 && (isNameCode(text.charCodeAt(at - 4)) || text[at - 5] === '\\'))) return false
+  // `url`, in any case, with no name character before it.
+  if (at < 3 || (text.charCodeAt(at - 1) | 32) !== 108 || (text.charCodeAt(at - 2) | 32) !== 114 || (text.charCodeAt(at - 3) | 32) !== 117) return false
+  if (at > 3 && (isNameCode(text.charCodeAt(at - 4)) || text.charCodeAt(at - 5) === BACKSLASH)) return false
   let next = at + 1
   while (next < text.length && isSpaceCode(text.charCodeAt(next))) next++
-  return text[next] !== '"' && text[next] !== "'"
+  const code = text.charCodeAt(next)
+  return code !== DOUBLE_QUOTE && code !== SINGLE_QUOTE
 }
 
 /**
@@ -56,30 +70,52 @@ function startsUrlToken(text: string, at: number): boolean {
  * @returns Whether a rule after it in the same sheet would be read into it.
  */
 export function leavesOpen(text: string): boolean {
-  const open: string[] = []
-  for (let index = 0; index < text.length; index++) {
-    const char = text[index]!
-    if (char === '\\') {
-      // An escape: the next character is part of a name, whatever it is.
-      index++
-    } else if (char === '/' && text[index + 1] === '*') {
-      const end = text.indexOf('*/', index + 2)
-      if (end === -1) return true
-      index = end + 1
-    } else if (char === '"' || char === "'") {
-      for (index++; index < text.length && text[index] !== char; index++) {
-        if (text[index] === '\\') index++
-        // A newline ends a string unterminated, and the parser goes on after it.
-        else if (text[index] === '\n') break
-      }
-      if (index >= text.length) return true
-    } else if (char === '(' && startsUrlToken(text, index)) {
-      for (index++; index < text.length && text[index] !== ')'; index++) if (text[index] === '\\') index++
-      if (index >= text.length) return true
-    } else if (char in CLOSERS) {
-      open.push(CLOSERS[char]!)
-    } else if (char === open[open.length - 1]) {
-      open.pop()
+  // The code of the character that closes each open block, innermost last.
+  const open: number[] = []
+  const length = text.length
+  for (let index = 0; index < length; index++) {
+    const code = text.charCodeAt(index)
+    switch (code) {
+      case BACKSLASH:
+        // An escape: the next character is part of a name, whatever it is.
+        index++
+        break
+      case SLASH:
+        if (text.charCodeAt(index + 1) === STAR) {
+          const end = text.indexOf('*/', index + 2)
+          if (end === -1) return true
+          index = end + 1
+        }
+        break
+      case DOUBLE_QUOTE:
+      case SINGLE_QUOTE:
+        for (index++; index < length; index++) {
+          const inner = text.charCodeAt(index)
+          if (inner === code) break
+          if (inner === BACKSLASH) index++
+          // A newline ends a string unterminated, and the parser goes on after it.
+          else if (inner === NEWLINE) break
+        }
+        if (index >= length) return true
+        break
+      case OPEN_PAREN:
+        if (startsUrlToken(text, index)) {
+          for (index++; index < length && text.charCodeAt(index) !== CLOSE_PAREN; index++) if (text.charCodeAt(index) === BACKSLASH) index++
+          if (index >= length) return true
+        } else open.push(CLOSE_PAREN)
+        break
+      case OPEN_BRACKET:
+        open.push(CLOSE_BRACKET)
+        break
+      case OPEN_BRACE:
+        open.push(CLOSE_BRACE)
+        break
+      case CLOSE_PAREN:
+      case CLOSE_BRACKET:
+      case CLOSE_BRACE:
+        // A closer of another block is a token like any other inside this one.
+        if (open[open.length - 1] === code) open.pop()
+        break
     }
   }
   return open.length > 0
@@ -95,7 +131,7 @@ export function leavesOpen(text: string): boolean {
  * @returns Whether the text must start a sheet to apply as it does on its own.
  */
 export function needsSheetStart(text: string): boolean {
-  return text.slice(0, 7).toLowerCase() === '@import'
+  return text.charCodeAt(0) === 64 && text.slice(1, 7).toLowerCase() === 'import'
 }
 
 /**
