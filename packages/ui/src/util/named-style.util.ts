@@ -1,10 +1,10 @@
 import type { EmotionCache } from '@emotion/cache'
 import { serializeStyles, type SerializedStyles } from '@emotion/serialize'
 import { getRegisteredStyles, insertStyles, registerStyles } from '@emotion/utils'
-import { createElement, type ReactElement } from 'react'
+import { createElement, Fragment, type ReactElement } from 'react'
 import { createServerCssCache } from '@src/util/server-css-cache.util.js'
 import { nameStyles } from '@src/util/style-name.util.js'
-import { terminateRules } from '@src/util/rule-text.util.js'
+import { sheetStarts, terminateRules } from '@src/util/rule-text.util.js'
 
 /**
  * A node's whole style, as the compiler serialized it, ready for Emotion's own
@@ -79,16 +79,19 @@ export function standInServerCache(): EmotionCache {
  * Inserts styles into a server render's cache, and renders what Emotion's own
  * `Insertion` renders for them there: one `<style data-emotion>` in place, with
  * the rules of those the cache did not hold yet, which Emotion's cache in the
- * browser adopts by those names and moves before hydration. A cache that
- * collects its rules instead, as a registry's does, returns none, so nothing
- * renders.
+ * browser adopts by those names and moves before hydration. Emotion gives each
+ * element a sheet of its own, so a style whose text must start a sheet, or
+ * leaves one open, gets a sheet edge there ({@link sheetStarts}), and the
+ * element becomes several. A cache that collects its rules instead, as a
+ * registry's does, returns none, so nothing renders.
  * @param cache The server render's cache.
  * @param styles The styles, in the order they go in.
- * @returns The element, or `null` when no rule went in.
+ * @returns The element (a fragment of them, where a sheet edge splits it), or
+ * `null` when no rule went in.
  */
 export function serverStyleElement(cache: EmotionCache, styles: readonly NamedStyle[]): ReactElement | null {
-  let names = ''
-  let rules = ''
+  const names: string[] = []
+  const texts: string[] = []
   const repeats = standIns.has(cache)
   for (const { serialized, isStringTag, scope } of styles) {
     // Into its scope's cache, which writes it once, as Emotion's shared one does.
@@ -97,9 +100,21 @@ export function serverStyleElement(cache: EmotionCache, styles: readonly NamedSt
       for (let current: SerializedStyles | undefined = serialized; current !== undefined; current = current.next) delete cache.inserted[current.name]
     const inserted = insertStyles(target, serialized, isStringTag)
     if (inserted === undefined) continue
-    rules += terminateRules(inserted)
-    for (let current: SerializedStyles | undefined = serialized; current !== undefined; current = current.next) names += ` ${current.name}`
+    texts.push(terminateRules(inserted))
+    let styleNames = ''
+    for (let current: SerializedStyles | undefined = serialized; current !== undefined; current = current.next) styleNames += ` ${current.name}`
+    names.push(styleNames)
   }
-  if (rules === '') return null
-  return createElement('style', { 'data-emotion': `${cache.key}${names}`, dangerouslySetInnerHTML: { __html: rules }, nonce: cache.sheet.nonce })
+  if (texts.length === 0) return null
+  // One element, unless a style's text must have a sheet edge before or after it.
+  const starts = sheetStarts(texts)
+  const sheets = starts.map((start, index) => {
+    const end = starts[index + 1] ?? texts.length
+    return createElement('style', {
+      'data-emotion': `${cache.key}${names.slice(start, end).join('')}`,
+      dangerouslySetInnerHTML: { __html: texts.slice(start, end).join('') },
+      nonce: cache.sheet.nonce,
+    })
+  })
+  return sheets.length === 1 ? sheets[0]! : createElement(Fragment, null, ...sheets)
 }
