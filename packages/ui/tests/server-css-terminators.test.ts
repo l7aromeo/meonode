@@ -10,8 +10,6 @@
 //
 // Emotion's development build drops a nested `@import` (with a console error),
 // and its production build keeps it, so the suite loads the production cache.
-import { createRequire } from 'node:module'
-import { dirname, join } from 'node:path'
 import { createElement, Fragment, type ReactElement } from 'react'
 import { renderToString } from 'react-dom/server'
 import { serializeStyles } from '@emotion/serialize'
@@ -26,7 +24,10 @@ import { __resetStaticCss, registerStaticCss } from '@src/util/static-css.util.j
 import { nameStyles } from '@src/util/style-name.util.js'
 import { ThemeUtil } from '@src/util/theme.util.js'
 
+// The factory imports what it needs itself: it is hoisted above the file's imports.
 vi.mock('@emotion/cache', async () => {
+  const { createRequire } = await import('node:module')
+  const { dirname, join } = await import('node:path')
   const entry = createRequire(import.meta.url).resolve('@emotion/cache')
   return import(join(dirname(entry), 'emotion-cache.esm.js'))
 })
