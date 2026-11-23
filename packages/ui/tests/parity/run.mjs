@@ -682,6 +682,10 @@ try {
     const reloads = new Map()
     const specOf = (label, plant) => ({ label, side: 'off', name: PLANT_CASE, mode: 'plain', meta, plant })
     for (const plant of pick(PLANTS)) {
+      if (plant.input && !FORCE_BY_INPUT) {
+        console.log(`skipped plant ${plant.dimension} ${plant.name}: states are forced through the DevTools protocol, so no pointer moves`)
+        continue
+      }
       const side = await record('off', PLANT_CASE, 'plain', meta, plant)
       if (plant.html) side.html = plant.html(side.html)
       // Exact markup compares a compiled side with another, so its plant is checked against the unplanted "off" record.

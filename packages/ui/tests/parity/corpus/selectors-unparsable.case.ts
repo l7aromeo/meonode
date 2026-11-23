@@ -1,9 +1,10 @@
 // Selector and at-rule keys stylis's parse does not keep inside one rule: an
 // unterminated :not(, a // that stylis reads as a comment, a ; inside the key,
-// and an unterminated attribute quote. The compiler leaves each whole node on
-// the runtime path, so whatever stylis makes of the key is what both builds
-// render. Each node stands alone, so what one key does to the rules after it
-// stays inside that node's own rule text.
+// and an unterminated attribute quote. The compiler extracts each node, and
+// whatever stylis makes of the key must be what both builds render. Emotion
+// writes each node's server rules in a <style> of their own, so what one key
+// does to the rules after it (an unclosed `(` swallows them) stays inside that
+// node's own rule text; extraction must keep it there too.
 import type { ReactElement } from 'react'
 import { Div, Span } from '@meonode/ui'
 import type { CaseMeta } from '../case.js'

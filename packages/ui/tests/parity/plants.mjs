@@ -183,7 +183,9 @@ export const COMPILED_PLANTS = [
  * names the outcome a forced-state plant must reach under real input:
  * `stable` (the same in every sweep), `only-compared` (varying on the planted
  * page alone) or `in-session` (in every sweep and on no fresh load); each
- * stays a failure.
+ * stays a failure. `input` marks a plant only real input can set off: where
+ * states are forced through the DevTools protocol no pointer moves, so it is
+ * skipped there.
  */
 export const PLANTS = [
   { dimension: 'computed', page: addRule(`${ROOT} { ${WRONG} }`) },
@@ -217,6 +219,7 @@ export const PLANTS = [
     dimension: 'forced-state',
     name: 'a difference only after the pointer has crossed earlier elements',
     confirm: 'in-session',
+    input: true,
     page: afterCrossing(CROSSED_BEFORE_PLANT, `${ROOT} :hover, ${ROOT}:hover { ${WRONG} }`),
   },
   { dimension: 'breakpoint', page: addRule(`@media (min-width: 601px) and (max-width: 601px) { ${ROOT} { ${WRONG} } }`) },

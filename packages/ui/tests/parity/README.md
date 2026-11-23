@@ -70,7 +70,8 @@ Each side's record is compared with the oracle's on:
   the sweeps and on no fresh load. Three
   plants prove these outcomes: a difference on every load, one on alternate
   loads of the compared page only, and one that shows only after the pointer
-  has crossed earlier elements. `:checked`, `:disabled`
+  has crossed earlier elements, which runs only where states are forced
+  through real input, since the DevTools protocol moves no pointer. `:checked`, `:disabled`
   and `:placeholder-shown` are flipped through the DOM on the elements that
   have them, in every engine;
 - **every viewport width** at 1280px and at each breakpoint of the case ±1px,
