@@ -68,6 +68,8 @@ import { factoryBrands, type FactoryCallSite } from '@src/factory-call/index.js'
 import { namedClass, type NamedStyle } from '@src/util/named-style.util.js'
 import type { EmotionCache } from '@emotion/cache'
 import { readEmotionCache } from '@src/util/emotion-cache.util.js'
+import { hasThemedPreludes, splitThemedText, textForTheme } from '@src/util/themed-text.util.js'
+import { keyHasThemeToken, keysMayMeet } from '@src/util/theme-key.util.js'
 import { createServerCssCache } from '@src/util/server-css-cache.util.js'
 import { checkCandidatesAfterCommit, checkThemeRefsInScope, type StaticThemeCandidate } from '@src/components/static-styles.js'
 import { replaceThemeTokensWithCssVars } from '@src/util/server-theme.util.js'
@@ -817,8 +819,10 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
             // A carrier where the compiler marks one, so it carries in every
             // render; also where no rule is before it since the walk's start or
             // a cut, which the compiler missed, so every run has a rule to go in
-            // with; and anywhere with no cache to read.
-            if (styles !== undefined && (beginProps[STATIC_CARRIER_MARKER] || walkHasNoCache() || lastRuleNode === null)) {
+            // with; anywhere with no cache to read; and for a style whose
+            // conditions or selectors hold theme tokens, which only the theme
+            // where its element renders resolves, as its css would.
+            if (styles !== undefined && (beginProps[STATIC_CARRIER_MARKER] || walkHasNoCache() || lastRuleNode === null || hasThemedPreludes(styles))) {
               // A runtime node now: it takes the run since the last rule, as one
               // does, and the one after it that no later rule takes.
               namedAtRender!.add(node)
@@ -1248,8 +1252,27 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
               let rule: ReturnType<typeof compileServerEmotionRule>
               let plain: CssProp | undefined
               let themed: CssProp | undefined
+              /** The part of a named style's text compiled here, where it is not the whole text. */
+              let namedPlainText: string | undefined
               if (serverNamedStyles !== undefined) {
-                rule = compileServerNamedRule(staticName as string, serverNamedStyles, elementProps.className, { share: typeof renderTarget !== 'string' })
+                const share = typeof renderTarget !== 'string'
+                if (!hasThemedPreludes(serverNamedStyles)) {
+                  rule = compileServerNamedRule(staticName as string, serverNamedStyles, elementProps.className, { share })
+                } else if (activeTheme) {
+                  // Conditions holding theme tokens resolve against the theme in scope, as css's keys do.
+                  const resolved = textForTheme(serverNamedStyles, activeTheme)!
+                  if (diagnosticsEnabled()) for (const prelude of resolved.dropped) reportUnresolvedThemeKey(prelude)
+                  rule = compileServerNamedRule(resolved.name, resolved.styles, elementProps.className, { share })
+                } else {
+                  // With no theme in scope, split as css is: from the first block whose
+                  // condition holds a token, the text goes to `ThemedRule`, which resolves
+                  // it where the theme is; the rest compiles here, under the class of the
+                  // whole text.
+                  const split = splitThemedText(serverNamedStyles)
+                  rule = compileServerNamedRule(staticName as string, split.plain, elementProps.className, { share, identity: serverNamedStyles })
+                  themed = split.themed || undefined
+                  namedPlainText = split.plain
+                }
                 // With a theme in scope, checked here, as css is above; with none, where the providers are, below.
                 if (activeTheme) reportThemeVarRefs(collectNamedThemeVarRefs(serverNamedStyles), getThemeVarIndex(activeTheme))
               } else {
@@ -1324,7 +1347,7 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
                 // `ThemedRule` checks its own part. Only while diagnostics are on,
                 // so production output carries nothing for it.
                 if (!activeTheme && diagnosticsEnabled()) {
-                  const refs = plain !== undefined ? collectThemeVarRefs(plain) : collectNamedThemeVarRefs(serverNamedStyles ?? '')
+                  const refs = plain !== undefined ? collectThemeVarRefs(plain) : collectNamedThemeVarRefs(namedPlainText ?? serverNamedStyles ?? '')
                   if (refs.length > 0) {
                     const ruleKey = `${rule.id}:check`
                     carryWithTheme(ruleKey, createElement(ThemeTokenCheck, { key: ruleKey, refs }))
@@ -1761,14 +1784,38 @@ function holdsStylesKey(value: unknown): boolean {
 }
 
 /**
+ * Whether a style's text can keep the theme tokens of its keys for the theme
+ * where it renders to resolve, block by block: every key holding one, at any
+ * depth, is an at-rule's condition over a block, and none is one a theme could
+ * make equal to another key of its object (see {@link keysMayMeet}), which
+ * resolving the object would fold into one. No value holds a brace, which the
+ * text's blocks are found by.
+ */
+function joinsWithThemedKeys(style: Record<string, unknown>): boolean {
+  const keys = Object.keys(style)
+  for (const key of keys) {
+    const value = style[key]
+    if (keyHasThemeToken(key)) {
+      if (!key.startsWith('@') || !isPlainObject(value)) return false
+      for (const other of keys) if (other !== key && keysMayMeet(key, other)) return false
+    }
+    if (typeof value === 'string' && (value.includes('{') || value.includes('}'))) return false
+    if (isPlainObject(value) && !joinsWithThemedKeys(value)) return false
+  }
+  return true
+}
+
+/**
  * The whole style of merged props as a compiled name: the `css` `processProps`
  * assembles from them (primitive flat props, then the other flat props, then
  * `css` over them), through the steps the compiler serializes a named style
- * with. `null` keeps the site on the runtime path: the style holds a value that
- * is not plain data (a function, an array, `undefined`, a `css()` result), a
- * `styles` key, or a key holding a theme token, whose value a theme decides; it
- * has no key, so the node renders no class, or serializes to nothing; or its
- * name holds another text.
+ * with. A theme token in an at-rule's condition stays in the text, as the
+ * compiler leaves it, for the theme where the element renders to resolve (see
+ * `textForTheme`). `null` keeps the site on the runtime path: the style holds a
+ * value that is not plain data (a function, an array, `undefined`, a `css()`
+ * result), a `styles` key, or a theme token in a selector; it has no key, so the
+ * node renders no class, or serializes to nothing; or its name holds another
+ * text.
  */
 function joinStyle(merged: Record<string, unknown>, own: string | undefined): JoinedStyle {
   const primitives: Record<string, unknown> = {}
@@ -1788,8 +1835,9 @@ function joinStyle(merged: Record<string, unknown>, own: string | undefined): Jo
   const kept = ThemeUtil.dropThemedKeys(resolved, () => {
     themedKey = true
   })
-  if (themedKey) return null
-  const { name, styles } = nameStyles(serializeStyles([ThemeUtil.resolveDefaultStyle(kept)] as never))
+  // With no theme, only keys holding tokens are dropped: the `styles` keys are refused above.
+  if (themedKey && !joinsWithThemedKeys(resolved)) return null
+  const { name, styles } = nameStyles(serializeStyles([ThemeUtil.resolveDefaultStyle(themedKey ? resolved : kept)] as never))
   if (styles === '' || !registerNamedText(name, styles)) return null
   return { name, styles, own }
 }

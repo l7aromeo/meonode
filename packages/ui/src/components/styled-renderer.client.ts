@@ -22,6 +22,7 @@ import { createServerCssCache } from '@src/util/server-css-cache.util.js'
 import { replaceThemeTokensWithCssVars } from '@src/util/server-theme.util.js'
 import { nameStyles } from '@src/util/style-name.util.js'
 import { type NamedStyle, serverStyleElement, standInServerCache } from '@src/util/named-style.util.js'
+import { textForTheme } from '@src/util/themed-text.util.js'
 
 export interface StyledRendererProps<E extends NodeElement> {
   element: E
@@ -153,6 +154,23 @@ function textOf(compiled: CompiledStyle, context: ThemeContextState | null): str
 }
 
 /**
+ * A compiled style for the theme the element renders under: as the compiler
+ * serialized it, or, where a condition or selector in it holds a theme token,
+ * resolved for that theme (see {@link textForTheme}), each block left out
+ * reported in development as {@link cssOf} reports a key it leaves out.
+ * @param compiled The compiled style, if any.
+ * @param theme The theme in scope.
+ * @returns The style to render.
+ */
+function compiledFor(compiled: CompiledStyle | undefined, theme: Theme | undefined): CompiledStyle | undefined {
+  if (compiled === undefined) return undefined
+  const themed = textForTheme(compiled.styles, theme)
+  if (themed === undefined) return compiled
+  if (diagnosticsEnabled()) for (const prelude of themed.dropped) reportUnresolvedThemeKey(prelude)
+  return themed
+}
+
+/**
  * The serialized styles for an element's css and the registered styles folded
  * into it. A compiled style with nothing folded in keeps the compiler's name.
  * @param registered The element's css, then the styles folded in.
@@ -186,7 +204,7 @@ function renderOwnClass(
   const renderTarget = (asTarget != null && isValidElementType(asTarget) ? asTarget : props.element) as ElementType
   const givenClass = props.className
   let className = ''
-  const compiled = props[STATIC_STYLE_PROP] as CompiledStyle | undefined
+  const compiled = compiledFor(props[STATIC_STYLE_PROP] as CompiledStyle | undefined, theme)
   const registered: unknown[] = [compiled ? textOf(compiled, context) : cssOf(props.css, theme, context)]
   if (typeof givenClass === 'string') className = getRegisteredStyles(cache.registered, registered as string[], givenClass)
   else if (givenClass != null) className = `${givenClass as string} `
@@ -244,7 +262,7 @@ function renderStyled(
     css,
     as: asTarget,
     className: givenClass,
-    [STATIC_STYLE_PROP]: compiled,
+    [STATIC_STYLE_PROP]: given,
     [STATIC_RUN_AFTER_PROP]: _after,
     [STATIC_SCOPE_PROP]: _scope,
     ...otherProps
@@ -260,6 +278,7 @@ function renderStyled(
   // to execute any callable theme refs and to expand string tokens that
   // may have been provided directly via `css` rather than via `elementProps`.
   // A compiled style comes serialized already.
+  const compiled = compiledFor(given, theme)
   const cssForEmotion = compiled ? textOf(compiled, context) : cssOf(css, theme, context)
 
   // With no cache above it — only on the server, since the browser always has

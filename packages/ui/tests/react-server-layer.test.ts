@@ -376,4 +376,125 @@ describe('named static styles in the React Server Components layer', () => {
       registry.__resetStaticCss()
     }
   })
+  // A theme token in an at-rule's condition stays in a named style's text, for
+  // the theme where the element renders to resolve. A server component has a
+  // theme only from a node above it; with none, the part of the text from the
+  // first such block on goes to `ThemedRule` as css's part would, as CSS text,
+  // so it is compared by the rule it writes under each theme.
+  describe('a named style with a theme token in a condition', () => {
+    const COMPACT = '@media (width < theme.bp.compact)'
+    const CSS = { padding: 'theme.pad', '&:hover': { color: 'red' }, [COMPACT]: { padding: 4 }, '& h1': { [COMPACT]: { margin: 0 } }, '& p': { margin: 1 } }
+    const THEMES = [{ bp: { compact: '600px' }, pad: '8px' }, { bp: { compact: '900px' }, pad: '8px' }, { pad: '8px' }]
+
+    async function helpers() {
+      const { registry, runtime } = await styles()
+      const { ThemeUtil } = await import('@src/util/theme.util.js')
+      const { nameStyles } = await import('@src/util/style-name.util.js')
+      const { serializeStyles } = await import('@emotion/serialize')
+      const { replaceThemeTokensWithCssVars } = await import('@src/util/server-theme.util.js')
+      /** As the compiler emits the node: its text with the condition's token left in, by name. */
+      const compiled: Style = css => {
+        const resolved = ThemeUtil.resolveObjWithTheme(css, undefined, { processFunctions: true, themeStringsMode: 'vars' })
+        const { name, styles: text } = nameStyles(serializeStyles([ThemeUtil.resolveDefaultStyle(resolved)] as never))
+        expect(text).toContain('theme.bp.compact')
+        registry.registerStaticCss(`m-${name}`, [[name, text]])
+        return { __meo$: 2, __meo$n: name }
+      }
+      /** The rule `ThemedRule` writes for its css under each theme: its name and text. */
+      const written = (css: unknown) =>
+        [...THEMES, undefined].map(system => {
+          const theme = system && { mode: 'light', system }
+          const kept = ThemeUtil.dropThemedKeys(
+            (
+              ThemeUtil.resolveObjWithTheme({ css } as Record<string, unknown>, theme as never, { processFunctions: true, themeStringsMode: 'vars' }) as {
+                css: unknown
+              }
+            ).css,
+            () => {},
+          )
+          const serialized = nameStyles(serializeStyles([kept] as never))
+          return [serialized.name, serialized.styles]
+        })
+      /** The tree as data, each `ThemedRule`'s css replaced by the rules it writes. */
+      const read = (value: unknown): unknown =>
+        JSON.parse(JSON.stringify(shape(value)), (_key, found) =>
+          found && typeof found === 'object' && typeof found.key === 'string' && found.key.endsWith(':themed')
+            ? { ...found, props: { ...found.props, css: written(found.props.css) } }
+            : found,
+        )
+      return { registry, runtime, compiled, read, replaceThemeTokensWithCssVars }
+    }
+
+    it('splits as css does with no theme in scope, its themed part writing the rules css’s writes', async () => {
+      const { registry, runtime, compiled, read, replaceThemeTokensWithCssVars } = await helpers()
+      registry.__resetStaticCss()
+      try {
+        const tree = (style: Style) =>
+          main.Div({ children: [main.Div({ key: 'r', css: { order: 1 } }), main.Div({ key: 'n', ...style(replaceThemeTokensWithCssVars(CSS)) })] })
+        const expected = read(tree(runtime).render())
+        expect(JSON.stringify(expected)).toContain(':themed')
+        expect(read(tree(compiled).render())).toEqual(expected)
+      } finally {
+        registry.__resetStaticCss()
+      }
+    })
+
+    // A class a component is handed composes with the element's own, the themed
+    // part of a handed class going to the client with the whole composition.
+    // Classes are shared between requests by name, so the same style kept as css
+    // and as a compiled text is one style; with the store empty, as in a process
+    // that only ever rendered the compiled node, too.
+    it.each([
+      ['after the css', false],
+      ['in a store of its own', true],
+    ])('hands its class to a server component that composes it, as css’s, %s', async (_, ownStore) => {
+      const { registry, runtime, compiled, read, replaceThemeTokensWithCssVars } = await helpers()
+      const { __clearSharedClassStore } = await import('@src/util/server-emotion.util.js')
+      registry.__resetStaticCss()
+      try {
+        const Box = (props: { className?: string }) => main.Div({ className: props.className, css: { order: 2 } }).render() as ReactElement
+        const tree = (style: Style) => main.Div({ children: main.Node(Box, { ...style(replaceThemeTokensWithCssVars(CSS)) } as never) })
+        __clearSharedClassStore()
+        const expected = read(tree(runtime).render())
+        if (ownStore) __clearSharedClassStore()
+        expect(JSON.stringify(expected)).toContain(':themed')
+        expect(read(tree(compiled).render())).toEqual(expected)
+      } finally {
+        registry.__resetStaticCss()
+      }
+    })
+
+    it.each(THEMES.map(system => [JSON.stringify(system), system]))('resolves against a theme in scope, %s, as css does', async (_, system) => {
+      const { registry, runtime, compiled, read, replaceThemeTokensWithCssVars } = await helpers()
+      registry.__resetStaticCss()
+      try {
+        const tree = (style: Style) =>
+          main.Div({ theme: { mode: 'light', system }, children: [main.Div({ key: 'n', ...style(replaceThemeTokensWithCssVars(CSS)) })] } as never)
+        const expected = read(tree(runtime).render())
+        expect(JSON.stringify(expected)).not.toContain(':themed')
+        expect(read(tree(compiled).render())).toEqual(expected)
+      } finally {
+        registry.__resetStaticCss()
+      }
+    })
+
+    it('renders a joined call of an imported factory with such a condition as the call uncompiled', async () => {
+      const { registry, read } = await helpers()
+      registry.__resetStaticCss()
+      try {
+        type Make = (props: Record<string, unknown>) => import('@src/main.js').NodeInstance
+        const Prose = main.createNode('article', { css: CSS } as never) as unknown as Make
+        const site = { at: 0 }
+        const joined: Make = props => main.__meoFactoryCall(Prose, site, props) as ReturnType<Make>
+        expect((joined({ id: 'p' }).props as Record<string, unknown>).__meo$n).toBeDefined()
+        for (const system of [undefined, THEMES[0]]) {
+          const tree = (make: Make) =>
+            main.Div({ ...(system && { theme: { mode: 'light', system } }), children: [make({ key: 'a', id: 'p', children: 'x' })] } as never)
+          expect(read(tree(joined).render())).toEqual(read(tree(Prose).render()))
+        }
+      } finally {
+        registry.__resetStaticCss()
+      }
+    })
+  })
 })

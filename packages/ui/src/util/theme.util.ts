@@ -616,6 +616,38 @@ export class ThemeUtil {
   public static dropThemedKeys = <T>(css: T, report: (key: string) => void): T => dropUnwritable(css, report)
 
   /**
+   * The value a token in a condition or a selector takes from `theme`: the one
+   * {@link ThemeUtil.resolveObjWithTheme} writes into a key, or `undefined` when
+   * the theme has none there, and the key keeps its token.
+   * @param theme The theme in scope.
+   * @param path The token's path, after `theme.`.
+   */
+  public static concreteTokenValue = (theme: Theme | undefined, path: string): string | undefined => {
+    const system = theme?.system
+    return system && typeof system === 'object' ? concreteThemeValue(system as Record<string, unknown>, path) : undefined
+  }
+
+  /**
+   * A text that is the same for two themes exactly when the tokens at `paths`
+   * take the same values from both in a condition or a selector, which is all a
+   * style's keys read from the theme: whether it has a `system` (without one,
+   * every key keeps its tokens), then each path's value.
+   * @param theme The theme in scope.
+   * @param paths The paths of the tokens in the style's keys.
+   */
+  public static concreteTokenSignature = (theme: Theme | undefined, paths: readonly string[]): string => {
+    const system = theme?.system
+    if (!system || typeof system !== 'object') return ''
+    let signature = '+'
+    for (const path of paths) {
+      const value = concreteThemeValue(system as Record<string, unknown>, path)
+      // Length-prefixed, so no two lists of values give one text.
+      signature += value === undefined ? '-' : `${value.length}:${value}`
+    }
+    return signature
+  }
+
+  /**
    * Leaves out every `styles` key that holds no string, at any depth (see
    * {@link holdsReservedStylesKey}), for a path to Emotion that keeps its themed
    * keys and so does not pass through {@link ThemeUtil.dropThemedKeys}.

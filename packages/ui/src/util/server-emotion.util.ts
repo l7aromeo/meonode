@@ -89,10 +89,22 @@ function keepSharedClass(name: string, entry: SharedClass): void {
   currentLength += entry.size
 }
 
-function shareClass(name: string, styles: string, themed?: CssProp): void {
+/**
+ * Whether two themed parts of a shared class are one style: the same value, or
+ * the same text serialized, as a compiled node's text and the css it was
+ * serialized from are.
+ */
+function sameThemed(a: CssProp | string | undefined, b: CssProp | string | undefined): boolean {
+  if (a === b) return true
+  if (a === undefined || b === undefined) return false
+  const textOf = (part: CssProp | string) => (typeof part === 'string' ? part : serializeStyles([part] as never).styles)
+  return textOf(a) === textOf(b)
+}
+
+function shareClass(name: string, styles: string, themed?: CssProp | string): void {
   const held = currentClasses.get(name) ?? previousClasses.get(name)
   if (held !== undefined) {
-    if (!held.conflicted && (held.styles !== styles || (held.themed !== themed && JSON.stringify(held.themed) !== JSON.stringify(themed)))) {
+    if (!held.conflicted && (held.styles !== styles || !sameThemed(held.themed, themed))) {
       reportSharedStyleName(name)
       held.conflicted = true
     }
@@ -215,7 +227,12 @@ export function compileServerEmotionRule(css: CssProp, className?: unknown, opti
  * @param options `share`: keep the class in the shared store, for an element that is a component.
  * @returns The rule.
  */
-export function compileServerNamedRule(name: string, styles: string, className?: unknown, options?: { share?: boolean }): ServerEmotionRule | undefined {
+export function compileServerNamedRule(
+  name: string,
+  styles: string,
+  className?: unknown,
+  options?: { share?: boolean; identity?: string },
+): ServerEmotionRule | undefined {
   return compileRule(styles, name, className, options)
 }
 
@@ -228,7 +245,7 @@ function compileRule(
   css: CssProp | string,
   knownName: string | undefined,
   className: unknown,
-  options?: { share?: boolean; identity?: CssProp },
+  options?: { share?: boolean; identity?: CssProp | string },
 ): ServerEmotionRule | undefined {
   const cache = requestEmotionCache()
   const themedClasses = requestThemedClasses()

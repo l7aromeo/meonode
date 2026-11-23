@@ -258,7 +258,8 @@ describe('a call kept on the runtime path', () => {
     ['a `css()`-like value', () => [Panel, [{ css: { name: 'x', styles: 'color:red;' } }]]],
     ['a `styles` key holding no string', () => [Panel, [{ css: { styles: { margin: 1 } } }]]],
     ['a nested `styles` key', () => [Panel, [{ css: { '&:focus': { styles: { margin: 1 } } } }]]],
-    ['a key holding a theme token', () => [Panel, [{ css: { '@media (min-width: theme.breakpoints.md)': { padding: 2 } } }]]],
+    // A token in an at-rule's condition joins (factory-call-themed.test.ts); one in a selector does not.
+    ['a selector holding a theme token', () => [Panel, [{ css: { '&[data-size="theme.sizes.md"]': { padding: 2 } } }]]],
     ['a style of nothing', () => [Bare, [{ id: 'b' }]]],
   ])('%s', (_, args) => {
     const [factory, callArgs] = args()
