@@ -507,8 +507,8 @@ describe('build output: the factory-call entry', () => {
     expect(result).toEqual({ before: 'undefined', main: 'string', after: 'string' })
   })
 
-  /** The build's modules that render code into `source` bundled by rollup against the ESM build, every other package left external. */
-  async function treeShaken(source: string): Promise<string[]> {
+  /** The build's modules that render code into `source` bundled by rollup against an ESM build, every other package left external. */
+  async function treeShaken(source: string, build: 'esm' | 'rsc/esm'): Promise<string[]> {
     const entry = '\0app'
     const bundle = await rollup({
       input: entry,
@@ -516,7 +516,7 @@ describe('build output: the factory-call entry', () => {
       plugins: [
         {
           name: 'app',
-          resolveId: id => (id === entry ? id : id === '@meonode/ui' ? path.join(ROOT, 'dist/esm/main.js') : null),
+          resolveId: id => (id === entry ? id : id === '@meonode/ui' ? path.join(ROOT, 'dist', build, 'main.js') : null),
           load: id => (id === entry ? source : null),
         },
       ],
@@ -528,7 +528,8 @@ describe('build output: the factory-call entry', () => {
       'modules' in chunk
         ? Object.entries(chunk.modules)
             .filter(([, module]) => module.renderedLength > 0)
-            .map(([id]) => path.relative(path.join(ROOT, 'dist/esm'), id))
+            // The server build loads its client components from the default build's files.
+            .map(([id]) => path.relative(path.join(ROOT, 'dist', build), id).replace(/^(\.\.\/)+esm\//, ''))
         : [],
     )
   }
@@ -537,9 +538,10 @@ describe('build output: the factory-call entry', () => {
   // compiled style, so neither the join nor what renders a registered style (the
   // named runtime, the compiled-style resolution, the resolver of themed
   // conditions, the registry) reaches its bundle; compiled output brings in what
-  // it uses. The element a server component hands a client reference comes only
-  // through the server build's client reference, never this one's main entry.
-  it.each([
+  // it uses. In the server build, the element a server component hands a client
+  // reference is itself a client reference, which a bundler ships to the
+  // browser wherever a server module imports it: only the named runtime does.
+  const APPS = [
     [
       'an app built without the compiler',
       `import { createNode, createChildrenFirstNode, Div, ThemeProvider } from '@meonode/ui'\nexport default [createNode, createChildrenFirstNode, Div, ThemeProvider]`,
@@ -548,18 +550,22 @@ describe('build output: the factory-call entry', () => {
     ],
     ['compiled output with no joined call', `import { Div, registerStaticCss } from '@meonode/ui'\nexport default [Div, registerStaticCss]`, false, true],
     ['compiled output with a joined call', `import { Div, __meoFactoryCall } from '@meonode/ui'\nexport default [Div, __meoFactoryCall]`, true, true],
-  ])('tree-shakes for %s', async (_, source, join, registers) => {
-    const modules = await treeShaken(source)
-    expect(modules).toContain('core.node.js')
-    expect(modules.includes('factory-call/join.js')).toBe(join)
-    for (const module of [
-      'util/themed-text.util.js',
-      'util/named-runtime.util.js',
-      'util/compiled-style.util.js',
-      'util/named-style.util.js',
-      'util/static-css.util.js',
-    ])
-      expect([module, modules.includes(module)]).toEqual([module, registers])
-    expect(modules).not.toContain('components/compiled-styled-renderer.client.js')
-  })
+  ] as const
+  it.each((['esm', 'rsc/esm'] as const).flatMap(build => APPS.map(app => [build, ...app] as const)))(
+    'tree-shakes the %s build for %s',
+    async (build, _, source, join, registers) => {
+      const modules = await treeShaken(source, build)
+      expect(modules).toContain('core.node.js')
+      expect(modules.includes('factory-call/join.js')).toBe(join)
+      for (const module of [
+        'util/themed-text.util.js',
+        'util/named-runtime.util.js',
+        'util/compiled-style.util.js',
+        'util/named-style.util.js',
+        'util/static-css.util.js',
+        'components/compiled-styled-renderer.client.js',
+      ])
+        expect([module, modules.includes(module)]).toEqual([module, registers])
+    },
+  )
 })

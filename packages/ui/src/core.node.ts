@@ -31,7 +31,6 @@ import { isFragment, isValidElementType, REACT_LAZY_TYPE } from '@src/helper/rea
 import { getComponentType, getElementTypeName, hasNoStyleTag, getGlobalState, omitUndefined } from '@src/helper/common.helper.js'
 import StyledRenderer, { ThemedRule, ThemeTokenCheck } from '@src/components/styled-renderer.client.js'
 import MeoMemo from '@src/components/meo-memo.client.js'
-import CompiledStyledRenderer from '@src/components/compiled-styled-renderer.client.js'
 import {
   COMPILED_MARKER,
   COMPILER_SCHEMA_KEYS,
@@ -966,8 +965,8 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
             // as its css would; the style goes with it, since the module that
             // registered it does not load there, and so does how it renders, in
             // `CompiledStyledRenderer`.
-            const namedForClient = namedStylesHere !== undefined && NodeUtil.isClientReference(renderTarget)
-            const serverNamedStyles = namedForClient ? undefined : namedStylesHere
+            const namedForClient = namedStylesHere !== undefined && NodeUtil.isClientReference(renderTarget) ? namedRuntime.current?.clientRenderer : undefined
+            const serverNamedStyles = namedForClient !== undefined ? undefined : namedStylesHere
             // Keep server/client on the same StyledRenderer path for client references.
             // This avoids Emotion hash drift not only for theme tokens, but also for raw
             // CSS values (e.g. "red", "#ff0000") that would otherwise use different
@@ -985,9 +984,9 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
                 },
                 ...elementChildren,
               )
-            } else if (namedForClient) {
+            } else if (namedForClient !== undefined) {
               element = createElement(
-                CompiledStyledRenderer,
+                namedForClient,
                 { element: renderTarget, ...elementProps, [STATIC_STYLE_PROP]: { name: staticName, styles: namedStylesHere } },
                 ...elementChildren,
               )

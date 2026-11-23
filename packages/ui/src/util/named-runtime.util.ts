@@ -13,6 +13,7 @@ import { isValidElementType, REACT_ACTIVITY_TYPE, REACT_LAZY_TYPE, REACT_SUSPENS
 import type { NodeInstance } from '@src/types/node.type.js'
 import { ThemeContext } from '@src/components/theme-provider.client.js'
 import { installCompiledStyles } from '@src/util/compiled-style.util.js'
+import CompiledStyledRenderer from '@src/components/compiled-styled-renderer.client.js'
 import { checkCandidatesAfterCommit, checkThemeRefsInScope, type StaticThemeCandidate } from '@src/components/static-styles.js'
 import { mayChangeTheme, passesChildrenThrough, providesTheme } from '@src/util/children-pass-through.util.js'
 import { readEmotionCache } from '@src/util/emotion-cache.util.js'
@@ -307,6 +308,11 @@ const RUNTIME: NamedRuntime = {
   withContexts: (contexts, run) => withWalkContexts(contexts, run),
   standInServerCache: () => standInServerCache(),
   serverStyleElement: (cache, styles) => serverStyleElement(cache, styles),
+  // Read when a server render hands it, since the component's module imports
+  // this one and may not have defined it yet while this one is evaluated.
+  get clientRenderer() {
+    return CompiledStyledRenderer
+  },
 }
 
 /** Gives {@link namedRuntime} this module's runtime: called wherever a compiled style is registered. */
