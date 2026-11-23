@@ -6,6 +6,7 @@ import { nameStyles } from '@src/util/style-name.util.js'
 import { getRegisteredStyles, insertStyles } from '@emotion/utils'
 import type { CssProp } from '@src/types/node.type.js'
 import { reportSharedStyleName, reportUncomposedClass } from '@src/util/theme-diagnostics.util.js'
+import { terminateRules } from '@src/util/rule-text.util.js'
 
 /**
  * The emotion cache of one request in the React Server Components layer, the
@@ -282,5 +283,5 @@ function compileRule(
   const ownClassName = `${cache.key}-${serialized.name}`
   if (options?.identity) themedClasses.set(ownClassName, options.identity)
   if (options?.share) shareClass(ownClassName, serialized.styles, options?.identity)
-  return { className: `${otherClasses}${ownClassName}`, ownClassName, id: serialized.name, cssText: cssText ?? '' }
+  return { className: `${otherClasses}${ownClassName}`, ownClassName, id: serialized.name, cssText: terminateRules(cssText ?? '') }
 }
