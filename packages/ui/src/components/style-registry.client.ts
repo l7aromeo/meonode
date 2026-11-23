@@ -5,7 +5,7 @@ import createCache from '@emotion/cache'
 import { Node } from '@src/core.node.js'
 import { NodeUtil } from '@src/util/node.util.js'
 import { prefixer } from '@src/util/emotion-prefixer.util.js'
-import { terminateRules } from '@src/util/rule-text.util.js'
+import { sheetStarts, terminateRules } from '@src/util/rule-text.util.js'
 import { ServerInsertedHTMLContext, useServerInsertedHTML } from 'next/navigation.js'
 
 /**
@@ -97,14 +97,19 @@ export default function StyleRegistry({ children }: { children: ReactElement }) 
     newIds.forEach(id => inserted.add(id))
 
     // In insertion order, which is render order, so the output is as deterministic as the render.
-    const styles = newIds.map(id => terminateRules(cache.inserted[id] as string)).join('')
-    const idsString = newIds.join(' ')
+    const texts = newIds.map(id => terminateRules(cache.inserted[id] as string))
 
-    // Insert a single style tag with the tracked Emotion ids.
-    return createElement('style', {
-      'data-emotion': `${cache.key} ${idsString}`,
-      dangerouslySetInnerHTML: { __html: styles },
-    })
+    // One style tag with the tracked Emotion ids, unless a style's text must
+    // have a sheet edge before or after it, as in its own element's sheet.
+    const starts = sheetStarts(texts)
+    const sheet = (start: number, end: number, key?: number) =>
+      createElement('style', {
+        key,
+        'data-emotion': `${cache.key} ${newIds.slice(start, end).join(' ')}`,
+        dangerouslySetInnerHTML: { __html: texts.slice(start, end).join('') },
+      })
+    if (starts.length === 1) return sheet(0, texts.length)
+    return starts.map((start, index) => sheet(start, starts[index + 1] ?? texts.length, start))
   })
 
   // Provide the Emotion cache to descendants.
