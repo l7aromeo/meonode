@@ -36,6 +36,8 @@ const CACHE_KEY = 'css'
 const THEME_UTIL = path.resolve(import.meta.dirname, '../../ui/dist/esm/util/theme.util.js')
 /** The runtime's naming, which the recorder names joined templates with. */
 const STYLE_NAME_UTIL = path.resolve(import.meta.dirname, '../../ui/dist/esm/util/style-name.util.js')
+/** The runtime's key-token helpers, which resolve the theme tokens compiled text keeps in its preludes. */
+const THEME_KEY_UTIL = path.resolve(import.meta.dirname, '../../ui/dist/esm/util/theme-key.util.js')
 /** Call-site key holding a node's class name. */
 const NAME_KEY = '__meo$n'
 /** Call-site key holding a template node's id and holes. */
@@ -66,6 +68,12 @@ async function load<T>(code: string, name: string): Promise<T> {
   const file = path.join(TMP_DIR, `${name}.mjs`)
   await writeFile(file, code, 'utf8')
   return (await import(pathToFileURL(file).href)) as T
+}
+
+/** The key-token helpers the differential reads compiled text with. */
+interface ThemeKeyUtil {
+  textHasThemeTokenInPrelude(text: string): boolean
+  removeBlocksWithThemeTokens(text: string, report: (prelude: string) => void): string
 }
 
 /** A node's name and serialized styles. */
@@ -150,9 +158,20 @@ export const Center = Div
 export const Grid = Div
 `
 
-/** The compiled call sites' names and styles: `id` → styled, for each case node the compiler named. */
-function compiledStyles(module: CompiledModule, record: CallRecord): Map<string, Styled> {
+/**
+ * The compiled call sites' names and styles: `id` → styled, for each case node
+ * the compiler named. A text holding a theme token in a prelude is the one the
+ * runtime renders after it resolves the tokens with the node's theme: the
+ * reference renders under none, so each block whose prelude holds one is left
+ * out, and the rest is named as the runtime names it.
+ */
+function compiledStyles(module: CompiledModule, record: CallRecord, keys: ThemeKeyUtil): Map<string, Styled> {
   const out = new Map<string, Styled>()
+  const resolved = ({ name, styles }: Styled): Styled => {
+    if (!keys.textHasThemeTokenInPrelude(styles)) return { name, styles }
+    const text = keys.removeBlocksWithThemeTokens(styles, () => {})
+    return { name: module.nameTemplate(text), styles: text }
+  }
   const visit = (call: CallRecord) => {
     const props = call.props
     const dom = (props.__meo$d ?? props) as Record<string, unknown>
@@ -161,14 +180,14 @@ function compiledStyles(module: CompiledModule, record: CallRecord): Map<string,
       const name = props[NAME_KEY] as string
       const styles = module.registered.get(name)
       if (styles === undefined) throw new Error(`case ${id}: name ${name} is not registered`)
-      out.set(id, { name, styles })
+      out.set(id, resolved({ name, styles }))
     } else if (Array.isArray(props[TEMPLATE_KEY])) {
       const [templateId, ...holes] = props[TEMPLATE_KEY] as string[]
       const chunks = module.templates.get(templateId)
       if (chunks === undefined) throw new Error(`case ${id}: template ${templateId} is not registered`)
       if (chunks.length !== holes.length + 1) throw new Error(`case ${id}: template ${templateId} has ${chunks.length} chunks for ${holes.length} holes`)
       const styles = chunks.map((chunk, i) => chunk + (holes[i] ?? '')).join('')
-      out.set(id, { name: module.nameTemplate(styles), styles })
+      out.set(id, resolved({ name: module.nameTemplate(styles), styles }))
     }
     const children = props.children ?? (props.__meo$d as Record<string, unknown> | undefined)?.children
     for (const child of [children].flat()) if (child && typeof child === 'object' && 'props' in child) visit(child as CallRecord)
@@ -187,6 +206,7 @@ describe('serialization differential', () => {
     const extractedCode = (await compile(written, 'serial.on.mjs', true)).replaceAll(/from\s+["']@meonode\/ui["']/g, `from ${JSON.stringify(recorder)}`)
     const compiledModule = await load<{ cases: CompiledModule['cases'] }>(extractedCode, 'serial.on')
     const recorderModule = await import(recorder)
+    const keys = (await import(pathToFileURL(THEME_KEY_UTIL).href)) as ThemeKeyUtil
     const module: CompiledModule = { cases: compiledModule.cases, registered: recorderModule.registered, templates: recorderModule.templates, nameTemplate: recorderModule.nameTemplate }
 
     const mismatches: string[] = []
@@ -197,7 +217,7 @@ describe('serialization differential', () => {
       for (const props of PROPS) {
         const want = runtimeStyles(reference[index](props))
         styled += want.size
-        const got = compiledStyles(module, module.cases[index](props))
+        const got = compiledStyles(module, module.cases[index](props), keys)
         if (props === PROPS[0]) routes.push(`${got.has(String(index)) ? 'named' : 'runtime'}\t${c.name}`)
         for (const [id, styled] of got) {
           extracted++

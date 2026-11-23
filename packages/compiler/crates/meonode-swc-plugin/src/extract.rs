@@ -1381,6 +1381,12 @@ impl ModuleScope {
         flatten(&flat_tree, &mut Vec::new(), &mut leaves);
         let flat_leaves = leaves.len();
         flatten(&css_tree, &mut Vec::new(), &mut leaves);
+        if leaves
+            .iter()
+            .any(|(path, leaf)| under_token_at_rule(path) && may_hold_brace(leaf))
+        {
+            return explain::bail("a brace or a hole inside an at-rule with a theme token");
+        }
         let has_holes = leaves.iter().any(|(_, leaf)| matches!(leaf, Leaf::Var(_)));
         let mut rules: Vec<Rule> = Vec::new();
         let mut templates: Vec<Template> = Vec::new();
@@ -1544,8 +1550,18 @@ impl ModuleScope {
     /// `value` under `key` as an [`Entry`], or `None` when the node must stay
     /// whole on the runtime path.
     fn entry(&self, key: &str, value: &Expr, depth: u8) -> Option<Entry> {
+        // A token in an at-rule's prelude is left in the text, which the runtime
+        // resolves with the theme each node renders under. One in a selector is
+        // left to the runtime path.
         if key.contains("theme.") {
-            return explain::bail("a theme token in a key");
+            if !key.starts_with('@') {
+                return explain::bail("a theme token in a selector");
+            }
+            // The runtime resolves tokens in the text's preludes only: under a
+            // value that is no block, the key is written as a declaration.
+            if !matches!(unwrap_transparent(value), Expr::Object(_)) {
+                return explain::bail("a theme token in an at-rule holding no block");
+            }
         }
         if key.contains([HOLE_OPEN, HOLE_CLOSE]) {
             return explain::bail("a key holding a hole marker");
@@ -1734,6 +1750,25 @@ fn split_holes(text: &str) -> Option<(Vec<String>, Vec<usize>)> {
     }
     chunks.push(rest.to_string());
     Some((chunks, holes))
+}
+
+/// Whether a key path passes through an at-rule whose prelude holds a theme
+/// token, which the text keeps for the runtime to resolve.
+fn under_token_at_rule(path: &[String]) -> bool {
+    path.iter()
+        .any(|key| key.starts_with('@') && key.contains("theme."))
+}
+
+/// Whether a leaf's text may hold a brace. The runtime finds the end of a block
+/// whose prelude token is unresolved by counting braces, so a brace in a value
+/// inside that block would move it.
+fn may_hold_brace(leaf: &Leaf) -> bool {
+    match leaf {
+        Leaf::Known(Js::Str(s)) => s.contains(['{', '}']),
+        Leaf::Known(_) => false,
+        Leaf::Switch(_, yes, no) => may_hold_brace(yes) || may_hold_brace(no),
+        Leaf::Var(_) => true,
+    }
 }
 
 /// Each leaf of `tree` with its key path, in JavaScript's key order. An empty

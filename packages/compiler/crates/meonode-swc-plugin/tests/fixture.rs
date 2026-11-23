@@ -613,3 +613,8 @@ fn extract_factory_call_workspace_package() {
 fn extract_factory_call_workspace_local() {
     run_partition_with_config("extract_factory_call_workspace_local", extract_config());
 }
+
+#[test]
+fn extract_at_rule_token() {
+    run_partition_with_config("extract_at_rule_token", extract_config());
+}

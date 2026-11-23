@@ -539,6 +539,12 @@ insertion and its class are the ones the node would have uncompiled.
   `const` literals, at any depth of `css`; a conditional over those, which gets
   one name per combination of its branches (at most 16 per node), chosen at the
   call site by the same conditional.
+- **A theme token in an at-rule's prelude** (`'@media (max-width:
+  theme.breakpoint.md)'`): `var()` is invalid in a condition, so the text keeps
+  the token as written and is named with it. The runtime resolves it with the
+  theme each node renders under, and leaves out a block whose token the theme
+  does not hold, as it does uncompiled. The at-rule must hold an object literal
+  with no brace in its values.
 - **Known only at the call site, but a string or a number:** a template literal,
   or arithmetic (`+` included), over identifiers, member reads and literals. The text around such values is a template, registered once per
   module through `registerStaticTemplate`; the call site carries the template's
@@ -550,7 +556,7 @@ insertion and its class are the ones the node would have uncompiled.
 - **Left to the runtime, whole:** a node with any other value known only at
   runtime (a bare identifier or member read, which may be nullish or a theme
   function, calls, theme functions), fallback arrays, spreads, a theme token in
-  a key, a key Emotion reads as serialized styles or keyframes (`styles`,
+  a selector or in an at-rule that holds no block or a brace, a key Emotion reads as serialized styles or keyframes (`styles`,
   `anim`), and component targets. Such a node renders exactly as it does today.
 - **Same text as the runtime.** Every selector, at-rule and value is written as
   Emotion serializes it, so any shape Emotion takes is extracted, `& + &` and
