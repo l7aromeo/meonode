@@ -23,7 +23,7 @@ use meonode_swc_plugin::config::CompileConfig;
 use meonode_swc_plugin::{detect, partition};
 use swc_core::common::Mark;
 use swc_core::ecma::ast::{Pass, Program};
-use swc_core::ecma::parser::{EsSyntax, Syntax};
+use swc_core::ecma::parser::{EsSyntax, Syntax, TsSyntax};
 use swc_core::ecma::transforms::base::resolver;
 use swc_core::ecma::transforms::testing::{FixtureTestConfig, Tester, test_fixture};
 
@@ -119,11 +119,31 @@ fn run_partition(case: &str) {
 /// Like [`run_partition`], but with a caller-supplied [`CompileConfig`] — for
 /// the config-driven `factoryModules` fixtures.
 fn run_partition_with_config(case: &str, config: CompileConfig) {
+    run_partition_with_syntax(case, config, Syntax::Es(EsSyntax::default()));
+}
+
+/// Like [`run_partition_with_config`], with JSX parsed.
+fn run_partition_with_jsx(case: &str, config: CompileConfig) {
+    run_partition_with_syntax(
+        case,
+        config,
+        Syntax::Es(EsSyntax {
+            jsx: true,
+            ..EsSyntax::default()
+        }),
+    );
+}
+
+fn run_partition_with_ts(case: &str, config: CompileConfig) {
+    run_partition_with_syntax(case, config, Syntax::Typescript(TsSyntax::default()));
+}
+
+fn run_partition_with_syntax(case: &str, config: CompileConfig, syntax: Syntax) {
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixture")
         .join(case);
     test_fixture(
-        Syntax::Es(EsSyntax::default()),
+        syntax,
         &|_t| {
             (
                 resolver(Mark::new(), Mark::new(), false),
@@ -456,8 +476,31 @@ fn extract_per_node() {
 }
 
 #[test]
-fn extract_reaching() {
-    run_partition_with_config("extract_reaching", extract_config());
+fn extract_names() {
+    run_partition_with_config("extract_names", extract_config());
+}
+
+#[test]
+fn extract_slots() {
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixture/extract_slots");
+    let config = extract_config();
+    test_fixture(
+        Syntax::Es(EsSyntax {
+            jsx: true,
+            ..Default::default()
+        }),
+        &|_t| {
+            (
+                resolver(Mark::new(), Mark::new(), false),
+                Partition {
+                    config: config.clone(),
+                },
+            )
+        },
+        &dir.join("input.js"),
+        &dir.join("output.js"),
+        FixtureTestConfig::default(),
+    );
 }
 
 #[test]
@@ -511,11 +554,6 @@ fn extract_layer() {
 }
 
 #[test]
-fn extract_multi_context() {
-    run_partition_with_config("extract_multi_context", extract_config());
-}
-
-#[test]
 fn extract_block_values() {
     run_partition_with_config("extract_block_values", extract_config());
 }
@@ -523,4 +561,60 @@ fn extract_block_values() {
 #[test]
 fn extract_layout() {
     run_partition_with_config("extract_layout", extract_config());
+}
+
+#[test]
+fn extract_local_factory() {
+    run_partition_with_config("extract_local_factory", extract_config());
+}
+
+#[test]
+fn extract_factory_call() {
+    run_partition_with_jsx("extract_factory_call", extract_config());
+}
+
+#[test]
+fn extract_numeric_keys() {
+    run_partition_with_config("extract_numeric_keys", extract_config());
+}
+
+#[test]
+fn extract_factory_call_factory_modules() {
+    run_partition_with_config(
+        "extract_factory_call_factory_modules",
+        CompileConfig {
+            factory_modules: vec!["./nodes".to_string()],
+            ..extract_config()
+        },
+    );
+}
+
+#[test]
+fn extract_factory_call_positions() {
+    run_partition_with_config("extract_factory_call_positions", extract_config());
+}
+
+#[test]
+fn extract_factory_call_without_runtime() {
+    run_partition_with_ts("extract_factory_call_without_runtime", extract_config());
+}
+
+#[test]
+fn extract_factory_call_runtime_import() {
+    run_partition_with_ts("extract_factory_call_runtime_import", extract_config());
+}
+
+#[test]
+fn extract_factory_call_workspace_package() {
+    run_partition_with_config("extract_factory_call_workspace_package", extract_config());
+}
+
+#[test]
+fn extract_factory_call_workspace_local() {
+    run_partition_with_config("extract_factory_call_workspace_local", extract_config());
+}
+
+#[test]
+fn extract_at_rule_token() {
+    run_partition_with_config("extract_at_rule_token", extract_config());
 }

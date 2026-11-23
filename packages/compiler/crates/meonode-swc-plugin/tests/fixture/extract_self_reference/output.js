@@ -1,112 +1,64 @@
 import { registerStaticCss as __meoCss } from "@meonode/ui";
 import { Div } from "@meonode/ui";
-__meoCss("21jvgg78kvcs0", [
+__meoCss("0trlnr6h6cc3r", [
     [
-        1,
-        "mn-3ira0mmss1bvp",
-        ".mn-3ira0mmss1bvp{padding:4px;}"
+        "18v3d168eo4fb",
+        "flex-shrink:0;min-height:0;min-width:0;margin-top:2px;color:rgb(150, 0, 0);& + &{margin-top:10px;}"
     ],
     [
-        0,
-        "mn-14ee8z7hv9wlj",
-        ".mn-14ee8z7hv9wlj+div{color:red;}"
+        "3k05wib390otv",
+        "flex-shrink:0;min-height:0;min-width:0;padding:4px;& ~ &{color:red;}"
     ],
     [
-        1,
-        "mn-0e47bwo0vm4o6",
-        ".mn-0e47bwo0vm4o6{-webkit-flex-shrink:0;-ms-flex-negative:0;flex-shrink:0;}"
+        "1qd6vuhwjgfdi",
+        "flex-shrink:0;min-height:0;min-width:0;padding:4px;& &{color:red;}"
     ],
     [
-        1,
-        "mn-35l163g1tjy26",
-        ".mn-35l163g1tjy26{min-height:0;}"
+        "34stox6t6bqhb",
+        "flex-shrink:0;min-height:0;min-width:0;padding:4px;&:hover + &{color:red;}"
     ],
     [
-        1,
-        "mn-0zzfi4vug0nqv",
-        ".mn-0zzfi4vug0nqv{min-width:0;}"
+        "2j6oa8y7bj4bx",
+        "flex-shrink:0;min-height:0;min-width:0;padding:4px;& > p{& + &{color:red;}}"
+    ],
+    [
+        "10r9uzsjns6ei",
+        "flex-shrink:0;min-height:0;min-width:0;padding:4px;& + div{color:red;}"
     ]
 ]);
 Div({
     __meo$: 2,
-    __meo$c: {
-        marginTop: 2,
-        color: "rgb(150, 0, 0)"
-    },
-    __meo$k: "m15osgsr91i2bx",
-    __meo$dyn: [
-        "css"
-    ],
-    css: {
-        "& + &": {
-            marginTop: 10
-        }
-    }
+    __meo$n: "18v3d168eo4fb",
+    __meo$r: 1,
+    __meo$k: "m15osgsr91i2bx"
 });
 Div({
     __meo$: 2,
-    __meo$c: {
-        padding: 4
-    },
-    __meo$k: "m2v04jlolz29ir",
-    __meo$dyn: [
-        "css"
-    ],
-    css: {
-        "& ~ &": {
-            color: "red"
-        }
-    }
+    __meo$n: "3k05wib390otv",
+    __meo$r: 1,
+    __meo$k: "m2v04jlolz29ir"
 });
 Div({
     __meo$: 2,
-    __meo$c: {
-        padding: 4
-    },
-    __meo$k: "m3rjso99m3utfp",
-    __meo$dyn: [
-        "css"
-    ],
-    css: {
-        "& &": {
-            color: "red"
-        }
-    }
+    __meo$n: "1qd6vuhwjgfdi",
+    __meo$r: 1,
+    __meo$k: "m3rjso99m3utfp"
 });
 Div({
     __meo$: 2,
-    __meo$c: {
-        padding: 4
-    },
-    __meo$k: "mvmznlmfj877w",
-    __meo$dyn: [
-        "css"
-    ],
-    css: {
-        "&:hover + &": {
-            color: "red"
-        }
-    }
+    __meo$n: "34stox6t6bqhb",
+    __meo$r: 1,
+    __meo$k: "mvmznlmfj877w"
 });
 Div({
     __meo$: 2,
-    __meo$c: {
-        padding: 4
-    },
-    __meo$k: "m2zdbpsutkoq45",
-    __meo$dyn: [
-        "css"
-    ],
-    css: {
-        "& > p": {
-            "& + &": {
-                color: "red"
-            }
-        }
-    }
+    __meo$n: "2j6oa8y7bj4bx",
+    __meo$r: 1,
+    __meo$k: "m2zdbpsutkoq45"
 });
 Div({
     __meo$: 2,
-    __meo$s: "mn-3ira0mmss1bvp mn-14ee8z7hv9wlj mn-0e47bwo0vm4o6 mn-35l163g1tjy26 mn-0zzfi4vug0nqv",
+    __meo$n: "10r9uzsjns6ei",
+    __meo$r: 1,
     __meo$k: "m2l4pi3f85gpf5"
 });

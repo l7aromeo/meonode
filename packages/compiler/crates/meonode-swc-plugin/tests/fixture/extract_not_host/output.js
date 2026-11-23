@@ -1,26 +1,14 @@
 import { registerStaticCss as __meoCss } from "@meonode/ui";
 import { Div, Node } from "@meonode/ui";
 import { Card } from "./card";
-__meoCss("0tw1ge7rs9f5y", [
+__meoCss("39up3i7kuujvl", [
     [
-        1,
-        "mn-350ngwob8xscz",
-        ".mn-350ngwob8xscz{padding:8px;}"
+        "0v0utqiwbarms",
+        "flex-shrink:0;min-height:0;min-width:0;padding:8px;"
     ],
     [
-        1,
-        "mn-0e47bwo0vm4o6",
-        ".mn-0e47bwo0vm4o6{-webkit-flex-shrink:0;-ms-flex-negative:0;flex-shrink:0;}"
-    ],
-    [
-        1,
-        "mn-35l163g1tjy26",
-        ".mn-35l163g1tjy26{min-height:0;}"
-    ],
-    [
-        1,
-        "mn-0zzfi4vug0nqv",
-        ".mn-0zzfi4vug0nqv{min-width:0;}"
+        "38c90dwgtj0in-x",
+        "flex-shrink:0;min-height:0;min-width:0;label:x;padding:8px;"
     ]
 ]);
 Node(Card, {
@@ -32,7 +20,8 @@ Node(Card, {
 });
 Node("section", {
     __meo$: 2,
-    __meo$s: "mn-350ngwob8xscz mn-0e47bwo0vm4o6 mn-35l163g1tjy26 mn-0zzfi4vug0nqv",
+    __meo$n: "0v0utqiwbarms",
+    __meo$r: 1,
     __meo$k: "m2f7je3rclcq1d"
 });
 Div({
@@ -63,12 +52,7 @@ Div({
 });
 Div({
     __meo$: 2,
-    __meo$k: "mmnxjlch36c33",
-    __meo$dyn: [
-        "css"
-    ],
-    css: {
-        label: "x",
-        padding: 8
-    }
+    __meo$n: "38c90dwgtj0in-x",
+    __meo$r: 1,
+    __meo$k: "mmnxjlch36c33"
 });

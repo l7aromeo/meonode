@@ -15,9 +15,6 @@ use swc_core::ecma::ast::{
 #[cfg(test)]
 use swc_core::{atoms::Atom, common::SyntaxContext};
 
-/// The note marking a call site extracted in part.
-pub const PARTIAL: &str = "partial";
-
 /// One call site the extraction looked at.
 #[cfg(test)]
 #[derive(Debug, Clone)]
@@ -188,20 +185,15 @@ pub fn classify(label: &'static str, expr: &Expr) {
     let _ = (label, expr);
 }
 
-/// Records a detail for the call site being looked at. `text` runs only in
-/// test builds.
-pub fn detail(text: impl FnOnce() -> String) {
-    #[cfg(test)]
-    {
-        let text = text();
-        SITES.with(|sites| {
-            if let Some(site) = sites.borrow_mut().last_mut() {
-                site.details.push(text);
-            }
-        });
-    }
-    #[cfg(not(test))]
-    let _ = text;
+/// Records a detail for the call site being looked at, in test builds.
+#[cfg(test)]
+fn detail(text: impl FnOnce() -> String) {
+    let text = text();
+    SITES.with(|sites| {
+        if let Some(site) = sites.borrow_mut().last_mut() {
+            site.details.push(text);
+        }
+    });
 }
 
 /// Starts recording the call site at byte position `pos`.
@@ -304,19 +296,12 @@ mod tests {
             .into_iter()
             .map(|site| {
                 let line = cm.lookup_char_pos(swc_core::common::BytePos(site.pos)).line;
-                let outcome = if !site.extracted {
-                    "runtime"
-                } else if site.notes.contains(&super::PARTIAL) {
-                    "partial"
-                } else {
+                let outcome = if site.extracted {
                     "extracted"
+                } else {
+                    "runtime"
                 };
-                let mut notes: Vec<&'static str> = site
-                    .notes
-                    .iter()
-                    .copied()
-                    .filter(|n| *n != super::PARTIAL)
-                    .collect();
+                let mut notes: Vec<&'static str> = site.notes.clone();
                 notes.dedup();
                 (line, outcome, notes, site.details)
             })
@@ -339,14 +324,10 @@ export const e = () => Div({ padding: '1px', paddingTop: '2px' })
                 .collect::<Vec<_>>(),
             vec![
                 (2, "extracted", vec![]),
-                (3, "partial", vec!["a value left to the runtime"]),
+                (3, "runtime", vec!["a value left to the runtime"]),
                 (4, "runtime", vec!["a spread among the call's props"]),
-                (5, "runtime", vec!["a selector naming the node twice"]),
-                (
-                    6,
-                    "runtime",
-                    vec!["overlapping properties in one context", "nothing extracted"]
-                ),
+                (5, "extracted", vec![]),
+                (6, "extracted", vec![]),
             ]
         );
     }
@@ -387,173 +368,6 @@ export const a = (p) => Div({ color: p.color, margin: tone.gap, padding: shade }
                 "value=same-file non-literal variable".to_string(),
             ]
         );
-    }
-
-    /// Every nested rule written in `source`'s style objects: line, the chain
-    /// of keys to it, whether its selectors style the node itself, and its own
-    /// properties. A style object is any object literal with a key starting
-    /// with `&`, `:` or `@`.
-    fn nested_rules(source: String) -> Vec<(usize, String, bool, Vec<String>)> {
-        use swc_core::ecma::ast::{Expr, ObjectLit, Prop, PropOrSpread};
-        use swc_core::ecma::visit::{Visit, VisitWith};
-
-        use crate::selector::Rule;
-
-        /// A key written as a name or a string, or `None`.
-        fn key_text(key: &swc_core::ecma::ast::PropName) -> Option<String> {
-            match key {
-                swc_core::ecma::ast::PropName::Ident(i) => Some(i.sym.to_string()),
-                swc_core::ecma::ast::PropName::Str(s) => {
-                    Some(s.value.to_string_lossy().into_owned())
-                }
-                _ => None,
-            }
-        }
-        struct Walk<'a> {
-            cm: &'a SourceMap,
-            out: Vec<(usize, String, bool, Vec<String>)>,
-        }
-        fn style_like(obj: &ObjectLit) -> bool {
-            obj.props.iter().any(|p| match p {
-                PropOrSpread::Prop(p) => match &**p {
-                    Prop::KeyValue(kv) => key_text(&kv.key).is_some_and(|k| {
-                        // An at-rule has a prelude; `@type` in JSON-LD has none.
-                        k.starts_with('&')
-                            || k.starts_with(':')
-                            || (k.starts_with('@') && k.contains([' ', '(']))
-                    }),
-                    _ => false,
-                },
-                _ => false,
-            })
-        }
-        impl Walk<'_> {
-            fn object(&mut self, obj: &ObjectLit, scope: &Rule, chain: &str) {
-                for p in &obj.props {
-                    let PropOrSpread::Prop(p) = p else { continue };
-                    let Prop::KeyValue(kv) = &**p else { continue };
-                    let Expr::Object(inner) = crate::pass_through::unwrap_transparent(&kv.value)
-                    else {
-                        continue;
-                    };
-                    let Some(key) = key_text(&kv.key) else {
-                        continue;
-                    };
-                    let next = if key.starts_with('@') {
-                        scope.at_rule(&key).map(|(_, r)| r)
-                    } else {
-                        scope.nest(&key)
-                    };
-                    let Some(next) = next else { continue };
-                    let chain = if chain.is_empty() {
-                        key.clone()
-                    } else {
-                        format!("{chain} >> {key}")
-                    };
-                    let props: Vec<String> = inner
-                        .props
-                        .iter()
-                        .filter_map(|p| p.as_prop())
-                        .filter_map(|p| p.as_key_value())
-                        .filter(|kv| {
-                            !matches!(
-                                crate::pass_through::unwrap_transparent(&kv.value),
-                                Expr::Object(_)
-                            )
-                        })
-                        .filter_map(|kv| key_text(&kv.key))
-                        .collect();
-                    if !props.is_empty() && !key.starts_with('@') {
-                        let line = self.cm.lookup_char_pos(kv.key.span().lo).line;
-                        let composed = next.props.join(", ").replace(crate::selector::NODE, ".N");
-                        self.out.push((
-                            line,
-                            format!("{chain}\t{composed}"),
-                            crate::extract::styles_node_for_accounting(&next.props),
-                            props,
-                        ));
-                    }
-                    self.object(inner, &next, &chain);
-                }
-            }
-        }
-        impl Visit for Walk<'_> {
-            fn visit_object_lit(&mut self, obj: &ObjectLit) {
-                if style_like(obj) {
-                    self.object(obj, &Rule::node(), "");
-                } else {
-                    obj.visit_children_with(self);
-                }
-            }
-        }
-        use swc_core::common::Spanned;
-        let cm: Lrc<SourceMap> = Default::default();
-        let fm = cm.new_source_file(Lrc::new(FileName::Anon), source);
-        let syntax = Syntax::Typescript(TsSyntax {
-            tsx: true,
-            ..Default::default()
-        });
-        let Ok(program) =
-            parse_file_as_program(&fm, syntax, Default::default(), None, &mut Vec::new())
-        else {
-            return Vec::new();
-        };
-        let mut walk = Walk {
-            cm: &cm,
-            out: Vec::new(),
-        };
-        program.visit_with(&mut walk);
-        walk.out
-    }
-
-    #[test]
-    fn finds_rules_that_reach_other_elements() {
-        let rules = nested_rules(
-            "const a = { color: 'red', '& > *': { color: 'blue', '&:hover': { margin: 0 } }, '&:hover': { color: 'x' }, '@media (min-width: 1px)': { '& p': { padding: 0 } } }".into(),
-        );
-        let got: Vec<(String, bool)> = rules
-            .into_iter()
-            .map(|(_, chain, styles, _)| (chain.split('\t').next().unwrap().to_string(), styles))
-            .collect();
-        assert_eq!(
-            got,
-            vec![
-                ("& > *".to_string(), false),
-                ("& > * >> &:hover".to_string(), false),
-                ("&:hover".to_string(), true),
-                ("@media (min-width: 1px) >> & p".to_string(), false),
-            ]
-        );
-    }
-
-    /// For each file in `MEONODE_EXPLAIN_FILES`, every nested rule in its
-    /// style objects, as tab-separated lines in `MEONODE_EXPLAIN_OUT`: file,
-    /// line, key chain, `node` or `reaches`, properties.
-    #[test]
-    #[ignore = "an accounting run over files named in the environment"]
-    fn explain_nested_rules() {
-        let list = std::env::var("MEONODE_EXPLAIN_FILES").expect("MEONODE_EXPLAIN_FILES");
-        let out_path = std::env::var("MEONODE_EXPLAIN_OUT").expect("MEONODE_EXPLAIN_OUT");
-        let mut out = String::new();
-        for path in std::fs::read_to_string(list)
-            .expect("file list")
-            .lines()
-            .filter(|l| !l.is_empty())
-        {
-            for (line, chain, styles, props) in
-                nested_rules(std::fs::read_to_string(path).expect(path))
-            {
-                let chain = chain.replace('\n', " ");
-                writeln!(
-                    out,
-                    "{path}\t{line}\t{chain}\t{}\t{}",
-                    if styles { "node" } else { "reaches" },
-                    props.join(",")
-                )
-                .unwrap();
-            }
-        }
-        std::fs::write(out_path, out).expect("write");
     }
 
     /// For each file named in `MEONODE_EXPLAIN_FILES` (one path per line),

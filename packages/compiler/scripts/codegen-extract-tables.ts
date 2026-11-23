@@ -13,11 +13,6 @@
  *   read by calling the factory: its node's props are
  *   \`combineFactoryProps(initial, undefined)\`. A factory whose initial props
  *   are not flat strings and numbers is left out.
- * - `CSS_PROPERTIES`, `CSS_ALIASES`, `CSS_SHORTHANDS`, `CSS_LOGICAL`: which
- *   properties set which, from `@webref/css` (the property definitions
- *   extracted from the CSS specifications). Two declarations on one element
- *   interact only when they set a common longhand, or a logical and a physical
- *   longhand of one logical property group, which can be the same box side.
  *
  * Also writes the fixtures the Rust tests compare against, produced by running
  * the runtime's own code:
@@ -30,6 +25,9 @@
  *   `src/util/style-name.util.ts` on sample texts;
  * - tests/fixture/extract/factory-merge.json: the props \`createNode\` builds a
  *   node with, for every layout factory against sample call-site props;
+ * - tests/fixture/extract/local-factory-merge.json: the props `createNode` and
+ *   `createChildrenFirstNode` build a node with, for sample initial props of a
+ *   local factory against sample call-site props, objects as ordered entries;
  * - tests/fixture/extract/selectors.json: the rules Emotion writes (through
  *   the runtime's cache plugins) for one declaration under chains of nested
  *   selector and at-rule keys from \`tests/selector-grammar.ts\`.
@@ -293,15 +291,21 @@ function nodeProps(factory: Factory, childrenFirst: boolean, props: Record<strin
 
 /**
  * The fingerprint the runtime compares on a call site whose initial props the
- * compiler merged: `key:value;` per entry, keys in code-unit order, strings as
- * written and numbers as `String(n)` writes them. Checked against the ui's own
- * `initialPropsFingerprint` wherever the ui exports it.
+ * compiler merged, as the ui's `initialPropsFingerprint` writes it: a map of
+ * `k<len>:<key>` and its value per entry, in JavaScript's key order, a string as
+ * `s<len>:<text>` and a number as `n<String(n)>;`, lengths in UTF-16 code units.
+ * The compiler's Rust writes the same text (`fingerprint.rs`), and the ui's own
+ * function is checked against this one wherever the ui exports it.
  */
 function fingerprint(entries: [string, string | number][]): string {
-  return [...entries]
-    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-    .map(([key, value]) => `${key}:${String(value)};`)
-    .join('')
+  const ordered = Object.keys(Object.fromEntries(entries))
+  const values = new Map(entries)
+  return `{${ordered
+    .map(key => {
+      const value = values.get(key)!
+      return `k${key.length}:${key}${typeof value === 'string' ? `s${value.length}:${value}` : `n${String(value)};`}`
+    })
+    .join('')}}`
 }
 
 /** Factories with initial props the compiler does not merge, for the log. */
@@ -309,8 +313,8 @@ const skippedLayoutFactories: string[] = []
 
 /**
  * The layout factories, by name. Merged only when every initial prop is a flat
- * entry with a string or finite number value, none of them `css`, and no key or
- * value holds `:` or `;`, so the fingerprint reads one way.
+ * entry with a string or finite number value, none of them `css`: the values the
+ * table's `InitialValue` holds.
  */
 async function layoutFactories(uiDir: string, host: Set<string>): Promise<LayoutFactory[]> {
   const html = (await import(join(uiDir, 'src/components/html.node.ts'))) as Record<string, unknown>
@@ -331,8 +335,7 @@ async function layoutFactories(uiDir: string, host: Set<string>): Promise<Layout
     const flat = entries.every(
       ([key, value]) =>
         key !== 'css' &&
-        (typeof value === 'string' || (typeof value === 'number' && Number.isFinite(value))) &&
-        !/[:;]/.test(key + String(value)),
+        (typeof value === 'string' || (typeof value === 'number' && Number.isFinite(value))),
     )
     if (childrenFirst || !flat) {
       skippedLayoutFactories.push(name)
@@ -386,84 +389,89 @@ async function factoryMergeCases(uiDir: string, layout: LayoutFactory[]): Promis
   return cases
 }
 
-/** A logical longhand names a flow-relative side, axis or corner. */
-const LOGICAL_NAME_RE = /(?:^|-)(?:block|inline|start|end)(?:-|$)/
-
-interface WebrefProperty {
-  name: string
-  legacyAliasOf?: string
-  longhands?: string[]
-  resetLonghands?: string[]
-  logicalPropertyGroup?: string
+/** A value for the local merge fixture: an object as its ordered entries, since serde reads JSON objects unordered. */
+function toOrderedJson(value: unknown): unknown {
+  if (value === undefined) return UNDEFINED_MARKER
+  if (Array.isArray(value)) return value.map(toOrderedJson)
+  if (value !== null && typeof value === 'object') return { $entries: Object.entries(value).map(([k, v]) => [k, toOrderedJson(v)]) }
+  return value
 }
 
-interface OverlapTables {
-  properties: string[]
-  aliases: [string, string][]
-  shorthands: [string, string[]][]
-  logical: [string, string, boolean][]
+/** Initial props of the local factories in the merge fixture: flat, `css`, DOM and special props, and their mixes. */
+const LOCAL_INITIAL_SAMPLES: Record<string, unknown>[] = [
+  {},
+  { padding: 4 },
+  { padding: 4, color: 'red' },
+  { css: { color: 'red' } },
+  { css: { '&:hover': { color: 'red', background: 'blue' }, '@media (min-width: 1px)': { padding: 1 } } },
+  { padding: 4, css: { padding: 8 } },
+  { color: 'red', 'data-x': 'a', id: 'i' },
+  { className: 'a' },
+  { css: { color: 'red' }, padding: 2, title: 't' },
+  { flexShrink: 1, minHeight: 0 },
+  { children: 'x', padding: 1 },
+  { 2: 'two', b: 1, 1: 'one' },
+]
+
+/** Call-site props each local factory is merged with in the fixture. */
+const LOCAL_CALL_SAMPLES: (Record<string, unknown> | undefined)[] = [
+  undefined,
+  {},
+  { padding: 8 },
+  { color: undefined },
+  { padding: 8, color: 'blue' },
+  { css: { color: 'blue' } },
+  { css: { '&:hover': { color: undefined } } },
+  { css: { '&:hover': { color: 'green' }, margin: 1 } },
+  { css: undefined },
+  { css: false },
+  { css: null },
+  { css: 'color: red;' },
+  { css: ['x'] },
+  { className: 'b' },
+  { className: undefined },
+  { className: '' },
+  { 'data-x': 'b', id: undefined },
+  { children: 'y' },
+  { padding: 8, css: { padding: 2 } },
+  { 1: 'uno', a: 0 },
+]
+
+/** Whether `createNode` composes the two `css` values as `[factoryCss, callSiteCss]` rather than merging them key by key. */
+function composesCss(initial: Record<string, unknown>, props: Record<string, unknown> | undefined): boolean {
+  const styles = (css: unknown) => css != null && typeof css !== 'boolean'
+  const plain = (css: unknown) => css !== null && typeof css === 'object' && !Array.isArray(css)
+  const [a, b] = [initial.css, props?.css]
+  return styles(a) && styles(b) && !(plain(a) && plain(b))
 }
 
 /**
- * The longhands every shorthand sets or resets, followed down to properties
- * that are not shorthands, and the logical property group of each longhand.
+ * `[initial props, call-site props, children-first, the node's props or null]`
+ * for each local factory sample, from `createNode` and `createChildrenFirstNode`
+ * themselves. `null` where the two `css` values compose, which the compiler
+ * leaves to the runtime. Objects are ordered entry lists.
  */
-async function overlapTables(): Promise<OverlapTables> {
-  const { default: css } = (await import('@webref/css/css.json', { with: { type: 'json' } })) as {
-    default: { properties: WebrefProperty[] }
+async function localMergeCases(uiDir: string): Promise<unknown[]> {
+  const core = (await import(join(uiDir, 'src/core.node.ts'))) as Record<string, (element: string, initial: unknown) => Factory>
+  const cases: unknown[] = []
+  for (const childrenFirst of [false, true]) {
+    const create = childrenFirst ? core.createChildrenFirstNode : core.createNode
+    for (const initial of LOCAL_INITIAL_SAMPLES)
+      for (const props of LOCAL_CALL_SAMPLES) {
+        const merged = composesCss(initial, props) ? null : toOrderedJson(nodeProps(create('div', initial), childrenFirst, props))
+        cases.push([toOrderedJson(initial), props === undefined ? null : toOrderedJson(props), childrenFirst, merged])
+      }
   }
-  const byName = new Map(css.properties.map(p => [p.name, p]))
-  // A property named for a logical property group, and listing no longhands of
-  // its own (`background-repeat`, `border-color`), sets every member of it.
-  const groupMembers = new Map<string, string[]>()
-  for (const p of css.properties) {
-    if (p.logicalPropertyGroup) groupMembers.set(p.logicalPropertyGroup, [...(groupMembers.get(p.logicalPropertyGroup) ?? []), p.name])
-  }
-  const direct = (name: string): string[] => {
-    const p = byName.get(name)
-    const listed = [...(p?.longhands ?? []), ...(p?.resetLonghands ?? [])]
-    return listed.length > 0 ? listed : (groupMembers.get(name) ?? []).filter(member => member !== name)
-  }
-  const leaves = (name: string, seen = new Set<string>()): string[] => {
-    if (seen.has(name)) throw new Error(`Shorthand cycle through ${name}`)
-    const next = direct(name)
-    if (next.length === 0) return [byName.get(name)?.legacyAliasOf ?? name]
-    seen.add(name)
-    const out = next.flatMap(l => leaves(l, seen))
-    seen.delete(name)
-    return out
-  }
-  const properties = sortedAscii(css.properties.map(p => p.name))
-  const aliases: [string, string][] = properties
-    .filter(name => byName.get(name)!.legacyAliasOf)
-    .map(name => [name, byName.get(name)!.legacyAliasOf!])
-  const shorthands: [string, string[]][] = properties
-    .filter(name => direct(name).length > 0)
-    .map(name => [name, sortedAscii([...new Set(leaves(name))])])
-  const logical: [string, string, boolean][] = properties
-    .filter(name => byName.get(name)!.logicalPropertyGroup)
-    .map(name => [name, byName.get(name)!.logicalPropertyGroup!, LOGICAL_NAME_RE.test(name)])
-  for (const [alias, target] of aliases) {
-    if (!byName.has(target)) throw new Error(`${alias} is an alias of ${target}, which is not defined.`)
-  }
-  for (const [, longhands] of shorthands) {
-    for (const longhand of longhands) {
-      if (!byName.has(longhand)) throw new Error(`Longhand ${longhand} is not defined.`)
-    }
-  }
-  return { properties, aliases, shorthands, logical }
+  return cases
 }
 
-function renderRust(host: string[], unitless: string[], layout: LayoutFactory[], overlap: OverlapTables): string {
+function renderRust(host: string[], unitless: string[], layout: LayoutFactory[]): string {
   const list = (names: string[]) => names.map(name => `    ${JSON.stringify(name)},`).join('\n')
   return `// @generated by scripts/codegen-extract-tables.ts — do not edit.
-// Sources: @meonode/ui src/components/html.node.ts, @emotion/unitless,
-// @webref/css.
+// Sources: @meonode/ui src/components/html.node.ts, @emotion/unitless.
 //
 // Every table is sorted in byte order, identical to JavaScript's default sort
-// for these pure-ASCII names, so lookups use \`binary_search\`. The CSS
-// tables are written one entry per line and marked \`rustfmt::skip\`, so the
-// generated text is what \`cargo fmt\` keeps.
+// for these pure-ASCII names, so lookups use \`binary_search\`.
 
 /// @meonode/ui factories (and aliases of them) declared with nothing but a tag:
 /// no initial props merge in at runtime.
@@ -496,33 +504,6 @@ pub static UNITLESS: &[&str] = &[
 ${list(unitless)}
 ];
 
-/// Every property the CSS specifications define, as \`@webref/css\` lists them.
-#[rustfmt::skip]
-pub static CSS_PROPERTIES: &[&str] = &[
-${list(overlap.properties)}
-];
-
-/// Legacy names and the property each one is another name for.
-#[rustfmt::skip]
-pub static CSS_ALIASES: &[(&str, &str)] = &[
-${overlap.aliases.map(([a, b]) => `    (${JSON.stringify(a)}, ${JSON.stringify(b)}),`).join('\n')}
-];
-
-/// Shorthands and every longhand each one sets or resets, followed down to
-/// properties that are not shorthands themselves.
-#[rustfmt::skip]
-pub static CSS_SHORTHANDS: &[(&str, &[&str])] = &[
-${overlap.shorthands.map(([a, ls]) => `    (${JSON.stringify(a)}, &[${ls.map(l => JSON.stringify(l)).join(', ')}]),`).join('\n')}
-];
-
-/// Properties in a logical property group: the group, and whether the
-/// property is the flow-relative one. A flow-relative and a physical member of
-/// one group can name the same box side, depending on the writing mode.
-#[rustfmt::skip]
-pub static CSS_LOGICAL: &[(&str, (&str, bool))] = &[
-${overlap.logical.map(([a, g, l]) => `    (${JSON.stringify(a)}, (${JSON.stringify(g)}, ${l})),`).join('\n')}
-];
-
 /// The fingerprint and initial props of the layout factory \`name\`.
 pub fn layout_factory(name: &str) -> Option<(&'static str, InitialProps)> {
     LAYOUT_FACTORIES
@@ -550,10 +531,6 @@ mod tests {
         assert!(HOST_FACTORIES.windows(2).all(|w| w[0] < w[1]));
         assert!(UNITLESS.windows(2).all(|w| w[0] < w[1]));
         assert!(LAYOUT_FACTORIES.windows(2).all(|w| w[0].0 < w[1].0));
-        assert!(CSS_PROPERTIES.windows(2).all(|w| w[0] < w[1]));
-        assert!(CSS_ALIASES.windows(2).all(|w| w[0].0 < w[1].0));
-        assert!(CSS_SHORTHANDS.windows(2).all(|w| w[0].0 < w[1].0));
-        assert!(CSS_LOGICAL.windows(2).all(|w| w[0].0 < w[1].0));
     }
 
     #[test]
@@ -580,10 +557,9 @@ async function main() {
   const uiDir = resolve(REPO_ROOT, process.env.MEONODE_UI_DIR ?? '../ui')
   const host = hostFactories(uiDir)
   const unitless = await unitlessKeys(uiDir)
-  const overlap = await overlapTables()
   const layout = await layoutFactories(uiDir, new Set(host))
   mkdirSync(dirname(OUT_PATH), { recursive: true })
-  writeFileSync(OUT_PATH, renderRust(host, unitless, layout, overlap), 'utf8')
+  writeFileSync(OUT_PATH, renderRust(host, unitless, layout), 'utf8')
 
   mkdirSync(FIXTURE_DIR, { recursive: true })
   const prefixer = await prefixerCases(uiDir)
@@ -592,13 +568,15 @@ async function main() {
   writeFileSync(join(FIXTURE_DIR, 'defaults.json'), '[\n' + defaults.map(c => JSON.stringify(c)).join(',\n') + '\n]\n', 'utf8')
   const merges = await factoryMergeCases(uiDir, layout)
   writeFileSync(join(FIXTURE_DIR, 'factory-merge.json'), '[\n' + merges.map(c => JSON.stringify(c)).join(',\n') + '\n]\n', 'utf8')
+  const localMerges = await localMergeCases(uiDir)
+  writeFileSync(join(FIXTURE_DIR, 'local-factory-merge.json'), '[\n' + localMerges.map(c => JSON.stringify(c)).join(',\n') + '\n]\n', 'utf8')
   const selectors = await selectorCases(uiDir)
   writeFileSync(join(FIXTURE_DIR, 'selectors.json'), '[\n' + selectors.map(c => JSON.stringify(c)).join(',\n') + '\n]\n', 'utf8')
   const names = await styleNames(uiDir)
   writeFileSync(join(FIXTURE_DIR, 'style-names.json'), '[\n' + names.map(c => JSON.stringify(c)).join(',\n') + '\n]\n', 'utf8')
 
   console.log(
-    `Wrote ${host.length} host factories, ${layout.length} layout factories${skippedLayoutFactories.length ? ` (skipped: ${skippedLayoutFactories.join(', ')})` : ''}, ${merges.length} factory merges, ${unitless.length} unitless keys, ${overlap.properties.length} CSS properties (${overlap.shorthands.length} shorthands), ${prefixer.length} prefixer cases, ${selectors.length} selector chains, ${names.length} style names`,
+    `Wrote ${host.length} host factories, ${layout.length} layout factories${skippedLayoutFactories.length ? ` (skipped: ${skippedLayoutFactories.join(', ')})` : ''}, ${merges.length} factory merges, ${localMerges.length} local factory merges, ${unitless.length} unitless keys, ${prefixer.length} prefixer cases, ${selectors.length} selector chains, ${names.length} style names`,
   )
 }
 

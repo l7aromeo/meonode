@@ -1,239 +1,144 @@
 import { registerStaticCss as __meoCss } from "@meonode/ui";
 import { Div } from "@meonode/ui";
-__meoCss("35tht0exdvqxh", [
+__meoCss("1v4kszwtv9adn", [
     [
-        1,
-        "mn-2qn1mhrn05kv2",
-        ".mn-2qn1mhrn05kv2{margin:1px;}"
+        "1o697g3shv4he",
+        "flex-shrink:0;min-height:0;min-width:0;padding:4px;:not(&){color:red;}"
     ],
     [
-        1,
-        "mn-15jkadap5xnc2",
-        ".mn-15jkadap5xnc2{margin:2px;}"
+        "39g9r27rijfop",
+        "flex-shrink:0;min-height:0;min-width:0;padding:4px;:is(&, .a){color:red;}"
     ],
     [
-        4,
-        "mn-146ubdx9vp6s2",
-        ".a:has(.mn-146ubdx9vp6s2){color:red;}"
+        "1cfnn4b18wz4m",
+        "flex-shrink:0;min-height:0;min-width:0;padding:4px;:where(&, .a){color:red;}"
     ],
     [
-        1,
-        "mn-0e47bwo0vm4o6",
-        ".mn-0e47bwo0vm4o6{-webkit-flex-shrink:0;-ms-flex-negative:0;flex-shrink:0;}"
+        "3bxz1eawljl63",
+        "flex-shrink:0;min-height:0;min-width:0;padding:4px;:is(&){color:red;}"
     ],
     [
-        1,
-        "mn-35l163g1tjy26",
-        ".mn-35l163g1tjy26{min-height:0;}"
+        "2polbbf8uho55",
+        "flex-shrink:0;min-height:0;min-width:0;padding:4px;html:not(&) p{color:red;}"
     ],
     [
-        1,
-        "mn-0zzfi4vug0nqv",
-        ".mn-0zzfi4vug0nqv{min-width:0;}"
+        "3ahlh30lfr0go",
+        "flex-shrink:0;min-height:0;min-width:0;padding:4px;:where(:not(&)){color:red;}"
     ],
     [
-        1,
-        "mn-33ysw3g90cnvn",
-        ".mn-33ysw3g90cnvn{margin:3px;}"
+        "2y3xxv7xfxg77",
+        "flex-shrink:0;min-height:0;min-width:0;padding:4px;body:not(.a:has(&)){color:red;}"
     ],
     [
-        2,
-        "mn-1o5kov332d8x8",
-        ".mn-1o5kov332d8x8:not(.a){color:red;}"
+        "2dsynj7h85ows",
+        "flex-shrink:0;min-height:0;min-width:0;padding:4px;:NOT(&){color:red;}"
     ],
     [
-        1,
-        "mn-36ua9zx9jya6w",
-        ".mn-36ua9zx9jya6w{margin:4px;}"
+        "1ihkragls90lb",
+        "flex-shrink:0;min-height:0;min-width:0;padding:4px;&, :not(&){color:red;}"
     ],
     [
-        2,
-        "mn-0apew9ru4aw4m",
-        ".mn-0apew9ru4aw4m::-webkit-input-placeholder{color:gray;}.mn-0apew9ru4aw4m::-moz-placeholder{color:gray;}.mn-0apew9ru4aw4m:-ms-input-placeholder{color:gray;}.mn-0apew9ru4aw4m::placeholder{color:gray;}"
+        "3fyyxcgylthoi",
+        "flex-shrink:0;min-height:0;min-width:0;padding:4px;& > p{:not(&){color:red;}}"
     ],
     [
-        3,
-        "mn-2dkx0503h7lq2",
-        "@media (min-width: 600px){.mn-2dkx0503h7lq2::-webkit-input-placeholder{color:silver;}.mn-2dkx0503h7lq2::-moz-placeholder{color:silver;}.mn-2dkx0503h7lq2:-ms-input-placeholder{color:silver;}.mn-2dkx0503h7lq2::placeholder{color:silver;}}"
+        "2xfn94vl3ipw5",
+        "flex-shrink:0;min-height:0;min-width:0;margin:1px;&, .other{color:red;}"
+    ],
+    [
+        "0c03yuvcpiueh",
+        "flex-shrink:0;min-height:0;min-width:0;margin:2px;.a:has(&){color:red;}"
+    ],
+    [
+        "28xjkx3ejaa3w",
+        "flex-shrink:0;min-height:0;min-width:0;margin:3px;&:not(.a){color:red;}"
+    ],
+    [
+        "1sy9ashnwj4xf",
+        "flex-shrink:0;min-height:0;min-width:0;margin:4px;&::placeholder{color:gray;@media (min-width: 600px){color:silver;}}"
     ]
 ]);
 Div({
     __meo$: 2,
-    __meo$c: {
-        padding: 4
-    },
-    __meo$k: "m3vse9r99blu0",
-    __meo$dyn: [
-        "css"
-    ],
-    css: {
-        ":not(&)": {
-            color: "red"
-        }
-    }
+    __meo$n: "1o697g3shv4he",
+    __meo$r: 1,
+    __meo$k: "m3vse9r99blu0"
 });
 Div({
     __meo$: 2,
-    __meo$c: {
-        padding: 4
-    },
-    __meo$k: "m3q13z2f7duoc6",
-    __meo$dyn: [
-        "css"
-    ],
-    css: {
-        ":is(&, .a)": {
-            color: "red"
-        }
-    }
+    __meo$n: "39g9r27rijfop",
+    __meo$r: 1,
+    __meo$k: "m3q13z2f7duoc6"
 });
 Div({
     __meo$: 2,
-    __meo$c: {
-        padding: 4
-    },
-    __meo$k: "m1b8gx4uemaha4",
-    __meo$dyn: [
-        "css"
-    ],
-    css: {
-        ":where(&, .a)": {
-            color: "red"
-        }
-    }
+    __meo$n: "1cfnn4b18wz4m",
+    __meo$r: 1,
+    __meo$k: "m1b8gx4uemaha4"
 });
 Div({
     __meo$: 2,
-    __meo$c: {
-        padding: 4
-    },
-    __meo$k: "m1rkshsvfnv20c",
-    __meo$dyn: [
-        "css"
-    ],
-    css: {
-        ":is(&)": {
-            color: "red"
-        }
-    }
+    __meo$n: "3bxz1eawljl63",
+    __meo$r: 1,
+    __meo$k: "m1rkshsvfnv20c"
 });
 Div({
     __meo$: 2,
-    __meo$c: {
-        padding: 4
-    },
-    __meo$k: "m31o1edzbarul",
-    __meo$dyn: [
-        "css"
-    ],
-    css: {
-        "html:not(&) p": {
-            color: "red"
-        }
-    }
+    __meo$n: "2polbbf8uho55",
+    __meo$r: 1,
+    __meo$k: "m31o1edzbarul"
 });
 Div({
     __meo$: 2,
-    __meo$c: {
-        padding: 4
-    },
-    __meo$k: "m2zr71hil0v798",
-    __meo$dyn: [
-        "css"
-    ],
-    css: {
-        ":where(:not(&))": {
-            color: "red"
-        }
-    }
+    __meo$n: "3ahlh30lfr0go",
+    __meo$r: 1,
+    __meo$k: "m2zr71hil0v798"
 });
 Div({
     __meo$: 2,
-    __meo$c: {
-        padding: 4
-    },
-    __meo$k: "m1ygkzf1cpzaj3",
-    __meo$dyn: [
-        "css"
-    ],
-    css: {
-        "body:not(.a:has(&))": {
-            color: "red"
-        }
-    }
+    __meo$n: "2y3xxv7xfxg77",
+    __meo$r: 1,
+    __meo$k: "m1ygkzf1cpzaj3"
 });
 Div({
     __meo$: 2,
-    __meo$c: {
-        padding: 4
-    },
-    __meo$k: "mzjgqd9m2js4h",
-    __meo$dyn: [
-        "css"
-    ],
-    css: {
-        ":NOT(&)": {
-            color: "red"
-        }
-    }
+    __meo$n: "2dsynj7h85ows",
+    __meo$r: 1,
+    __meo$k: "mzjgqd9m2js4h"
 });
 Div({
     __meo$: 2,
-    __meo$c: {
-        padding: 4
-    },
-    __meo$k: "m3a4e6gv6btpp2",
-    __meo$dyn: [
-        "css"
-    ],
-    css: {
-        "&, :not(&)": {
-            color: "red"
-        }
-    }
+    __meo$n: "1ihkragls90lb",
+    __meo$r: 1,
+    __meo$k: "m3a4e6gv6btpp2"
 });
 Div({
     __meo$: 2,
-    __meo$c: {
-        padding: 4
-    },
-    __meo$k: "m8of2vbohx7p8",
-    __meo$dyn: [
-        "css"
-    ],
-    css: {
-        "& > p": {
-            ":not(&)": {
-                color: "red"
-            }
-        }
-    }
+    __meo$n: "3fyyxcgylthoi",
+    __meo$r: 1,
+    __meo$k: "m8of2vbohx7p8"
 });
 Div({
     __meo$: 2,
-    __meo$s: "mn-2qn1mhrn05kv2",
-    __meo$k: "m3o0gqxecxodmy",
-    __meo$dyn: [
-        "css"
-    ],
-    css: {
-        "&, .other": {
-            color: "red"
-        }
-    }
+    __meo$n: "2xfn94vl3ipw5",
+    __meo$r: 1,
+    __meo$k: "m3o0gqxecxodmy"
 });
 Div({
     __meo$: 2,
-    __meo$s: "mn-15jkadap5xnc2 mn-146ubdx9vp6s2 mn-0e47bwo0vm4o6 mn-35l163g1tjy26 mn-0zzfi4vug0nqv",
+    __meo$n: "0c03yuvcpiueh",
+    __meo$r: 1,
     __meo$k: "m2rqoifvrxtc93"
 });
 Div({
     __meo$: 2,
-    __meo$s: "mn-33ysw3g90cnvn mn-1o5kov332d8x8 mn-0e47bwo0vm4o6 mn-35l163g1tjy26 mn-0zzfi4vug0nqv",
+    __meo$n: "28xjkx3ejaa3w",
+    __meo$r: 1,
     __meo$k: "m1a6mkqoah9tsg"
 });
 Div({
     __meo$: 2,
-    __meo$s: "mn-36ua9zx9jya6w mn-0apew9ru4aw4m mn-2dkx0503h7lq2 mn-0e47bwo0vm4o6 mn-35l163g1tjy26 mn-0zzfi4vug0nqv",
+    __meo$n: "1sy9ashnwj4xf",
+    __meo$r: 1,
     __meo$k: "m20qewglmica0w"
 });

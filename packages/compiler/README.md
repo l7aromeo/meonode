@@ -515,8 +515,9 @@ has rather than with its size.
 
 ### `experimental_extractCss` — styles written at build time (experimental)
 
-A prototype, needing a `@meonode/ui` that exports `registerStaticCss` and
-`toCssValue`. The name and the output may change before it ships.
+A prototype, needing a `@meonode/ui` that reads `__meo$n` and `__meo$t` and
+exports `registerStaticCss`, `registerStaticTemplate` and `toCssValue`. The
+names and the output may change before it ships.
 
 ```js
 experimental: {
@@ -525,63 +526,106 @@ experimental: {
 ```
 
 For a call site of a plain host factory (`Div`, `Span`, …, or `Node('section', …)`)
-or a layout factory (`Row`, `Column`, `Center`, `Absolute`, …), every style entry
-the compiler can prove is written as a CSS rule when the module is built. The call site then carries class names (`__meo$s`) and, for values only
-known at runtime, CSS variables (`__meo$v`). Each module registers its rules once
-through `registerStaticCss`. Anything the compiler cannot prove stays where it
-was, and the runtime handles it as before.
+or a layout factory (`Row`, `Column`, `Center`, `Absolute`, …) whose whole style
+is known when the module is built, the compiler computes what the runtime would
+compute for it: the serialized styles Emotion is handed (after the theme token
+rewrite and `resolveDefaultStyle`'s defaults), and the class name the runtime
+gives them. The call site then carries that name (`__meo$n`), and each module
+registers its names and texts once through `registerStaticCss`. The runtime
+inserts the text through Emotion's own cache, so the rule, its name, its first
+insertion and its class are the ones the node would have uncompiled.
 
-- **Written at build time:** literals, `theme.*` token strings and same-file
-  `const` literals; a conditional whose branches are all of those; and a template
-  literal or arithmetic, through a variable. Inside a nested selector whose
-  rule styles the node itself (`.dark &`, `&:where(.x)`), a template literal, an
-  arithmetic value, or a conditional whose every branch is a value is written
-  through a variable too. Under a selector reaching another element (`& p`), or
-  with a branch that sets nothing, it stays on the runtime path: the variable
-  would come from the nearest ancestor setting it, or compute to `unset`, where
-  Emotion's rule order or a lower rule decides.
-- **Left to the runtime:** identifiers and member reads (they may hold a theme
-  function or nothing), calls, theme functions, fallback arrays, spreads, and
-  component targets. An at-rule other than `@media`, `@supports` or
-  `@container`, or one with a token in its key, stays on the runtime path with
-  its contents, and the rest of the node is still extracted. A property it sets
-  keeps its family on the runtime path too (`@keyframes` sets none). A
-  selector naming the node twice (`& + &`, `& &`) keeps the whole node on the
-  runtime path, since it matches only nodes styled alike in full. So does one
-  naming the node only inside `:not()`, `:is()`, `:where()` or their vendor
-  forms (`html:not(&) p`, `.b:is(&, .a)`), since it matches elements other than
-  the node. `:has(&)` and `&:not(.a)` are extracted.
-- **Same output as the runtime.** Values are written the way Emotion writes them,
-  vendor prefixes included. Nested selectors and at-rules are composed the way
-  Emotion composes them (stylis's parser, then Emotion's `compat` plugin): a key
-  starting with a colon attaches to its parent (`":hover"` is `&:hover`, and
-  `":not(&)"` is `&:not(&)`), a list item without `&` is a descendant,
-  whitespace is dropped around combinators, and `::placeholder`,
-  `:read-only` and `:read-write` rules get Emotion's vendor copies. A property is never split between a build-time rule
-  and a runtime one on the same node. Shapes whose result depends on declaration
-  order stay on the runtime path: `padding` beside `paddingTop`, and one property
-  under two pseudo-classes or two media queries of equal specificity.
-  Build-time rules are ordered base, then pseudo-classes and pseudo-elements,
-  then at-rules, so one property under `&:hover` and then under `@media` is
-  extracted when that is the order Emotion writes the node's rules in (an
-  object's own declarations first, then its nested objects), and kept on the
-  runtime path in the opposite order. `&:hover` beside `&:hover:focus` is
-  extracted in either order, since specificity decides. Which properties overlap comes
-  from the CSS specifications' shorthand and logical property tables (through
-  `@webref/css`), so `border` beside `borderRadius` is extracted, while `border`
-  beside `borderColor`, or `marginBottom` beside `marginInline`, is not.
-
-- **Reserved names.** Class names `mn-` followed by 13 base-36 digits, and
-  custom properties `--mv-` followed by 13 base-36 digits, are reserved for
-  extracted rules and the variables they read; don't use names of that shape in
-  your own css or class names.
+- **Known at build time:** literals, `theme.*` token strings and same-file
+  `const` literals, at any depth of `css`; a conditional over those, which gets
+  one name per combination of its branches (at most 16 per node), chosen at the
+  call site by the same conditional.
+- **A theme token in an at-rule's prelude** (`'@media (max-width:
+  theme.breakpoint.md)'`): `var()` is invalid in a condition, so the text keeps
+  the token as written and is named with it. The runtime resolves it with the
+  theme each node renders under, and leaves out a block whose token the theme
+  does not hold, as it does uncompiled. The at-rule must hold an object literal,
+  no value of the style may hold a brace or be known only at the call site,
+  and no key with a token may become another key of its object under some
+  theme: the text around its tokens decides that, since a token's value may be
+  any text (`(max-width: theme.a)` may become `(max-width: 768px)`, never
+  `(min-width: 10px)`). Resolving the object would fold such a pair into one
+  key, which resolving the text cannot match.
+- **Known only at the call site, but a string or a number:** a template literal,
+  or arithmetic (`+` included), over identifiers, member reads and literals. The text around such values is a template, registered once per
+  module through `registerStaticTemplate`; the call site carries the template's
+  id and each value as `toCssValue` writes it (`__meo$t`), and the runtime joins
+  the two and names the result as it names any serialized styles. Such a value
+  in a key `resolveDefaultStyle` reads (`display`, `flex`, `flexDirection`,
+  `flexFlow`, `flexWrap`, `overflow*`) or in `animation`/`animationName` leaves
+  the node to the runtime.
+- **Left to the runtime, whole:** a node with any other value known only at
+  runtime (a bare identifier or member read, which may be nullish or a theme
+  function, calls, theme functions), fallback arrays, spreads, a theme token in
+  a selector, or in an at-rule whose style breaks the rules above, a key Emotion reads as serialized styles or keyframes (`styles`,
+  `anim`), and component targets. Such a node renders exactly as it does today.
+- **Same text as the runtime.** Every selector, at-rule and value is written as
+  Emotion serializes it, so any shape Emotion takes is extracted, `& + &` and
+  `:not(&)` included: the class is Emotion's own class.
 
 - **Layout factories.** A layout factory's initial props (`display: 'flex'`,
   `flexDirection: 'row'`, …) are merged in front of the call site's, as
-  `createNode` merges them, and extracted with them. The call site then carries
+  `createNode` merges them, and named with them. The call site then carries
   `__meo$i`, a fingerprint of those initial props; a `@meonode/ui` whose factory
   has the same initial props uses the call site's props as given instead of
-  merging again, so the element renders plain.
+  merging again.
+- **Factories declared in the same module.** A top-level
+  `const X = createNode('tag', { … })` (or `createChildrenFirstNode`) whose
+  initial props are all literals (strings, numbers, booleans, `null`, and
+  objects of those) is merged into each of its call sites in the module as
+  `createNode` merges it: flat props key by key, two `css` maps key by key at
+  any depth, a call's `css: undefined`, `false` or `null` dropping the default
+  `css`, and a call's `className` replacing the default's. The initial DOM props
+  join the call's `__meo$d` in the order the runtime's merge gives, and the call
+  carries `__meo$i` like a layout factory's. A children-first factory's own
+  `children` never survives its call. `createNode('tag')` with no initial props
+  is a host factory. Left to the runtime: initial props that are not literals,
+  that hold `theme`, `as`, `disableEmotion`, `key`, `ref`, `props`, a props-first
+  `children`, an integer-like key, a component selector, or the compiler's own
+  marker keys, and calls whose `css` the runtime would compose as
+  `[factoryCss, callSiteCss]` rather than merge.
+- **Factories imported from another module.** Their initial props are not
+  readable here, so a call of one is joined at run time: a direct call of an
+  imported identifier written with a capital, in node position (a return, an
+  arrow's body, a `children` value, a children-first call's children, or what
+  `.render()` is called on or given, through parentheses, arrays,
+  conditionals and `&&`/`||`/`??`), given no arguments or a props object
+  literal whose CSS props and `css` are literals, becomes
+  `__meoFactoryCall(X, __meoSiteN, ...args)`, its arguments as written. Each
+  site is a module-level `{ at }` (the props' index among the arguments) with
+  `r: 1` where the node is a carrier. The runtime checks that `X` is a
+  `createNode` or `createChildrenFirstNode` factory taking its props at `at`,
+  and joins its initial props with the call's style once per site, naming the
+  result as a compiled style is named; anything else it calls as written,
+  `X(...args)`. A call of a `factoryModules` import keeps the marks it has
+  with the option off (`__meo$: 3`, `__meo$k`, `__meo$list` for generated
+  children, `__meo$loc`), so either way it is made with the props it is made
+  with today. Left as written: member calls, calls with a spread argument,
+  identifiers the module renders as JSX elements, imports from any
+  `@meonode/` package (subpaths included), calls anywhere else (a module-scope
+  constant such as a `next/font` loader's, which Next compiles only as
+  written, or another call's argument), props with a spread, a computed or
+  numeric key, a style read
+  at run time, or `theme`, `as` or `disableEmotion`, and two leading object
+  literals (either could be the props). A module that imports `@meonode/ui`
+  at run time imports the helper from there, the export that also installs
+  the join. Any other module imports it from `@meonode/ui/factory-call`,
+  which imports nothing, so a module that loads no other part of
+  `@meonode/ui` (a route handler, say) gains no React or Emotion; its calls
+  join once some module has loaded the join, and run as written before. Such
+  a module's package may not depend on `@meonode/ui` at all, so
+  it is rewritten only for calls of local imports (a specifier starting with
+  `.`, `/`, `#`, `~/` or `@/`); a module that imports `@meonode/ui` at run time
+  is rewritten for any import. Known limit: a module of a package that does
+  not depend on `@meonode/ui`, calling its own capitalized function in node
+  position, gains the import, which its package cannot resolve under strict
+  resolution. The carrier marks are those of both
+  readings of such a call, a named node and a component, since only the
+  runtime knows which it is.
 
 Off by default. With the option off, the output is exactly what it is without
 this option.
@@ -602,9 +646,11 @@ requirements](#runtime-version-requirements) rather than emitted.
 | `__meo$k` | Deterministic call-site key (`m` + base36 FNV-1a64 hash of `filename:span`), used by the runtime to key the generated class name without re-hashing the prop signature. |
 | `__meo$dyn` | Names of bucketed props (from `__meo$c` or `__meo$d`) whose value isn't a plain literal — i.e. props the runtime still needs to treat as reactive/dynamic, in first-occurrence source order (omitted if empty). |
 | `__meo$list` | Present, as `1`, only when this call site's `children` expression was *generated* rather than written out or passed through from the caller. Absent otherwise — there is no `0`. |
-| `__meo$s` | Class names of the call site's build-time rules, with `experimental_extractCss` (omitted when nothing was extracted). |
-| `__meo$v` | CSS variables the build-time rules read, keyed by name, for values only known at runtime (omitted if none). |
-| `__meo$i` | On a layout factory's call site with `__meo$s`: the fingerprint of the initial props merged into it, `key:value;` per prop in key order. A runtime whose factory has the same fingerprint skips its own merge. |
+| `__meo$n` | The runtime's name for the call site's whole style, with `experimental_extractCss`: a string, or a conditional choosing between names (omitted when the node stays on the runtime path). |
+| `__meo$t` | In place of `__meo$n`, when the style holds values only the call site knows: `[templateId, ...valueTexts]`, or a conditional choosing between such arrays. The template's chunks, one more than its values, are registered under its id; joined with the values in order they are the serialized styles. |
+| `__meo$r` | With `experimental_extractCss`, `1` on a named call site (`__meo$n` or `__meo$t`) that renders as a carrier: through `StyledRenderer`, which inserts the run of named styles that begins at it where it renders, so no element is added to the children. The runtime makes a named node with no runtime node or carrier before it, since the walk's start or a component, a carrier; the mark goes on every node that may be one under some combination of the walk's conditions, and on every named node whose position another call site may take on another render (an arm of a conditional, an operand of `&&`, `\|\|` or `??`, an item of a spread, a `.map()` or a child that may be absent, and every child after one, and every named node below one of those, unless it or a node above it there has a `key`), so a node's element type is the same on every render. A memoized node (a host call given `deps`) counts as a component before and after it, since the runtime cuts before it and the browser renders it in a walk of its own; Suspense, SuspenseList and Activity are components. |
+| `__meo$i` | On a layout or same-module factory's call site with `__meo$n` or `__meo$t`: the fingerprint of the initial props merged into it, as the runtime's `initialPropsFingerprint` writes it: entries in JavaScript's key order (not sorted), each key and string length-prefixed in UTF-16 code units (`{k7:displays4:flexk13:flexDirections3:row}` for `Row`). A runtime whose factory has the same fingerprint skips its own merge. |
+| `__meoFactoryCall(X, site, ...args)` | A call of an imported factory, joined at run time (see above), imported from `@meonode/ui` or `@meonode/ui/factory-call`. `site` is a module-level `{ at, r? }`: the index of the props among `args`, and `r: 1` where the node built is a carrier. |
 | `__meo$loc` | `file:line:column` of a call site carrying `__meo$list`, emitted only when [`callSiteLocations`](#callsitelocations--where-a-generated-list-was-written) is enabled. |
 
 Forward-compat policy: the runtime checks `__meo$` against the schema
