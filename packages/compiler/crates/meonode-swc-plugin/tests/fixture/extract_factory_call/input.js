@@ -17,11 +17,14 @@ export const r3 = () => Sheet({ children: body });
 export const r4 = () => Card({ color: "red" }, [dep]);
 // A call among another's children follows it: no mark of its own.
 export const r5 = () => Card({ padding: 1, children: [Badge({ color: "red" })] });
-// A children-first call's children are its first argument; a memoized call is cut
-// before, so the node under it is marked.
+// A children-first call's children are its first argument. A memoized call follows
+// a cut on both sides and begins its own walk in the browser: it is first on every
+// render, with no mark.
 export const r6 = () => Title([Badge({ color: "green" })], { margin: 0 });
 export const r7 = () => Card({ padding: 2, children: [Badge({ color: "blue" }, [dep])] });
-// Among a host's children, keyed and not: a slot before each, so each is marked.
+// Among a host's children, keyed and not: the first follows the host's rule on
+// every render, and the second follows a call that may render a component on
+// some, so only the second is marked.
 export const r8 = () => Div({ padding: 1, children: [Badge({ key: "a", color: "blue" }), Badge({ fontSize: 12 })] });
 // Left as written: a style read at run time, a shorthand style prop, a spread
 // argument or prop, two leading objects, a refused prop, a member call, a

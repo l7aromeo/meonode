@@ -76,6 +76,14 @@ fn is_local_module(src: &str) -> bool {
         .any(|prefix| src.starts_with(prefix))
 }
 
+/// The providers `@meonode/ui` ships that render the children they are given as
+/// they are: the runtime's walk goes through them, as through a host.
+const PASS_THROUGH_PROVIDERS: &[&str] = &["ThemeProvider", "PortalProvider", "StyleRegistry"];
+
+/// `@meonode/ui`'s component wrapper: the node a function given to it returns
+/// is rendered with `.render()`, so its tree begins a walk.
+const COMPONENT_HOC: &str = "Component";
+
 /// The module the runtime helpers are imported from.
 const UI_MODULE: &str = "@meonode/ui";
 const UI_MODULE_CLIENT: &str = "@meonode/ui/client";
@@ -94,11 +102,6 @@ pub const TEMPLATE_KEY: &str = "__meo$t";
 /// characters, so a node whose own text holds one stays on the runtime path.
 const HOLE_OPEN: char = '\u{E000}';
 const HOLE_CLOSE: char = '\u{E001}';
-/// On a host call site with written-out children: the positions of the children
-/// that may render a component, each before which the runtime keeps a slot for
-/// the static styles that began before it. A number is an index into the
-/// children; an array is a path into nested array literals.
-pub const SLOTS_KEY: &str = "__meo$p";
 /// On a layout factory's call site whose initial props were merged here: their
 /// fingerprint, which tells a runtime with the same initial props to skip its
 /// own merge.
@@ -170,6 +173,10 @@ pub struct ModuleScope {
     layout_factories: HashMap<(Atom, SyntaxContext), Factory>,
     /// Local bindings of `Node`.
     node_factories: HashSet<(Atom, SyntaxContext)>,
+    /// Local bindings of the providers in [`PASS_THROUGH_PROVIDERS`].
+    pass_through_providers: HashSet<(Atom, SyntaxContext)>,
+    /// Local bindings of `Component` ([`COMPONENT_HOC`]).
+    component_hocs: HashSet<(Atom, SyntaxContext)>,
     /// Top-level `const NAME = <literal>` bindings.
     consts: HashMap<(Atom, SyntaxContext), Expr>,
     /// Local bindings of `createNode` (`false`) and `createChildrenFirstNode` (`true`).
@@ -275,7 +282,11 @@ impl ModuleScope {
                 None => named.local.sym.clone(),
             };
             let key = (named.local.sym.clone(), named.local.ctxt);
-            if imported.as_ref() == "Node" {
+            if PASS_THROUGH_PROVIDERS.contains(&imported.as_ref()) {
+                self.pass_through_providers.insert(key);
+            } else if imported.as_ref() == COMPONENT_HOC {
+                self.component_hocs.insert(key);
+            } else if imported.as_ref() == "Node" {
                 self.node_factories.insert(key);
             } else if is_host_factory(imported.as_ref()) {
                 self.host_factories.insert(key);
@@ -409,6 +420,34 @@ impl ModuleScope {
             .is_some_and(|&local| local || self.imports_runtime)
     }
 
+    /// Whether `call` builds one of the providers in [`PASS_THROUGH_PROVIDERS`].
+    pub(crate) fn is_pass_through_provider(&self, call: &CallExpr) -> bool {
+        matches!(&call.callee, Callee::Expr(callee)
+            if matches!(&**callee, Expr::Ident(id) if self.pass_through_providers.contains(&(id.sym.clone(), id.ctxt))))
+    }
+
+    /// Whether `id` is a binding of `@meonode/ui`'s `Component`.
+    pub(crate) fn is_component_hoc(&self, id: &Ident) -> bool {
+        self.component_hocs.contains(&(id.sym.clone(), id.ctxt))
+    }
+
+    /// The element a `Node(element, …)` call renders, when `call` is one.
+    pub(crate) fn node_element<'c>(&self, call: &'c CallExpr) -> Option<&'c Expr> {
+        let Callee::Expr(callee) = &call.callee else {
+            return None;
+        };
+        let Expr::Ident(id) = &**callee else {
+            return None;
+        };
+        if !self.node_factories.contains(&(id.sym.clone(), id.ctxt)) {
+            return None;
+        }
+        call.args
+            .first()
+            .filter(|arg| arg.spread.is_none())
+            .map(|arg| &*arg.expr)
+    }
+
     /// The initial props `factory` merges in front of a call's.
     fn initial_entries(&self, factory: Factory) -> Vec<(String, Expr)> {
         match factory {
@@ -465,150 +504,6 @@ impl ModuleScope {
     }
 }
 
-impl ModuleScope {
-    /// The `__meo$p` value for a host call site's written-out `children`: every
-    /// position not proved to render only hosts the runtime walks, or nothing
-    /// (see [`walked`](Self::walked)). A single child that is not an array
-    /// literal is the empty path: a slot before the children value as a whole,
-    /// which the runtime renders as it is. In an array literal, a spread's
-    /// written index is marked when its first item may need a slot (see
-    /// [`may_start_unwalked`](Self::may_start_unwalked)), and nothing inside or
-    /// after it: those positions move with its length at run time. `None` when
-    /// no position is marked.
-    pub fn slots(&self, children: &Expr) -> Option<Expr> {
-        let mut paths: Vec<Vec<usize>> = Vec::new();
-        match unwrap_transparent(children) {
-            Expr::Array(array) => self.array_slots(array, &mut Vec::new(), &mut paths),
-            // The empty path: a slot before the children value as a whole,
-            // which the runtime leaves as it is.
-            child => {
-                if !self.walked(child) {
-                    paths.push(Vec::new());
-                }
-            }
-        }
-        if paths.is_empty() {
-            return None;
-        }
-        let number = |n: usize| {
-            Some(ExprOrSpread {
-                spread: None,
-                expr: Box::new(Expr::Lit(Lit::Num(Number::from(n as f64)))),
-            })
-        };
-        let elems = paths
-            .into_iter()
-            .map(|path| match path.as_slice() {
-                [index] => number(*index),
-                _ => Some(ExprOrSpread {
-                    spread: None,
-                    expr: Box::new(Expr::Array(ArrayLit {
-                        span: DUMMY_SP,
-                        elems: path.into_iter().map(number).collect(),
-                    })),
-                }),
-            })
-            .collect();
-        Some(Expr::Array(ArrayLit {
-            span: DUMMY_SP,
-            elems,
-        }))
-    }
-
-    fn array_slots(&self, array: &ArrayLit, path: &mut Vec<usize>, out: &mut Vec<Vec<usize>>) {
-        for (index, elem) in array.elems.iter().enumerate() {
-            // A hole is `undefined`, which renders nothing.
-            let Some(elem) = elem else {
-                continue;
-            };
-            if elem.spread.is_some() {
-                // The spread starts at its written index whatever it holds, so a
-                // slot there keeps every sibling's index fixed. Positions inside
-                // and after it move with its length: a slot there would pair the
-                // unkeyed siblings after it differently from an uncompiled render.
-                if self.may_start_unwalked(&elem.expr) {
-                    path.push(index);
-                    out.push(path.clone());
-                    path.pop();
-                }
-                return;
-            }
-            path.push(index);
-            match unwrap_transparent(&elem.expr) {
-                Expr::Array(inner) => self.array_slots(inner, path, out),
-                child => {
-                    if !self.walked(child) {
-                        out.push(path.clone());
-                    }
-                }
-            }
-            path.pop();
-        }
-    }
-
-    /// Whether the first item a spread of `spread` gives may be a position the
-    /// marker names: always, unless `spread` is a conditional over array
-    /// literals whose branches are empty or start with a walked child.
-    fn may_start_unwalked(&self, spread: &Expr) -> bool {
-        if let Expr::Call(call) = unwrap_transparent(spread)
-            && crate::carrier::is_map(call)
-        {
-            return !self.walked(spread);
-        }
-        let Expr::Cond(cond) = unwrap_transparent(spread) else {
-            return true;
-        };
-        [&cond.cons, &cond.alt]
-            .into_iter()
-            .any(|branch| match unwrap_transparent(branch) {
-                Expr::Array(array) => match array.elems.first() {
-                    None => false,
-                    // A hole starts the branch with `undefined`, and what follows it
-                    // may be anything.
-                    Some(None) => true,
-                    Some(Some(first)) => first.spread.is_some() || !self.walked(&first.expr),
-                },
-                _ => true,
-            })
-    }
-
-    /// Whether `child` renders only what the runtime's walk sees in order:
-    /// literals, which render text or nothing, and calls of the host
-    /// factories, which carry their own markers, through conditionals whose
-    /// every branch is such a child. A built element (JSX, `createElement`) is
-    /// one only when everything inside it is a literal or such an element,
-    /// since the walk does not enter it.
-    fn walked(&self, child: &Expr) -> bool {
-        match unwrap_transparent(child) {
-            Expr::Lit(_) | Expr::Tpl(_) => true,
-            Expr::Ident(id) => id.sym.as_ref() == "undefined",
-            Expr::Unary(u) => u.op == UnaryOp::Void,
-            Expr::Array(array) => array.elems.iter().all(|e| {
-                e.as_ref()
-                    .is_none_or(|e| e.spread.is_none() && self.walked(&e.expr))
-            }),
-            Expr::Cond(c) => self.walked(&c.cons) && self.walked(&c.alt),
-            // A falsy left side is a primitive, which renders text or nothing.
-            Expr::Bin(b) if b.op == BinaryOp::LogicalAnd => self.walked(&b.right),
-            Expr::Bin(b) if matches!(b.op, BinaryOp::LogicalOr | BinaryOp::NullishCoalescing) => {
-                self.walked(&b.left) && self.walked(&b.right)
-            }
-            // A generated list: what its callback returns, for every item.
-            Expr::Call(call) if crate::carrier::is_map(call) => {
-                let returns = crate::carrier::map_returns(call);
-                !returns.is_empty() && returns.iter().all(|r| self.walked(r))
-            }
-            Expr::Call(call) => {
-                self.extractable_factory(call).is_some() || is_host_create_element(call)
-            }
-            Expr::JSXElement(element) => is_host_jsx(element),
-            Expr::JSXFragment(fragment) => fragment.children.iter().all(is_host_jsx_child),
-            _ => false,
-        }
-    }
-}
-
-/// Whether `expr` is a literal: text or nothing once rendered.
 /// The prefix of the compiler's own marker keys.
 const COMPILED_PREFIX: &str = "__meo$";
 /// The key Emotion marks a styled component and a component selector with; a
@@ -678,107 +573,6 @@ fn holds_key(value: &fingerprint::Value, key: &str) -> bool {
             entries.iter().any(|(k, v)| k == key || holds_key(v, key))
         }
         _ => false,
-    }
-}
-
-fn is_literal(expr: &Expr) -> bool {
-    match unwrap_transparent(expr) {
-        Expr::Lit(_) | Expr::Tpl(_) => true,
-        Expr::Ident(id) => id.sym.as_ref() == "undefined",
-        _ => false,
-    }
-}
-
-/// `createElement('tag', props, ...children)` whose props, when they hold
-/// `children`, and children are literals or host elements.
-fn is_host_create_element(call: &CallExpr) -> bool {
-    let Callee::Expr(callee) = &call.callee else {
-        return false;
-    };
-    let named = match &**callee {
-        Expr::Ident(id) => id.sym.as_ref() == "createElement",
-        Expr::Member(m) => {
-            matches!(&m.prop, MemberProp::Ident(p) if p.sym.as_ref() == "createElement")
-        }
-        _ => false,
-    };
-    let Some((tag, rest)) = call.args.split_first() else {
-        return false;
-    };
-    if !named
-        || tag.spread.is_some()
-        || !matches!(unwrap_transparent(&tag.expr), Expr::Lit(Lit::Str(_)))
-    {
-        return false;
-    }
-    let Some((props, children)) = rest.split_first() else {
-        return true;
-    };
-    let props_ok = match unwrap_transparent(&props.expr) {
-        Expr::Lit(Lit::Null(_)) => true,
-        Expr::Ident(id) => id.sym.as_ref() == "undefined",
-        Expr::Object(obj) => obj.props.iter().all(|p| match p {
-            PropOrSpread::Spread(_) => false,
-            PropOrSpread::Prop(prop) => match &**prop {
-                Prop::KeyValue(kv) => {
-                    plain_key(&kv.key).is_none_or(|key| key.as_ref() != "children")
-                        || is_host_value(&kv.value)
-                }
-                Prop::Shorthand(id) => id.sym.as_ref() != "children",
-                _ => true,
-            },
-        }),
-        _ => false,
-    };
-    props_ok
-        && children
-            .iter()
-            .all(|c| c.spread.is_none() && is_host_value(&c.expr))
-}
-
-/// A value inside a built element that renders only text or host elements.
-fn is_host_value(expr: &Expr) -> bool {
-    match unwrap_transparent(expr) {
-        Expr::Array(array) => array.elems.iter().all(|e| {
-            e.as_ref()
-                .is_none_or(|e| e.spread.is_none() && is_host_value(&e.expr))
-        }),
-        Expr::JSXElement(element) => is_host_jsx(element),
-        Expr::JSXFragment(fragment) => fragment.children.iter().all(is_host_jsx_child),
-        Expr::Call(call) => is_host_create_element(call),
-        other => is_literal(other),
-    }
-}
-
-/// A JSX element with a lowercase tag, no `children` attribute beyond a
-/// literal, and only literal or host children.
-fn is_host_jsx(element: &JSXElement) -> bool {
-    let JSXElementName::Ident(name) = &element.opening.name else {
-        return false;
-    };
-    if !name.sym.starts_with(|c: char| c.is_ascii_lowercase()) {
-        return false;
-    }
-    let attrs_ok = element.opening.attrs.iter().all(|attr| match attr {
-        JSXAttrOrSpread::SpreadElement(_) => false,
-        JSXAttrOrSpread::JSXAttr(attr) => {
-            !matches!(&attr.name, JSXAttrName::Ident(n) if n.sym.as_ref() == "children")
-                || matches!(&attr.value, None | Some(JSXAttrValue::Str(_)))
-        }
-    });
-    attrs_ok && element.children.iter().all(is_host_jsx_child)
-}
-
-fn is_host_jsx_child(child: &JSXElementChild) -> bool {
-    match child {
-        JSXElementChild::JSXText(_) => true,
-        JSXElementChild::JSXExprContainer(container) => match &container.expr {
-            JSXExpr::JSXEmptyExpr(_) => true,
-            JSXExpr::Expr(expr) => is_host_value(expr),
-        },
-        JSXElementChild::JSXElement(element) => is_host_jsx(element),
-        JSXElementChild::JSXFragment(fragment) => fragment.children.iter().all(is_host_jsx_child),
-        JSXElementChild::JSXSpreadChild(_) => false,
     }
 }
 

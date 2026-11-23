@@ -19,8 +19,7 @@ const __meoSite0 = {
     r: 1
 };
 const __meoSite1 = {
-    at: 1,
-    r: 1
+    at: 1
 };
 const __meoSite2 = {
     at: 0,
@@ -31,8 +30,7 @@ const __meoSite3 = {
     r: 1
 };
 const __meoSite4 = {
-    at: 0,
-    r: 1
+    at: 0
 };
 const __meoSite5 = {
     at: 0
@@ -49,16 +47,14 @@ const __meoSite8 = {
     r: 1
 };
 const __meoSite9 = {
-    at: 0,
-    r: 1
+    at: 0
 };
 const __meoSite10 = {
     at: 0,
     r: 1
 };
 const __meoSite11 = {
-    at: 0,
-    r: 1
+    at: 0
 };
 const __meoSite12 = {
     at: 0,
@@ -100,8 +96,9 @@ export const r5 = ()=>__meoFactoryCall(Card, __meoSite6, {
             })
         ]
     });
-// A children-first call's children are its first argument; a memoized call is cut
-// before, so the node under it is marked.
+// A children-first call's children are its first argument. A memoized call follows
+// a cut on both sides and begins its own walk in the browser: it is first on every
+// render, with no mark.
 export const r6 = ()=>__meoFactoryCall(Title, __meoSite8, [
         __meoFactoryCall(Badge, __meoSite7, {
             color: "green"
@@ -119,12 +116,14 @@ export const r7 = ()=>__meoFactoryCall(Card, __meoSite10, {
             ])
         ]
     });
-// Among a host's children, keyed and not: a slot before each, so each is marked.
+// Among a host's children, keyed and not: the first follows the host's rule on
+// every render, and the second follows a call that may render a component on
+// some, so only the second is marked.
 export const r8 = ()=>Div({
         __meo$: 2,
         __meo$n: "1aqk60jpzzigw",
         __meo$r: 1,
-        __meo$k: "m1hmhvh1rwzmqb",
+        __meo$k: "m9lbj1cupjlpa",
         children: [
             __meoFactoryCall(Badge, __meoSite11, {
                 key: "a",

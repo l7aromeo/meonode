@@ -1,17 +1,19 @@
-// The carrier mark `__meo$r` must be on every named node that, on some render,
-// comes with no rule node before it since the walk's start or a child that
-// renders a component, where the runtime makes it a carrier: marked, it is one
-// on every render, so its fiber's type never changes. The mark is a call
-// site's, the same on every render, so over conditions it may be on more nodes
-// than one render needs,
-// but never on a node that is not named, and on a walk without conditions on
-// exactly the nodes that need it.
+// The runtime makes a named node a carrier where no rule node comes before it
+// since the walk's start or a child that renders a component. The carrier mark
+// `__meo$r` must be on every named node that is a carrier on some render, on the
+// server or in the browser, and not on another: marked, it is one on every
+// render, so its fiber's type never changes. The mark is a call site's, the same
+// on every render, so over conditions it may be on more nodes than the renders
+// need, but never on a node that is not named. On a walk without conditions it
+// is on exactly those, and on the named nodes that would begin it: each case is
+// an exported function's tree, which a caller may put after a rule.
 //
 // Walks are generated from named, runtime and unstyled hosts, hosts left
 // uncompiled, components, reads of unknown kind, literals, conditionals,
 // conditional spreads and generated lists, nested up to a depth; every third
 // without conditions. Each is compiled with extraction on and run under every
-// combination of its conditions and list lengths.
+// combination of its conditions and list lengths. A read of unknown kind is a
+// component's element on renders where `c` holds and text on the others.
 import { transform } from '@swc/core'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -158,32 +160,33 @@ function tokens(value: unknown, out: Token[], pending?: unknown[]): Token[] {
   return out
 }
 
-/** The named nodes a render needs a carrier at, on the server or in the browser. */
-function neededOnEither(render: unknown): Set<number> {
-  const out = new Set<number>()
-  const server = needed([{ kind: 'start' }, ...tokens(render, []), { kind: 'end' }])
-  server.forEach(id => out.add(id))
+/** The named nodes of a render with whether each is a carrier, on the server and in the browser. */
+function neededOnEither(render: unknown): Map<number, 'start' | 'component' | false>[] {
+  const out = [needed([{ kind: 'start' }, ...tokens(render, []), { kind: 'end' }])]
+  // The browser's walks: the render's, then each memoized host's own, which
+  // begins after the cut before it.
   const pending: unknown[] = [render]
-  while (pending.length > 0) {
+  for (let first = true; pending.length > 0; first = false) {
     const root = pending.shift()
-    needed([{ kind: 'start' }, ...tokens(root, [], pending), { kind: 'end' }]).forEach(id => out.add(id))
+    out.push(needed([{ kind: first ? 'start' : 'component' }, ...tokens(root, [], pending), { kind: 'end' }]))
   }
   return out
 }
 
 /**
- * The named nodes this render makes carriers: each with no rule before it
- * since the walk's start or a cut, as the runtime promotes one there.
+ * The named nodes of this render, each with whether the runtime makes it a
+ * carrier: with no rule before it since the walk's start or a cut. A carrier
+ * says which of the two is before it.
  */
-function needed(sequence: Token[]): Set<number> {
-  const out = new Set<number>()
+function needed(sequence: Token[]): Map<number, 'start' | 'component' | false> {
+  const out = new Map<number, 'start' | 'component' | false>()
   sequence.forEach((token, i) => {
     if (token.kind !== 'named') return
     const before = sequence
       .slice(0, i)
       .reverse()
       .find(t => t.kind !== 'plain')
-    if (before?.kind === 'start' || before?.kind === 'component') out.add(token.id)
+    out.set(token.id, before?.kind === 'start' || before?.kind === 'component' ? before.kind : false)
   })
   return out
 }
@@ -243,30 +246,41 @@ const suite = (name: string, memo: boolean, count: number) =>
           s.loose = s.b ? { css: { margin: 1 } } : {}
           // Deps that are a list on some renders and `undefined` on others.
           s.deps = s.a ? [1] : undefined
-          // Every read of unknown kind (`s.u<id>`) is a component.
+          // A read of unknown kind (`s.u<id>`) is a component on some renders and text on others.
           return compiled[i](
-            new Proxy(s, { get: (target, key) => (typeof key === 'string' && /^u\d+$/.test(key) ? { kind: 'component' } : target[key as string]) }),
+            new Proxy(s, {
+              get: (target, key) => (typeof key === 'string' && /^u\d+$/.test(key) ? (target.c ? { kind: 'component' } : 'text') : target[key as string]),
+            }),
           )
         }),
       )
 
     it('compiles every case, and generates walks with and without conditions that need carriers', () => {
       expect(compiled).toHaveLength(count)
-      const needing = cases.map((_, i) => renders(i).some(r => neededOnEither(r).size > 0))
+      const needing = cases.map((_, i) => renders(i).some(r => neededOnEither(r).some(walk => [...walk.values()].some(Boolean))))
       expect(cases.filter((c, i) => c.conditional && needing[i]).length).toBeGreaterThan(count / 5)
       expect(cases.filter((c, i) => !c.conditional && needing[i]).length).toBeGreaterThan(count / 20)
     })
 
     it.each(cases.map((c, i) => [c.source, i] as const))('%s', (_, i) => {
-      const want = new Set<number>()
+      // Each named node's place across renders and environments: a carrier, and
+      // which cut or start is before it, or plain.
+      const places = new Map<number, Set<'start' | 'component' | false>>()
       const got = new Set<number>()
       const named = new Set<number>()
       for (const render of renders(i)) {
-        for (const id of neededOnEither(render)) want.add(id)
+        for (const walk of neededOnEither(render))
+          for (const [id, place] of walk) {
+            if (!places.has(id)) places.set(id, new Set())
+            places.get(id)!.add(place)
+          }
         const m = marks(render)
         m.marked.forEach(id => got.add(id))
         m.named.forEach(id => named.add(id))
       }
+      // A node whose place changes, a carrier on one render or environment and
+      // plain on another, needs the mark.
+      const want = new Set([...places].filter(([, p]) => p.has(false) && (p.has('start') || p.has('component'))).map(([id]) => id))
       // Every node a render needs a carrier at carries the mark.
       expect(
         [...want].filter(id => !got.has(id)),
@@ -277,8 +291,13 @@ const suite = (name: string, memo: boolean, count: number) =>
         [...got].filter(id => !named.has(id)),
         'not named',
       ).toEqual([])
-      // Without conditions there is one render, and the mark is exactly what it needs.
-      if (!cases[i].conditional) expect([...got].sort()).toEqual([...want].sort())
+      // Without conditions or reads of unknown kind (which may also be a named
+      // node handed in), the mark is on exactly those, and on the nodes that would
+      // begin the walk, which a caller may put after a rule.
+      if (!cases[i].conditional && !cases[i].source.includes('s.u')) {
+        const begins = [...places].filter(([, p]) => p.has('start')).map(([id]) => id)
+        expect([...got].sort()).toEqual([...new Set([...want, ...begins])].sort())
+      }
     })
   })
 
