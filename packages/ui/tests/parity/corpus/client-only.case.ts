@@ -5,7 +5,7 @@ import type { CaseMeta } from '../case.js'
 
 export const meta: CaseMeta = {
   shapes: ['env.client-only', 'place.style-props', 'sel.pseudo-class'],
-  routes: ['STATIC'],
+  routes: ['CARRIER', 'NAMED'],
   render: 'client',
 }
 

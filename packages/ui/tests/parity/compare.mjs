@@ -3,7 +3,24 @@
 // planted failure can be checked for the dimension it was planted in.
 
 /** The dimensions a difference is reported under. */
-export const DIMENSIONS = ['ssr-html', 'hydration', 'console', 'tree', 'computed', 'pseudo-element', 'forced-state', 'breakpoint', 'color-scheme', 'theme-mode', 'state-step', 'exact-markup', 'rule-text']
+export const DIMENSIONS = [
+  'ssr-html',
+  'hydration',
+  'console',
+  'tree',
+  'computed',
+  'pseudo-element',
+  'forced-state',
+  'breakpoint',
+  'color-scheme',
+  'theme-mode',
+  'state-step',
+  'identity',
+  'exact-markup',
+  'rule-text',
+  'first-paint',
+  'duplicate-rule',
+]
 
 /** The parts of an element's styles, by index in a record. */
 const PARTS = ['', '::before', '::after', '::placeholder', '::selection']
@@ -87,11 +104,41 @@ export function compareExact(off, on) {
   return out
 }
 
-/** A selector with MeoNode's and Emotion's class names replaced by `.&`, so the two can be compared. */
-const normalizeSelector = selector => selector.replace(/\.(?:meonode-)?css-[\w-]+|\.mn-[\w-]+/g, '.&')
+/**
+ * The Emotion cache keys a page may name classes with: MeoNode's own, Emotion's
+ * default, and every key a corpus case passes to `createCache` (run.mjs fails
+ * on a corpus key missing here).
+ */
+export const CACHE_KEYS = ['meonode-css', 'css', 'other', 'pre', 'ip']
+const CLASS_NAME = new RegExp(`\\.(?:${CACHE_KEYS.join('|')})-[\\w-]+|\\.mn-[\\w-]+`, 'g')
 
-/** The text of every style element in some server HTML. */
-const styleText = html => [...html.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/g)].map(m => m[1]).join('\n')
+/** A selector with MeoNode's and Emotion's class names replaced by `.&`, so the two can be compared. */
+const normalizeSelector = selector => selector.replace(CLASS_NAME, '.&')
+
+/** A context opened by a statement at-rule, which takes no block. */
+const STATEMENT_BLOCK = /(?:^|\s)@(?:import|charset|namespace)\b/
+
+/** The text of each style element in some server HTML, one entry per element. */
+const styleTexts = html => [...html.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/g)].map(m => m[1])
+
+/** A statement at-rule a sheet honours only before its first rule. */
+const LEADING_STATEMENT = /^@(?:import|charset|namespace)\b/
+
+/**
+ * The rule tuples of some server HTML, read as a browser reads it: each style
+ * element is a sheet of its own, so an open statement at the end of one never
+ * runs into the next, and the tuples of all sheets are joined.
+ */
+function htmlTuples(html, compile) {
+  const out = new Set()
+  out.variables = new Set()
+  for (const css of styleTexts(html)) {
+    const sheet = ruleTuples(css, compile)
+    for (const t of sheet) out.add(t)
+    for (const v of sheet.variables) out.variables.add(v)
+  }
+  return out
+}
 
 /**
  * The rules some CSS sets, read with stylis's own parser, as
@@ -100,16 +147,31 @@ const styleText = html => [...html.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/g
  * element's own class included, so vendor-prefixed pairs there are compared),
  * an at-rule's own descriptors (selector `@`), and each statement at-rule or
  * empty at-rule block (selector `statement`). Class names are normalized in
- * selectors and preludes; declarations holding a `--mv-*` variable are left
- * out, since their value is the variable's.
+ * selectors and preludes. A declaration holding a `--mv-*` variable is left
+ * out, since its value is the variable's, and its place
+ * (`<context>|<selector>|<property>`) is listed in `variables`, so the other
+ * side's declaration there is left out too. Blocks under a statement at-rule
+ * (`@import`, `@charset`, `@namespace` written as a block in a node's css)
+ * are left out: the browser drops them, and stylis writes them differently
+ * beside other declarations.
  */
 export function ruleTuples(css, compile) {
   const out = new Set()
+  out.variables = new Set()
   const add = (context, selector, decl) => {
-    if (!String(decl.children).includes('var(--mv-')) out.add(`${context}|${selector}|${decl.props}:${decl.children}`)
+    if (STATEMENT_BLOCK.test(context)) return
+    if (String(decl.children).includes('var(--mv-')) out.variables.add(`${context}|${selector}|${decl.props}`)
+    else out.add(`${context}|${selector}|${decl.props}:${decl.children}`)
   }
+  // A sheet ignores @import, @charset and @namespace once any rule comes before them, so they set nothing there.
+  let ruled = false
   const walk = (nodes, context) => {
     for (const node of nodes) {
+      if (context === '' && LEADING_STATEMENT.test(node.value ?? '') && !node.children?.length) {
+        if (!ruled) out.add(`|statement|${normalizeSelector(node.value).replace(/;$/, '')}`)
+        continue
+      }
+      if (context === '') ruled = true
       if (node.type === 'decl') add(context, '@', node)
       else if (node.type === 'rule') {
         for (const raw of node.props) {
@@ -137,10 +199,13 @@ export function ruleTuples(css, compile) {
  * @returns `{ dimension, where, text }` for each difference.
  */
 export function compareRuleText(offHtml, onHtml, compile) {
-  const off = ruleTuples(styleText(offHtml), compile)
-  const on = ruleTuples(styleText(onHtml), compile)
+  const off = htmlTuples(offHtml, compile)
+  const on = htmlTuples(onHtml, compile)
   const out = []
-  for (const t of off) if (!on.has(t)) out.push({ dimension: 'rule-text', where: 'server CSS', text: `only with extraction off: ${t}` })
+  // The place of a declaration: everything before the value.
+  const place = t => t.slice(0, t.indexOf(':', t.lastIndexOf('|')))
+  for (const t of off)
+    if (!on.has(t) && !on.variables.has(place(t))) out.push({ dimension: 'rule-text', where: 'server CSS', text: `only with extraction off: ${t}` })
   for (const t of on) if (!off.has(t)) out.push({ dimension: 'rule-text', where: 'server CSS', text: `only with extraction on: ${t}` })
   return out
 }
@@ -162,6 +227,7 @@ export function compareRecords(oracle, side) {
   if (oracle.record.hydration.length) add('hydration', 'oracle', `the oracle itself reports: ${oracle.record.hydration.join(' | ')}`)
   for (const e of side.record.hydration) add('hydration', 'side', e)
   for (const m of side.record.console) if (!oracle.record.console.includes(m)) add('console', 'side', m)
+  for (const rule of side.record.duplicateRules ?? []) add('duplicate-rule', 'page stylesheets', rule)
 
   const envs = Object.keys(oracle.record.envs)
   const base = envs[0]
@@ -184,8 +250,21 @@ export function compareRecords(oracle, side) {
     const a = oracle.record.forced[key] ?? {}
     const b = side.record.forced[key] ?? {}
     for (const prop of new Set([...Object.keys(a), ...Object.keys(b)])) {
-      if (a[prop] !== b[prop]) add('forced-state', `element ${key}`, `${prop}: oracle ${JSON.stringify(a[prop] ?? '(unchanged)')} / side ${JSON.stringify(b[prop] ?? '(unchanged)')}`)
+      if (a[prop] !== b[prop])
+        add('forced-state', `element ${key}`, `${prop}: oracle ${JSON.stringify(a[prop] ?? '(unchanged)')} / side ${JSON.stringify(b[prop] ?? '(unchanged)')}`)
     }
+  }
+
+  // The server HTML before hydration, when the case records it (meta.firstPaint).
+  for (const [env, a] of Object.entries(oracle.record.firstPaint ?? {})) {
+    const b = side.record.firstPaint?.[env]
+    if (!b) {
+      add('first-paint', env, 'first paint missing on the side')
+      continue
+    }
+    const tree = firstDifference(a.tree, b.tree)
+    if (tree) add('first-paint', env, tree)
+    for (const d of styleDifferences(a.styles, b.styles)) add('first-paint', env, typeof d === 'string' ? d : d.text)
   }
 
   for (const step of Object.keys(oracle.record.steps)) {
@@ -198,6 +277,16 @@ export function compareRecords(oracle, side) {
     const tree = firstDifference(a.tree, b.tree)
     if (tree) add('state-step', step, tree)
     for (const d of styleDifferences(a.styles, b.styles)) add('state-step', step, typeof d === 'string' ? d : d.text)
+    // Which elements the step kept: a side that remounts what the oracle keeps loses that subtree's state.
+    const length = Math.max(a.identity?.length ?? 0, b.identity?.length ?? 0)
+    const changed = []
+    for (let i = 0; i < length; i++) if (a.identity?.[i] !== b.identity?.[i]) changed.push(i)
+    if (changed.length)
+      add(
+        'identity',
+        step,
+        `${changed.length} element(s) differ in identity, first element ${changed[0]}: oracle ${JSON.stringify(a.identity?.[changed[0]] ?? null)} / side ${JSON.stringify(b.identity?.[changed[0]] ?? null)}`,
+      )
   }
   return out
 }

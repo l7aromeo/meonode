@@ -5,7 +5,9 @@
 //   registry: under StyleRegistry, with Next's ServerInsertedHTMLContext
 //             provided, whose flush goes into the head
 // A case whose meta.render is 'client' gets an empty body; 'stream' renders
-// through renderToPipeableStream; 'rsc' renders the Flight payload in
+// through renderToPipeableStream once every boundary is ready, and
+// 'stream-late' from the shell on, so a boundary that resolves later arrives
+// after it as React streams it (a hidden segment and the script that swaps it in); 'rsc' renders the Flight payload in
 // `<side dir>/rsc/payloads.json` (from rsc.mjs), streamed, as Next's server
 // render of a server component page does.
 // A case whose server render throws gets `{ error }` in place of its HTML.
@@ -37,9 +39,10 @@ const { use } = require('react')
 /** Renders the element a Flight response resolves to. */
 const FlightRoot = ({ response }) => use(response)
 /** A fresh element for a server-component case's payload: each render reads its own response. */
-const flightPage = payload => createElement(FlightRoot, { response: createFromNodeStream(Readable.from([payload]), { moduleMap: null, serverModuleMap: null, moduleLoading: null }) })
+const flightPage = payload =>
+  createElement(FlightRoot, { response: createFromNodeStream(Readable.from([payload]), { moduleMap: null, serverModuleMap: null, moduleLoading: null }) })
 
-/** Renders an element to HTML, as a string or as a stream drained to its end. */
+/** Renders an element to HTML, as a string or as a stream drained to its end: `stream` is false, 'all' (from when every boundary is ready) or 'shell' (from the shell on). */
 function render(element, stream) {
   if (!stream) return Promise.resolve(renderToString(element))
   return new Promise((resolve, reject) => {
@@ -54,7 +57,8 @@ function render(element, stream) {
         done()
       },
     })
-    const { pipe } = renderToPipeableStream(element, { onAllReady: () => pipe(sink), onError: reject })
+    const ready = () => pipe(sink)
+    const { pipe } = renderToPipeableStream(element, { ...(stream === 'shell' ? { onShellReady: ready } : { onAllReady: ready }), onError: reject })
   })
 }
 
@@ -67,7 +71,7 @@ for (const name of names) {
     continue
   }
   const page = () => (rsc ? flightPage(payloads[name].payload) : Shell(createElement(mod.App)))
-  const stream = mod.meta.render === 'stream' || rsc
+  const stream = mod.meta.render === 'stream-late' ? 'shell' : mod.meta.render === 'stream' || rsc ? 'all' : false
   if (mod.meta.render === 'client') {
     out.plain[name] = out.registry[name] = { head: '', body: '' }
     continue
@@ -79,7 +83,10 @@ for (const name of names) {
   }
   try {
     const callbacks = []
-    const body = await render(createElement(ServerInsertedHTMLContext.Provider, { value: cb => callbacks.push(cb) }, createElement(StyleRegistry, null, page())), stream)
+    const body = await render(
+      createElement(ServerInsertedHTMLContext.Provider, { value: cb => callbacks.push(cb) }, createElement(StyleRegistry, null, page())),
+      stream,
+    )
     out.registry[name] = { head: renderToString(createElement(Fragment, null, ...callbacks.map(cb => cb()))), body }
   } catch (error) {
     out.registry[name] = { error: String(error?.stack ?? error) }

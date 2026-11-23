@@ -18,11 +18,11 @@ export const meta: CaseMeta = {
     'place.css',
     'env.ssr-hydrate',
   ],
-  routes: ['STATIC', 'runtime:theme-fn'],
+  routes: ['CARRIER', 'NAMED', 'RUNTIME:css-not-literal', 'RUNTIME:dynamic-value'],
   routing: [
-    { node: 'a', route: 'STATIC', extracted: ['color', 'marginLeft'] },
-    { node: 'b', route: 'runtime:theme-fn', runtime: ['color', '&:hover'] },
-    { node: 'd', route: 'runtime:theme-fn', runtime: ['fontWeight', 'outlineColor'] },
+    { node: 'a', route: 'NAMED' },
+    { node: 'b', route: 'RUNTIME:dynamic-value' },
+    { node: 'd', route: 'RUNTIME:dynamic-value' },
   ],
   steps: [
     { name: 'dark mode', mode: 'dark' },

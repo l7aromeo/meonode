@@ -6,9 +6,9 @@ import type { CaseMeta } from '../case.js'
 
 export const meta: CaseMeta = {
   shapes: ['sel.child', 'place.component-target', 'place.css', 'env.client-only'],
-  routes: ['STATIC'],
+  routes: ['CARRIER', 'NAMED', 'RUNTIME:css-not-literal', 'RUNTIME:not-extractable'],
   render: 'client',
-  routing: [{ node: 'hist-parent', route: 'STATIC', extracted: ['& > *'] }],
+  routing: [{ node: 'hist-parent', route: 'CARRIER' }],
 }
 
 export function App(): ReactElement {

@@ -10,13 +10,13 @@ import type { CaseMeta } from '../case.js'
 
 export const meta: CaseMeta = {
   shapes: ['sel.not', 'sel.descendant', 'sel.self-attr', 'place.css', 'env.ssr-hydrate'],
-  routes: ['STATIC', 'runtime:selector-unsupported'],
+  routes: ['CARRIER', 'NAMED'],
   routing: [
-    { node: 'unclosed-not', route: 'runtime:selector-unsupported', runtime: ['&:not(.a'], whole: true },
-    { node: 'comment', route: 'runtime:selector-unsupported', runtime: ['& //x'], whole: true },
-    { node: 'semicolon', route: 'runtime:selector-unsupported', runtime: ['& ;b'], whole: true },
-    { node: 'unclosed-quote', route: 'runtime:selector-unsupported', runtime: ['&[data-x="a'], whole: true },
-    { node: 'after', route: 'STATIC', extracted: ['color'] },
+    { node: 'unclosed-not', route: 'CARRIER' },
+    { node: 'comment', route: 'NAMED' },
+    { node: 'semicolon', route: 'NAMED' },
+    { node: 'unclosed-quote', route: 'NAMED' },
+    { node: 'after', route: 'NAMED' },
   ],
 }
 

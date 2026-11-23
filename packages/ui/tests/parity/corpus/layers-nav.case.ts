@@ -7,10 +7,10 @@ import type { CaseMeta } from '../case.js'
 
 export const meta: CaseMeta = {
   shapes: ['at.layer', 'at.nested', 'place.css', 'place.classname-merge', 'place.component-target', 'dyn.state', 'env.client-only'],
-  routes: ['STATIC', 'runtime:at-rule-other'],
+  routes: ['CARRIER', 'NAMED', 'RUNTIME:css-not-literal', 'RUNTIME:not-extractable'],
   routing: [
-    { node: 'l1-outer', route: 'runtime:at-rule-other', runtime: ['@layer a'] },
-    { node: 'l3-extracted', route: 'STATIC', extracted: ['padding'] },
+    { node: 'l1-outer', route: 'CARRIER' },
+    { node: 'l3-extracted', route: 'CARRIER' },
   ],
   render: 'client',
   pageCss: LAYERS_PAGE_CSS,

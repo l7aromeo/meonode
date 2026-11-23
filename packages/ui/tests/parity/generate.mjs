@@ -146,7 +146,7 @@ ${IMPORTS}
 
 export const meta: CaseMeta = {
   shapes: ['place.css', 'env.ssr-hydrate'],
-  routes: ['STATIC'],
+  routes: ['NAMED'],
   generatedFrom: 'selectors',
   selectors: ${JSON.stringify(entries.map(e => e.name))},
   force: 'marked',

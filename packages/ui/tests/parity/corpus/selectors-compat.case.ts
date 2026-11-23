@@ -9,7 +9,7 @@ import type { CaseMeta } from '../case.js'
 
 export const meta: CaseMeta = {
   shapes: ['sel.pseudo-class', 'sel.pseudo-element', 'sel.chained', 'sel.comma', 'sel.child', 'at.nested', 'place.css', 'env.ssr-hydrate'],
-  routes: ['STATIC'],
+  routes: ['CARRIER', 'NAMED'],
   breakpoints: [600],
 }
 

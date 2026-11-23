@@ -9,13 +9,13 @@ import type { CaseMeta } from '../case.js'
 
 export const meta: CaseMeta = {
   shapes: ['value.keyframes', 'value.string', 'place.css', 'env.ssr-hydrate'],
-  routes: ['runtime:dynamic-value', 'runtime:spread', 'runtime:css-not-literal', 'runtime:css-spread-computed', 'runtime:untraced'],
+  routes: ['RUNTIME:computed-key', 'RUNTIME:css-not-literal', 'RUNTIME:not-extractable', 'RUNTIME:props-spread', 'RUNTIME:read-key-hole'],
   routing: [
-    { node: 'kf', route: 'runtime:dynamic-value', runtime: ['animation'] },
-    { node: 'spread', route: 'runtime:spread', runtime: ['fontWeight'] },
-    { node: 'call', route: 'runtime:css-not-literal', runtime: ['css'] },
-    { node: 'computed', route: 'runtime:css-spread-computed', runtime: ['borderStyle'] },
-    { node: 'untraced', route: 'runtime:untraced', runtime: ['color', 'padding'] },
+    { node: 'kf', route: 'RUNTIME:read-key-hole' },
+    { node: 'spread', route: 'RUNTIME:props-spread' },
+    { node: 'call', route: 'RUNTIME:css-not-literal' },
+    { node: 'computed', route: 'RUNTIME:computed-key' },
+    { node: 'untraced', route: 'RUNTIME:not-extractable' },
   ],
 }
 

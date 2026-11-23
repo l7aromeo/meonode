@@ -6,14 +6,14 @@ import type { CaseMeta } from '../case.js'
 
 export const meta: CaseMeta = {
   shapes: ['at.layer', 'at.nested', 'place.css', 'place.classname-merge', 'place.component-target', 'dyn.state', 'env.client-only'],
-  routes: ['STATIC', 'runtime:at-rule-other'],
+  routes: ['CARRIER', 'NAMED', 'RUNTIME:css-not-literal', 'RUNTIME:not-extractable'],
   routing: [
-    { node: 'l1-outer', route: 'runtime:at-rule-other', runtime: ['@layer a'] },
-    { node: 'l1-inner', route: 'runtime:at-rule-other', runtime: ['@layer b'] },
-    { node: 'l1-inner-first', route: 'runtime:at-rule-other', runtime: ['@layer b'] },
-    { node: 'l2', route: 'runtime:at-rule-other', runtime: ['@layer x', '@layer y'] },
-    { node: 'l3-layered', route: 'runtime:at-rule-other', runtime: ['@layer base'] },
-    { node: 'l3-extracted', route: 'STATIC', extracted: ['padding'] },
+    { node: 'l1-outer', route: 'CARRIER' },
+    { node: 'l1-inner', route: 'NAMED' },
+    { node: 'l1-inner-first', route: 'CARRIER' },
+    { node: 'l2', route: 'CARRIER' },
+    { node: 'l3-layered', route: 'NAMED' },
+    { node: 'l3-extracted', route: 'CARRIER' },
   ],
   render: 'client',
   pageCss: LAYERS_PAGE_CSS,

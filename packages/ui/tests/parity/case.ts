@@ -50,6 +50,13 @@ export interface CaseMeta {
   customProps?: string[]
   /** The server-render modes the page is checked in: plain and under the Next.js registry (default), or plain only. */
   serverModes?: Array<'plain' | 'registry'>
+
+  /**
+   * Also record the server HTML before hydration (client bundle withheld), for
+   * shapes whose server `<style>` siblings decide what matches until the
+   * client moves them: `:first-child`, `:nth-child`, `+`. Not for client cases.
+   */
+  firstPaint?: boolean
   /** Also record the base environment with `prefers-reduced-motion: reduce` emulated. */
   reducedMotion?: boolean
   /** Pseudo-classes forced together on each forced element, beyond the single ones (`['hover', 'focus-within']`). */
@@ -63,24 +70,32 @@ export interface CaseMeta {
 
   /**
    * How the page is produced: server HTML then hydration (default), a client
-   * render only, a streamed server render, or a server component (Flight on
+   * render only, a streamed server render sent once every boundary is ready,
+   * one sent from the shell on (later boundaries arrive after it, swapped in
+   * by React's scripts), or a server component (Flight on
    * the server layer, then server HTML from the payload, hydrated from it).
    */
-  render?: 'hydrate' | 'client' | 'stream' | 'rsc'
+  render?: 'hydrate' | 'client' | 'stream' | 'stream-late' | 'rsc'
 }
 
 /** One node's routing on the "on" side, found by its `key` prop. */
 export interface NodeRouting {
   /** The node's `key`. */
   node: string
-  /** The route this node proves, from inventory.mjs. */
+
+  /**
+   * The route this node proves, from inventory.mjs, derived from the design
+   * (what its source holds), never read off the compiled output. The node is
+   * routed whole: named, templated, joined or left on the runtime path.
+   */
   route: string
-  /** Properties (or selector and at-rule keys) that must stay in the node's call. */
-  runtime?: string[]
-  /** Properties that must leave the node's call for extracted rules. */
-  extracted?: string[]
-  /** The whole node stays on the runtime path: no extracted classes or variables at all. */
-  whole?: boolean
+
+  /**
+   * The compiler marks this node as a carrier (`__meo$r`), by the design's
+   * carrier rule, on a route other than CARRIER: a themed or merged node. A
+   * CARRIER node is one by its route; every other node must not carry the mark.
+   */
+  carrier?: true
 }
 
 /** A difference from the oracle that is known and recorded, not a failure. */
@@ -89,6 +104,15 @@ export interface ExpectedDifference {
   reason: string
   /** The sides it appears on. */
   sides: Array<'off' | 'on'>
+  /** The server-render modes it appears in; every mode the case runs in when absent. */
+  modes?: Array<'plain' | 'registry'>
+
+  /**
+   * The engines it appears in; every engine when absent. Elsewhere it neither
+   * excuses a difference nor has to appear, for a difference whose values are
+   * the engine's own (a layout length one engine computes differently).
+   */
+  engines?: Array<'chromium' | 'webkit' | 'firefox'>
   /** Its dimension, from compare.mjs. */
   dimension: string
   /** Text every matching difference report contains. */

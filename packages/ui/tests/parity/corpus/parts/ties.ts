@@ -3,7 +3,9 @@
 // wins under Emotion; the computed colour of the element both rules reach
 // must match extraction off. A css object held in a variable keeps its node
 // on the runtime path (runtime:css-not-literal); a literal one is extracted.
-import { useState, type ReactElement } from 'react'
+import createCache from '@emotion/cache'
+import { CacheProvider } from '@emotion/react'
+import { useEffect, useState, type ReactElement } from 'react'
 import { createPortal } from 'react-dom'
 import { Div, Node, Span } from '@meonode/ui'
 
@@ -89,12 +91,15 @@ export function NestedSourceUnderTarget(): ReactElement {
   } as never).render() as ReactElement
 }
 
-/** Portals `children` into `container` once there is one; the server has none. */
-function Portal({ container }: { container: HTMLElement | null }): ReactElement | null {
-  return container
+/**
+ * Portals its target into `target` once there is one; the server has none.
+ * The prop is not named `container`, which MeoNode reads as the CSS property.
+ */
+function Portal({ target }: { target: HTMLElement | null }): ReactElement | null {
+  return target
     ? createPortal(
         Span('portalled into the reaching node', { key: 'port-reached', className: 't', css: { '&.t': { color: 'rgb(0, 0, 200)' } } }).render() as ReactElement,
-        container,
+        target,
       )
     : null
 }
@@ -109,7 +114,7 @@ export function PortalEarlier(): ReactElement {
   const [container] = useState(() => (typeof document === 'undefined' ? null : document.createElement('div')))
   return Div({
     children: [
-      Node(Portal, { key: 'port-portal', container } as never),
+      Node(Portal, { key: 'port-portal', target: container } as never),
       Div({
         key: 'port-reacher',
         ref: (node: HTMLElement | null) => {
@@ -120,4 +125,61 @@ export function PortalEarlier(): ReactElement {
       }),
     ],
   } as never).render() as ReactElement
+}
+
+/**
+ * The same tie for a server-rendered page: the portal's target is made after
+ * mount, so the client's first render matches the server's (no portal on
+ * either) and hydration is clean; the next commit portals the target into the
+ * reaching node. The reaching node's rule is then inserted before the
+ * target's.
+ */
+export function PortalAfterMount(): ReactElement {
+  const [container, setContainer] = useState<HTMLElement | null>(null)
+  useEffect(() => setContainer(document.createElement('div')), [])
+  return Div({
+    children: [
+      Node(Portal, { key: 'port-portal', target: container } as never),
+      Div({
+        key: 'port-reacher',
+        ref: (node: HTMLElement | null) => {
+          if (node && container && container.parentNode !== node) node.append(container)
+        },
+        css: { '& .t': { color: 'rgb(200, 0, 0)' } },
+        children: 'reaching node',
+      }),
+    ],
+  } as never).render() as ReactElement
+}
+
+/** A parent's `& > *` over a child with its own colour, then an identical parent over a child with none. */
+function Repeated(): ReactElement {
+  return Div({
+    children: [
+      Div({
+        key: 'rep-own',
+        css: { '& > *': { color: 'rgb(0, 160, 0)' } },
+        children: Span('own blue', { key: 'rep-reached', css: { color: 'rgb(0, 0, 200)' } }),
+      }),
+      Div({ key: 'rep-none', css: { '& > *': { color: 'rgb(0, 160, 0)' } }, children: Span('no colour of its own', { key: 'rep-plain' }) }),
+    ],
+  } as never).render() as ReactElement
+}
+
+/**
+ * A node repeated after a target its rule reaches. With no cache provider,
+ * Emotion's server render writes the repeat's `<style>` again in place, so
+ * after hydration the repeated `& > *` comes after the child's own rule and
+ * the child is green; on the client the rule is inserted once and the child
+ * is blue.
+ */
+export function SsrRepeat(): ReactElement {
+  return Node(Repeated, { key: 'rep' }).render() as ReactElement
+}
+
+const provided = createCache({ key: 'css' })
+
+/** The same under a cache provider, where Emotion's server render writes each rule once, so the child stays blue. */
+export function SsrRepeatProvided(): ReactElement {
+  return Node(CacheProvider, { key: 'rep-provider', value: provided, children: Node(Repeated) }).render() as ReactElement
 }

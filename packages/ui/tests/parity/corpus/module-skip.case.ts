@@ -7,8 +7,8 @@ import type { CaseMeta } from '../case.js'
 
 export const meta: CaseMeta = {
   shapes: ['place.style-props', 'value.string', 'env.ssr-hydrate'],
-  routes: ['runtime:module-skip'],
-  routing: [{ node: 'skipped', route: 'runtime:module-skip', runtime: ['padding', 'color', 'borderBottom'] }],
+  routes: ['RUNTIME:module-skip'],
+  routing: [{ node: 'skipped', route: 'RUNTIME:module-skip' }],
 }
 
 /** Holds the name the compiler would import its value helper as. */

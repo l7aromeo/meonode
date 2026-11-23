@@ -21,7 +21,7 @@ export const meta: CaseMeta = {
     'place.css',
     'env.ssr-hydrate',
   ],
-  routes: ['STATIC'],
+  routes: ['CARRIER', 'NAMED'],
 }
 
 export function App(): ReactElement {

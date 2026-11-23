@@ -6,11 +6,11 @@ import type { CaseMeta } from '../case.js'
 
 export const meta: CaseMeta = {
   shapes: ['sel.child', 'sel.descendant', 'place.css', 'env.client-only'],
-  routes: ['STATIC', 'runtime:css-not-literal'],
+  routes: ['CARRIER', 'NAMED', 'RUNTIME:css-not-literal', 'RUNTIME:not-extractable'],
   render: 'client',
   routing: [
-    { node: 'rgsp-runtime-grandparent', route: 'runtime:css-not-literal', whole: true },
-    { node: 'rgsp-static-parent', route: 'STATIC', extracted: ['& > *'] },
+    { node: 'rgsp-runtime-grandparent', route: 'RUNTIME:css-not-literal' },
+    { node: 'rgsp-static-parent', route: 'CARRIER' },
   ],
 }
 

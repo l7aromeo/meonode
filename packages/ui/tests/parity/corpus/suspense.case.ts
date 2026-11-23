@@ -6,7 +6,7 @@ import type { CaseMeta } from '../case.js'
 
 export const meta: CaseMeta = {
   shapes: ['dyn.suspense-lazy', 'env.streaming', 'place.style-props'],
-  routes: ['STATIC'],
+  routes: ['CARRIER', 'RUNTIME:not-extractable'],
   render: 'stream',
 }
 

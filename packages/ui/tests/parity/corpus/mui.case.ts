@@ -9,12 +9,12 @@ import type { CaseMeta } from '../case.js'
 
 export const meta: CaseMeta = {
   shapes: ['place.mui', 'place.style-props', 'place.css', 'sel.pseudo-class', 'env.ssr-hydrate'],
-  routes: ['STATIC', 'runtime:untraced'],
+  routes: ['CARRIER', 'RUNTIME:not-extractable'],
   routing: [
-    { node: 'box', route: 'STATIC', extracted: ['padding', 'borderTop'] },
-    { node: 'button', route: 'runtime:untraced', runtime: ['margin', 'css'], whole: true },
-    { node: 'chip', route: 'runtime:untraced', runtime: ['marginLeft'], whole: true },
-    { node: 'paper', route: 'runtime:untraced', runtime: ['padding'], whole: true },
+    { node: 'box', route: 'CARRIER' },
+    { node: 'button', route: 'RUNTIME:not-extractable' },
+    { node: 'chip', route: 'RUNTIME:not-extractable' },
+    { node: 'paper', route: 'RUNTIME:not-extractable' },
   ],
 }
 
