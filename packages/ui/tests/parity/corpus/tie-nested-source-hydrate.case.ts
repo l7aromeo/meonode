@@ -6,10 +6,10 @@ import type { CaseMeta } from '../case.js'
 
 export const meta: CaseMeta = {
   shapes: ['sel.where-is-has', 'sel.self-class', 'place.component-target', 'place.css', 'env.ssr-hydrate'],
-  routes: ['CARRIER', 'NAMED', 'RUNTIME:css-not-literal', 'RUNTIME:not-extractable'],
+  routes: ['NAMED', 'RUNTIME:css-not-literal', 'RUNTIME:not-extractable'],
   routing: [
-    { node: 'nsrc-reached', route: 'CARRIER' },
-    { node: 'nsrc-has-child', route: 'CARRIER' },
+    { node: 'nsrc-reached', route: 'NAMED' },
+    { node: 'nsrc-has-child', route: 'NAMED' },
   ],
 }
 

@@ -8,9 +8,9 @@ import type { CaseMeta } from '../case.js'
 
 export const meta: CaseMeta = {
   shapes: ['sel.not', 'sel.pseudo-class', 'sel.child', 'sel.sibling', 'sel.ancestor', 'sel.where-is-has', 'place.css', 'env.ssr-hydrate'],
-  routes: ['CARRIER', 'NAMED'],
+  routes: ['NAMED'],
   routing: [
-    { node: 'last-a', route: 'CARRIER' },
+    { node: 'last-a', route: 'NAMED' },
     { node: 'class-a', route: 'NAMED' },
     { node: 'attr-a', route: 'NAMED' },
     { node: 'list-a', route: 'NAMED' },

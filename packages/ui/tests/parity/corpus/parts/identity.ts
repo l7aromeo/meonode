@@ -10,7 +10,7 @@
 // survives only if `x` was kept. The controls come after the walk, outside it,
 // so they add no rule before `x`.
 import { createElement, useState, type ReactElement } from 'react'
-import { Button, Div, Input, Node, Span } from '@meonode/ui'
+import { Button, Column, Div, Input, Node, Span } from '@meonode/ui'
 import { F } from './identity-nodes.js'
 
 export const PROBE = '[data-probe="x"]'
@@ -108,5 +108,35 @@ export function HelperWalk(): ReactElement {
   return Div({
     key: 'page',
     children: [Div({ key: 'walk', padding: 1, children: [a ? Node(Card, { key: 'k' }) : null, part()] }), controls(() => setA(v => !v))],
+  }).render()
+}
+
+/** A plain component with no rule, rendered on its own. */
+const Cut = () => Span('cut').render() as ReactElement
+
+/**
+ * A plain, a themed and a merged named node, each after a component on some
+ * renders and after a rule on others: the root's padding for the first, the
+ * node before it for the others. So no node is first in the same place on
+ * every render, and the compiler marks all three carriers. Without the mark,
+ * the plain and the merged node change element type when the components come
+ * or go, and React remounts them. The themed node is a carrier on every
+ * render anyway, since the runtime makes each themed named node one.
+ */
+export function MarkedRoutes(): ReactElement {
+  const [on, setOn] = useState(false)
+  return Div({
+    key: 'marked-page',
+    padding: 1,
+    children: [
+      controls(() => setOn(v => !v)),
+      on ? Node(Cut, { key: 'c1' }) : null,
+      Div({ key: 'marked-plain', padding: 2, children: 'plain' }),
+      on ? Node(Cut, { key: 'c2' }) : null,
+      Div({ key: 'marked-themed', padding: 3, css: { '@media (max-width: theme.breakpoint.md)': { display: 'none' } }, children: 'themed' }),
+      on ? Node(Cut, { key: 'c3' }) : null,
+      // No theme token here: a themed node is a carrier on every render, which would hide the merged node's mark.
+      Column({ key: 'marked-merged', padding: 8, css: { '@media (max-width: 600px)': { display: 'none' } }, children: 'merged' }),
+    ],
   }).render()
 }

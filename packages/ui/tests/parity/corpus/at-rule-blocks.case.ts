@@ -14,7 +14,7 @@ export const meta: CaseMeta = {
   shapes: ['at.token-in-key', 'at.media', 'value.keyframes', 'sel.sibling', 'place.css', 'env.ssr-hydrate'],
   routes: ['FACTORY_MERGED', 'NAMED', 'NAMED_THEMED'],
   routing: [
-    { node: 'column', route: 'FACTORY_MERGED', carrier: true },
+    { node: 'column', route: 'FACTORY_MERGED' },
     { node: 'hide', route: 'NAMED_THEMED' },
     { node: 'color', route: 'NAMED_THEMED' },
     { node: 'spin', route: 'NAMED' },

@@ -9,11 +9,11 @@ import type { CaseMeta } from '../case.js'
 
 export const meta: CaseMeta = {
   shapes: ['dyn.suspense-lazy', 'env.streaming-late', 'place.style-props'],
-  routes: ['CARRIER', 'RUNTIME:not-extractable'],
+  routes: ['NAMED', 'RUNTIME:not-extractable'],
   render: 'stream-late',
   routing: [
-    { node: 'shell', route: 'CARRIER' },
-    { node: 'late', route: 'CARRIER' },
+    { node: 'shell', route: 'NAMED' },
+    { node: 'late', route: 'NAMED' },
   ],
 }
 

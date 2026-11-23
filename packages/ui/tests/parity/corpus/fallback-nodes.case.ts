@@ -11,7 +11,7 @@ export const meta: CaseMeta = {
   shapes: ['place.style-props', 'place.css', 'place.create-node', 'place.as', 'place.disable-emotion', 'env.ssr-hydrate'],
   routes: ['FACTORY_MERGED', 'NAMED', 'RUNTIME:computed-key', 'RUNTIME:css-not-literal', 'RUNTIME:node-prop'],
   routing: [
-    { node: 'chip', route: 'FACTORY_MERGED', carrier: true },
+    { node: 'chip', route: 'FACTORY_MERGED' },
     { node: 'as', route: 'RUNTIME:node-prop' },
     { node: 'disabled', route: 'RUNTIME:node-prop' },
     { node: 'held', route: 'RUNTIME:css-not-literal' },

@@ -8,9 +8,9 @@ import type { CaseMeta } from '../case.js'
 
 export const meta: CaseMeta = {
   shapes: ['value.sizing-keyword', 'value.runtime', 'value.template-runtime', 'dyn.state', 'env.ssr-hydrate'],
-  routes: ['CARRIER', 'TEMPLATE'],
+  routes: ['TEMPLATE'],
   routing: [
-    { node: 'width', route: 'CARRIER' },
+    { node: 'width', route: 'TEMPLATE' },
     { node: 'min-height', route: 'TEMPLATE' },
   ],
   steps: [

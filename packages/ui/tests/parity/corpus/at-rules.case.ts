@@ -9,7 +9,7 @@ export const meta: CaseMeta = {
   shapes: ['at.media', 'at.prefers-color-scheme', 'at.container', 'at.supports', 'at.nested', 'at.token-in-key', 'place.css', 'env.ssr-hydrate'],
   routes: ['NAMED', 'NAMED_THEMED'],
   routing: [
-    { node: 'root', route: 'NAMED_THEMED', carrier: true },
+    { node: 'root', route: 'NAMED_THEMED' },
     { node: 'a', route: 'NAMED' },
   ],
   breakpoints: [600, 900],

@@ -18,9 +18,9 @@ export const meta: CaseMeta = {
     'place.css',
     'env.ssr-hydrate',
   ],
-  routes: ['CARRIER', 'NAMED'],
+  routes: ['NAMED'],
   routing: [
-    { node: 'bare-hover', route: 'CARRIER' },
+    { node: 'bare-hover', route: 'NAMED' },
     { node: 'bare-before', route: 'NAMED' },
     { node: 'bare-span', route: 'NAMED' },
     { node: 'bare-child', route: 'NAMED' },

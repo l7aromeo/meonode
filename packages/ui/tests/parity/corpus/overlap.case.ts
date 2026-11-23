@@ -13,9 +13,9 @@ import type { CaseMeta } from '../case.js'
 
 export const meta: CaseMeta = {
   shapes: ['place.style-props', 'value.string', 'value.custom-property', 'place.css', 'env.ssr-hydrate'],
-  routes: ['CARRIER', 'NAMED'],
+  routes: ['NAMED'],
   routing: [
-    { node: 'border-radius', route: 'CARRIER' },
+    { node: 'border-radius', route: 'NAMED' },
     { node: 'flex', route: 'NAMED' },
     { node: 'outline', route: 'NAMED' },
     { node: 'overflow', route: 'NAMED' },

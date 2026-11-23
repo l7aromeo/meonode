@@ -9,9 +9,9 @@ import type { CaseMeta } from '../case.js'
 
 export const meta: CaseMeta = {
   shapes: ['env.rsc', 'place.style-props', 'place.css', 'value.token', 'sel.pseudo-class', 'at.media', 'value.theme-fn-top'],
-  routes: ['CARRIER', 'NAMED', 'RUNTIME:dynamic-value'],
+  routes: ['NAMED', 'RUNTIME:dynamic-value'],
   routing: [
-    { node: 'card', route: 'CARRIER' },
+    { node: 'card', route: 'NAMED' },
     { node: 'fn', route: 'RUNTIME:dynamic-value' },
   ],
   breakpoints: [600],

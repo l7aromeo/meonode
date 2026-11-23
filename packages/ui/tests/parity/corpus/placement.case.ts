@@ -18,12 +18,12 @@ export const meta: CaseMeta = {
     'place.built-children',
     'env.ssr-hydrate',
   ],
-  routes: ['CARRIER', 'FACTORY_MERGED', 'RUNTIME:node-prop', 'RUNTIME:not-extractable'],
+  routes: ['FACTORY_MERGED', 'NAMED', 'RUNTIME:node-prop', 'RUNTIME:not-extractable'],
   routing: [
     { node: 'card', route: 'RUNTIME:not-extractable' },
     { node: 'badge2', route: 'FACTORY_MERGED' },
     { node: 'as', route: 'RUNTIME:node-prop' },
-    { node: 'outer', route: 'CARRIER' },
+    { node: 'outer', route: 'NAMED' },
   ],
 }
 

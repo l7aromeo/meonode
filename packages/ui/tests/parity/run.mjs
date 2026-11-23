@@ -39,7 +39,7 @@ import { writeGeneratedCases } from './generate.mjs'
 import { ATRULES, atruleGaps, parsesAtrules } from './atrules.mjs'
 import { SELECTORS, selectorGaps } from './selectors.mjs'
 import { coverageProblems, EXTRACTED_ROUTES } from './inventory.mjs'
-import { COMPILED_PLANTS, MODE_PLANTS, PLANT_CASE, PLANTS } from './plants.mjs'
+import { COMPILED_PLANTS, MARK_PLANT_CASE, MODE_PLANTS, PLANT_CASE, PLANTS, stripMark } from './plants.mjs'
 import { registrationProblems, routingProblems } from './routing.mjs'
 
 if (process.env.NODE_ENV !== 'production') throw new Error('run with NODE_ENV=production: the oracle is the production runtime')
@@ -149,8 +149,6 @@ const MARKER_PLANT_CASE = 'overlap'
 /** The case the joined-call plant rewrites: one whose nodes are calls of imported factories. */
 const JOINED_PLANT_CASE = 'joined'
 
-/** Takes the carrier mark off the node keyed `key`, which the compiler writes among the markers before its key. */
-const stripMark = key => code => code.replace(new RegExp(`__meo\\$r: 1,\\n((?:\\s*__meo\\$\\w+: [^\\n]*\\n)*\\s*key: '${key}',)`), '$1')
 /** Puts a carrier mark on the node keyed `key`, before its `__meo$k`. */
 const addMark = key => code => code.replace(new RegExp(`\\n(\\s*)(__meo\\$k: [^\\n]*\\n\\s*key: '${key}',)`), '\n$1__meo$$r: 1,\n$1$2')
 
@@ -159,8 +157,8 @@ const addMark = key => code => code.replace(new RegExp(`\\n(\\s*)(__meo\\$k: [^\
  * the check must fail and the unrewritten output must pass: the output of a
  * build with extraction off, the names taken off the nodes, the names kept
  * with their registered rules emptied, the carrier marks taken off or put on
- * every named node, the mark taken off a themed and a merged carrier or put on
- * a themed and a merged node that is none, and the joined calls turned back
+ * every named node, the mark taken off a plain, a themed and a merged carrier or
+ * put on a themed and a merged node that is none, and the joined calls turned back
  * into plain calls of the factory.
  */
 const MARKER_PLANTS = [
@@ -168,15 +166,16 @@ const MARKER_PLANTS = [
   { name: 'the "on" output built with extraction off', case: MARKER_PLANT_CASE, off: true },
   { name: 'the class names stripped from the nodes', case: MARKER_PLANT_CASE, rewrite: code => code.replace(/^\s*__meo\$n: [^\n]*,?\n/gm, '') },
   { name: 'the names kept, their rules emptied', case: MARKER_PLANT_CASE, rewrite: code => code.replace(/(__meoCss\("[^"]+",\s*)\[[\s\S]*?\n\]\)/g, '$1[])') },
-  { name: 'the carrier marks stripped from the nodes', case: MARKER_PLANT_CASE, rewrite: code => code.replace(/^\s*__meo\$r: [^\n]*,?\n/gm, '') },
+  { name: 'the carrier marks stripped from the nodes', case: MARK_PLANT_CASE, rewrite: code => code.replace(/^\s*__meo\$r: [^\n]*,?\n/gm, '') },
   {
     name: 'a carrier mark on every named node',
     case: MARKER_PLANT_CASE,
     rewrite: code => code.replace(/^(\s*)(__meo\$n: [^\n]*,)\n(?!\s*__meo\$r)/gm, '$1$2\n$1__meo$$r: 1,\n'),
   },
+  { name: 'the carrier mark stripped from a plain carrier', case: MARK_PLANT_CASE, node: 'marked-plain', rewrite: stripMark('marked-plain') },
   // A themed and a merged carrier keep their own route, so their mark is checked through the claim's carrier flag.
-  { name: 'the carrier mark stripped from a themed carrier', case: 'at-rules', node: 'root', rewrite: stripMark('root') },
-  { name: 'the carrier mark stripped from a merged carrier', case: 'at-rule-blocks', node: 'column', rewrite: stripMark('column') },
+  { name: 'the carrier mark stripped from a themed carrier', case: MARK_PLANT_CASE, node: 'marked-themed', rewrite: stripMark('marked-themed') },
+  { name: 'the carrier mark stripped from a merged carrier', case: MARK_PLANT_CASE, node: 'marked-merged', rewrite: stripMark('marked-merged') },
   { name: 'a carrier mark on a themed node', case: 'at-rule-blocks', node: 'hide', rewrite: addMark('hide') },
   { name: 'a carrier mark on a merged node', case: 'layout-factories', node: 'row', rewrite: addMark('row') },
   { name: 'the joined calls made plain calls', case: JOINED_PLANT_CASE, rewrite: code => code.replace(/__meoFactoryCall\((\w+), __meoSite\w*, /g, '$1(') },
@@ -938,11 +937,14 @@ try {
         ...compareRecords(oracle, await record('planted', plant.case, 'plain', caseMeta)),
         ...compareRuleText(html('off'), html('planted'), compile),
       ].filter(d => !clean.has(text(d)))
-      // A plant that names a dimension must show there, not only elsewhere.
-      const caught = changed && found.length > 0 && (!plant.dimension || found.some(d => d.dimension === plant.dimension))
+      // A plant that names a dimension must show there, not only elsewhere; one with `noDifference` must show nowhere.
+      const caught = plant.noDifference
+        ? changed && found.length === 0
+        : changed && found.length > 0 && (!plant.dimension || found.some(d => d.dimension === plant.dimension))
       if (!caught) failures++
+      const outcome = plant.noDifference ? (caught ? 'held' : 'BROKEN') : caught ? 'caught' : 'MISSED'
       console.log(
-        `${caught ? 'caught' : 'MISSED'} compiled plant "${plant.name}": ${changed ? '' : 'the rewrite changed nothing; '}${found.length} new difference(s) in ${[...new Set(found.map(d => d.dimension))].join(', ') || 'none'}`,
+        `${outcome} compiled plant "${plant.name}": ${changed ? '' : 'the rewrite changed nothing; '}${found.length} new difference(s) in ${[...new Set(found.map(d => d.dimension))].join(', ') || 'none'}${plant.noDifference ? ` (expected none: ${plant.noDifference})` : ''}`,
       )
     }
     const planted = new Set(PLANTS.map(p => p.dimension))

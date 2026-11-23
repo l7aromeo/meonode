@@ -11,9 +11,9 @@ import type { CaseMeta } from '../case.js'
 
 export const meta: CaseMeta = {
   shapes: ['sel.pseudo-class', 'sel.pseudo-element', 'sel.self-class', 'sel.self-attr', 'sel.ancestor', 'sel.descendant', 'place.css', 'env.ssr-hydrate'],
-  routes: ['CARRIER', 'NAMED'],
+  routes: ['NAMED'],
   routing: [
-    { node: 'placeholder', route: 'CARRIER' },
+    { node: 'placeholder', route: 'NAMED' },
     { node: 'read-only', route: 'NAMED' },
     { node: 'read-write', route: 'NAMED' },
     { node: 'selection', route: 'NAMED' },

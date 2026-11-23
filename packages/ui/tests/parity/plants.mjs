@@ -69,11 +69,19 @@ export const MODE_PLANTS = [
   },
 ]
 
+/** The case whose plain, themed and merged nodes the compiler marks carriers: the strip plants' host. */
+export const MARK_PLANT_CASE = 'identity-marked-routes'
+
+/** Takes the carrier mark off the node keyed `key`, which the compiler writes among the markers before its key. */
+export const stripMark = key => code => code.replace(new RegExp(`__meo\\$r: 1,\\n((?:\\s*__meo\\$\\w+: [^\\n]*\\n)*\\s*key: '${key}',)`), '$1')
+
 /**
  * Plants in the compiler's output rather than on the page: each rewrites the
  * "on" side's compiled module of one case (and the parts it imports), and
  * the run must find a difference from the oracle that the unrewritten output
- * does not have; in `dimension`, when the plant names one.
+ * does not have; in `dimension`, when the plant names one. A plant with
+ * `noDifference` pins a rewrite the browser cannot see, for the reason it
+ * gives: the rewrite must change the output and the run must find nothing.
  */
 export const COMPILED_PLANTS = [
   {
@@ -183,6 +191,26 @@ export const COMPILED_PLANTS = [
     // type and React remounts it: styles and tree stay equal, and only identity shows it.
     dimension: 'identity',
     rewrite: code => code.replace(/\s*__meo\$r: 1,?/g, '').replace(/(__meoSite\d+ = \{\s*at: \d+),\s*r: 1/g, '$1'),
+  },
+  {
+    name: 'the carrier mark stripped (plain)',
+    case: MARK_PLANT_CASE,
+    // Without its mark the node follows a component on one render and a rule on the next, so the toggle changes
+    // its element type and React remounts it.
+    dimension: 'identity',
+    rewrite: stripMark('marked-plain'),
+  },
+  {
+    name: 'the carrier mark stripped (merged)',
+    case: MARK_PLANT_CASE,
+    dimension: 'identity',
+    rewrite: stripMark('marked-merged'),
+  },
+  {
+    name: 'the carrier mark stripped (themed)',
+    case: MARK_PLANT_CASE,
+    noDifference: 'the runtime makes every themed named node a carrier as its walk begins, so the mark changes nothing it renders',
+    rewrite: stripMark('marked-themed'),
   },
   {
     name: 'the carrier marks stripped (footer)',

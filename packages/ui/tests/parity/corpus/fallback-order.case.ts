@@ -12,9 +12,9 @@ import type { CaseMeta } from '../case.js'
 
 export const meta: CaseMeta = {
   shapes: ['sel.pseudo-class', 'sel.descendant', 'place.css', 'place.style-props', 'dyn.state', 'env.ssr-hydrate'],
-  routes: ['CARRIER', 'NAMED', 'RUNTIME:bigint-order', 'RUNTIME:dynamic-value'],
+  routes: ['NAMED', 'RUNTIME:bigint-order', 'RUNTIME:dynamic-value'],
   routing: [
-    { node: 'shorthand', route: 'CARRIER' },
+    { node: 'shorthand', route: 'NAMED' },
     { node: 'logical', route: 'NAMED' },
     { node: 'longhands', route: 'NAMED' },
     { node: 'contexts', route: 'NAMED' },

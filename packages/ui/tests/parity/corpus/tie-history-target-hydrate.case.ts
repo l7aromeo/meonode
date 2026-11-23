@@ -10,8 +10,8 @@ const MODE_REASON =
 
 export const meta: CaseMeta = {
   shapes: ['sel.child', 'place.component-target', 'place.css', 'env.ssr-hydrate'],
-  routes: ['CARRIER', 'NAMED', 'RUNTIME:css-not-literal', 'RUNTIME:not-extractable'],
-  routing: [{ node: 'hist-parent', route: 'CARRIER' }],
+  routes: ['NAMED', 'RUNTIME:css-not-literal', 'RUNTIME:not-extractable'],
+  routing: [{ node: 'hist-parent', route: 'NAMED' }],
   // The registry check: runtime [registry] against runtime [plain].
   expected: [
     {

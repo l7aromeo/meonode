@@ -21,9 +21,9 @@ export const meta: CaseMeta = {
     'place.css',
     'env.ssr-hydrate',
   ],
-  routes: ['CARRIER', 'NAMED'],
+  routes: ['NAMED'],
   routing: [
-    { node: 'two', route: 'CARRIER' },
+    { node: 'two', route: 'NAMED' },
     { node: 'three', route: 'NAMED' },
     { node: 'dark', route: 'NAMED' },
     { node: 'four', route: 'NAMED' },

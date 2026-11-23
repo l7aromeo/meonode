@@ -17,9 +17,9 @@ export const meta: CaseMeta = {
     'place.css',
     'env.ssr-hydrate',
   ],
-  routes: ['CARRIER', 'NAMED'],
+  routes: ['NAMED'],
   routing: [
-    { node: 'hover-within', route: 'CARRIER' },
+    { node: 'hover-within', route: 'NAMED' },
     { node: 'focus-hover-after', route: 'NAMED' },
     { node: 'compound', route: 'NAMED' },
     { node: 'odd-1', route: 'NAMED' },

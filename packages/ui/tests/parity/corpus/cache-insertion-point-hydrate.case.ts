@@ -7,9 +7,9 @@ import type { CaseMeta } from '../case.js'
 
 export const meta: CaseMeta = {
   shapes: ['place.style-props', 'place.classname-merge', 'sel.child', 'dyn.state', 'env.ssr-hydrate'],
-  routes: ['CARRIER', 'RUNTIME:css-not-literal', 'RUNTIME:not-extractable'],
+  routes: ['CARRIER', 'NAMED', 'RUNTIME:css-not-literal', 'RUNTIME:not-extractable'],
   routing: [
-    { node: 'cache-card', route: 'CARRIER' },
+    { node: 'cache-card', route: 'NAMED' },
     { node: 'cache-child', route: 'CARRIER' },
     { node: 'cache-parent', route: 'RUNTIME:css-not-literal' },
   ],

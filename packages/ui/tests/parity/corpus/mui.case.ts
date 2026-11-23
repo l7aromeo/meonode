@@ -9,9 +9,9 @@ import type { CaseMeta } from '../case.js'
 
 export const meta: CaseMeta = {
   shapes: ['place.mui', 'place.style-props', 'place.css', 'sel.pseudo-class', 'env.ssr-hydrate'],
-  routes: ['CARRIER', 'RUNTIME:not-extractable'],
+  routes: ['NAMED', 'RUNTIME:not-extractable'],
   routing: [
-    { node: 'box', route: 'CARRIER' },
+    { node: 'box', route: 'NAMED' },
     { node: 'button', route: 'RUNTIME:not-extractable' },
     { node: 'chip', route: 'RUNTIME:not-extractable' },
     { node: 'paper', route: 'RUNTIME:not-extractable' },

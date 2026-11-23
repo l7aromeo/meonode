@@ -17,9 +17,9 @@ export const meta: CaseMeta = {
     'dyn.state',
     'env.ssr-hydrate',
   ],
-  routes: ['CARRIER', 'RUNTIME:css-not-literal', 'RUNTIME:dynamic-value', 'RUNTIME:not-extractable', 'RUNTIME:props-spread'],
+  routes: ['NAMED', 'RUNTIME:css-not-literal', 'RUNTIME:dynamic-value', 'RUNTIME:not-extractable', 'RUNTIME:props-spread'],
   routing: [
-    { node: 'memo', route: 'CARRIER' },
+    { node: 'memo', route: 'NAMED' },
     { node: 'toggle', route: 'RUNTIME:props-spread' },
     { node: 'mutated', route: 'RUNTIME:css-not-literal' },
   ],

@@ -9,9 +9,9 @@ import type { CaseMeta } from '../case.js'
 
 export const meta: CaseMeta = {
   shapes: ['sel.not', 'sel.where-is-has', 'sel.comma', 'place.css', 'env.ssr-hydrate'],
-  routes: ['CARRIER', 'NAMED'],
+  routes: ['NAMED'],
   routing: [
-    { node: 'not-self', route: 'CARRIER' },
+    { node: 'not-self', route: 'NAMED' },
     { node: 'is-self', route: 'NAMED' },
     { node: 'where-self', route: 'NAMED' },
     { node: 'other', route: 'NAMED' },

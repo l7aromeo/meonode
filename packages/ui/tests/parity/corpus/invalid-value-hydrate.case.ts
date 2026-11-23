@@ -6,9 +6,9 @@ import type { CaseMeta } from '../case.js'
 
 export const meta: CaseMeta = {
   shapes: ['value.runtime', 'dyn.conditional', 'dyn.state', 'sel.ancestor', 'sel.pseudo-class', 'env.ssr-hydrate'],
-  routes: ['CARRIER', 'RUNTIME:switch-cap', 'TEMPLATE'],
+  routes: ['NAMED', 'RUNTIME:switch-cap', 'TEMPLATE'],
   routing: [
-    { node: 'invalid-switch', route: 'CARRIER' },
+    { node: 'invalid-switch', route: 'NAMED' },
     { node: 'invalid-var', route: 'TEMPLATE' },
     { node: 'invalid-over-cap', route: 'RUNTIME:switch-cap' },
   ],

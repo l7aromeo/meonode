@@ -10,8 +10,8 @@ import type { CaseMeta } from '../case.js'
 
 export const meta: CaseMeta = {
   shapes: ['value.token', 'sel.pseudo-class', 'place.css', 'env.ssr-hydrate'],
-  routes: ['CARRIER'],
-  routing: [{ node: 'missing', route: 'CARRIER' }],
+  routes: ['NAMED'],
+  routing: [{ node: 'missing', route: 'NAMED' }],
 }
 
 export function App(): ReactElement {

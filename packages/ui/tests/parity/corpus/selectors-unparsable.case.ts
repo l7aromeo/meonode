@@ -11,9 +11,9 @@ import type { CaseMeta } from '../case.js'
 
 export const meta: CaseMeta = {
   shapes: ['sel.not', 'sel.descendant', 'sel.self-attr', 'place.css', 'env.ssr-hydrate'],
-  routes: ['CARRIER', 'NAMED'],
+  routes: ['NAMED'],
   routing: [
-    { node: 'unclosed-not', route: 'CARRIER' },
+    { node: 'unclosed-not', route: 'NAMED' },
     { node: 'comment', route: 'NAMED' },
     { node: 'semicolon', route: 'NAMED' },
     { node: 'unclosed-quote', route: 'NAMED' },

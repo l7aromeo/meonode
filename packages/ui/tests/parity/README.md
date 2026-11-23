@@ -150,7 +150,10 @@ dimension counts only after its plant is caught. It also plants compiler bugs:
 each rewrites the "on" side's compiled output of one case (a selector list in
 the registered rule text cut to its first selector, or the carrier marks
 stripped, for instance), and must show a difference from the oracle that the
-unrewritten output does not. The registry check has a plant of its own: an
+unrewritten output does not. A compiled plant with `noDifference` pins a
+rewrite the browser cannot see, with its reason: the mark stripped from a
+themed carrier, which the runtime makes a carrier on every render anyway. It
+must change the output and show no difference. The registry check has a plant of its own: an
 unclosed `(` ahead of the registry's joined styles on the [registry] page of
 both the oracle and the "off" side, which their own row reads as the same and
 the registry check must catch.
@@ -267,8 +270,11 @@ The check has plants of its own, each a rewrite of one case's "on" output
 that it must fail while the unrewritten output passes: the output of a build
 with extraction off, the names stripped, the names kept with their rules
 emptied, the carrier marks stripped or put on every named node, the mark
-stripped from a themed and a merged carrier or put on a themed and a merged
-node that is none, and the joined calls made plain calls.
+stripped from a plain, a themed and a merged carrier or put on a themed and a
+merged node that is none, and the joined calls made plain calls. The strip
+plants' host, `identity-marked-routes`, places each carrier after a component
+on some renders and after a rule on others, so the compiler marks it whatever
+its route.
 
 ## Selector inventory
 

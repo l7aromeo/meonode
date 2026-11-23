@@ -25,7 +25,7 @@ export const meta: CaseMeta = {
     'dyn.state',
     'env.ssr-hydrate',
   ],
-  routes: ['CARRIER', 'NAMED', 'RUNTIME:not-extractable'],
+  routes: ['NAMED', 'RUNTIME:not-extractable'],
   routing: [
     { node: 'deep-true', route: 'NAMED' },
     { node: 'deep-selector', route: 'NAMED' },
@@ -33,7 +33,7 @@ export const meta: CaseMeta = {
     { node: 'media-features', route: 'NAMED' },
     { node: 'vendor', route: 'NAMED' },
     { node: 'layer-unlayered', route: 'NAMED' },
-    { node: 'scope', route: 'CARRIER' },
+    { node: 'scope', route: 'NAMED' },
     { node: 'starting', route: 'NAMED' },
     { node: 'keyframes', route: 'NAMED' },
     { node: 'animation-finite', route: 'NAMED' },
