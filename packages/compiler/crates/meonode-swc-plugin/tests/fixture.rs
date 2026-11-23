@@ -618,3 +618,18 @@ fn extract_factory_call_workspace_local() {
 fn extract_at_rule_token() {
     run_partition_with_config("extract_at_rule_token", extract_config());
 }
+
+#[test]
+fn extract_register_empty_layout() {
+    run_partition_with_config("extract_register_empty_layout", extract_config());
+}
+
+#[test]
+fn register_empty_layout_off() {
+    run_partition("register_empty_layout_off");
+}
+
+#[test]
+fn extract_register_empty_type_only() {
+    run_partition_with_ts("extract_register_empty_type_only", extract_config());
+}

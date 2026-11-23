@@ -1,4 +1,6 @@
+import { registerStaticCss as __meoCss } from "@meonode/ui";
 import { Div } from "@meonode/ui";
+__meoCss("3gng7kheu33tg", []);
 Div({
     __meo$: 2,
     __meo$c: {
