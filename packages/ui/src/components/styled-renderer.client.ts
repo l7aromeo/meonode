@@ -16,6 +16,7 @@ import { replaceThemeTokensWithCssVars } from '@src/util/server-theme.util.js'
 import { nameStyles } from '@src/util/style-name.util.js'
 import type { NamedStyle } from '@src/util/named-style.util.js'
 import { type CompiledStyle, compiledStyles, namedRuntime } from '@src/util/named-runtime-slot.util.js'
+import { terminateRules } from '@src/util/rule-text.util.js'
 
 export interface StyledRendererProps<E extends NodeElement> {
   element: E
@@ -311,7 +312,7 @@ function compileRule(className: string, serialized: SerializedStyles): string {
   const sheet = { insert: (rule: string) => void written.push(rule) }
   // The server build returns the rules; the browser build writes them to the sheet.
   const rules = cache.insert(`.${className}`, { ...serialized, name: `${className}-${serialized.name}` }, sheet as never, false)
-  return typeof rules === 'string' ? rules : written.join('')
+  return terminateRules(typeof rules === 'string' ? rules : written.join(''))
 }
 
 export interface ThemedRuleProps {

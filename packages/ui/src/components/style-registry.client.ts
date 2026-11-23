@@ -5,6 +5,7 @@ import createCache from '@emotion/cache'
 import { Node } from '@src/core.node.js'
 import { NodeUtil } from '@src/util/node.util.js'
 import { prefixer } from '@src/util/emotion-prefixer.util.js'
+import { terminateRules } from '@src/util/rule-text.util.js'
 import { ServerInsertedHTMLContext, useServerInsertedHTML } from 'next/navigation.js'
 
 /**
@@ -96,7 +97,7 @@ export default function StyleRegistry({ children }: { children: ReactElement }) 
     newIds.forEach(id => inserted.add(id))
 
     // In insertion order, which is render order, so the output is as deterministic as the render.
-    const styles = newIds.map(id => cache.inserted[id] as string).join('')
+    const styles = newIds.map(id => terminateRules(cache.inserted[id] as string)).join('')
     const idsString = newIds.join(' ')
 
     // Insert a single style tag with the tracked Emotion ids.

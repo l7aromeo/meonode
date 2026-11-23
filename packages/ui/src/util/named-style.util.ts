@@ -4,6 +4,7 @@ import { getRegisteredStyles, insertStyles, registerStyles } from '@emotion/util
 import { createElement, type ReactElement } from 'react'
 import { createServerCssCache } from '@src/util/server-css-cache.util.js'
 import { nameStyles } from '@src/util/style-name.util.js'
+import { terminateRules } from '@src/util/rule-text.util.js'
 
 /**
  * A node's whole style, as the compiler serialized it, ready for Emotion's own
@@ -96,7 +97,7 @@ export function serverStyleElement(cache: EmotionCache, styles: readonly NamedSt
       for (let current: SerializedStyles | undefined = serialized; current !== undefined; current = current.next) delete cache.inserted[current.name]
     const inserted = insertStyles(target, serialized, isStringTag)
     if (inserted === undefined) continue
-    rules += inserted
+    rules += terminateRules(inserted)
     for (let current: SerializedStyles | undefined = serialized; current !== undefined; current = current.next) names += ` ${current.name}`
   }
   if (rules === '') return null
