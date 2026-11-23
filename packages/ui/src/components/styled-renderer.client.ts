@@ -134,8 +134,8 @@ function cssOf(css: unknown, theme: Theme | undefined, context: ThemeContextStat
 /**
  * A compiled style for the theme the element renders under, as it goes to
  * Emotion (see `compiled-style.util.ts`); as given where nothing installed its
- * resolution, which cannot happen: the named runtime and
- * `CompiledStyledRenderer`, the only ones to hand one, install it.
+ * resolution, which cannot happen: the named runtime, which the walk and
+ * `CompiledStyledRenderer`, the only ones to hand one, come with, installs it.
  * @param given The compiled style, if any.
  * @param theme The theme in scope.
  * @param context The theme context.

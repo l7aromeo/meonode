@@ -2,6 +2,7 @@ import type { EmotionCache } from '@emotion/cache'
 import type { ThemeContextState } from '@src/components/theme-provider.client.js'
 import type { Theme } from '@src/types/node.type.js'
 import type { ReactElement } from 'react'
+import type StyledRenderer from '@src/components/styled-renderer.client.js'
 import type { NamedStyle } from '@src/util/named-style.util.js'
 import type { ThemeVarIndex } from '@src/util/theme-diagnostics.util.js'
 import type { WalkContexts } from '@src/util/walk-contexts.util.js'
@@ -63,6 +64,14 @@ export interface NamedRuntime {
   standInServerCache(): EmotionCache
   /** The `<style>` a server render writes for a rule and the runs beside it (see `named-style.util.ts`). */
   serverStyleElement(cache: EmotionCache, styles: readonly NamedStyle[]): ReactElement | null
+
+  /**
+   * The component a server component hands a client reference whose style the
+   * compiler named (see `compiled-styled-renderer.client.ts`). The server's
+   * client reference to it is made only here, so an app without the compiler
+   * loads none of it in the browser.
+   */
+  readonly clientRenderer: (props: Parameters<typeof StyledRenderer>[0]) => ReturnType<typeof StyledRenderer>
 }
 
 /** The runtime, once a compiled style is registered. */

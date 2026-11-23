@@ -7,10 +7,10 @@ import { resolveThemedText } from '@src/util/theme-value.util.js'
 import { themedTexts } from '@src/util/themed-text-slot.util.js'
 
 // How `StyledRenderer` renders a compiled style it is handed in place of css.
-// Installed by the named runtime when compiled output registers a style, and by
-// `CompiledStyledRenderer`, the element a server component hands a client
-// reference, whose browser may register none. An app without the compiler
-// reaches neither, so it loads none of this.
+// Installed with the named runtime, when compiled output registers a style or
+// `CompiledStyledRenderer` renders: the element a server component hands a
+// client reference, whose browser may register none. An app without the
+// compiler reaches neither, so it loads none of this.
 
 /**
  * A compiled style for the theme the element renders under, as it goes to
