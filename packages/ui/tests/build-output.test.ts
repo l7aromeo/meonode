@@ -534,8 +534,11 @@ describe('build output: the factory-call entry', () => {
   }
 
   // An app built without the compiler never imports the name, nor registers a
-  // compiled style, so neither the join nor the resolver of themed conditions
-  // reaches its bundle; compiled output brings in what it uses.
+  // compiled style, so neither the join nor what renders a registered style (the
+  // named runtime, the compiled-style resolution, the resolver of themed
+  // conditions, the registry) reaches its bundle; compiled output brings in what
+  // it uses. The element a server component hands a client reference comes only
+  // through the server build's client reference, never this one's main entry.
   it.each([
     [
       'an app built without the compiler',
@@ -545,10 +548,18 @@ describe('build output: the factory-call entry', () => {
     ],
     ['compiled output with no joined call', `import { Div, registerStaticCss } from '@meonode/ui'\nexport default [Div, registerStaticCss]`, false, true],
     ['compiled output with a joined call', `import { Div, __meoFactoryCall } from '@meonode/ui'\nexport default [Div, __meoFactoryCall]`, true, true],
-  ])('tree-shakes for %s', async (_, source, join, themedText) => {
+  ])('tree-shakes for %s', async (_, source, join, registers) => {
     const modules = await treeShaken(source)
     expect(modules).toContain('core.node.js')
     expect(modules.includes('factory-call/join.js')).toBe(join)
-    expect(modules.includes('util/themed-text.util.js')).toBe(themedText)
+    for (const module of [
+      'util/themed-text.util.js',
+      'util/named-runtime.util.js',
+      'util/compiled-style.util.js',
+      'util/named-style.util.js',
+      'util/static-css.util.js',
+    ])
+      expect([module, modules.includes(module)]).toEqual([module, registers])
+    expect(modules).not.toContain('components/compiled-styled-renderer.client.js')
   })
 })

@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 //
 // A server component hands a client reference's `StyledRenderer` a compiled
-// node's style, `{ name, styles }`, in place of the css it was written from. Given
-// either, it must give the element the same class and Emotion the same rules,
-// in the browser and in a server render.
+// node's style, `{ name, styles }`, in place of the css it was written from,
+// through `CompiledStyledRenderer`, as no module in the browser may have
+// registered a style. Given either, it must give the element the same class and
+// Emotion the same rules, in the browser and in a server render.
 import { CacheProvider } from '@emotion/react'
 import createCache from '@emotion/cache'
 import { serializeStyles } from '@emotion/serialize'
@@ -13,6 +14,7 @@ import { renderToString } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
 import { STATIC_STYLE_PROP } from '@src/constant/common.const.js'
 import StyledRenderer from '@src/components/styled-renderer.client.js'
+import CompiledStyledRenderer from '@src/components/compiled-styled-renderer.client.js'
 import { ThemeProvider } from '@src/main.js'
 import { NodeUtil } from '@src/util/node.util.js'
 import { replaceThemeTokensWithCssVars } from '@src/util/server-theme.util.js'
@@ -49,10 +51,14 @@ function cacheWithRegistered(options: Parameters<typeof createCache>[0]) {
   return cache
 }
 
-/** The element through `StyledRenderer`, handed a plain class and, with `fold`, a registered one. */
+/**
+ * The element as the server hands it, handed a plain class and, with `fold`, a
+ * registered one: through `StyledRenderer` for its css, through
+ * `CompiledStyledRenderer` for its compiled style.
+ */
 const page = (style: Record<string, unknown>, fold: boolean) =>
   createElement(
-    StyledRenderer as never,
+    (STATIC_STYLE_PROP in style ? CompiledStyledRenderer : StyledRenderer) as never,
     { element: Link, className: fold ? `given ${REGISTERED}` : 'given', ...style, children: 'go' } as never,
   ) as ReactElement
 

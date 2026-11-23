@@ -9,22 +9,13 @@ import { NodeUtil } from '@src/util/node.util.js'
 import type { CssProp, NodeElement, Theme } from '@src/types/node.type.js'
 import { ThemeContext, type ThemeContextState, type ThemeSnapshot, useThemeSnapshot } from '@src/components/theme-provider.client.js'
 import { ThemeUtil } from '@src/util/theme.util.js'
-import {
-  collectNamedThemeVarRefs,
-  diagnosticsEnabled,
-  reportThemeIssues,
-  reportThemeVarRefs,
-  reportUnresolvedThemeKey,
-  type ThemeVarRef,
-} from '@src/util/theme-diagnostics.util.js'
+import { diagnosticsEnabled, reportThemeIssues, reportThemeVarRefs, reportUnresolvedThemeKey, type ThemeVarRef } from '@src/util/theme-diagnostics.util.js'
 import { isValidElementType } from '@src/helper/react-is.helper.js'
 import { createServerCssCache } from '@src/util/server-css-cache.util.js'
 import { replaceThemeTokensWithCssVars } from '@src/util/server-theme.util.js'
 import { nameStyles } from '@src/util/style-name.util.js'
-import { type NamedStyle, serverStyleElement, standInServerCache } from '@src/util/named-style.util.js'
-import { themedTexts } from '@src/util/themed-text-slot.util.js'
-import { textHasThemeTokenInPrelude } from '@src/util/theme-key.util.js'
-import { resolveThemedText } from '@src/util/theme-value.util.js'
+import type { NamedStyle } from '@src/util/named-style.util.js'
+import { type CompiledStyle, compiledStyles, namedRuntime } from '@src/util/named-runtime-slot.util.js'
 
 export interface StyledRendererProps<E extends NodeElement> {
   element: E
@@ -76,7 +67,9 @@ export default function StyledRenderer<E extends NodeElement, TProps extends Rec
     return createElement(CacheProvider, { value: scope }, own)
   }
   if (NodeUtil.isServer || emotionCache === null) {
-    if (run || after) return renderOwnClass(props as Record<string, any>, theme, emotionCache ?? standInServerCache(), emotionTheme, context, run, after)
+    // Only a walk's runs reach here, and the runtime that made them is installed.
+    if (run || after)
+      return renderOwnClass(props as Record<string, any>, theme, emotionCache ?? namedRuntime.current!.standInServerCache(), emotionTheme, context, run, after)
     const { element, children, ...rest } = props
     return renderStyled(element, children, rest, theme, emotionCache, emotionTheme, context)
   }
@@ -102,7 +95,8 @@ function RuleInsertion({
   after?: readonly NamedStyle[]
 }): ReactElement | null {
   // The same on every render of this leaf: a server render never renders again in the browser.
-  if (NodeUtil.isServer) return serverStyleElement(cache, [...(run ?? []), { serialized, isStringTag }, ...(after ?? [])])
+  // On the server only an element carrying a run renders this leaf, so the runtime that made the run is installed.
+  if (NodeUtil.isServer) return namedRuntime.current!.serverStyleElement(cache, [...(run ?? []), { serialized, isStringTag }, ...(after ?? [])])
   useInsertionEffect(() => {
     if (run) for (const style of run) insertStyles(cache, style.serialized, style.isStringTag)
     insertStyles(cache, serialized, isStringTag)
@@ -113,12 +107,6 @@ function RuleInsertion({
 
 /** The props a styled element's own element is not given. */
 const RENDERER_ONLY = new Set(['element', 'children', 'css', 'as', STATIC_RUN_PROP, STATIC_RUN_AFTER_PROP, STATIC_SCOPE_PROP, STATIC_STYLE_PROP])
-
-/** A compiled node's style, as the compiler serialized it. */
-interface CompiledStyle {
-  name: string
-  styles: string
-}
 
 /**
  * An element's css as it goes to Emotion: theme references resolved, then the
@@ -144,38 +132,16 @@ function cssOf(css: unknown, theme: Theme | undefined, context: ThemeContextStat
 }
 
 /**
- * A compiled style's text as it goes to Emotion, its theme variables reported
- * against the theme in scope in development, as {@link cssOf} reports css's.
- * @param compiled The compiled style.
- * @param context The theme context.
- * @returns The text.
- */
-function textOf(compiled: CompiledStyle, context: ThemeContextState | null): string {
-  if (diagnosticsEnabled()) reportThemeVarRefs(collectNamedThemeVarRefs(compiled.styles), context ? context.definedVars() : null)
-  return compiled.styles
-}
-
-/**
- * A compiled style for the theme the element renders under: as the compiler
- * serialized it, or, where a condition in it holds a theme token, resolved for
- * that theme. The resolver a registered style installs keeps each resolution
- * (see `themed-text.util.ts`); a server component hands a client reference its
- * style with no module in the browser that registered one, and that resolves
- * here, every time.
- * @param compiled The compiled style, if any.
+ * A compiled style for the theme the element renders under, as it goes to
+ * Emotion (see `compiled-style.util.ts`); as given where nothing installed its
+ * resolution, which cannot happen: the named runtime and
+ * `CompiledStyledRenderer`, the only ones to hand one, install it.
+ * @param given The compiled style, if any.
  * @param theme The theme in scope.
- * @returns The style to render.
+ * @param context The theme context.
  */
-function compiledFor(compiled: CompiledStyle | undefined, theme: Theme | undefined): CompiledStyle | undefined {
-  if (compiled === undefined) return undefined
-  const report = diagnosticsEnabled() ? reportUnresolvedThemeKey : undefined
-  const resolver = themedTexts.resolver
-  if (resolver !== undefined) return resolver.forRender(compiled.styles, theme, report) ?? compiled
-  if (!textHasThemeTokenInPrelude(compiled.styles)) return compiled
-  const themed = resolveThemedText(compiled.styles, theme)
-  if (report !== undefined) for (const prelude of themed.dropped) report(prelude)
-  return themed
-}
+const compiledOf = (given: CompiledStyle | undefined, theme: Theme | undefined, context: ThemeContextState | null): CompiledStyle | undefined =>
+  given && (compiledStyles.resolve?.(given, theme, context) ?? given)
 
 /**
  * The serialized styles for an element's css and the registered styles folded
@@ -211,8 +177,8 @@ function renderOwnClass(
   const renderTarget = (asTarget != null && isValidElementType(asTarget) ? asTarget : props.element) as ElementType
   const givenClass = props.className
   let className = ''
-  const compiled = compiledFor(props[STATIC_STYLE_PROP] as CompiledStyle | undefined, theme)
-  const registered: unknown[] = [compiled ? textOf(compiled, context) : cssOf(props.css, theme, context)]
+  const compiled = compiledOf(props[STATIC_STYLE_PROP] as CompiledStyle | undefined, theme, context)
+  const registered: unknown[] = [compiled ? compiled.styles : cssOf(props.css, theme, context)]
   if (typeof givenClass === 'string') className = getRegisteredStyles(cache.registered, registered as string[], givenClass)
   else if (givenClass != null) className = `${givenClass as string} `
   const serialized = serializedOf(registered, compiled, emotionTheme)
@@ -285,8 +251,8 @@ function renderStyled(
   // to execute any callable theme refs and to expand string tokens that
   // may have been provided directly via `css` rather than via `elementProps`.
   // A compiled style comes serialized already.
-  const compiled = compiledFor(given, theme)
-  const cssForEmotion = compiled ? textOf(compiled, context) : cssOf(css, theme, context)
+  const compiled = compiledOf(given, theme, context)
+  const cssForEmotion = compiled ? compiled.styles : cssOf(css, theme, context)
 
   // With no cache above it — only on the server, since the browser always has
   // Emotion's default one — Emotion would create a `css` cache here itself, whose

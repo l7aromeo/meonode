@@ -27,17 +27,11 @@ import type {
   Theme,
   WorkItem,
 } from '@src/types/node.type.js'
-import {
-  isFragment,
-  isValidElementType,
-  REACT_ACTIVITY_TYPE,
-  REACT_LAZY_TYPE,
-  REACT_SUSPENSE_LIST_TYPE,
-  REACT_SUSPENSE_TYPE,
-} from '@src/helper/react-is.helper.js'
+import { isFragment, isValidElementType, REACT_LAZY_TYPE } from '@src/helper/react-is.helper.js'
 import { getComponentType, getElementTypeName, hasNoStyleTag, getGlobalState, omitUndefined } from '@src/helper/common.helper.js'
 import StyledRenderer, { ThemedRule, ThemeTokenCheck } from '@src/components/styled-renderer.client.js'
 import MeoMemo from '@src/components/meo-memo.client.js'
+import CompiledStyledRenderer from '@src/components/compiled-styled-renderer.client.js'
 import {
   COMPILED_MARKER,
   COMPILER_SCHEMA_KEYS,
@@ -48,38 +42,29 @@ import {
   RUNTIME_PRECEDENCE,
   STATIC_CARRIER_MARKER,
   STATIC_NAME_MARKER,
-  STATIC_RUN_PROP,
-  STATIC_RUN_AFTER_PROP,
-  STATIC_SCOPE_PROP,
   STATIC_STYLE_PROP,
   STATIC_TEXT_PROP,
 } from '@src/constant/common.const.js'
 import { checkCss, checkFactoryCss, isMergeableCss, markCombinedCssChecked } from '@src/util/css.util.js'
 import { NodeUtil } from '@src/util/node.util.js'
 import { IS_REACT_SERVER_LAYER } from '@src/util/react-layer.util.js'
-import { passesChildrenThrough, providesTheme } from '@src/util/children-pass-through.util.js'
+import { mayChangeTheme, passesChildrenThrough } from '@src/util/children-pass-through.util.js'
+import { namedRuntime } from '@src/util/named-runtime-slot.util.js'
 import { noteOnce, observeChildren } from '@src/util/generated-list.util.js'
 import { compileServerEmotionRule, compileServerNamedRule } from '@src/util/server-emotion.util.js'
-import { hasNamedStyles, staticStylesOf } from '@src/util/static-css.util.js'
 import { factoryShapes, type FactoryJoinSlot } from '@src/factory-call/index.js'
-import { namedClass, type NamedStyle } from '@src/util/named-style.util.js'
 import type { EmotionCache } from '@emotion/cache'
-import { readEmotionCache } from '@src/util/emotion-cache.util.js'
 import { themedTexts } from '@src/util/themed-text-slot.util.js'
-import { createServerCssCache } from '@src/util/server-css-cache.util.js'
-import { checkCandidatesAfterCommit, checkThemeRefsInScope, type StaticThemeCandidate } from '@src/components/static-styles.js'
 import { replaceThemeTokensWithCssVars } from '@src/util/server-theme.util.js'
 import {
   collectNamedThemeVarRefs,
   collectThemeVarRefs,
   diagnosticsEnabled,
   getThemeVarIndex,
-  getTokensVarIndex,
   reportThemeIssues,
   reportThemeVarRefs,
   reportUnresolvedThemeKey,
   type ThemeVarIndex,
-  unionThemeVarIndexes,
 } from '@src/util/theme-diagnostics.util.js'
 import { ThemeUtil } from '@src/util/theme.util.js'
 
@@ -135,18 +120,6 @@ function canAnchorRules(renderTarget: unknown, props: Record<string, unknown>, i
 }
 
 /**
- * Whether the theme can differ inside this element from outside it.
- *
- * A component can render a provider around its children, a nested
- * `ThemeProvider` being the case that matters, so its children may read another
- * theme than its parent does. A host element and the built-in symbols (fragments,
- * Suspense, StrictMode) supply no context.
- */
-function mayChangeTheme(renderTarget: unknown): boolean {
-  return typeof renderTarget === 'function' || (typeof renderTarget === 'object' && renderTarget !== null)
-}
-
-/**
  * The `<style>` element for a rule, one object per request.
  *
  * Every anchor that needs a rule gets it, so a subtree the client does not
@@ -167,73 +140,7 @@ function ruleElement(rule: { id: string; ownClassName: string; cssText: string }
   return element
 }
 
-/**
- * Whether a node renders through `StyledRenderer`, as its complete phase decides
- * outside the server layer: css left on the runtime path, and Emotion not disabled.
- * @param props The node's props.
- */
-function beginsStyledRenderer(props: Record<string, unknown>): boolean {
-  const css = props.css as object | null | undefined
-  return !props.disableEmotion && !!css && Object.keys(css).length > 0
-}
-
 const RENDER_CONTEXT_POOL_KEY = Symbol.for('@meonode/ui/BaseNode/renderContextPool')
-
-/**
- * Whether `target` may put its children's rules out of the walk's order: what a
- * run since the last rule may not cross. A component renders its children where
- * it chooses, after rules of its own; a Suspense boundary may render them later,
- * and an Activity renders hidden children later in the browser and not at all on
- * the server. MeoNode's own providers render their children as given, so they
- * are not.
- */
-const cutsRuleOrder = (target: unknown): boolean =>
-  (mayChangeTheme(target) && !passesChildrenThrough(target)) ||
-  target === REACT_SUSPENSE_TYPE ||
-  target === REACT_SUSPENSE_LIST_TYPE ||
-  target === REACT_ACTIVITY_TYPE
-
-/** What a node renders: its `as` target where that is valid, else its element. */
-const renderTargetOf = (node: BaseNode): unknown => {
-  const as = (node.props as { as?: unknown }).as
-  return as != null && isValidElementType(as) ? as : node.element
-}
-
-/**
- * Whether a child the walk does not enter, an element or what it holds, may
- * render a component: a `Component(...)` call's element, a styled node's, a lazy
- * reference, or a host element over one.
- */
-function mayRenderComponent(value: unknown): boolean {
-  if (Array.isArray(value)) return value.some(mayRenderComponent)
-  if (NodeUtil.isNodeInstance(value)) return cutsRuleOrder(renderTargetOf(value)) || mayRenderComponent(value.props.children)
-  if (isValidElement(value)) {
-    let holds = elementRendersComponent.get(value)
-    if (holds === undefined) {
-      holds = cutsRuleOrder(value.type) || mayRenderComponent((value.props as { children?: unknown }).children)
-      elementRendersComponent.set(value, holds)
-    }
-    return holds
-  }
-  return typeof value === 'object' && value !== null && (value as { $$typeof?: unknown }).$$typeof === REACT_LAZY_TYPE
-}
-
-/**
- * Whether each element seen may render a component, so an element given again,
- * such as one built once and passed on every render, is not walked again. An
- * element never changes once created, so the answer holds for its lifetime.
- */
-const elementRendersComponent = new WeakMap<object, boolean>()
-
-/**
- * Whether a host's child is where a run must stop: one rendering a component,
- * entered by the walk or not, or a memoized node, which the browser renders in a
- * walk of its own and the server in this one.
- */
-const cutsAt = (child: unknown): boolean =>
-  NodeUtil.isNodeInstance(child)
-    ? cutsRuleOrder(renderTargetOf(child)) || child.dependencies !== undefined
-    : typeof child === 'object' && child !== null && mayRenderComponent(child)
 
 /**
  * Every `BaseNode` reachable in a children array, including inside nested arrays.
@@ -628,93 +535,10 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
     // `ThemedRule`s that render beside the element keyed here, inside one of
     // MeoNode's own providers, because no host in that provider can carry them.
     const besideRules = new Map<BaseNode, Map<string, ReactElement>>()
-    // The whole styles the compiler serialized, inserted into Emotion's own sheet
-    // when Emotion would insert them: each node's before the next rule of the
-    // render in the order its nodes begin, parents first. A runtime node, or a
-    // named node with no rule before it since the walk's start or a cut, which
-    // renders as a carrier, inserts the run of them that began since the last
-    // such rule ahead of its own, from its `RuleInsertion`, and the run after it,
-    // up to the next cut or the end of the walk, after its own. A cut is any child
-    // that may put its rules out of the walk's order: a component, a boundary or
-    // a memoized node. So every run goes in with a rule, and nothing is added to
-    // what `.render()` returns.
-    const namedEnabled = !IS_REACT_SERVER_LAYER && hasNamedStyles()
-    /** The cache the render's elements go under, read once, at its first named node. */
-    let walkCache: EmotionCache | undefined
-    /** Whether the walk runs outside a component's render, where no cache can be read. */
-    let walkUnderNoRender = false
-    const cacheOfWalk = (): EmotionCache => {
-      if (walkCache === undefined) {
-        const read = readEmotionCache()
-        walkUnderNoRender = read === undefined
-        walkCache = read ?? createServerCssCache()
-      }
-      return walkCache
-    }
-    /** Whether the walk has no cache to read, being outside a component's render. */
-    const walkHasNoCache = (): boolean => {
-      cacheOfWalk()
-      return walkUnderNoRender
-    }
-
-    /**
-     * A server render with no cache provider above the walk: Emotion gives each
-     * outermost styled element a cache of its own, which every styled element
-     * below it shares, so each styled node's scope is that element.
-     */
-    const scopedWalk = namedEnabled && NodeUtil.isServer && readEmotionCache() === null
-    /** Each styled node's scope, when the walk is scoped. */
-    const nodeScopes = scopedWalk ? new Map<BaseNode, EmotionCache>() : undefined
-
-    /**
-     * Named nodes that render through `StyledRenderer` instead, handed their
-     * style: with no cache to read, neither its key nor the classes it registered,
-     * which a `className` may hold, are known until the element renders under it.
-     */
-    const namedAtRender = namedEnabled ? new Set<BaseNode>() : undefined
-    /** Each named node's class, from its begin phase, for its complete phase. */
-    const namedClasses = namedEnabled ? new Map<BaseNode, string>() : undefined
-    /** The run each runtime node inserts ahead of its own rule. */
-    const namedRuns = namedEnabled ? new Map<BaseNode, NamedStyle[]>() : undefined
-
-    /**
-     * What each runtime node, or carrier, inserts after its own rule: the run that
-     * began after it up to the next cut or the end of the walk, when no other
-     * rule came between. Its element holds this object, filled in later.
-     */
-    const namedRunsAfter = namedEnabled ? new Map<BaseNode, { run: NamedStyle[] }>() : undefined
-
-    /**
-     * The last runtime node or carrier the walk began, since its start or the
-     * last cut. A named node that begins with none is a carrier, so a run is
-     * pending only while this is set.
-     */
-    let lastRuleNode: BaseNode | null = null
-    /** The run since the last rule. */
-    let pendingNamed: NamedStyle[] = []
-    /** Hands the run since the last rule to `lastRuleNode`, to insert after its own. */
-    const runAfterLastRule = (): void => {
-      if (pendingNamed.length === 0) return
-      namedRunsAfter!.get(lastRuleNode!)!.run.push(...pendingNamed)
-      pendingNamed = []
-    }
-    /** A cut: the run since the last rule goes in after that rule, and what follows is no longer next to it. */
-    const cutRun = (): void => {
-      runAfterLastRule()
-      lastRuleNode = null
-    }
-    /** Marks `node` as one whose `StyledRenderer` inserts a rule, so a later run can follow it. */
-    const beginRuleNode = (node: BaseNode): void => {
-      if (!namedRunsAfter!.has(node)) namedRunsAfter!.set(node, { run: [] })
-      lastRuleNode = node
-    }
-    // In development, the theme tokens of named styles are checked where the
-    // providers are, as `StyledRenderer` checks a styled element's. Production
-    // builds none of this.
-    const namedChecks = namedEnabled && diagnosticsEnabled()
-    /** Named nodes' theme variables to check once committed, in a development build in the browser. */
-    let namedCandidates: StaticThemeCandidate[] | undefined
-    const checksAfterCommit = namedChecks && isDevMode() && !NodeUtil.isServer
+    // The named nodes compiled output marks, walked by the runtime it installed
+    // when it registered a style (`named-runtime.util.ts`); outside the server
+    // layer, whose output is final and compiles each style where it is.
+    const named = IS_REACT_SERVER_LAYER ? undefined : namedRuntime.current?.walk()
 
     try {
       // Fast capacity check with exponential growth
@@ -759,7 +583,7 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
         // follows is no longer next to it.
         if ((currentWork as { cut?: true }).cut) {
           stackPointer--
-          cutRun()
+          named!.cut()
           continue
         }
         const {
@@ -801,50 +625,7 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
           const childInForeignNamespace = inForeignNamespace || beginTarget === 'svg' || beginTarget === 'math'
           // A named node joins the run since the last rule, as its class is
           // composed; a runtime node takes that run, to insert ahead of its own.
-          if (namedEnabled) {
-            const beginProps = node.props as Record<string, unknown>
-            const name = beginProps.disableEmotion ? undefined : (beginProps[STATIC_NAME_MARKER] as string | undefined)
-            const styles = name === undefined ? undefined : ((beginProps[STATIC_TEXT_PROP] as string | undefined) ?? staticStylesOf(name))
-            if (scopedWalk && (styles !== undefined || beginsStyledRenderer(beginProps))) {
-              childScope ??= createServerCssCache()
-              nodeScopes!.set(node, childScope)
-            }
-            if (name !== undefined && styles === undefined && isDevMode()) {
-              console.error(`[MeoNode] The static style \`${name}\` is used but no module registered it, so no rule is sent for it.`)
-            }
-            // A carrier where the compiler marks one, so it carries in every
-            // render; also where no rule is before it since the walk's start or
-            // a cut, which the compiler missed, so every run has a rule to go in
-            // with; anywhere with no cache to read; and for a style whose
-            // conditions or selectors hold theme tokens, which only the theme
-            // where its element renders resolves, as its css would.
-            if (
-              styles !== undefined &&
-              (beginProps[STATIC_CARRIER_MARKER] || walkHasNoCache() || lastRuleNode === null || themedTexts.resolver?.has(styles) === true)
-            ) {
-              // A runtime node now: it takes the run since the last rule, as one
-              // does, and the one after it that no later rule takes.
-              namedAtRender!.add(node)
-              if (pendingNamed.length > 0) {
-                namedRuns!.set(node, pendingNamed)
-                pendingNamed = []
-              }
-              beginRuleNode(node)
-            } else if (styles !== undefined) {
-              // Following a rule: the run goes in after it.
-              const { className, style } = namedClass(cacheOfWalk(), name!, styles, beginProps.className, typeof beginTarget === 'string')
-              namedClasses!.set(node, className)
-              if (scopedWalk) style.scope = childScope!
-              pendingNamed.push(style)
-            } else if (beginsStyledRenderer(beginProps)) {
-              // It takes the run since the last rule, to insert ahead of its own.
-              if (pendingNamed.length > 0) {
-                namedRuns!.set(node, pendingNamed)
-                pendingNamed = []
-              }
-              beginRuleNode(node)
-            }
-          }
+          if (named) childScope = named.begin(node, node.props as Record<string, unknown>, beginTarget, childScope)
           // The same, for a `ThemedRule`, which resolves against the theme where it
           // renders: the topmost host since the last component above, which may
           // supply another theme.
@@ -858,10 +639,10 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
           // child's tokens resolve against those merged over the ones above.
           let childOpaqueAbove = opaqueAbove
           let childThemeOwn = themeOwn
-          if (namedChecks && mayChangeTheme(beginTarget)) {
-            if (providesTheme(beginTarget))
-              childThemeOwn = unionThemeVarIndexes(themeOwn ?? null, getTokensVarIndex((node.props as { tokens?: unknown }).tokens))
-            else if (!passesChildrenThrough(beginTarget)) childOpaqueAbove = true
+          if (named?.checks && mayChangeTheme(beginTarget)) {
+            const below = named.scopeBelow(beginTarget, node.props as Record<string, unknown>, themeOwn)
+            if (below === null) childOpaqueAbove = true
+            else childThemeOwn = below
           }
 
           if (children) {
@@ -876,12 +657,12 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
             // its rules out of the walk's order.
             const pending = collectNodeChildren(childArray)
 
-            ensureCapacity(stackPointer + (namedEnabled ? 2 * pending.length : pending.length))
+            ensureCapacity(stackPointer + (named ? 2 * pending.length : pending.length))
 
             for (let i = pending.length - 1; i >= 0; i--) {
               const child = pending[i]
               // Pushed after the child, so the walk reaches it first.
-              const cut = namedEnabled && cutsAt(child)
+              const cut = named !== undefined && named.cutsAt(child)
               if (!NodeUtil.isNodeInstance(child)) {
                 if (cut) workStack[stackPointer++] = { node, isProcessed: true, cut: true } as unknown as (typeof workStack)[number]
                 continue
@@ -942,7 +723,7 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
           const activeTheme = getActiveTheme(node.props, inheritedTheme)
           const builtFrom = node._builtFrom
           /** The text of the node's whole style: its own, filled from a template, or the registered one. */
-          const namedText = typeof staticName === 'string' ? ((staticText as string | undefined) ?? staticStylesOf(staticName)) : undefined
+          const namedText = typeof staticName === 'string' ? ((staticText as string | undefined) ?? namedRuntime.current?.textOf(staticName)) : undefined
 
           // Resolve the element to actually render. `as` swaps the render target
           // ("render this other tag/component, keep the styles") while reusing the
@@ -958,7 +739,7 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
           // A component may insert rules of its own after its children's, and a
           // boundary or a memoized node may render them apart: the run since the
           // last rule goes in after that rule, and what follows is no longer next to it.
-          if (namedEnabled && (cutsRuleOrder(renderTarget) || node.dependencies !== undefined)) cutRun()
+          named?.complete(node, renderTarget)
           // A node in a prop is a supported pattern — a component can take one and
           // put it in its own `children`, where the walk resolves it (see
           // `tests/props-attributes.test.ts`). So this cannot be a general check.
@@ -1153,19 +934,8 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
 
           // A named node's class, composed in its begin phase as `StyledRenderer`
           // composes one: the given classes the cache registered folded into it.
-          const ownNamedClass = namedClasses?.get(node)
+          const ownNamedClass = named?.classOf(node, namedText, opaqueAbove, themeOwn)
           if (ownNamedClass !== undefined) (elementProps as Record<string, unknown>).className = ownNamedClass
-
-          // A named node's theme variables, checked with nothing added to the render:
-          // in the walk's own theme scope, here, against the providers above its
-          // component and those the walk passed; under a component the walk cannot
-          // see into, or outside any component's render, on the element once it is
-          // committed, in the browser.
-          if (ownNamedClass !== undefined && namedChecks) {
-            const refs = collectNamedThemeVarRefs(namedText ?? '')
-            if (refs.length > 0 && (opaqueAbove || !checkThemeRefsInScope(refs, themeOwn)) && checksAfterCommit)
-              (namedCandidates ??= []).push({ classes: ownNamedClass, refs })
-          }
 
           let element: ReactElement<FinalNodeProps>
 
@@ -1194,7 +964,8 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
             const namedStylesHere = shouldBypassStyledRendererOnServer && !disableEmotion ? namedText : undefined
             // A client reference renders in the browser, through `StyledRenderer`
             // as its css would; the style goes with it, since the module that
-            // registered it does not load there.
+            // registered it does not load there, and so does how it renders, in
+            // `CompiledStyledRenderer`.
             const namedForClient = namedStylesHere !== undefined && NodeUtil.isClientReference(renderTarget)
             const serverNamedStyles = namedForClient ? undefined : namedStylesHere
             // Keep server/client on the same StyledRenderer path for client references.
@@ -1203,23 +974,20 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
             // server vs client compilation routes.
             const shouldUseRuntimeThemeOnServer = shouldBypassStyledRendererOnServer && isStyledComponent && NodeUtil.isClientReference(renderTarget)
 
-            if (namedAtRender?.has(node)) {
-              const run = namedRuns?.get(node)
+            if (named?.rendersAtRender(node)) {
               element = createElement(
                 StyledRenderer,
                 {
                   element: renderTarget,
                   ...elementProps,
                   [STATIC_STYLE_PROP]: { name: staticName, styles: namedText },
-                  ...(run && { [STATIC_RUN_PROP]: run }),
-                  ...(namedRunsAfter?.has(node) && { [STATIC_RUN_AFTER_PROP]: namedRunsAfter.get(node) }),
-                  ...(nodeScopes?.has(node) && { [STATIC_SCOPE_PROP]: nodeScopes.get(node) }),
+                  ...named.runProps(node),
                 },
                 ...elementChildren,
               )
             } else if (namedForClient) {
               element = createElement(
-                StyledRenderer,
+                CompiledStyledRenderer,
                 { element: renderTarget, ...elementProps, [STATIC_STYLE_PROP]: { name: staticName, styles: namedStylesHere } },
                 ...elementChildren,
               )
@@ -1229,16 +997,13 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
               // client runtime's vars-mode resolution keeps the Emotion class
               // hash identical across SSR/CSR.
               const cssForRenderer = NodeUtil.isServer ? replaceThemeTokensWithCssVars(css) : css
-              const run = namedRuns?.get(node)
               element = createElement(
                 StyledRenderer,
                 {
                   element: renderTarget,
                   ...elementProps,
                   css: cssForRenderer,
-                  ...(run && { [STATIC_RUN_PROP]: run }),
-                  ...(namedRunsAfter?.has(node) && { [STATIC_RUN_AFTER_PROP]: namedRunsAfter.get(node) }),
-                  ...(nodeScopes?.has(node) && { [STATIC_SCOPE_PROP]: nodeScopes.get(node) }),
+                  ...named?.runProps(node),
                 },
                 ...elementChildren,
               )
@@ -1381,8 +1146,7 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
       // Get the final rendered element for the root node of this render cycle.
       const rootElement = renderedElements.get(this) as ReactElement<FinalNodeProps>
       // The run since the last rule goes in after it.
-      if (namedEnabled) runAfterLastRule()
-      if (namedCandidates !== undefined) checkCandidatesAfterCommit(namedCandidates)
+      named?.finish()
       if (rootRules.size === 0) return rootElement
 
       // Rules whose consumer has no host above it in this render that could carry

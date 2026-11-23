@@ -1,11 +1,7 @@
 'use client'
-import { use, useMemo, type ReactElement } from 'react'
+import { useMemo, type ReactElement } from 'react'
 import type { DependencyList, NodeInstance } from '@src/types/node.type.js'
-import { ThemeContext } from '@src/components/theme-provider.client.js'
-import { readEmotionCache } from '@src/util/emotion-cache.util.js'
-import { hasNamedStyles } from '@src/util/static-css.util.js'
-import { diagnosticsEnabled } from '@src/util/theme-diagnostics.util.js'
-import { withWalkContexts } from '@src/util/walk-contexts.util.js'
+import { namedRuntime } from '@src/util/named-runtime-slot.util.js'
 
 /**
  * Holds one memoized subtree in a fiber of its own.
@@ -49,6 +45,7 @@ export default function MeoMemo({ node, deps }: { node: NodeInstance; deps: Depe
   // React allows no hook inside `useMemo`, and a walk with named styles reads
   // the Emotion cache, and in development the theme, as it renders: they are
   // read here, where hooks may be called, and handed to the walk.
-  const contexts = hasNamedStyles() ? { cache: readEmotionCache() ?? null, theme: diagnosticsEnabled() ? use(ThemeContext) : null } : undefined
-  return useMemo(() => (contexts ? withWalkContexts(contexts, () => node.render(true)) : node.render(true)), [node.element, ...deps])
+  const runtime = namedRuntime.current
+  const contexts = runtime?.memoContexts()
+  return useMemo(() => (contexts ? runtime!.withContexts(contexts, () => node.render(true)) : node.render(true)), [node.element, ...deps])
 }

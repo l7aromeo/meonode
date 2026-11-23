@@ -1,6 +1,7 @@
 import { isDevMode } from '@src/constant/common.const.js'
 import { getGlobalState } from '@src/helper/common.helper.js'
 import { installThemedText } from '@src/util/themed-text.util.js'
+import { installNamedRuntime } from '@src/util/named-runtime.util.js'
 
 /**
  * The styles the compiler serialized at build time.
@@ -37,21 +38,31 @@ interface Registrations {
   modules: Set<string>
 }
 
-const state = getGlobalState(Symbol.for('@meonode/ui/staticCss'), (): StaticCssState => ({
-  named: new Map(),
-  templates: new Map(),
-  modules: new Set(),
-}))
+let state: StaticCssState | undefined
+
+/**
+ * The registry, shared on `globalThis` by every copy of this module. Read on
+ * first use, so an app that registers nothing runs no code of this module.
+ */
+const store = (): StaticCssState =>
+  (state ??= getGlobalState(Symbol.for('@meonode/ui/staticCss'), (): StaticCssState => ({
+    named: new Map(),
+    templates: new Map(),
+    modules: new Set(),
+  })))
 
 /**
  * Whether any whole style or template is registered. Until one is, a render
  * looks for none. A call through `__meoFactoryCall` registers its style when
  * its node is built, before any walk that holds the node begins.
  */
-export const hasNamedStyles = (): boolean => state.named.size > 0 || state.templates.size > 0
+export const hasNamedStyles = (): boolean => {
+  const { named, templates } = store()
+  return named.size > 0 || templates.size > 0
+}
 
 /** The serialized text of a registered whole style, by its name, or `undefined` when none is registered. */
-export const staticStylesOf = (name: string): string | undefined => state.named.get(name)
+export const staticStylesOf = (name: string): string | undefined => store().named.get(name)
 
 /**
  * The serialized text of a template with its holes filled, or `undefined` when
@@ -61,7 +72,7 @@ export const staticStylesOf = (name: string): string | undefined => state.named.
  * @returns The text.
  */
 export function templateText(id: string, values: readonly unknown[]): string | undefined {
-  const chunks = state.templates.get(id)
+  const chunks = store().templates.get(id)
   if (chunks === undefined || chunks.length !== values.length + 1) return undefined
   let text = chunks[0]
   for (let hole = 0; hole < values.length; hole++) {
@@ -85,17 +96,18 @@ export function templateText(id: string, values: readonly unknown[]): string | u
  */
 export function registerStaticCss(moduleId: string, rules: readonly StaticCssRule[]): void {
   installThemedText()
-  if (state.modules.has(moduleId)) return
+  installNamedRuntime()
+  if (store().modules.has(moduleId)) return
   for (const [name, styles] of rules) {
-    const known = state.named.get(name)
-    if (known === undefined) state.named.set(name, styles)
+    const known = store().named.get(name)
+    if (known === undefined) store().named.set(name, styles)
     else if (known !== styles && isDevMode()) {
       throw new Error(
         `[MeoNode] The static style \`${name}\` is registered with two different texts:\n  ${known}\n  ${styles}\nOutput of two different builds is loaded together.`,
       )
     }
   }
-  state.modules.add(moduleId)
+  store().modules.add(moduleId)
 }
 
 /**
@@ -109,9 +121,10 @@ export function registerStaticCss(moduleId: string, rules: readonly StaticCssRul
  */
 export function registerNamedText(name: string, styles: string): boolean {
   installThemedText()
-  const known = state.named.get(name)
+  installNamedRuntime()
+  const known = store().named.get(name)
   if (known === undefined) {
-    state.named.set(name, styles)
+    store().named.set(name, styles)
     return true
   }
   return known === styles
@@ -128,8 +141,9 @@ export function registerNamedText(name: string, styles: string): boolean {
  */
 export function registerStaticTemplate(id: string, chunks: readonly string[]): void {
   installThemedText()
-  const known = state.templates.get(id)
-  if (known === undefined) state.templates.set(id, chunks)
+  installNamedRuntime()
+  const known = store().templates.get(id)
+  if (known === undefined) store().templates.set(id, chunks)
   else if (isDevMode() && (known.length !== chunks.length || known.some((chunk, index) => chunk !== chunks[index]))) {
     throw new Error(
       `[MeoNode] The static template \`${id}\` is registered with two different texts:\n  ${known.join('…')}\n  ${chunks.join('…')}\nOutput of two different builds is loaded together.`,
@@ -144,13 +158,13 @@ export function registerStaticTemplate(id: string, chunks: readonly string[]): v
  * forget them.
  */
 export function __markStaticCssBaseline(): void {
-  state.baseline = { named: new Map(state.named), templates: new Map(state.templates), modules: new Set(state.modules) }
+  store().baseline = { named: new Map(store().named), templates: new Map(store().templates), modules: new Set(store().modules) }
 }
 
 /** Test seam: forgets every registration since the baseline, all of them when none is marked. */
 export function __resetStaticCss(): void {
-  const baseline = state.baseline
-  state.named = new Map(baseline?.named)
-  state.templates = new Map(baseline?.templates)
-  state.modules = new Set(baseline?.modules)
+  const baseline = store().baseline
+  store().named = new Map(baseline?.named)
+  store().templates = new Map(baseline?.templates)
+  store().modules = new Set(baseline?.modules)
 }

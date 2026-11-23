@@ -32,8 +32,7 @@ import {
 import { BaseNode } from '@src/core.node.js'
 import { diagnosticsEnabled } from '@src/util/theme-diagnostics.util.js'
 import { checkCss, isMergeableCss } from '@src/util/css.util.js'
-import { templateText } from '@src/util/static-css.util.js'
-import { nameText } from '@src/util/style-name.util.js'
+import { namedRuntime } from '@src/util/named-runtime-slot.util.js'
 
 /**
  * NodeUtil provides a collection of static utility methods and properties
@@ -314,10 +313,10 @@ export class NodeUtil {
     // as Emotion's pipeline names the text, so the node is a named one.
     const template = schemaKeys.template === undefined ? undefined : source[schemaKeys.template]
     if (Array.isArray(template) && typeof template[0] === 'string') {
-      const text = templateText(template[0], template.slice(1))
-      if (text !== undefined) {
-        result[STATIC_NAME_MARKER] = nameText(text)
-        result[STATIC_TEXT_PROP] = text
+      const filled = namedRuntime.current?.template(template[0], template.slice(1))
+      if (filled !== undefined) {
+        result[STATIC_NAME_MARKER] = filled.name
+        result[STATIC_TEXT_PROP] = filled.text
       } else if (isDevMode()) {
         console.error(
           `[MeoNode] The static template \`${template[0]}\` is used but no module registered it with ${template.length - 1} holes, so the node renders unstyled.`,
