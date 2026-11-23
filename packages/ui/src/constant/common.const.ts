@@ -174,8 +174,10 @@ export const STATIC_NAME_MARKER = '__meo$n'
  * begin after it, up to the next cut or the end of its render: it renders
  * through `StyledRenderer`, as a runtime node does, so its insertion puts them
  * in after its own, with no element added to the children. The compiler marks
- * every call site that may begin a stretch in any render, so whether a node
- * carries never changes from one render to the next, and React keeps it.
+ * every call site that may begin a stretch in any render, so the node renders
+ * through `StyledRenderer` in every render, and React keeps it. In a render
+ * where a rule comes before it, it carries nothing: its rule goes in with that
+ * rule's run, and it renders only its host (see {@link STATIC_CLASS_ONLY_PROP}).
  */
 export const STATIC_CARRIER_MARKER = '__meo$r'
 
@@ -212,6 +214,14 @@ export const STATIC_RUN_AFTER_PROP = '__meonodeStaticRunAfter'
  * would share with it, so its rule goes out once in that scope.
  */
 export const STATIC_SCOPE_PROP = '__meonodeStaticScope'
+
+/**
+ * The prop of a `StyledRenderer` for a carrier that follows a rule in this
+ * render: it keeps the carrier's type, so React keeps the element, and renders
+ * the host with the class the walk composed. Its rule goes in with the run of
+ * the rule before it, as an unmarked node's would, so it has no leaf.
+ */
+export const STATIC_CLASS_ONLY_PROP = '__meonodeStaticClassOnly'
 
 /**
  * The prop of a `StyledRenderer` that a server component hands a compiled

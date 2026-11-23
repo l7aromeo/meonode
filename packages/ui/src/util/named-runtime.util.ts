@@ -98,7 +98,9 @@ function beginsStyledRenderer(props: Record<string, unknown>): boolean {
  * named node with no rule before it since the walk's start or a cut, which
  * renders as a carrier, inserts the run of them that began since the last such
  * rule ahead of its own, from its `RuleInsertion`, and the run after it, up to
- * the next cut or the end of the walk, after its own. A cut is any child that
+ * the next cut or the end of the walk, after its own. A node the compiler marks
+ * as a carrier that follows a rule keeps `StyledRenderer` as its type, so React
+ * keeps it, but its rule joins the run as an unmarked node's does. A cut is any child that
  * may put its rules out of the walk's order: a component, a boundary or a
  * memoized node. So every run goes in with a rule, and nothing is added to what
  * `.render()` returns.
@@ -124,6 +126,12 @@ class Walk implements NamedWalk {
    * which a `className` may hold, are known until the element renders under it.
    */
   private readonly atRender = new Set<WalkNode>()
+
+  /**
+   * Marked carriers that follow a rule: their rule joins the run, as an unmarked
+   * node's does, and they render through `StyledRenderer` only to keep its type.
+   */
+  private readonly classOnly = new Set<WalkNode>()
   /** Each named node's class, from its begin phase, for its complete phase. */
   private readonly classes = new Map<WalkNode, string>()
   /** The run each runtime node inserts ahead of its own rule. */
@@ -213,16 +221,11 @@ class Walk implements NamedWalk {
     if (name !== undefined && styles === undefined && isDevMode()) {
       console.error(`[MeoNode] The static style \`${name}\` is used but no module registered it, so no rule is sent for it.`)
     }
-    // A carrier where the compiler marks one, so it carries in every render;
-    // also where no rule is before it since the walk's start or a cut, which the
-    // compiler missed, so every run has a rule to go in with; anywhere with no
-    // cache to read; and for a style whose conditions or selectors hold theme
-    // tokens, which only the theme where its element renders resolves, as its
-    // css would.
-    if (
-      styles !== undefined &&
-      (props[STATIC_CARRIER_MARKER] || this.hasNoCache() || this.lastRuleNode === null || themedTexts.resolver?.has(styles) === true)
-    ) {
+    // A carrier where no rule is before it since the walk's start or a cut, so
+    // every run has a rule to go in with; anywhere with no cache to read; and for
+    // a style whose conditions or selectors hold theme tokens, which only the
+    // theme where its element renders resolves, as its css would.
+    if (styles !== undefined && (this.hasNoCache() || this.lastRuleNode === null || themedTexts.resolver?.has(styles) === true)) {
       // A runtime node now: it takes the run since the last rule, as one does,
       // and the one after it that no later rule takes.
       this.atRender.add(node)
@@ -233,6 +236,9 @@ class Walk implements NamedWalk {
       this.classes.set(node, className)
       if (this.scoped) style.scope = childScope!
       this.pending.push(style)
+      // Where the compiler marks a carrier, a render may need it to carry: it
+      // keeps `StyledRenderer` as its type in this one too, so React keeps it.
+      if (props[STATIC_CARRIER_MARKER]) this.classOnly.add(node)
     } else if (beginsStyledRenderer(props)) {
       this.takeRun(node)
     }
@@ -272,6 +278,10 @@ class Walk implements NamedWalk {
 
   rendersAtRender(node: object): boolean {
     return this.atRender.has(node as WalkNode)
+  }
+
+  rendersClassOnly(node: object): boolean {
+    return this.classOnly.has(node as WalkNode)
   }
 
   runProps(walkNode: object): Record<string, unknown> | undefined {

@@ -211,8 +211,11 @@ describe('a card list', () => {
   // A renderer per styled node and a leaf each until inserted, as Emotion's css prop costs.
   const runtime = { Styled: 2 * CARDS + 2, RuleInsertion: 2 * CARDS + 2 }
   const runtimeAgain = { Styled: 2 * CARDS + 2 }
-  // A renderer per carrier: the grid and each card, which carry the runs of the nodes after them.
-  const carriers = { Styled: CARDS + 1, RuleInsertion: CARDS + 1 }
+  // A renderer per carrier: the grid and each card, which keep that type in every
+  // render. A leaf only for those that take a run: the grid, and each card after
+  // a component. The first card follows the grid's rule, so its rule goes in
+  // with the grid's run, as an unmarked node's would, and it has no leaf.
+  const carriers = { Styled: CARDS + 1, RuleInsertion: CARDS }
   const carriersAgain = { Styled: CARDS + 1 }
   // With none marked, the walk carries at the grid and at each card after a
   // component: every card but the first, whose run follows the grid's.

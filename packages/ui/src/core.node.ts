@@ -40,6 +40,7 @@ import {
   LOCATION_MARKER,
   RUNTIME_PRECEDENCE,
   STATIC_CARRIER_MARKER,
+  STATIC_CLASS_ONLY_PROP,
   STATIC_NAME_MARKER,
   STATIC_STYLE_PROP,
   STATIC_TEXT_PROP,
@@ -984,6 +985,10 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
                 },
                 ...elementChildren,
               )
+            } else if (named?.rendersClassOnly(node)) {
+              // A marked carrier that carries nothing in this render: the type it
+              // has in every render, with the class the walk composed.
+              element = createElement(StyledRenderer, { element: renderTarget, ...elementProps, [STATIC_CLASS_ONLY_PROP]: true }, ...elementChildren)
             } else if (namedForClient !== undefined) {
               element = createElement(
                 namedForClient,
