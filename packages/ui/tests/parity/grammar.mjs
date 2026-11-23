@@ -12,6 +12,10 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { PACKAGE } from './build.mjs'
 
+/** A props row as JavaScript source: JSON, with a bigint written as its literal. */
+const propsSource = row =>
+  JSON.stringify(row, (_key, value) => (typeof value === 'bigint' ? `\u0000${value}n` : value)).replace(/"\\u0000(-?\d+n)"/g, '$1')
+
 /** The grammar module: the compiler's, or the copy PARITY_GRAMMAR names (a pinned revision under test). */
 const GRAMMAR = process.env.PARITY_GRAMMAR ?? join(PACKAGE, '../compiler/tests/selector-grammar.ts')
 /** A JSON file listing grammar case names, to generate only those (the cases a compiler change reroutes); unset, every case. */
@@ -45,7 +49,7 @@ function fixture(key, name, css, pair) {
 /** The page's state: the grammar's run-time props `p`, the first set and then the second after the step, when some case on the page reads them. */
 const state = (entries, props) =>
   entries.some(entry => `${cssSource(entry.css)}${entry.pair ? cssSource(entry.pair) : ''}`.includes('p.'))
-    ? `  const [on, setOn] = useState(false)\n  const p = on ? ${JSON.stringify(props[1])} : ${JSON.stringify(props[0])}`
+    ? `  const [on, setOn] = useState(false)\n  const p = on ? ${propsSource(props[1])} : ${propsSource(props[0])}`
     : `  const [, setOn] = useState(false)`
 
 /** One generated grammar page's source. */
