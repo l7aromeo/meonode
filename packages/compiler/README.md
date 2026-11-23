@@ -540,7 +540,9 @@ that loads the runtime, so a bundler splitting an app into route segments
 keeps it in the chunk they share rather than copying it into each segment.
 
 - **Known at build time:** literals, `theme.*` token strings and same-file
-  `const` literals, at any depth of `css`; a conditional over those, which gets
+  `const` literals, at any depth of `css`; a template literal whose expressions
+  are all known strings or numbers (`` `${GAP}px` `` with `const GAP = 2`),
+  folded to the string it evaluates to; a conditional over those, which gets
   one name per combination of its branches (at most 16 per node), chosen at the
   call site by the same conditional.
 - **A theme token in an at-rule's prelude** (`'@media (max-width:

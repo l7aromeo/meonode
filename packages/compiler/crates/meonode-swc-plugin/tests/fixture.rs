@@ -633,3 +633,8 @@ fn register_empty_layout_off() {
 fn extract_register_empty_type_only() {
     run_partition_with_ts("extract_register_empty_type_only", extract_config());
 }
+
+#[test]
+fn extract_const_template() {
+    run_partition_with_config("extract_const_template", extract_config());
+}

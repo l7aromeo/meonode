@@ -1,0 +1,32 @@
+import { Div } from "@meonode/ui";
+import { SIZE } from "./tokens";
+const B = 2;
+const HALF = 0.5;
+const NEG = -1;
+const ZERO = -0;
+const BIG = 1e21;
+const TINY = 1e-7;
+const NOPE = NaN;
+const UNIT = "rem";
+const TONE = "primary";
+const PAD = `${B}px`;
+let L = 3;
+L = 4;
+Div({ borderWidth: `${B}px` });
+Div({ opacity: `${HALF}` });
+Div({ margin: `${NEG}px` });
+Div({ marginTop: `${ZERO}px` });
+Div({ width: `${BIG}px` });
+Div({ height: `${TINY}px` });
+Div({ minWidth: `${NOPE}px` });
+Div({ padding: `2${UNIT}` });
+Div({ color: `theme.${TONE}` });
+Div({ padding: PAD });
+Div({ margin: `${PAD} ${`${B}px`}` });
+Div({ css: { "&:hover": { borderWidth: `${B}px ${UNIT}` } } });
+Div({ marginLeft: `${L}px` });
+Div({ marginRight: `${SIZE}px` });
+export function Shadowed() {
+    const B = 5;
+    return Div({ borderWidth: `${B}px` });
+}
