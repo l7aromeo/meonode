@@ -17,9 +17,10 @@
 //! which the serialization differential (`tests/serialization-differential.test.ts`)
 //! compares with the runtime's for every grammar case.
 //!
-//! A value is known when it is a literal, a token string or a same-file
-//! `const` literal, at any depth; a conditional over known values gives one
-//! name per combination, up to [`SWITCH_COMBINATIONS`].
+//! A value is known when it is a literal, a token string, a same-file
+//! `const` literal, or a template literal over known strings and numbers, at
+//! any depth; a conditional over known values gives one name per combination,
+//! up to [`SWITCH_COMBINATIONS`].
 //!
 //! A value that is provably a string or a number (a template literal,
 //! or arithmetic, `+` included, over pure reads) is a hole in
@@ -50,7 +51,7 @@ use crate::factory_call::{
     FACTORY_CALL_EXPORT, FACTORY_CALL_LOCAL, FACTORY_CALL_MODULE, FactorySites, SITE_PREFIX,
     site_name,
 };
-use crate::fingerprint;
+use crate::fingerprint::{self, js_number_to_string};
 use crate::keys::{is_special_key, key_name_atom, plain_key};
 use crate::serialize::{self, Js};
 use crate::style_name::hash_styles;
@@ -304,7 +305,8 @@ impl ModuleScope {
             let init = unwrap_transparent(init);
             let literal = match init {
                 Expr::Lit(Lit::Str(_) | Lit::Num(_)) => true,
-                Expr::Tpl(tpl) => tpl.exprs.is_empty(),
+                // Known when its expressions are (see `template_text`).
+                Expr::Tpl(_) => true,
                 Expr::Unary(UnaryExpr {
                     op: UnaryOp::Minus,
                     arg,
@@ -1629,9 +1631,7 @@ impl ModuleScope {
             Expr::Lit(Lit::Num(n)) => Js::Num(n.value),
             Expr::Lit(Lit::Bool(b)) => Js::Bool(b.value),
             Expr::Lit(Lit::Null(_)) => Js::Null,
-            Expr::Tpl(tpl) if tpl.exprs.is_empty() => {
-                Js::Str(known_text(tpl.quasis.first()?.cooked.as_ref()?.as_str()?)?)
-            }
+            Expr::Tpl(tpl) => Js::Str(known_text(&self.template_text(tpl, depth)?)?),
             Expr::Unary(UnaryExpr {
                 op: UnaryOp::Minus,
                 arg,
@@ -1664,6 +1664,25 @@ impl ModuleScope {
             }
             _ => return None,
         }))
+    }
+
+    /// The string a template literal evaluates to, when each of its
+    /// expressions is a known string or number: numbers as `String(n)` writes
+    /// them, exponent form included. `None` for anything else, such as a
+    /// SWITCH, which leaves the template a hole.
+    fn template_text(&self, tpl: &Tpl, depth: u8) -> Option<String> {
+        let mut text = String::new();
+        for (at, quasi) in tpl.quasis.iter().enumerate() {
+            text.push_str(quasi.cooked.as_ref()?.as_str()?);
+            if let Some(expr) = tpl.exprs.get(at) {
+                match self.leaf(expr, depth + 1)? {
+                    Leaf::Known(Js::Str(s)) => text.push_str(&s),
+                    Leaf::Known(Js::Num(n)) => text.push_str(&js_number_to_string(n)?),
+                    _ => return None,
+                }
+            }
+        }
+        Some(text)
     }
 }
 
