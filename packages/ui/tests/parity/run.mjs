@@ -39,7 +39,7 @@ import { writeGeneratedCases } from './generate.mjs'
 import { ATRULES, atruleGaps, parsesAtrules } from './atrules.mjs'
 import { SELECTORS, selectorGaps } from './selectors.mjs'
 import { coverageProblems, EXTRACTED_ROUTES } from './inventory.mjs'
-import { COMPILED_PLANTS, PLANT_CASE, PLANTS } from './plants.mjs'
+import { COMPILED_PLANTS, MODE_PLANTS, PLANT_CASE, PLANTS } from './plants.mjs'
 import { registrationProblems, routingProblems } from './routing.mjs'
 
 if (process.env.NODE_ENV !== 'production') throw new Error('run with NODE_ENV=production: the oracle is the production runtime')
@@ -404,7 +404,7 @@ console.log(`parity: ${ENGINE} ${browser.version()}, forced states through ${FOR
 }
 
 /** Serves one case page of one side, in one server-render mode, with an optional plant on its server HTML. */
-async function open(side, name, mode, plantHtml) {
+async function open(side, name, mode, plantHtml, plantHead) {
   const { head, body } = built[side].ssr[mode][name]
   const { PAGE_CSS } = await import(pathToFileURL(join(built.runtime.dir, 'shell.mjs')).href)
   // A case's own stylesheet, as a site's CSS in the head.
@@ -415,7 +415,7 @@ async function open(side, name, mode, plantHtml) {
     : undefined
   // The payload goes to the page as Next inlines it, for hydration to read; `<` is escaped so it cannot close the script.
   const flight = payload === undefined ? '' : `<script>window.__parityFlight = ${JSON.stringify(payload).replaceAll('<', '\\u003c')}</script>`
-  const html = `<!doctype html><html><head><meta charset="utf-8"><style>${PAGE_CSS}</style>${pageCss}${head}</head><body><div id="root">${plantHtml ? plantHtml(body) : body}</div>${flight}<script src="/${side}/client.js"></script><script>__parity.start(${JSON.stringify(name)}, ${mode === 'registry'})</script></body></html>`
+  const html = `<!doctype html><html><head><meta charset="utf-8"><style>${PAGE_CSS}</style>${pageCss}${plantHead ? plantHead(head) : head}</head><body><div id="root">${plantHtml ? plantHtml(body) : body}</div>${flight}<script src="/${side}/client.js"></script><script>__parity.start(${JSON.stringify(name)}, ${mode === 'registry'})</script></body></html>`
   return { html, url: `${ORIGIN}/${side}/${name}/${mode}` }
 }
 
@@ -436,7 +436,7 @@ const host = {
 
 /** Collects one side's record of a case, with its server HTML. */
 async function record(side, name, mode, meta, plant) {
-  const { html, url } = await open(side, name, mode, plant?.html)
+  const { html, url } = await open(side, name, mode, plant?.html, plant?.head)
   context.pages.set(new URL(url).pathname, html)
   // Each side is served under its own path, so a relative url() resolves there; the record names every side's path alike.
   const own = `${ORIGIN}/${side}/`
@@ -518,7 +518,7 @@ async function forcedOnReload(spec, keys, loads, cache) {
   for (;;) {
     const short = keys.filter(k => memo.get(k).length < loads)
     if (!short.length) return memo
-    const { html, url } = await open(spec.side, spec.name, spec.mode, spec.plant?.html)
+    const { html, url } = await open(spec.side, spec.name, spec.mode, spec.plant?.html, spec.plant?.head)
     context.pages.set(new URL(url).pathname, html)
     const own = `${ORIGIN}/${spec.side}/`
     const read = JSON.parse(
@@ -540,7 +540,7 @@ async function forcedOnResweep(spec, keys, cache) {
   if (!memo || memo.upTo < upTo) cache.set(`sweeps ${spec.label}`, (memo = { upTo, sweeps: [] }))
   const valid = k => memo.sweeps.filter(sweep => sweep.samples[k]?.held !== false).length
   while (memo.sweeps.length < RESWEEPS || (keys.some(k => valid(k) < RESWEEPS) && memo.sweeps.length < RESWEEPS + RESWEEP_RETRIES)) {
-    const { html, url } = await open(spec.side, spec.name, spec.mode, spec.plant?.html)
+    const { html, url } = await open(spec.side, spec.name, spec.mode, spec.plant?.html, spec.plant?.head)
     context.pages.set(new URL(url).pathname, html)
     const own = `${ORIGIN}/${spec.side}/`
     memo.sweeps.push(
@@ -550,6 +550,59 @@ async function forcedOnResweep(spec, keys, cache) {
     )
   }
   return memo.sweeps
+}
+
+/** The side name of the registry check's rows. */
+const MODES_SIDE = 'runtime-modes'
+
+/**
+ * The registry check: the runtime's [registry] record against its own [plain]
+ * one, which is Emotion's per-node server render. A registry changes only
+ * where server styles are written, never what they do, so any difference is a
+ * registry defect, which a [registry] row cannot see when both its sides share
+ * it. Forced states under real input are confirmed as in any row, with
+ * [plain] as the oracle.
+ * @param plant A plant for the [registry] page, as `record` takes it; or undefined.
+ * @returns What `confirmForced` returns.
+ */
+async function compareModes(name, meta, plain, registry, plant) {
+  const all = compareRecords({ record: plain.record, html: '' }, { record: registry.record, html: '' })
+  const spec = (mode, label) => ({ label, side: 'runtime', name, mode, meta, plant: mode === 'registry' ? plant : undefined })
+  const oracle = { spec: spec('plain', 'runtime plain'), record: plain.record }
+  return confirmForced(all, { oracle, off: oracle, compared: { spec: spec('registry', `runtime registry${plant ? ' planted' : ''}`), record: registry.record } }, new Map())
+}
+
+/**
+ * Ends a row: applies the case's expected differences, counts and reports
+ * what is left, and logs the row's verdict.
+ * @param oracle The oracle's record, for the size line.
+ * @param left The forced states left out as unstable.
+ */
+function finishRow(name, mode, side, meta, all, oracle, left) {
+  const { found, expected } = applyExpected(all, meta.expected, side, mode)
+  for (const e of expected) {
+    console.log(`       ${e.blocker ? 'release blocker' : 'expected'} ${e.matched ? `(${e.matched} difference(s))` : 'but ABSENT'}: ${e.reason}`)
+    if (e.blocker && e.matched) blockers.add(`${e.blocker}: ${name} [${mode}] ${side}`)
+  }
+  found.push(
+    ...expected.filter(e => !e.matched).map(e => ({ dimension: e.dimension, where: 'expected', text: `a recorded difference did not appear: ${e.reason}` })),
+  )
+  failures += found.length
+  for (const d of found) report.push({ case: name, mode, side, ...d })
+  const byDimension = Object.groupBy(found, d => d.dimension)
+  const first = Object.values(oracle.record.envs)[0].styles
+  const size = `${first.elements.length} elements × ${first.props.length} properties × 4 parts, ${Object.keys(oracle.record.envs).length} environments, ${Object.keys(oracle.record.forced).length} forced states, ${Object.keys(oracle.record.steps).length} steps`
+  console.log(
+    `${found.length ? 'FAIL' : 'ok  '} ${name} [${mode}] ${side}: ${
+      found.length
+        ? Object.entries(byDimension)
+            .map(([d, l]) => `${d} ${l.length}`)
+            .join(', ')
+        : `identical (${size})`
+    }`,
+  )
+  for (const d of found.slice(0, DETAIL)) console.log(`       ${d.dimension} @ ${d.where}: ${d.text}`)
+  noteUnstable({ case: name, mode, side }, left)
 }
 
 /** The forced-state key a difference names (`<element index>:<state>[+<state>…]`). */
@@ -838,6 +891,18 @@ try {
         }
       }
     }
+    // The registry check's plants: the [registry] page changed alike on the oracle and "off", which their own row cannot see.
+    for (const plant of pick(MODE_PLANTS)) {
+      const plain = await record('runtime', PLANT_CASE, 'plain', meta)
+      const planted = await record('runtime', PLANT_CASE, 'registry', meta, plant)
+      const alike = compareRecords(planted, await record('off', PLANT_CASE, 'registry', meta, plant))
+      const { found } = await compareModes(PLANT_CASE, meta, plain, planted, plant)
+      const caught = found.some(d => d.dimension === plant.dimension)
+      if (!caught) failures++
+      console.log(
+        `${caught ? 'caught' : 'MISSED'} registry plant ${plant.name}: ${found.length} difference(s) in ${[...new Set(found.map(d => d.dimension))].join(', ') || 'none'}; the [registry] row with both sides planted alike reads ${alike.length}`,
+      )
+    }
     // Compiled plants: the oracle against a rewritten "on" output, beside the unrewritten one.
     for (const plant of pick(COMPILED_PLANTS)) {
       const sideBuilt = {}
@@ -885,6 +950,8 @@ try {
   } else {
     for (const { name, meta } of metas) {
       const started = Date.now()
+      /** Each mode's oracle record, for the registry check. */
+      const oracles = {}
       for (const mode of meta.serverModes ?? ['plain', 'registry']) {
         const errors = sides.map(s => [s, built[s].ssr[mode][name].error]).filter(([, e]) => e)
         if (errors.length) {
@@ -900,6 +967,14 @@ try {
           failures++
           console.log(`FAIL ${name} [${mode}] runtime: the oracle page failed: ${error.message}`)
           continue
+        }
+        oracles[mode] = oracle
+        if (mode === 'registry' && oracles.plain) {
+          startRow({ case: name, mode, side: MODES_SIDE })
+          const confirmation = await compareModes(name, meta, oracles.plain, oracle)
+          noteOnlyCompared({ case: name, mode, side: MODES_SIDE }, confirmation.onlyCompared)
+          noteOutliers({ case: name, mode, side: MODES_SIDE }, confirmation.outliers, confirmation.swept)
+          finishRow(name, mode, MODES_SIDE, meta, confirmation.found, oracles.plain, confirmation.unstable)
         }
         const records = {}
         // Reloads for confirming forced states, shared by this case and mode's rows.
@@ -939,32 +1014,7 @@ try {
           } catch (error) {
             all = [{ dimension: 'hydration', where: 'page', text: `the page failed: ${error.message}` }]
           }
-          const { found, expected } = applyExpected(all, meta.expected, side, mode)
-          for (const e of expected) {
-            console.log(`       ${e.blocker ? 'release blocker' : 'expected'} ${e.matched ? `(${e.matched} difference(s))` : 'but ABSENT'}: ${e.reason}`)
-            if (e.blocker && e.matched) blockers.add(`${e.blocker}: ${name} [${mode}] ${side}`)
-          }
-          found.push(
-            ...expected
-              .filter(e => !e.matched)
-              .map(e => ({ dimension: e.dimension, where: 'expected', text: `a recorded difference did not appear: ${e.reason}` })),
-          )
-          failures += found.length
-          for (const d of found) report.push({ case: name, mode, side, ...d })
-          const byDimension = Object.groupBy(found, d => d.dimension)
-          const first = Object.values(oracle.record.envs)[0].styles
-          const size = `${first.elements.length} elements × ${first.props.length} properties × 4 parts, ${Object.keys(oracle.record.envs).length} environments, ${Object.keys(oracle.record.forced).length} forced states, ${Object.keys(oracle.record.steps).length} steps`
-          console.log(
-            `${found.length ? 'FAIL' : 'ok  '} ${name} [${mode}] ${side}: ${
-              found.length
-                ? Object.entries(byDimension)
-                    .map(([d, l]) => `${d} ${l.length}`)
-                    .join(', ')
-                : `identical (${size})`
-            }`,
-          )
-          for (const d of found.slice(0, DETAIL)) console.log(`       ${d.dimension} @ ${d.where}: ${d.text}`)
-          noteUnstable({ case: name, mode, side }, left)
+          finishRow(name, mode, side, meta, all, oracle, left)
         }
       }
       timings[name] = Date.now() - started

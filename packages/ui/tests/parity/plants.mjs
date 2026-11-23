@@ -54,6 +54,22 @@ function afterCrossing(n, css) {
 const CROSSED_BEFORE_PLANT = 3
 
 /**
+ * The registry check's plants (run.mjs, compareModes): each changes the
+ * registry's server styles in the head of a [registry] page, alike on the
+ * oracle and the "off" side, so their own row reads the same and only the
+ * comparison with the runtime's [plain] render can see it. `head` rewrites
+ * the page's head HTML.
+ */
+export const MODE_PLANTS = [
+  // An unclosed `(` ahead of the registry's joined styles swallows every rule after it, as one key's could.
+  {
+    name: 'an unclosed ( ahead of the joined registry styles',
+    dimension: 'computed',
+    head: head => head.replace(/(<style data-emotion="meonode-css[^"]*"[^>]*>)/, '$1.parity-plant:not(.a{}'),
+  },
+]
+
+/**
  * Plants in the compiler's output rather than on the page: each rewrites the
  * "on" side's compiled module of one case (and the parts it imports), and
  * the run must find a difference from the oracle that the unrewritten output

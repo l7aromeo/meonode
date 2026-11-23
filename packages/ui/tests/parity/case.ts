@@ -102,8 +102,12 @@ export interface NodeRouting {
 export interface ExpectedDifference {
   /** Why the difference exists. */
   reason: string
-  /** The sides it appears on. */
-  sides: Array<'off' | 'on'>
+
+  /**
+   * The sides it appears on: `runtime-modes` is the registry check, the
+   * runtime's [registry] render against its [plain] one.
+   */
+  sides: Array<'off' | 'on' | 'runtime-modes'>
   /** The server-render modes it appears in; every mode the case runs in when absent. */
   modes?: Array<'plain' | 'registry'>
 

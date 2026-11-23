@@ -15,6 +15,17 @@ export const meta: CaseMeta = {
     { node: 'adjacent-runtime', route: 'RUNTIME:css-not-literal' },
     { node: 'adjacent-static', route: 'CARRIER' },
   ],
+  expected: [
+    {
+      // Emotion's own behaviour in each mode, so both builds share it.
+      reason:
+        "before hydration, [plain] has Emotion's <style> elements among the siblings, which structural selectors count, while [registry] has them in the head",
+      sides: ['runtime-modes'],
+      modes: ['registry'],
+      dimension: 'first-paint',
+      text: ': oracle ',
+    },
+  ],
 }
 
 export function App(): ReactElement {

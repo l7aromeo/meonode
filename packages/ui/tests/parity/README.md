@@ -14,6 +14,15 @@ is rendered in two server modes:
 - **plain**: react-dom/server with no registry, so the server css cache path;
 - **registry**: under `StyleRegistry`, with Next's inserted-HTML context.
 
+Besides each side against the oracle in its own mode, the registry check
+compares the oracle's [registry] record with its own [plain] one, the
+per-node server render Emotion writes (row side `runtime-modes`). A registry
+changes only where server styles are written, never what they do, so a
+difference there is a registry defect, which a [registry] row cannot see when
+the oracle and the compared side share it (a joined `<style>` in which one
+rule's unclosed `(` swallows the rules after it, for instance). An expected
+difference names it with the side `runtime-modes`.
+
 Each server render, one case in one mode on one side, runs in a process of
 its own, as a fresh server's first request: a module-level store, such as an
 Emotion cache a case creates and the names it has inserted, would otherwise
@@ -141,7 +150,10 @@ dimension counts only after its plant is caught. It also plants compiler bugs:
 each rewrites the "on" side's compiled output of one case (a selector list in
 the registered rule text cut to its first selector, or the carrier marks
 stripped, for instance), and must show a difference from the oracle that the
-unrewritten output does not.
+unrewritten output does not. The registry check has a plant of its own: an
+unclosed `(` ahead of the registry's joined styles on the [registry] page of
+both the oracle and the "off" side, which their own row reads as the same and
+the registry check must catch.
 
 The browser phase waits until the 1-minute load average is under 10.
 
