@@ -543,8 +543,13 @@ insertion and its class are the ones the node would have uncompiled.
   theme.breakpoint.md)'`): `var()` is invalid in a condition, so the text keeps
   the token as written and is named with it. The runtime resolves it with the
   theme each node renders under, and leaves out a block whose token the theme
-  does not hold, as it does uncompiled. The at-rule must hold an object literal
-  with no brace in its values.
+  does not hold, as it does uncompiled. The at-rule must hold an object literal,
+  no value of the style may hold a brace or be known only at the call site,
+  and no key with a token may become another key of its object under some
+  theme: the text around its tokens decides that, since a token's value may be
+  any text (`(max-width: theme.a)` may become `(max-width: 768px)`, never
+  `(min-width: 10px)`). Resolving the object would fold such a pair into one
+  key, which resolving the text cannot match.
 - **Known only at the call site, but a string or a number:** a template literal,
   or arithmetic (`+` included), over identifiers, member reads and literals. The text around such values is a template, registered once per
   module through `registerStaticTemplate`; the call site carries the template's
@@ -556,7 +561,7 @@ insertion and its class are the ones the node would have uncompiled.
 - **Left to the runtime, whole:** a node with any other value known only at
   runtime (a bare identifier or member read, which may be nullish or a theme
   function, calls, theme functions), fallback arrays, spreads, a theme token in
-  a selector or in an at-rule that holds no block or a brace, a key Emotion reads as serialized styles or keyframes (`styles`,
+  a selector, or in an at-rule whose style breaks the rules above, a key Emotion reads as serialized styles or keyframes (`styles`,
   `anim`), and component targets. Such a node renders exactly as it does today.
 - **Same text as the runtime.** Every selector, at-rule and value is written as
   Emotion serializes it, so any shape Emotion takes is extracted, `& + &` and

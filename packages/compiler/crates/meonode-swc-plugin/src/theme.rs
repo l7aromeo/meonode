@@ -264,6 +264,51 @@ pub fn rewrite_theme_tokens_for(input: &str, wants_length: bool) -> Option<Strin
     if matched { Some(out) } else { None }
 }
 
+/// A theme token in a key: `theme.` and a path, not part of a name, as the
+/// runtime's `KEY_TOKEN` reads it. In `'& .theme.accent'` it belongs to the
+/// class `.theme.accent` and is not a token.
+static KEY_TOKEN: std::sync::LazyLock<regex_lite::Regex> = std::sync::LazyLock::new(|| {
+    regex_lite::Regex::new(r"(^|[^\w.#$-])theme\.([a-zA-Z0-9_.-]+)").expect("valid")
+});
+
+/// Whether a key holds a theme token the runtime resolves.
+pub fn has_key_token(key: &str) -> bool {
+    KEY_TOKEN.is_match(key)
+}
+
+/// A key's literal text before its first token and after its last, or `None`
+/// for a key holding none.
+fn literal_ends(key: &str) -> Option<(&str, &str)> {
+    let mut first = None;
+    let mut last = 0;
+    for caps in KEY_TOKEN.captures_iter(key) {
+        let whole = caps.get(0)?;
+        first.get_or_insert(whole.start() + caps.get(1)?.len());
+        last = whole.end();
+    }
+    Some((&key[..first?], &key[last..]))
+}
+
+/// Whether some theme could give two keys of one object the same text once
+/// their tokens take its values, as the runtime's `keysMayMeet` decides.
+/// Resolving the object folds such a pair into one key, where the text keeps
+/// two blocks. A token's value may be any text, so only a key's literal ends
+/// bound what it becomes.
+pub fn keys_may_meet(a: &str, b: &str) -> bool {
+    match (literal_ends(a), literal_ends(b)) {
+        (None, None) => false,
+        (Some((prefix, suffix)), None) | (None, Some((prefix, suffix))) => {
+            let literal = if literal_ends(a).is_none() { a } else { b };
+            literal.len() >= prefix.len() + suffix.len()
+                && literal.starts_with(prefix)
+                && literal.ends_with(suffix)
+        }
+        (Some((pa, sa)), Some((pb, sb))) => {
+            (pa.starts_with(pb) || pb.starts_with(pa)) && (sa.ends_with(sb) || sb.ends_with(sa))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

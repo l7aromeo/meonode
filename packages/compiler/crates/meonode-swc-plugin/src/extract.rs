@@ -54,7 +54,7 @@ use crate::fingerprint;
 use crate::keys::{is_special_key, key_name_atom, plain_key};
 use crate::serialize::{self, Js};
 use crate::style_name::hash_styles;
-use crate::theme::{is_length_key, rewrite_theme_tokens_for};
+use crate::theme::{has_key_token, is_length_key, keys_may_meet, rewrite_theme_tokens_for};
 
 /// The scope of packages that export no `createNode` factory, so a call of an
 /// import from one (subpaths included) is never joined at run time, and stays
@@ -1374,6 +1374,10 @@ impl ModuleScope {
         if !known {
             return None;
         }
+        // The object's top level: the flat props and `css` over them.
+        if any_keys_may_meet(flat.iter().chain(&css_entries).map(|(k, _)| k.as_str())) {
+            return explain::bail("two keys a theme may make one");
+        }
         // One name, or one template, per combination of choices, stopping past
         // the cap. Every combination holds the same holes, since a SWITCH
         // branch is always a known value.
@@ -1381,11 +1385,11 @@ impl ModuleScope {
         flatten(&flat_tree, &mut Vec::new(), &mut leaves);
         let flat_leaves = leaves.len();
         flatten(&css_tree, &mut Vec::new(), &mut leaves);
-        if leaves
+        let themed = leaves
             .iter()
-            .any(|(path, leaf)| under_token_at_rule(path) && may_hold_brace(leaf))
-        {
-            return explain::bail("a brace or a hole inside an at-rule with a theme token");
+            .any(|(path, _)| path.iter().any(|key| has_key_token(key)));
+        if themed && leaves.iter().any(|(_, leaf)| may_hold_brace(leaf)) {
+            return explain::bail("a brace or a hole in a style with a theme token in a condition");
         }
         let has_holes = leaves.iter().any(|(_, leaf)| matches!(leaf, Leaf::Var(_)));
         let mut rules: Vec<Rule> = Vec::new();
@@ -1559,7 +1563,7 @@ impl ModuleScope {
             }
             // The runtime resolves tokens in the text's preludes only: under a
             // value that is no block, the key is written as a declaration.
-            if !matches!(unwrap_transparent(value), Expr::Object(_)) {
+            if has_key_token(key) && !matches!(unwrap_transparent(value), Expr::Object(_)) {
                 return explain::bail("a theme token in an at-rule holding no block");
             }
         }
@@ -1578,9 +1582,12 @@ impl ModuleScope {
             }
             let mut out = Vec::new();
             let mut known = true;
-            for (k, v) in object_entries(obj)
-                .or_else(|| explain::bail("an object with a spread or computed key"))?
-            {
+            let entries = object_entries(obj)
+                .or_else(|| explain::bail("an object with a spread or computed key"))?;
+            if any_keys_may_meet(entries.iter().map(|(k, _)| k.as_str())) {
+                return explain::bail("two keys a theme may make one");
+            }
+            for (k, v) in entries {
                 match self.entry(&k, &v, depth + 1) {
                     Some(entry) => out.push((k, entry)),
                     None => known = false,
@@ -1752,16 +1759,20 @@ fn split_holes(text: &str) -> Option<(Vec<String>, Vec<usize>)> {
     Some((chunks, holes))
 }
 
-/// Whether a key path passes through an at-rule whose prelude holds a theme
-/// token, which the text keeps for the runtime to resolve.
-fn under_token_at_rule(path: &[String]) -> bool {
-    path.iter()
-        .any(|key| key.starts_with('@') && key.contains("theme."))
+/// Whether two keys of one object, one holding a theme token, may become one
+/// key under some theme. An object's keys are distinct, and the flat props
+/// beside `css` hold no token.
+fn any_keys_may_meet<'a>(keys: impl Iterator<Item = &'a str>) -> bool {
+    let keys: Vec<&str> = keys.collect();
+    keys.iter()
+        .enumerate()
+        .any(|(at, key)| keys[..at].iter().any(|other| keys_may_meet(key, other)))
 }
 
-/// Whether a leaf's text may hold a brace. The runtime finds the end of a block
-/// whose prelude token is unresolved by counting braces, so a brace in a value
-/// inside that block would move it.
+/// Whether a leaf's text may hold a brace. The runtime finds a text's blocks by
+/// its braces, to drop one whose token is unresolved and, on the server with no
+/// theme, to split the themed blocks from the rest, so a brace in any value of
+/// a text with a token in a condition would move them.
 fn may_hold_brace(leaf: &Leaf) -> bool {
     match leaf {
         Leaf::Known(Js::Str(s)) => s.contains(['{', '}']),
