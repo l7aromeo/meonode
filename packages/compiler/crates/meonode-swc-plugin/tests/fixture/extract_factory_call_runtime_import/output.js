@@ -1,4 +1,4 @@
-import { __meoFactoryCall } from "@meonode/ui/factory-call";
+import { __meoFactoryCall } from "@meonode/ui";
 // A module importing @meonode/ui at run time, then for types only: it resolves
 // the runtime, so a call of any import is joined, a path alias no rule knows
 // (`@src/`) and a package included.

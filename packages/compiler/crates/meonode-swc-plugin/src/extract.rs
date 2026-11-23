@@ -183,7 +183,8 @@ pub struct ModuleScope {
     /// module is local (see [`is_local_module`]).
     imported_callees: HashMap<(Atom, SyntaxContext), bool>,
     /// Whether the module imports `@meonode/ui` at run time, a binding that is
-    /// not only a type: then it resolves `@meonode/ui/factory-call` too.
+    /// not only a type: then it resolves the package, and its imported calls
+    /// take `__meoFactoryCall` from `@meonode/ui`.
     imports_runtime: bool,
     /// Whether the module already uses one of the helper names.
     name_taken: bool,
@@ -1551,6 +1552,11 @@ fn is_string_or_number(expr: &Expr) -> bool {
 }
 
 impl ModuleScope {
+    /// Whether the module imports `@meonode/ui` at run time.
+    pub(crate) fn imports_runtime(&self) -> bool {
+        self.imports_runtime
+    }
+
     /// `value` under `key` as an [`Entry`], or `None` when the node must stay
     /// whole on the runtime path.
     fn entry(&self, key: &str, value: &Expr, depth: u8) -> Option<Entry> {
@@ -1922,7 +1928,10 @@ fn prop_key(prop: &PropOrSpread) -> Option<String> {
 }
 
 /// Prepends the helper imports and the registration call to `module`.
-pub fn emit_module(module: &mut Module, extraction: &ModuleExtraction) {
+/// `imports_runtime`: the module imports `@meonode/ui` at run time, so
+/// `__meoFactoryCall` comes from there, the export that installs the join; any
+/// other module takes it from the subpath that imports nothing.
+pub fn emit_module(module: &mut Module, extraction: &ModuleExtraction, imports_runtime: bool) {
     if extraction.is_empty() {
         return;
     }
@@ -1944,13 +1953,17 @@ pub fn emit_module(module: &mut Module, extraction: &ModuleExtraction) {
             phase: ImportPhase::Evaluation,
         }))
     };
+    let leaf_factory_call = !extraction.sites.is_empty() && !imports_runtime;
+    if !extraction.sites.is_empty() && imports_runtime {
+        specifiers.push(named_import(FACTORY_CALL_EXPORT, FACTORY_CALL_LOCAL));
+    }
     let mut items = Vec::new();
     if !specifiers.is_empty() {
         items.push(import(specifiers, UI_MODULE));
     }
     // From a subpath that imports nothing, so a module that loads no other
     // part of the runtime loads no more than that.
-    if !extraction.sites.is_empty() {
+    if leaf_factory_call {
         items.push(import(
             vec![named_import(FACTORY_CALL_EXPORT, FACTORY_CALL_LOCAL)],
             FACTORY_CALL_MODULE,

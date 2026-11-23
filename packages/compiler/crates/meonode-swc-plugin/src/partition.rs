@@ -1163,7 +1163,7 @@ pub fn transform_program(
     program.visit_mut_with(&mut rewriter);
     if let (Some((scope, extraction)), Program::Module(module)) = (&mut rewriter.extract, program) {
         crate::carrier::mark(module, scope, &mut extraction.sites);
-        emit_module(module, extraction);
+        emit_module(module, extraction, scope.imports_runtime());
     }
 }
 

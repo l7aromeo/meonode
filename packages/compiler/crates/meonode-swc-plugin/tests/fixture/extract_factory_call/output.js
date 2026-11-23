@@ -1,4 +1,4 @@
-import { registerStaticCss as __meoCss } from "@meonode/ui";
+import { registerStaticCss as __meoCss, __meoFactoryCall } from "@meonode/ui";
 import { Div, ThemeProvider } from "@meonode/ui";
 import { Card, Title, Pane, Badge, Panel, helper, Icon } from "./nodes";
 import Sheet from "./sheet";
@@ -8,7 +8,6 @@ import { RichTreeView } from "@meonode/mui/x-tree-view";
 import { StyleRegistry } from "@meonode/ui/nextjs-registry";
 import { Inter } from "next/font/google";
 import { Roboto } from "@next/font/google";
-import { __meoFactoryCall } from "@meonode/ui/factory-call";
 __meoCss("1cbfyawp0yl3b", [
     [
         "1aqk60jpzzigw",

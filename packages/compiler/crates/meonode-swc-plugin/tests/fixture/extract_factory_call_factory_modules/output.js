@@ -1,4 +1,4 @@
-import { __meoFactoryCall } from "@meonode/ui/factory-call";
+import { __meoFactoryCall } from "@meonode/ui";
 // Calls of a factoryModules import, which the compiler marks as it marks a
 // @meonode/ui call: joined at run time, they keep the marks it gives them with
 // extraction off, so generated children stay a list.
