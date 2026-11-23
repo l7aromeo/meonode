@@ -31,6 +31,18 @@ const flushedByRender = new WeakMap<object, Set<string>>()
  *
  * - Creates a single Emotion cache instance in compat mode.
  * - Uses `useServerInsertedHTML` to inline critical CSS collected during render.
+ *
+ * It collects only the styles inserted into its own cache. Emotion inserts a
+ * style into the nearest `CacheProvider`'s cache, so everything under the
+ * registry goes into it, other libraries' Emotion styles included, unless a
+ * `CacheProvider` inside the registry gives a cache of its own. That cache's
+ * styles are not collected here:
+ *
+ * - a cache in Emotion's default mode writes them in a `<style>` beside each
+ *   element on the server, as Emotion does with no registry;
+ * - a cache in compat mode writes nothing on the server, so its styles arrive
+ *   only when the page hydrates, unless it has a registry of its own, as MUI's
+ *   `AppRouterCacheProvider` does.
  * @param children React subtree that consumes Emotion styles.
  * @returns React element that provides the cache and injects critical CSS during SSR.
  */
