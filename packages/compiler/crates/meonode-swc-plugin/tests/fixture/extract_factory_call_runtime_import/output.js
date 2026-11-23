@@ -1,4 +1,4 @@
-import { __meoFactoryCall } from "@meonode/ui";
+import { registerStaticCss as __meoCss, __meoFactoryCall } from "@meonode/ui";
 // A module importing @meonode/ui at run time, then for types only: it resolves
 // the runtime, so a call of any import is joined, a path alias no rule knows
 // (`@src/`) and a package included.
@@ -6,6 +6,7 @@ import { Div } from "@meonode/ui";
 import { type NodeElement } from "@meonode/ui";
 import { Link } from "@src/components/Link";
 import Highlighter from "react-syntax-highlighter";
+__meoCss("3gng7kheu33tg", []);
 const __meoSite0 = {
     at: 0,
     r: 1

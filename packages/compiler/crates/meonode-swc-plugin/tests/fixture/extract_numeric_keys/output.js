@@ -1,8 +1,10 @@
+import { registerStaticCss as __meoCss } from "@meonode/ui";
 // Numeric keys in props, and in other objects of the module: compiled without
 // a panic. The calls that hold them stay on the runtime path.
 import { Div, createNode } from "@meonode/ui";
 import { Card } from "./nodes";
 import { createElement } from "react";
+__meoCss("3gng7kheu33tg", []);
 export const X = createNode("div", {
     padding: 1
 });

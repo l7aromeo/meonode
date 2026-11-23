@@ -1930,13 +1930,18 @@ fn prop_key(prop: &PropOrSpread) -> Option<String> {
 /// Prepends the helper imports and the registration call to `module`.
 /// `imports_runtime`: the module imports `@meonode/ui` at run time, so
 /// `__meoFactoryCall` comes from there, the export that installs the join; any
-/// other module takes it from the subpath that imports nothing.
+/// other module takes it from the subpath that imports nothing. Such a module
+/// with no rules of its own registers an empty list: the registry then belongs
+/// to every module that loads the runtime, a root layout included, so a bundler
+/// splitting routes into segments puts it in the chunk they share rather than
+/// in a copy per segment.
 pub fn emit_module(module: &mut Module, extraction: &ModuleExtraction, imports_runtime: bool) {
-    if extraction.is_empty() {
+    let registers = !extraction.rules.is_empty() || imports_runtime;
+    if extraction.is_empty() && !registers {
         return;
     }
     let mut specifiers = Vec::new();
-    if !extraction.rules.is_empty() {
+    if registers {
         specifiers.push(named_import(REGISTER_EXPORT, REGISTER_LOCAL));
     }
     if !extraction.templates.is_empty() {
@@ -1969,7 +1974,7 @@ pub fn emit_module(module: &mut Module, extraction: &ModuleExtraction, imports_r
             FACTORY_CALL_MODULE,
         ));
     }
-    if !extraction.rules.is_empty() {
+    if registers {
         let list: String = extraction
             .rules
             .iter()

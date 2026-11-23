@@ -1,10 +1,11 @@
-import { __meoFactoryCall } from "@meonode/ui";
+import { registerStaticCss as __meoCss, __meoFactoryCall } from "@meonode/ui";
 // Calls of a factoryModules import, which the compiler marks as it marks a
 // @meonode/ui call: joined at run time, they keep the marks it gives them with
 // extraction off, so generated children stay a list.
 import { Div } from "@meonode/ui";
 import { Actions, Prose } from "./nodes";
 import { Card } from "./cards";
+__meoCss("3gng7kheu33tg", []);
 const __meoSite0 = {
     at: 0,
     r: 1

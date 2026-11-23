@@ -533,7 +533,11 @@ rewrite and `resolveDefaultStyle`'s defaults), and the class name the runtime
 gives them. The call site then carries that name (`__meo$n`), and each module
 registers its names and texts once through `registerStaticCss`. The runtime
 inserts the text through Emotion's own cache, so the rule, its name, its first
-insertion and its class are the ones the node would have uncompiled.
+insertion and its class are the ones the node would have uncompiled. A module
+that imports `@meonode/ui` at run time but has no names of its own, a root
+layout say, registers an empty list: the registry then belongs to every module
+that loads the runtime, so a bundler splitting an app into route segments
+keeps it in the chunk they share rather than copying it into each segment.
 
 - **Known at build time:** literals, `theme.*` token strings and same-file
   `const` literals, at any depth of `css`; a conditional over those, which gets
