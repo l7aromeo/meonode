@@ -9,8 +9,8 @@
 // Probe: `x` holds an uncontrolled input. Type into it, then toggle; its value
 // survives only if `x` was kept. The controls come after the walk, outside it,
 // so they add no rule before `x`.
-import { useState, type ReactElement } from 'react'
-import { Button, Div, Input } from '@meonode/ui'
+import { createElement, useState, type ReactElement } from 'react'
+import { Button, Div, Input, Node, Span } from '@meonode/ui'
 import { F } from './identity-nodes.js'
 
 export const PROBE = '[data-probe="x"]'
@@ -78,5 +78,35 @@ export function HostList(): ReactElement {
         setC(v => (v === 'red' ? 'blue' : 'red'))
       }),
     ],
+  }).render()
+}
+
+/** A plain component, so the node after it has no rule from it. */
+const Card = () => createElement('aside', null, 'card')
+
+/** A list of components, two or none, before the named node, under a host with a rule. */
+export function FooterWalk(): ReactElement {
+  const [a, setA] = useState(true)
+  const items = a ? [0, 1] : []
+  return Div({
+    key: 'page',
+    children: [
+      Div({ key: 'walk', padding: 1, children: [...items.map(i => Node(Card, { key: i })), Span(probe(), { key: 'x-footer', color: 'red' })] }),
+      controls(() => setA(v => !v)),
+    ],
+  }).render()
+}
+
+/** An exported helper whose root is the named node, returned as a node, not rendered. */
+export function part() {
+  return Span(probe(), { key: 'x-helper', color: 'red' })
+}
+
+/** A component present on some renders only, before an exported helper's root. */
+export function HelperWalk(): ReactElement {
+  const [a, setA] = useState(true)
+  return Div({
+    key: 'page',
+    children: [Div({ key: 'walk', padding: 1, children: [a ? Node(Card, { key: 'k' }) : null, part()] }), controls(() => setA(v => !v))],
   }).render()
 }

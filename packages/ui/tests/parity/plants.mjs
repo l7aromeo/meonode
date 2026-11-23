@@ -185,6 +185,22 @@ export const COMPILED_PLANTS = [
     rewrite: code => code.replace(/\s*__meo\$r: 1,?/g, '').replace(/(__meoSite\d+ = \{\s*at: \d+),\s*r: 1/g, '$1'),
   },
   {
+    name: 'the carrier marks stripped (footer)',
+    case: 'identity-footer',
+    // Without its mark the node is a carrier only while no rule comes before it, so the step changes its element
+    // type and React remounts it: styles and tree stay equal, and only identity shows it.
+    dimension: 'identity',
+    rewrite: code => code.replace(/\s*__meo\$r: 1,?/g, '').replace(/(__meoSite\d+ = \{\s*at: \d+),\s*r: 1/g, '$1'),
+  },
+  {
+    name: 'the carrier marks stripped (helper-exported)',
+    case: 'identity-helper-exported',
+    // Without its mark the node is a carrier only while no rule comes before it, so the step changes its element
+    // type and React remounts it: styles and tree stay equal, and only identity shows it.
+    dimension: 'identity',
+    rewrite: code => code.replace(/\s*__meo\$r: 1,?/g, '').replace(/(__meoSite\d+ = \{\s*at: \d+),\s*r: 1/g, '$1'),
+  },
+  {
     name: 'a var() fallback dropped',
     case: 'custom-props-hydrate',
     // With no fallback the missing property makes the declaration invalid at computed time.
