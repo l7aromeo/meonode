@@ -14,6 +14,10 @@
 // without conditions. Each is compiled with extraction on and run under every
 // combination of its conditions and list lengths. A read of unknown kind is a
 // component's element on renders where `c` holds and text on the others.
+//
+// Calls of imported factories are hand-written shapes: the runtime joins a
+// factory's call into a named node, or calls a plain function as written, and
+// only the runtime knows which. Each asserts the needed marks and the exact ones.
 import { transform } from '@swc/core'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -303,3 +307,141 @@ const suite = (name: string, memo: boolean, count: number) =>
 
 suite('the carrier mark over generated walks', false, CASES)
 suite('the carrier mark over generated walks with memoized hosts', true, MEMO_CASES)
+
+/**
+ * Imported calls, as the runtime treats each: `X` a factory of a host, joined
+ * into a named node; `XC` a factory of a component, a cut wherever it renders;
+ * `F` a plain function, called as written, which returns a component's element
+ * where `a` holds and an uncompiled host elsewhere.
+ */
+const FACTORY_CASES: { name: string; source: string; helpers?: string; marks: number[] }[] = [
+  {
+    name: 'a factory call after a plain function, among a factory call’s children',
+    source: `X({ 'data-i': 0, padding: 1, children: [F({ 'data-i': 1, s }), X({ 'data-i': 2, padding: 2 })] }).render()`,
+    marks: [2],
+  },
+  {
+    name: 'a factory call after a plain function, among a host’s children',
+    source: `Div({ 'data-i': 0, padding: 1, children: [F({ 'data-i': 1, s }), X({ 'data-i': 2, padding: 2 })] }).render()`,
+    marks: [2],
+  },
+  {
+    // Either call may be a plain function, which only the runtime knows.
+    name: 'a factory call after another factory call',
+    source: `X({ 'data-i': 0, padding: 1, children: [X({ 'data-i': 1, padding: 3 }), X({ 'data-i': 2, padding: 2 })] }).render()`,
+    marks: [2],
+  },
+  {
+    // The first follows the host's rule on every render, whatever it renders.
+    name: 'factory calls first among a host’s children',
+    source: `Div({ 'data-i': 0, padding: 1, children: [X({ 'data-i': 1, color: 'blue' }), X({ 'data-i': 2, fontSize: 12 })] }).render()`,
+    marks: [2],
+  },
+  {
+    name: 'a factory of a component first among a host’s children',
+    source: `Div({ 'data-i': 0, padding: 1, children: [XC({ 'data-i': 1, color: 'blue' }), Div({ 'data-i': 2, color: 'red' })] }).render()`,
+    marks: [2],
+  },
+  {
+    // A cut before it on both sides: first on every render. Each node after a
+    // child that may be absent has a key, so its position is its own.
+    name: 'a memoized factory call after a rule on some renders',
+    source: `Div({ 'data-i': 0, children: [s.a ? Div({ 'data-i': 1, css: s.css }) : null, X({ key: 'm', 'data-i': 2, padding: 1 }, [s.b])] }).render()`,
+    marks: [],
+  },
+  {
+    name: 'a factory call with deps on some renders, after a rule on some renders',
+    source: `Div({ 'data-i': 0, children: [s.a ? Div({ 'data-i': 1, css: s.css }) : null, X({ key: 'm', 'data-i': 2, padding: 1 }, s.deps)] }).render()`,
+    marks: [2],
+  },
+  {
+    name: 'a factory call after a rule on some renders, with no deps',
+    source: `Div({ 'data-i': 0, children: [s.a ? Div({ 'data-i': 1, css: s.css }) : null, X({ key: 'm', 'data-i': 2, padding: 1 })] }).render()`,
+    marks: [2],
+  },
+  {
+    // Its walk begins at it.
+    name: 'a factory call `.render()` is called on',
+    source: `X({ 'data-i': 0, padding: 1, children: [s.a ? Div({ 'data-i': 1, css: s.css }) : null, 'x'] }).render()`,
+    marks: [],
+  },
+  {
+    // Callers in other modules may put anything before its root.
+    name: 'the factory call an exported helper returns',
+    helpers: `export function part() { return X({ 'data-i': 1, padding: 1 }) }`,
+    source: `Div({ 'data-i': 0, padding: 1, children: [part()] }).render()`,
+    marks: [1],
+  },
+  {
+    // Every caller is in the module and puts a rule before it.
+    name: 'the factory call a helper returns under a rule',
+    helpers: `function inner() { return X({ 'data-i': 1, padding: 1 }) }`,
+    source: `Div({ 'data-i': 0, padding: 1, children: [inner()] }).render()`,
+    marks: [],
+  },
+]
+
+describe('the carrier mark on calls of imported factories', async () => {
+  const module = `import { Div, Node } from '@meonode/ui'\nimport { X, XC, F } from './nodes'\nconst Card = () => null\n${FACTORY_CASES.map(c => c.helpers ?? '').join('\n')}\nexport const cases = [\n${FACTORY_CASES.map(c => `  s => ${c.source},`).join('\n')}\n]\n`
+  const { code } = await transform(module, {
+    filename: 'factories.js',
+    jsc: { target: 'es2022', parser: { syntax: 'ecmascript' }, experimental: { plugins: [[WASM_PATH, { experimental_extractCss: true }]] } },
+  })
+  /** A built node that `.render()` returns as it is. */
+  const built = (node: Built): Built => Object.assign(node, { render: () => node })
+  const X = { factory: 'host' }
+  const XC = { factory: 'component' }
+  const F = (props: Record<string, unknown>): Built =>
+    (props.s as { a: boolean }).a ? { kind: 'component' } : built({ kind: 'host', props: { padding: 3, 'data-i': props['data-i'] } })
+  /** The runtime's join: a host factory's call becomes the named node its site describes, its mark the site's. */
+  const __meoFactoryCall = (callee: unknown, site: { at: number; r?: 1 }, ...args: unknown[]): unknown => {
+    if (callee === X) {
+      const props = (args[site.at] ?? {}) as Record<string, unknown>
+      return built({ kind: 'host', props: { ...props, __meo$: 2, __meo$n: 'joined', ...(site.r ? { [CARRIER_KEY]: 1 } : {}) }, deps: args[site.at + 1] })
+    }
+    if (callee === XC) return built({ kind: 'component' })
+    return (callee as (...a: unknown[]) => unknown)(...args)
+  }
+  const stubs: Record<string, unknown> = {
+    Div: (props?: Record<string, unknown>, deps?: unknown): Built => built({ kind: 'host', props, deps }),
+    Node: (): Built => built({ kind: 'component' }),
+    X,
+    XC,
+    F,
+    __meoFactoryCall,
+  }
+  const imported = [...code.matchAll(/import \{([^}]*)\} from "@meonode\/ui"/g)].flatMap(m => m[1].split(',').map(s => s.trim().split(/\s+as\s+/).at(-1)!))
+  const names = [...new Set([...Object.keys(stubs), ...imported])]
+  const body = code.replace(/^import .*$/gm, '').replace('export const cases =', 'return').replace(/^export /gm, '')
+  const compiled = new Function(...names, body)(...names.map(n => stubs[n] ?? (() => undefined))) as ((s: Record<string, unknown>) => unknown)[]
+
+  it.each(FACTORY_CASES.map((c, i) => [c.name, i] as const))('%s', (_, i) => {
+    const places = new Map<number, Set<'start' | 'component' | false>>()
+    const got = new Set<number>()
+    const named = new Set<number>()
+    for (const combo of Array.from({ length: 2 ** FLAGS.length }, (_, k) => k)) {
+      const s: Record<string, unknown> = Object.fromEntries(FLAGS.map((flag, bit) => [flag, Boolean(combo & (1 << bit))]))
+      s.css = s.c ? { margin: 1 } : undefined
+      s.deps = s.a ? [1] : undefined
+      const render = compiled[i](s)
+      for (const walk of neededOnEither(render))
+        for (const [id, place] of walk) {
+          if (!places.has(id)) places.set(id, new Set())
+          places.get(id)!.add(place)
+        }
+      const m = marks(render)
+      m.marked.forEach(id => got.add(id))
+      m.named.forEach(id => named.add(id))
+    }
+    const want = [...places].filter(([, p]) => p.has(false) && (p.has('start') || p.has('component'))).map(([id]) => id)
+    expect(
+      want.filter(id => !got.has(id)),
+      'unmarked',
+    ).toEqual([])
+    expect(
+      [...got].filter(id => !named.has(id)),
+      'not named',
+    ).toEqual([])
+    expect([...got].sort()).toEqual(FACTORY_CASES[i].marks)
+  })
+})
