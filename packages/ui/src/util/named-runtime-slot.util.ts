@@ -38,6 +38,13 @@ export interface NamedWalk {
   classOf(node: object, text: string | undefined, opaqueAbove: boolean, themeOwn: ThemeVarIndex | undefined): string | undefined
   /** Whether a named node renders through `StyledRenderer`, as a carrier or with no cache to read. */
   rendersAtRender(node: object): boolean
+
+  /**
+   * Whether a marked carrier follows a rule in this render: it renders through
+   * `StyledRenderer` to keep that type, given the class the walk composed, and
+   * its rule goes in with the run.
+   */
+  rendersClassOnly(node: object): boolean
   /** The run props a node's `StyledRenderer` is given, if any. */
   runProps(node: object): Record<string, unknown> | undefined
   /** The walk's end: the run since the last rule goes in after it, and the checks after commit are queued. */

@@ -1,5 +1,12 @@
 'use client'
-import { RUNTIME_PRECEDENCE, STATIC_RUN_AFTER_PROP, STATIC_RUN_PROP, STATIC_SCOPE_PROP, STATIC_STYLE_PROP } from '@src/constant/common.const.js'
+import {
+  RUNTIME_PRECEDENCE,
+  STATIC_CLASS_ONLY_PROP,
+  STATIC_RUN_AFTER_PROP,
+  STATIC_RUN_PROP,
+  STATIC_SCOPE_PROP,
+  STATIC_STYLE_PROP,
+} from '@src/constant/common.const.js'
 import { createElement, type ElementType, Fragment, type JSX, type ReactElement, type ReactNode, useContext, useInsertionEffect } from 'react'
 import { __unsafe_useEmotionCache as useEmotionCache, CacheProvider, jsx, ThemeContext as EmotionThemeContext } from '@emotion/react'
 import createCache, { type EmotionCache } from '@emotion/cache'
@@ -48,6 +55,10 @@ export default function StyledRenderer<E extends NodeElement, TProps extends Rec
   const readsTheme = ThemeUtil.hasThemeFunction(props.css)
   const mode = useThemeSnapshot(context?.store ?? null, readsTheme ? selectMode : null)
   const emotionTheme = useContext(EmotionThemeContext)
+  // A marked carrier that follows a rule: its class is composed and its rule goes
+  // in with that rule's run, so it renders its host alone, in the place a host
+  // has beside a leaf, after the same hooks as any render of this component.
+  if ((props as Record<string, unknown>)[STATIC_CLASS_ONLY_PROP]) return renderHost(props as Record<string, unknown>)
   const theme = context && mode !== undefined ? { ...context.theme, mode: mode as typeof context.theme.mode } : context?.theme
   // The named styles of its render that began since the previous rule, which go
   // in ahead of its own. With them, the server renders the element as the
@@ -107,7 +118,28 @@ function RuleInsertion({
 }
 
 /** The props a styled element's own element is not given. */
-const RENDERER_ONLY = new Set(['element', 'children', 'css', 'as', STATIC_RUN_PROP, STATIC_RUN_AFTER_PROP, STATIC_SCOPE_PROP, STATIC_STYLE_PROP])
+const RENDERER_ONLY = new Set([
+  'element',
+  'children',
+  'css',
+  'as',
+  STATIC_RUN_PROP,
+  STATIC_RUN_AFTER_PROP,
+  STATIC_SCOPE_PROP,
+  STATIC_STYLE_PROP,
+  STATIC_CLASS_ONLY_PROP,
+])
+
+/**
+ * The host of a carrier that carries nothing in this render, with the class it
+ * is handed. A fragment holds it in the second place, where
+ * {@link renderOwnClass} puts it, so React keeps it when the carrier carries again.
+ */
+function renderHost(props: Record<string, unknown>): JSX.Element {
+  const hostProps: Record<string, unknown> = {}
+  for (const name in props) if (!RENDERER_ONLY.has(name)) hostProps[name] = props[name]
+  return createElement(Fragment, null, null, createElement(props.element as ElementType, hostProps, props.children as ReactNode))
+}
 
 /**
  * An element's css as it goes to Emotion: theme references resolved, then the
