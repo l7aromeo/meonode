@@ -15,6 +15,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { __meoFactoryCall, Button, createChildrenFirstNode, createNode, Div, Node, type FactoryCallSite, type NodeInstance } from '@src/main.js'
 import { STATIC_CARRIER_MARKER, STATIC_NAME_MARKER } from '@src/constant/common.const.js'
 import { __resetStaticCss, hasNamedStyles, registerStaticCss, staticStylesOf } from '@src/util/static-css.util.js'
+import { FACTORY_JOIN } from '@src/core.node.js'
+import { __meoFactoryCall as leafFactoryCall, factoryShapes } from '@src/factory-call/index.js'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -89,6 +91,32 @@ describe('a callee no createNode made', () => {
 
   it('throws as the call would, when it is not a function', () => {
     expect(() => call(undefined, { at: 0 }, {})).toThrow(TypeError)
+  })
+})
+
+describe('a factory and the join of the copy of core that made it', () => {
+  it('is called as written when that copy’s join is not loaded, though this one’s is', () => {
+    const element = { type: 'section' }
+    const made = vi.fn((props?: Props) => ({ element, props }))
+    factoryShapes.set(made, { element: 'section', initialProps: { padding: 8 }, propsAt: 0, core: {} })
+    call(Panel, { at: 0 }, { color: BLUE })
+    expect(FACTORY_JOIN.join).toBeTypeOf('function')
+    const props = { color: BLUE }
+    expect(call(made, { at: 0 }, props)).toEqual({ element, props })
+    expect(made).toHaveBeenCalledWith(props)
+  })
+
+  it('joins through the light entry once its core’s join is loaded, and is called as written before', () => {
+    const site: FactoryCallSite = { at: 0 }
+    const loaded = FACTORY_JOIN.join
+    FACTORY_JOIN.join = undefined
+    try {
+      expect(nameOf(leafFactoryCall(Panel, site, { color: BLUE }) as NodeInstance)).toBeUndefined()
+    } finally {
+      FACTORY_JOIN.join = loaded
+    }
+    call(Bare, { at: 0 })
+    expect(nameOf(leafFactoryCall(Panel, { at: 0 }, { color: BLUE }) as NodeInstance)).toBeDefined()
   })
 })
 

@@ -494,13 +494,61 @@ describe('build output: the factory-call entry', () => {
       const ui = ${load('@meonode/ui')}
       const leaf = ${load('@meonode/ui/factory-call')}
       const Box = ui.createNode('div', { padding: 8 })
-      const node = leaf.__meoFactoryCall(Box, { at: 0 }, { margin: 4, children: 'x' })
-      console.log(JSON.stringify({ named: typeof node.props.__meo$n, reexported: ui.__meoFactoryCall === leaf.__meoFactoryCall }))`
+      const named = call => typeof call(Box, { at: 0 }, { margin: 4, children: 'x' }).props.__meo$n
+      const before = named(leaf.__meoFactoryCall)
+      const main = named(ui.__meoFactoryCall)
+      console.log(JSON.stringify({ before, main, after: named(leaf.__meoFactoryCall) }))`
     const args = [
       ...(build === 'server' ? ['--conditions=react-server', '--import', CLIENT_REFERENCES] : []),
       ...(format === 'esm' ? ['--input-type=module', '-e', code] : ['-e', `(async () => {${code}})()`]),
     ]
     const result = JSON.parse(execFileSync(process.execPath, args, { cwd: ROOT, encoding: 'utf8', stdio: 'pipe' }).trim().split('\n').at(-1)!)
-    expect(result).toEqual({ named: 'string', reexported: true })
+    // The light entry joins once the join, which `@meonode/ui` exports the name from, has run.
+    expect(result).toEqual({ before: 'undefined', main: 'string', after: 'string' })
+  })
+
+  /** The build's modules that render code into `source` bundled by rollup against the ESM build, every other package left external. */
+  async function treeShaken(source: string): Promise<string[]> {
+    const entry = '\0app'
+    const bundle = await rollup({
+      input: entry,
+      external: id => !id.startsWith('.') && !id.startsWith('/') && id !== entry && id !== '@meonode/ui',
+      plugins: [
+        {
+          name: 'app',
+          resolveId: id => (id === entry ? id : id === '@meonode/ui' ? path.join(ROOT, 'dist/esm/main.js') : null),
+          load: id => (id === entry ? source : null),
+        },
+      ],
+      onwarn: () => {},
+    })
+    const { output } = await bundle.generate({ format: 'esm' })
+    await bundle.close()
+    return output.flatMap(chunk =>
+      'modules' in chunk
+        ? Object.entries(chunk.modules)
+            .filter(([, module]) => module.renderedLength > 0)
+            .map(([id]) => path.relative(path.join(ROOT, 'dist/esm'), id))
+        : [],
+    )
+  }
+
+  // An app built without the compiler never imports the name, nor registers a
+  // compiled style, so neither the join nor the resolver of themed conditions
+  // reaches its bundle; compiled output brings in what it uses.
+  it.each([
+    [
+      'an app built without the compiler',
+      `import { createNode, createChildrenFirstNode, Div, ThemeProvider } from '@meonode/ui'\nexport default [createNode, createChildrenFirstNode, Div, ThemeProvider]`,
+      false,
+      false,
+    ],
+    ['compiled output with no joined call', `import { Div, registerStaticCss } from '@meonode/ui'\nexport default [Div, registerStaticCss]`, false, true],
+    ['compiled output with a joined call', `import { Div, __meoFactoryCall } from '@meonode/ui'\nexport default [Div, __meoFactoryCall]`, true, true],
+  ])('tree-shakes for %s', async (_, source, join, themedText) => {
+    const modules = await treeShaken(source)
+    expect(modules).toContain('core.node.js')
+    expect(modules.includes('factory-call/join.js')).toBe(join)
+    expect(modules.includes('util/themed-text.util.js')).toBe(themedText)
   })
 })

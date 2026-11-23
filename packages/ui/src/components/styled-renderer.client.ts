@@ -22,7 +22,7 @@ import { createServerCssCache } from '@src/util/server-css-cache.util.js'
 import { replaceThemeTokensWithCssVars } from '@src/util/server-theme.util.js'
 import { nameStyles } from '@src/util/style-name.util.js'
 import { type NamedStyle, serverStyleElement, standInServerCache } from '@src/util/named-style.util.js'
-import { textForTheme } from '@src/util/themed-text.util.js'
+import { themedTexts } from '@src/util/themed-text-slot.util.js'
 
 export interface StyledRendererProps<E extends NodeElement> {
   element: E
@@ -155,20 +155,14 @@ function textOf(compiled: CompiledStyle, context: ThemeContextState | null): str
 
 /**
  * A compiled style for the theme the element renders under: as the compiler
- * serialized it, or, where a condition or selector in it holds a theme token,
- * resolved for that theme (see {@link textForTheme}), each block left out
- * reported in development as {@link cssOf} reports a key it leaves out.
+ * serialized it, or, where a condition in it holds a theme token, resolved for
+ * that theme (see `themed-text.util.ts`).
  * @param compiled The compiled style, if any.
  * @param theme The theme in scope.
  * @returns The style to render.
  */
-function compiledFor(compiled: CompiledStyle | undefined, theme: Theme | undefined): CompiledStyle | undefined {
-  if (compiled === undefined) return undefined
-  const themed = textForTheme(compiled.styles, theme)
-  if (themed === undefined) return compiled
-  if (diagnosticsEnabled()) for (const prelude of themed.dropped) reportUnresolvedThemeKey(prelude)
-  return themed
-}
+const compiledFor = (compiled: CompiledStyle | undefined, theme: Theme | undefined): CompiledStyle | undefined =>
+  compiled && (themedTexts.resolver?.forRender(compiled.styles, theme, diagnosticsEnabled() ? reportUnresolvedThemeKey : undefined) ?? compiled)
 
 /**
  * The serialized styles for an element's css and the registered styles folded

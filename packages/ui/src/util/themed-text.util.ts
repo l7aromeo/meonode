@@ -1,20 +1,8 @@
 import type { Theme } from '@src/types/node.type.js'
+import { type DroppedReport, type ServerThemedText, themedTexts, type ThemedText, type ThemedTextResolver } from '@src/util/themed-text-slot.util.js'
 import { removeBlocksWithThemeTokens, replaceKeyTokens, textHasThemeTokenInPrelude } from '@src/util/theme-key.util.js'
-import { ThemeUtil } from '@src/util/theme.util.js'
+import { concreteTokenSignature, concreteTokenValue } from '@src/util/theme-value.util.js'
 import { nameText } from '@src/util/style-name.util.js'
-
-/**
- * A named style's text resolved for one theme: what the uncompiled path writes
- * for the style it was serialized from, under that theme.
- */
-export interface ThemedText {
-  /** The resolved text's name. */
-  readonly name: string
-  /** The text, each prelude's tokens given the theme's values. */
-  readonly styles: string
-  /** The preludes whose blocks were left out, still holding a token the theme has no value for. */
-  readonly dropped: readonly string[]
-}
 
 /** What a text's resolution reads: the paths of the tokens in its preludes, and its resolution for each theme seen. */
 interface Plan {
@@ -31,7 +19,7 @@ const MAX_TEXTS = 4096
 /** Resolutions remembered for one text: one per set of values its tokens take, as themes and nested providers give them. */
 const MAX_THEMES_PER_TEXT = 16
 
-let plans = new Map<string, Plan | null>()
+let plans = /* @__PURE__ */ new Map<string, Plan | null>()
 let resolutions = 0
 
 function planOf(text: string): Plan | null {
@@ -70,8 +58,8 @@ export function hasThemedPreludes(text: string): boolean {
 /**
  * A named style's text for `theme`, as the uncompiled path writes the style it
  * was serialized from: each token in a prelude takes the value
- * {@link ThemeUtil.resolveObjWithTheme} gives a key, and each block whose prelude
- * still holds one is left out, as {@link ThemeUtil.dropThemedKeys} leaves out
+ * `ThemeUtil.resolveObjWithTheme` gives a key, and each block whose prelude
+ * still holds one is left out, as `ThemeUtil.dropThemedKeys` leaves out
  * its key. A serialized style writes each key before its block, and each block
  * on its own, so resolving the text is resolving the style, then serializing it.
  * Resolved once for each set of values the tokens take.
@@ -82,11 +70,11 @@ export function hasThemedPreludes(text: string): boolean {
 export function textForTheme(text: string, theme: Theme | undefined): ThemedText | undefined {
   const plan = planOf(text)
   if (plan === null) return undefined
-  const signature = ThemeUtil.concreteTokenSignature(theme, plan.paths)
+  const signature = concreteTokenSignature(theme, plan.paths)
   let themed = plan.byTheme.get(signature)
   if (themed === undefined) {
     resolutions++
-    const resolved = replaceKeyTokens(text, path => ThemeUtil.concreteTokenValue(theme, path), true)
+    const resolved = replaceKeyTokens(text, path => concreteTokenValue(theme, path), true)
     const dropped: string[] = []
     const styles = removeBlocksWithThemeTokens(resolved, prelude => dropped.push(prelude))
     themed = { name: nameText(styles), styles, dropped }
@@ -134,7 +122,7 @@ function partEnd(text: string, from: number): { end: number; block: boolean } {
 }
 
 /**
- * A named style's text split as {@link ThemeUtil.splitThemedCss} splits the
+ * A named style's text split as `ThemeUtil.splitThemedCss` splits the
  * style it was serialized from, where no theme is in scope to resolve its
  * conditions: every declaration, and every block before the first one holding a
  * theme token in a prelude at any depth, compile with no theme; the rest, from
@@ -159,4 +147,30 @@ export function splitThemedText(text: string): { plain: string; themed: string }
     at = end
   }
   return { plain, themed }
+}
+
+/** {@link textForTheme}, each block left out given to `report`, as the uncompiled path reports a key it leaves out. */
+function forRender(text: string, theme: Theme | undefined, report: DroppedReport | undefined): ThemedText | undefined {
+  const themed = textForTheme(text, theme)
+  if (themed !== undefined && report !== undefined) for (const prelude of themed.dropped) report(prelude)
+  return themed
+}
+
+/**
+ * The text as the server layer compiles it: resolved against a theme in scope,
+ * as css's keys are; with none, split as css is (see {@link splitThemedText}).
+ */
+function forServer(text: string, theme: Theme | undefined, report: DroppedReport | undefined): ServerThemedText | undefined {
+  if (!hasThemedPreludes(text)) return undefined
+  if (theme) return forRender(text, theme, report)
+  const { plain, themed } = splitThemedText(text)
+  return { styles: plain, identity: text, ...(themed && { themed }) }
+}
+
+/** This module's resolver, as {@link themedTexts} holds it. */
+const RESOLVER: ThemedTextResolver = { has: hasThemedPreludes, forRender, forServer }
+
+/** Gives {@link themedTexts} this module's resolver: called wherever a compiled style is registered. */
+export function installThemedText(): void {
+  themedTexts.resolver ??= RESOLVER
 }

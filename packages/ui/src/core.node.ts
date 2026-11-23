@@ -60,16 +60,12 @@ import { IS_REACT_SERVER_LAYER } from '@src/util/react-layer.util.js'
 import { passesChildrenThrough, providesTheme } from '@src/util/children-pass-through.util.js'
 import { noteOnce, observeChildren } from '@src/util/generated-list.util.js'
 import { compileServerEmotionRule, compileServerNamedRule } from '@src/util/server-emotion.util.js'
-import { hasNamedStyles, registerNamedText, staticStylesOf } from '@src/util/static-css.util.js'
-import { nameStyles } from '@src/util/style-name.util.js'
-import CSSPropertySet from '@src/constant/css-properties.const.js'
-import { serializeStyles } from '@emotion/serialize'
-import { factoryBrands, type FactoryCallSite } from '@src/factory-call/index.js'
+import { hasNamedStyles, staticStylesOf } from '@src/util/static-css.util.js'
+import { factoryShapes, type FactoryJoinSlot } from '@src/factory-call/index.js'
 import { namedClass, type NamedStyle } from '@src/util/named-style.util.js'
 import type { EmotionCache } from '@emotion/cache'
 import { readEmotionCache } from '@src/util/emotion-cache.util.js'
-import { hasThemedPreludes, splitThemedText, textForTheme } from '@src/util/themed-text.util.js'
-import { keyHasThemeToken, keysMayMeet } from '@src/util/theme-key.util.js'
+import { themedTexts } from '@src/util/themed-text-slot.util.js'
 import { createServerCssCache } from '@src/util/server-css-cache.util.js'
 import { checkCandidatesAfterCommit, checkThemeRefsInScope, type StaticThemeCandidate } from '@src/components/static-styles.js'
 import { replaceThemeTokensWithCssVars } from '@src/util/server-theme.util.js'
@@ -822,7 +818,10 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
             // with; anywhere with no cache to read; and for a style whose
             // conditions or selectors hold theme tokens, which only the theme
             // where its element renders resolves, as its css would.
-            if (styles !== undefined && (beginProps[STATIC_CARRIER_MARKER] || walkHasNoCache() || lastRuleNode === null || hasThemedPreludes(styles))) {
+            if (
+              styles !== undefined &&
+              (beginProps[STATIC_CARRIER_MARKER] || walkHasNoCache() || lastRuleNode === null || themedTexts.resolver?.has(styles) === true)
+            ) {
               // A runtime node now: it takes the run since the last rule, as one
               // does, and the one after it that no later rule takes.
               namedAtRender!.add(node)
@@ -1255,24 +1254,18 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
               /** The part of a named style's text compiled here, where it is not the whole text. */
               let namedPlainText: string | undefined
               if (serverNamedStyles !== undefined) {
-                const share = typeof renderTarget !== 'string'
-                if (!hasThemedPreludes(serverNamedStyles)) {
-                  rule = compileServerNamedRule(staticName as string, serverNamedStyles, elementProps.className, { share })
-                } else if (activeTheme) {
-                  // Conditions holding theme tokens resolve against the theme in scope, as css's keys do.
-                  const resolved = textForTheme(serverNamedStyles, activeTheme)!
-                  if (diagnosticsEnabled()) for (const prelude of resolved.dropped) reportUnresolvedThemeKey(prelude)
-                  rule = compileServerNamedRule(resolved.name, resolved.styles, elementProps.className, { share })
-                } else {
-                  // With no theme in scope, split as css is: from the first block whose
-                  // condition holds a token, the text goes to `ThemedRule`, which resolves
-                  // it where the theme is; the rest compiles here, under the class of the
-                  // whole text.
-                  const split = splitThemedText(serverNamedStyles)
-                  rule = compileServerNamedRule(staticName as string, split.plain, elementProps.className, { share, identity: serverNamedStyles })
-                  themed = split.themed || undefined
-                  namedPlainText = split.plain
-                }
+                // A text whose conditions hold theme tokens resolves against the theme in
+                // scope, as css's keys do; with none, it splits as css does: from the first
+                // block whose condition holds a token, it goes to `ThemedRule`, which
+                // resolves it where the theme is, and the rest compiles here, under the
+                // class of the whole text.
+                const parts = themedTexts.resolver?.forServer(serverNamedStyles, activeTheme, diagnosticsEnabled() ? reportUnresolvedThemeKey : undefined)
+                rule = compileServerNamedRule(parts?.name ?? (staticName as string), parts?.styles ?? serverNamedStyles, elementProps.className, {
+                  share: typeof renderTarget !== 'string',
+                  identity: parts?.identity,
+                })
+                themed = parts?.themed
+                if (parts?.identity !== undefined) namedPlainText = parts.styles
                 // With a theme in scope, checked here, as css is above; with none, where the providers are, below.
                 if (activeTheme) reportThemeVarRefs(collectNamedThemeVarRefs(serverNamedStyles), getThemeVarIndex(activeTheme))
               } else {
@@ -1499,7 +1492,7 @@ function Node<AdditionalProps, E extends NodeElementType, ExactProps extends obj
  * the call site's stack is cut at the caller's frame.
  * @param factory The function the author called, where the call site's stack begins.
  */
-function buildNode(element: NodeElementType, props: object, deps: DependencyList | undefined, factory: (...args: never[]) => unknown): BaseNode {
+export function buildNode(element: NodeElementType, props: object, deps: DependencyList | undefined, factory: (...args: never[]) => unknown): BaseNode {
   if (diagnosticsEnabled()) observeChildren(element, props as Record<string, unknown>, factory)
   if (isDevMode()) {
     NodeUtil.markWrittenOutChildren(props as Record<string, unknown>)
@@ -1624,7 +1617,7 @@ function stylesSomething(css: unknown): boolean {
  * `__meo$c`, but `css` is one of the keys the compiler always leaves top-level,
  * as a plain object whose `theme.*` tokens may already have been replaced.
  */
-function combineFactoryProps(initialProps: Record<string, unknown> | undefined, props: Record<string, unknown> | undefined): Record<string, unknown> {
+export function combineFactoryProps(initialProps: Record<string, unknown> | undefined, props: Record<string, unknown> | undefined): Record<string, unknown> {
   // Checked before they are combined, so an error names the `css` it was written in.
   checkFactoryCss(initialProps?.css)
   checkCss(props?.css)
@@ -1635,7 +1628,7 @@ function combineFactoryProps(initialProps: Record<string, unknown> | undefined, 
 }
 
 /** {@link combineFactoryProps}'s merge, without its development checks. */
-function mergeFactoryProps(initialProps: Record<string, unknown> | undefined, props: Record<string, unknown> | undefined): Record<string, unknown> {
+export function mergeFactoryProps(initialProps: Record<string, unknown> | undefined, props: Record<string, unknown> | undefined): Record<string, unknown> {
   const combined: Record<string, unknown> = { ...initialProps, ...props }
   const factoryCss = initialProps?.css
   const callSiteCss = props?.css
@@ -1720,197 +1713,25 @@ function factoryProps(initialProps: Record<string, unknown> | undefined, props: 
   return combineFactoryProps(initialProps, props)
 }
 
-/** What a factory's join reads of it: its element, its initial props, and which argument holds a call's props. */
-interface FactoryShape {
-  element: NodeElementType
-  initialProps: Record<string, unknown> | undefined
-  propsAt: 0 | 1
-}
+/**
+ * The slot the join of this copy of core goes in, once `factory-call/join.ts`
+ * loads: only compiled output calls it, so an app built without the compiler
+ * never loads it.
+ */
+export const FACTORY_JOIN: FactoryJoinSlot = {}
 
 /**
- * Brands a factory `createNode` or `createChildrenFirstNode` made, in the
- * registry `@meonode/ui/factory-call` reads, with the join for its calls.
+ * Records a factory `createNode` or `createChildrenFirstNode` made, in the
+ * registry `__meoFactoryCall` reads: its element, its initial props, which
+ * argument holds a call's props, and this copy's join slot.
  */
-function brandFactory(factory: (...args: never[]) => unknown, shape: FactoryShape): void {
-  factoryBrands.set(factory, { join: (callee, site, args, caller) => joinFactoryCall(shape, callee, site, args, caller) })
-}
-
-/**
- * A site's style joined with its factory's initial props: the name and text
- * `StyledRenderer` gives it, and, for the development check, the fingerprint of
- * the call's own style. `null` when the site keeps the runtime path.
- */
-type JoinedStyle = { name: string; styles: string; own: string | undefined } | null
-
-/**
- * Each site's joined style, with the factory it was joined for. A site calls one
- * binding, so it holds one; a factory module evaluated again (a hot update)
- * gives the binding a new factory, which replaces it.
- */
-const joinedStyles = new WeakMap<FactoryCallSite, { factory: object; style: JoinedStyle }>()
-
-/** The sites already reported in development for a call whose own style is not the one its site was joined with. */
-const reportedSites = new WeakSet<FactoryCallSite>()
-
-/** Whether `value` is an object literal's kind of object. */
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  if (typeof value !== 'object' || value === null) return false
-  const prototype = Object.getPrototypeOf(value)
-  return prototype === Object.prototype || prototype === null
-}
-
-/** The style part of props: `css` and every CSS property key, in their order. */
-function stylePartOf(props: Record<string, unknown>): Record<string, unknown> {
-  const style: Record<string, unknown> = {}
-  for (const key of Object.keys(props)) if (key === 'css' || CSSPropertySet.has(key)) style[key] = props[key]
-  return style
-}
-
-/** Props without their style part. */
-function withoutStylePart(props: Record<string, unknown>): Record<string, unknown> {
-  const rest: Record<string, unknown> = {}
-  for (const key of Object.keys(props)) if (key !== 'css' && !CSSPropertySet.has(key)) rest[key] = props[key]
-  return rest
-}
-
-/** Whether a style value is one `processProps` writes before the others. */
-const isPrimitiveStyle = (value: unknown): boolean => typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
-
-/** Whether a plain-data style holds a `styles` key at any depth, which Emotion reserves. */
-function holdsStylesKey(value: unknown): boolean {
-  if (typeof value !== 'object' || value === null) return false
-  for (const key of Object.keys(value)) if (key === 'styles' || holdsStylesKey((value as Record<string, unknown>)[key])) return true
-  return false
-}
-
-/**
- * Whether a style's text can keep the theme tokens of its keys for the theme
- * where it renders to resolve, block by block: every key holding one, at any
- * depth, is an at-rule's condition over a block, and none is one a theme could
- * make equal to another key of its object (see {@link keysMayMeet}), which
- * resolving the object would fold into one. No value holds a brace, which the
- * text's blocks are found by.
- */
-function joinsWithThemedKeys(style: Record<string, unknown>): boolean {
-  const keys = Object.keys(style)
-  for (const key of keys) {
-    const value = style[key]
-    if (keyHasThemeToken(key)) {
-      if (!key.startsWith('@') || !isPlainObject(value)) return false
-      for (const other of keys) if (other !== key && keysMayMeet(key, other)) return false
-    }
-    if (typeof value === 'string' && (value.includes('{') || value.includes('}'))) return false
-    if (isPlainObject(value) && !joinsWithThemedKeys(value)) return false
-  }
-  return true
-}
-
-/**
- * The whole style of merged props as a compiled name: the `css` `processProps`
- * assembles from them (primitive flat props, then the other flat props, then
- * `css` over them), through the steps the compiler serializes a named style
- * with. A theme token in an at-rule's condition stays in the text, as the
- * compiler leaves it, for the theme where the element renders to resolve (see
- * `textForTheme`). `null` keeps the site on the runtime path: the style holds a
- * value that is not plain data (a function, an array, `undefined`, a `css()`
- * result), a `styles` key, or a theme token in a selector; it has no key, so the
- * node renders no class, or serializes to nothing; or its name holds another
- * text.
- */
-function joinStyle(merged: Record<string, unknown>, own: string | undefined): JoinedStyle {
-  const primitives: Record<string, unknown> = {}
-  const others: Record<string, unknown> = {}
-  for (const key of Object.keys(merged)) {
-    if (key === 'css' || !CSSPropertySet.has(key)) continue
-    if (isPrimitiveStyle(merged[key])) primitives[key] = merged[key]
-    else others[key] = merged[key]
-  }
-  const css = merged.css
-  if (css !== undefined && !isPlainObject(css)) return null
-  const whole = { ...primitives, ...others, ...css }
-  // A node with no style keys renders no class, which a name would give it.
-  if (Object.keys(whole).length === 0 || initialPropsFingerprint(whole) === undefined || holdsStylesKey(whole)) return null
-  const resolved = ThemeUtil.resolveObjWithTheme(whole, undefined, { processFunctions: true, themeStringsMode: 'vars' })
-  let themedKey = false
-  const kept = ThemeUtil.dropThemedKeys(resolved, () => {
-    themedKey = true
-  })
-  // With no theme, only keys holding tokens are dropped: the `styles` keys are refused above.
-  if (themedKey && !joinsWithThemedKeys(resolved)) return null
-  const { name, styles } = nameStyles(serializeStyles([ThemeUtil.resolveDefaultStyle(themedKey ? resolved : kept)] as never))
-  if (styles === '' || !registerNamedText(name, styles)) return null
-  return { name, styles, own }
-}
-
-/**
- * A call of a factory this core made, through `__meoFactoryCall`: a call site
- * the compiler could not merge, since the factory's initial props are in
- * another module. The call site's style can't vary between renders, so its
- * first call joins it with the factory's initial props, and every call renders
- * a named node under that style, its other props merged as the factory merges
- * them; props left out join as `{}`. Anything else is called as written: a
- * site whose `at` is not the argument the factory reads its props from, in a
- * call with arguments, props that are not an object
- * literal's, a `theme` or `disableEmotion` in the call's or the factory's props,
- * and a style {@link joinStyle} keeps on the runtime path. In development, a
- * call whose own style is not its site's first call's is reported once and
- * called as written.
- * @param brand The factory's shape.
- * @param factory The factory.
- * @param site The call site, hoisted by the compiler.
- * @param args The call's arguments, as written.
- * @param caller The function the call site called, left out of the stack a development report shows.
- * @returns What `factory(...args)` returns, with the style named.
- */
-function joinFactoryCall(
-  brand: FactoryShape,
+function recordFactory(
   factory: (...args: never[]) => unknown,
-  site: FactoryCallSite,
-  args: unknown[],
-  caller: (...args: never[]) => unknown,
-): unknown {
-  // With no arguments, the site's `at` names none, and the factory reads no
-  // props from either. Props left out merge as `{}`, as the factory merges them.
-  const given = args[site.at]
-  const props = given === undefined ? {} : given
-  if (
-    (args.length > 0 && site.at !== brand.propsAt) ||
-    !isPlainObject(props) ||
-    'theme' in props ||
-    'disableEmotion' in props ||
-    (brand.initialProps !== undefined && ('theme' in brand.initialProps || 'disableEmotion' in brand.initialProps))
-  ) {
-    return factory(...(args as never[]))
-  }
-  let joined = joinedStyles.get(site)
-  if (joined === undefined || joined.factory !== factory) {
-    joined = { factory, style: joinStyle(mergeFactoryProps(brand.initialProps, props), initialPropsFingerprint(stylePartOf(props))) }
-    joinedStyles.set(site, joined)
-  }
-  const style = joined.style
-  if (style === null) return factory(...(args as never[]))
-  if (isDevMode() && initialPropsFingerprint(stylePartOf(props)) !== style.own) {
-    if (!reportedSites.has(site)) {
-      reportedSites.add(site)
-      console.error(
-        `[MeoNode] A call of the '${getElementTypeName(brand.element)}' factory compiled as static has a style other than its first call's, so it renders on the runtime path. The compiler marked a call whose style varies.`,
-      )
-    }
-    return factory(...(args as never[]))
-  }
-  // Held again if the registry was cleared since the join.
-  if (staticStylesOf(style.name) === undefined) registerNamedText(style.name, style.styles)
-  const combined = combineFactoryProps(brand.initialProps, props)
-  // The check the call uncompiled gets, on the props it would build with: the
-  // marker set below would skip it, though the compiler left the call's list
-  // undecided unless its props carry a marker of their own.
-  if (diagnosticsEnabled()) observeChildren(brand.element, brand.propsAt === 1 ? { ...combined, children: args[0] } : combined, caller)
-  const built = withoutStylePart(combined)
-  built[COMPILED_MARKER] = 2
-  built[STATIC_NAME_MARKER] = style.name
-  if (site.r === 1) built[STATIC_CARRIER_MARKER] = 1
-  if (brand.propsAt === 1) built.children = args[0]
-  return buildNode(brand.element, built, args[brand.propsAt + 1] as DependencyList | undefined, factory)
+  element: NodeElementType,
+  initialProps: Record<string, unknown> | undefined,
+  propsAt: 0 | 1,
+): void {
+  factoryShapes.set(factory, { element, initialProps, propsAt, core: FACTORY_JOIN })
 }
 
 /**
@@ -1947,7 +1768,7 @@ export function createNode<AdditionalInitialProps, E extends NodeElementType, Ex
     return node
   }
   Instance.element = element
-  brandFactory(Instance, { element, initialProps: initialProps as Record<string, unknown> | undefined, propsAt: 0 })
+  recordFactory(Instance, element, initialProps as Record<string, unknown> | undefined, 0)
   return Instance as any
 }
 
@@ -1987,6 +1808,6 @@ export function createChildrenFirstNode<AdditionalInitialProps, E extends NodeEl
   }
   Instance.element = element
   childrenFirstFactories.add(Instance)
-  brandFactory(Instance, { element, initialProps: initialProps as Record<string, unknown> | undefined, propsAt: 1 })
+  recordFactory(Instance, element, initialProps as Record<string, unknown> | undefined, 1)
   return Instance as any
 }

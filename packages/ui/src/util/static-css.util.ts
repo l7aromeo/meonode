@@ -1,5 +1,6 @@
 import { isDevMode } from '@src/constant/common.const.js'
 import { getGlobalState } from '@src/helper/common.helper.js'
+import { installThemedText } from '@src/util/themed-text.util.js'
 
 /**
  * The styles the compiler serialized at build time.
@@ -83,6 +84,7 @@ export function templateText(id: string, values: readonly unknown[]): string | u
  * @param rules The module's styles, each as `[name, styles]`.
  */
 export function registerStaticCss(moduleId: string, rules: readonly StaticCssRule[]): void {
+  installThemedText()
   if (state.modules.has(moduleId)) return
   for (const [name, styles] of rules) {
     const known = state.named.get(name)
@@ -106,6 +108,7 @@ export function registerStaticCss(moduleId: string, rules: readonly StaticCssRul
  * @returns Whether the name now holds this text: `false` when another text holds it.
  */
 export function registerNamedText(name: string, styles: string): boolean {
+  installThemedText()
   const known = state.named.get(name)
   if (known === undefined) {
     state.named.set(name, styles)
@@ -124,6 +127,7 @@ export function registerNamedText(name: string, styles: string): boolean {
  * @param chunks The text before the first hole, between each two, and after the last.
  */
 export function registerStaticTemplate(id: string, chunks: readonly string[]): void {
+  installThemedText()
   const known = state.templates.get(id)
   if (known === undefined) state.templates.set(id, chunks)
   else if (isDevMode() && (known.length !== chunks.length || known.some((chunk, index) => chunk !== chunks[index]))) {
