@@ -84,8 +84,10 @@ describe('named styles', () => {
   })
 
   it('against the runtime path, which costs a renderer each and a leaf each until inserted', () => {
+    // Held in a variable, so the compiler leaves it on the runtime path with extraction on too.
+    const runtimeCss = (index: number) => ({ order: index + suite * 100 })
     const fibers = census(
-      inComponent(() => Div({ children: Array.from({ length: CHILDREN }, (_, index) => Div({ key: String(index), css: { order: index + suite * 100 } })) })),
+      inComponent(() => Div({ children: Array.from({ length: CHILDREN }, (_, index) => Div({ key: String(index), css: runtimeCss(index) })) })),
     )
     expect(fibers).toEqual({
       mount: { App: 1, 'host:div': CHILDREN + 1, Styled: CHILDREN, RuleInsertion: CHILDREN },
