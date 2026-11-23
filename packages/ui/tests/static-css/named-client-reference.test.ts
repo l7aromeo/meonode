@@ -101,6 +101,65 @@ describe('a client reference’s StyledRenderer given a compiled style', () => {
     expect(render(STYLES['the compiled style'])).toEqual(expected)
   })
 
+  describe('where no module registered a style, as in the browser of a server component’s client reference', () => {
+    const CONDITIONED = { color: 'rgb(0, 0, 200)', '@media (min-width: theme.breakpoint.md)': { color: 'rgb(200, 0, 0)' } }
+    // The compiler's text keeps the token in the condition, for the theme where the element renders.
+    const compiled = nameStyles(
+      serializeStyles([
+        ThemeUtil.resolveDefaultStyle(ThemeUtil.resolveObjWithTheme(CONDITIONED, undefined, { processFunctions: true, themeStringsMode: 'vars' })),
+      ] as never),
+    )
+    const themed = (tokens: Record<string, unknown>, style: Record<string, unknown>) =>
+      ThemeProvider({ tokens, modes: ['light'], defaultMode: 'light', children: page(style, false) } as never).render() as ReactElement
+    const WITH = { breakpoint: { md: '700px' } }
+    const WITHOUT = { breakpoint: {} }
+
+    it('keeps the token in its text', () => {
+      expect(compiled.styles).toContain('theme.breakpoint.md')
+    })
+
+    it.each([
+      ['the theme gives the token', WITH, true],
+      ['the theme lacks it, leaving the block out', WITHOUT, false],
+    ])('resolves the condition as its css does, in the browser, where %s', (_, tokens, media) => {
+      const run = (style: Record<string, unknown>) => {
+        document.head.innerHTML = ''
+        document.body.innerHTML = ''
+        const root = createRoot(document.body.appendChild(document.createElement('div')))
+        const cache = createCache({ key: 'css', speedy: true })
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+        act(() => root.render(createElement(CacheProvider, { value: cache }, themed(tokens, style))))
+        warn.mockRestore()
+        const result = {
+          className: document.querySelector('[data-n]')?.className,
+          rules: [...document.head.querySelectorAll<HTMLStyleElement>('style[data-emotion]')].flatMap(element =>
+            [...(element.sheet?.cssRules ?? [])].map(rule => rule.cssText),
+          ),
+        }
+        act(() => root.unmount())
+        return result
+      }
+      const expected = run({ css: CONDITIONED })
+      expect(expected.rules.some(rule => rule.includes('min-width: 700px'))).toBe(media)
+      expect(expected.rules.some(rule => rule.includes('theme.'))).toBe(false)
+      expect(run({ [STATIC_STYLE_PROP]: compiled })).toEqual(expected)
+    })
+
+    it('renders the class its css does on the server', () => {
+      const render = (style: Record<string, unknown>) => {
+        NodeUtil.isServer = true
+        try {
+          return renderToString(themed(WITH, style))
+        } finally {
+          NodeUtil.isServer = false
+        }
+      }
+      const expected = render({ css: CONDITIONED })
+      expect(expected).toContain('class="given css-')
+      expect(render({ [STATIC_STYLE_PROP]: compiled })).toEqual(expected)
+    })
+  })
+
   it('warns for a theme token the theme in scope lacks, as its css does', () => {
     const css = replaceThemeTokensWithCssVars({ color: 'theme.primary.missing' })
     const warnings = (style: Record<string, unknown>) => {

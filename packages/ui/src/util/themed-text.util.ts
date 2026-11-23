@@ -1,8 +1,7 @@
 import type { Theme } from '@src/types/node.type.js'
 import { type DroppedReport, type ServerThemedText, themedTexts, type ThemedText, type ThemedTextResolver } from '@src/util/themed-text-slot.util.js'
-import { removeBlocksWithThemeTokens, replaceKeyTokens, textHasThemeTokenInPrelude } from '@src/util/theme-key.util.js'
-import { concreteTokenSignature, concreteTokenValue } from '@src/util/theme-value.util.js'
-import { nameText } from '@src/util/style-name.util.js'
+import { replaceKeyTokens, textHasThemeTokenInPrelude } from '@src/util/theme-key.util.js'
+import { concreteTokenSignature, resolveThemedText } from '@src/util/theme-value.util.js'
 
 /** What a text's resolution reads: the paths of the tokens in its preludes, and its resolution for each theme seen. */
 interface Plan {
@@ -56,13 +55,8 @@ export function hasThemedPreludes(text: string): boolean {
 }
 
 /**
- * A named style's text for `theme`, as the uncompiled path writes the style it
- * was serialized from: each token in a prelude takes the value
- * `ThemeUtil.resolveObjWithTheme` gives a key, and each block whose prelude
- * still holds one is left out, as `ThemeUtil.dropThemedKeys` leaves out
- * its key. A serialized style writes each key before its block, and each block
- * on its own, so resolving the text is resolving the style, then serializing it.
- * Resolved once for each set of values the tokens take.
+ * A named style's text for `theme` ({@link resolveThemedText}), resolved once
+ * for each set of values its tokens take.
  * @param text The style's serialized text, its preludes holding their tokens.
  * @param theme The theme where the element renders.
  * @returns The resolution, or `undefined` for a text with no token in a prelude.
@@ -74,10 +68,7 @@ export function textForTheme(text: string, theme: Theme | undefined): ThemedText
   let themed = plan.byTheme.get(signature)
   if (themed === undefined) {
     resolutions++
-    const resolved = replaceKeyTokens(text, path => concreteTokenValue(theme, path), true)
-    const dropped: string[] = []
-    const styles = removeBlocksWithThemeTokens(resolved, prelude => dropped.push(prelude))
-    themed = { name: nameText(styles), styles, dropped }
+    themed = resolveThemedText(text, theme)
     if (plan.byTheme.size >= MAX_THEMES_PER_TEXT) plan.byTheme.clear()
     plan.byTheme.set(signature, themed)
   }

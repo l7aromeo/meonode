@@ -23,6 +23,8 @@ import { replaceThemeTokensWithCssVars } from '@src/util/server-theme.util.js'
 import { nameStyles } from '@src/util/style-name.util.js'
 import { type NamedStyle, serverStyleElement, standInServerCache } from '@src/util/named-style.util.js'
 import { themedTexts } from '@src/util/themed-text-slot.util.js'
+import { textHasThemeTokenInPrelude } from '@src/util/theme-key.util.js'
+import { resolveThemedText } from '@src/util/theme-value.util.js'
 
 export interface StyledRendererProps<E extends NodeElement> {
   element: E
@@ -156,13 +158,24 @@ function textOf(compiled: CompiledStyle, context: ThemeContextState | null): str
 /**
  * A compiled style for the theme the element renders under: as the compiler
  * serialized it, or, where a condition in it holds a theme token, resolved for
- * that theme (see `themed-text.util.ts`).
+ * that theme. The resolver a registered style installs keeps each resolution
+ * (see `themed-text.util.ts`); a server component hands a client reference its
+ * style with no module in the browser that registered one, and that resolves
+ * here, every time.
  * @param compiled The compiled style, if any.
  * @param theme The theme in scope.
  * @returns The style to render.
  */
-const compiledFor = (compiled: CompiledStyle | undefined, theme: Theme | undefined): CompiledStyle | undefined =>
-  compiled && (themedTexts.resolver?.forRender(compiled.styles, theme, diagnosticsEnabled() ? reportUnresolvedThemeKey : undefined) ?? compiled)
+function compiledFor(compiled: CompiledStyle | undefined, theme: Theme | undefined): CompiledStyle | undefined {
+  if (compiled === undefined) return undefined
+  const report = diagnosticsEnabled() ? reportUnresolvedThemeKey : undefined
+  const resolver = themedTexts.resolver
+  if (resolver !== undefined) return resolver.forRender(compiled.styles, theme, report) ?? compiled
+  if (!textHasThemeTokenInPrelude(compiled.styles)) return compiled
+  const themed = resolveThemedText(compiled.styles, theme)
+  if (report !== undefined) for (const prelude of themed.dropped) report(prelude)
+  return themed
+}
 
 /**
  * The serialized styles for an element's css and the registered styles folded

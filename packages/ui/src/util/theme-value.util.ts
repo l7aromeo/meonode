@@ -1,5 +1,8 @@
 import type { Theme } from '@src/types/node.type.js'
 import { getValueByPath } from '@src/helper/common.helper.js'
+import { removeBlocksWithThemeTokens, replaceKeyTokens } from '@src/util/theme-key.util.js'
+import { nameText } from '@src/util/style-name.util.js'
+import type { ThemedText } from '@src/util/themed-text-slot.util.js'
 
 // What a theme gives a token in a condition or a selector. Kept apart from
 // `theme.util.ts`, which loads the diagnostics and so `react`: a compiled style's
@@ -46,4 +49,22 @@ export const concreteTokenSignature = (theme: Theme | undefined, paths: readonly
     signature += value === undefined ? '-' : `${value.length}:${value}`
   }
   return signature
+}
+
+/**
+ * A named style's text for `theme`, as the uncompiled path writes the style it
+ * was serialized from: each token in a condition or a selector takes the value
+ * `ThemeUtil.resolveObjWithTheme` gives a key, and each block whose condition
+ * still holds one is left out, as `ThemeUtil.dropThemedKeys` leaves out its
+ * key. A serialized style writes each key before its block, and each block on
+ * its own, so resolving the text is resolving the style, then serializing it.
+ * `themed-text.util.ts` keeps one per text and theme; this resolves every time.
+ * @param text The style's serialized text, its conditions holding their tokens.
+ * @param theme The theme where the element renders.
+ */
+export function resolveThemedText(text: string, theme: Theme | undefined): ThemedText {
+  const resolved = replaceKeyTokens(text, path => concreteTokenValue(theme, path), true)
+  const dropped: string[] = []
+  const styles = removeBlocksWithThemeTokens(resolved, prelude => dropped.push(prelude))
+  return { name: nameText(styles), styles, dropped }
 }
