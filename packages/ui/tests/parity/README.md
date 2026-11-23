@@ -151,7 +151,11 @@ Settings, from the environment:
   Chromium too.
 - `PARITY_DETAIL`: how many differences to print per failing comparison.
 - `PARITY_REPORT`: a file to write every difference and each case's time in
-  the browser phase to, as JSON.
+  the browser phase to, as JSON, with `phases`: the milliseconds each phase
+  took over the run (`totals`), per side's build (`build`: build, rsc, ssr)
+  and per row (`rows`: each case, mode and side, with load, environments,
+  forced, steps, first paint, compare, confirm sweeps and confirm reloads).
+  Every run also logs the totals, with the wall time, as `time by phase`.
 - `PARITY_SHARD`: `k/n`, to run only the k-th of n interleaved slices of the
   cases, so CI can run one engine as n jobs. A shard skips the coverage gate;
   a `--no-browser` run checks it for every case.

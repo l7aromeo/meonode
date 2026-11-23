@@ -575,9 +575,17 @@ export async function remeasureForced(browser, url, meta, plant, keys) {
  * @param url The case page.
  * @param meta The case's meta.
  * @param plant A function run in Node against the page after hydration, to plant a wrong rule; or null.
+ * @param spend Told the milliseconds each phase took: `load`, `environments`, `forced` and `steps`.
  * @returns The record.
  */
-export async function collect(browser, url, meta, plant) {
+export async function collect(browser, url, meta, plant, spend = () => {}) {
+  let started = performance.now()
+  /** Ends a phase: tells `spend` its time and starts the next. */
+  const lap = phase => {
+    const now = performance.now()
+    spend(phase, now - started)
+    started = now
+  }
   const page = await browser.newPage()
   const messages = []
   page.on('console', m => (m.type() === 'error' || m.type() === 'warning') && messages.push(`${m.type()}: ${m.text().slice(0, 300)}`))
@@ -598,6 +606,7 @@ export async function collect(browser, url, meta, plant) {
     await settle(page)
     const record = { console: messages, hydration: await page.evaluate(() => window.__parityErrors), envs: {}, forced: {}, steps: {} }
     record.duplicateRules = await page.evaluate(readDuplicateRules)
+    lap('load')
 
     const widths = [BASE_WIDTH, ...(meta.breakpoints ?? []).flatMap(b => [b - 1, b, b + 1])]
     const variants = meta.environments === 'base' ? ['light'] : ['light', 'dark']
@@ -621,12 +630,14 @@ export async function collect(browser, url, meta, plant) {
       record.envs[`${BASE_WIDTH}px light-scheme light-mode reduced-motion`] = await snapshot(page)
       await page.emulateMedia({ reducedMotion: 'no-preference' })
     }
+    lap('environments')
     await settle(page)
     const base = await page.evaluate(readStyles, SKIPPED_TAGS)
     record.exact = await page.evaluate(readExact)
     // Each real-input read's sample: whether the element held its states when read, and whether it took them in time.
     record.forcedSamples = {}
     record.forced = await forcedStates(page, base, meta, record.forcedSamples)
+    lap('forced')
 
     for (const step of meta.steps ?? []) {
       await page.evaluate(markElements, SKIPPED_TAGS)
@@ -643,6 +654,7 @@ export async function collect(browser, url, meta, plant) {
       record.steps[step.name] = { ...(await snapshot(page)), identity: await page.evaluate(readIdentity, SKIPPED_TAGS) }
     }
     record.hydration = await page.evaluate(() => window.__parityErrors)
+    lap('steps')
     return record
   } finally {
     await page.close()

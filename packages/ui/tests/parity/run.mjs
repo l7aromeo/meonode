@@ -17,7 +17,8 @@
 // - PARITY_BROWSER: chromium (installed Chrome, the default), webkit or firefox, all headless
 // - PARITY_FORCE: input, to force pseudo-classes through real input in Chromium too
 // - PARITY_DETAIL: how many differences to print per failing comparison (default 8)
-// - PARITY_REPORT: a file to write every difference, and each case's time in the browser phase, to, as JSON
+// - PARITY_REPORT: a file to write every difference, each case's time in the browser phase, and the
+//   time each phase took per row, to, as JSON
 // - PARITY_GRAMMAR: the selector grammar module to generate pages from (default: the compiler's tests/selector-grammar.ts)
 // - PARITY_GRAMMAR_CASES: a JSON file of grammar case names, to generate only those
 // - PARITY_SHARD: k/n, to run only the k-th of n interleaved slices of the cases, without the
@@ -93,6 +94,41 @@ const REPORT = process.env.PARITY_REPORT
 const report = []
 /** Each case's time in the browser phase, in ms, for PARITY_REPORT. */
 const timings = {}
+/** Milliseconds per phase over the whole run, for the log and PARITY_REPORT. */
+const phaseTotals = {}
+/** Milliseconds per phase for each side's build. */
+const buildPhases = {}
+/** Milliseconds per phase for each row (case, mode and side), for PARITY_REPORT. */
+const rowPhases = []
+/** Where the phase times of the row being read go, besides the totals; null outside a row. */
+let phaseSink = null
+const runStarted = performance.now()
+/** Adds `ms` to a phase's total and to the current row's. */
+function spend(phase, ms) {
+  phaseTotals[phase] = (phaseTotals[phase] ?? 0) + ms
+  if (phaseSink) phaseSink[phase] = (phaseSink[phase] ?? 0) + ms
+}
+/** Runs `fn`, adding its time to `phase`. */
+async function timed(phase, fn) {
+  const t = performance.now()
+  try {
+    return await fn()
+  } finally {
+    spend(phase, performance.now() - t)
+  }
+}
+/** Starts a row's phase times; the row's record goes to PARITY_REPORT. */
+function startRow(row) {
+  phaseSink = {}
+  rowPhases.push({ ...row, phases: phaseSink })
+}
+/** The log line of where the run's time went. */
+function phaseLine() {
+  const seconds = ms => `${(ms / 1000).toFixed(1)} s`
+  return `parity: time by phase on ${ENGINE}: ${Object.entries(phaseTotals)
+    .map(([phase, ms]) => `${phase} ${seconds(ms)}`)
+    .join(', ')}; wall ${seconds(performance.now() - runStarted)}`
+}
 const ENGINE = process.env.PARITY_BROWSER ?? 'chromium'
 if (!['chromium', 'webkit', 'firefox'].includes(ENGINE)) throw new Error(`PARITY_BROWSER must be chromium, webkit or firefox, not ${ENGINE}`)
 const FORCE_BY_INPUT = ENGINE !== 'chromium' || process.env.PARITY_FORCE === 'input'
@@ -165,21 +201,26 @@ console.log(`parity: ${names.length} case(s); sides ${sides.join(', ')}; wasm ${
 // 1. Build each side, server-render it in its own process.
 const built = {}
 for (const s of sides) {
-  const { dir, compiled, parts } = await buildSide(SIDES[s], names)
+  phaseSink = buildPhases[s] = {}
+  const { dir, compiled, parts } = await timed('build', () => buildSide(SIDES[s], names))
   // Server-component cases first render on the server layer, which SSR then reads.
   const rscNames = metasFromSource(names)
   if (rscNames.length) {
-    const payloads = execFileSync(process.execPath, ['--conditions=react-server', join(import.meta.dirname, 'rsc.mjs'), dir, ...rscNames], {
-      env: process.env,
-      maxBuffer: 1 << 28,
-    }).toString()
+    const payloads = await timed('rsc', () =>
+      execFileSync(process.execPath, ['--conditions=react-server', join(import.meta.dirname, 'rsc.mjs'), dir, ...rscNames], {
+        env: process.env,
+        maxBuffer: 1 << 28,
+      }).toString(),
+    )
     writeFileSync(join(dir, 'rsc/payloads.json'), payloads)
   }
-  const ssr = JSON.parse(
-    execFileSync(process.execPath, [join(import.meta.dirname, 'ssr.mjs'), dir, ...names], { env: process.env, maxBuffer: 1 << 28 }).toString(),
+  const ssr = await timed('ssr', () =>
+    JSON.parse(execFileSync(process.execPath, [join(import.meta.dirname, 'ssr.mjs'), dir, ...names], { env: process.env, maxBuffer: 1 << 28 }).toString()),
   )
   built[s] = { dir, compiled, parts, ssr, client: readFileSync(join(dir, 'client.js'), 'utf8') }
 }
+phaseSink = null
+const checksStarted = performance.now()
 
 // 2. The coverage gate, and on an extracting "on" side the checks that its
 //    output extracts what the corpus says: cases tagged with an extracted
@@ -284,18 +325,22 @@ if (built.on && metas.some(({ name }) => EXTRACTION_MARKERS.some(m => onCode(nam
   problems.push('the "on" side carries no extraction marker in any case: it extracted nothing')
 }
 for (const p of problems) console.log(`COVERAGE ${p}`)
+spend('checks', performance.now() - checksStarted)
 if (NO_BROWSER) {
+  console.log(phaseLine())
   console.log(problems.length ? `parity: FAILED (${problems.length})` : 'parity: build, coverage and routing clean')
   process.exit(problems.length ? 1 : 0)
 }
 
 // 3. The browser phase, once the machine is quiet enough.
 const started = Date.now()
+const loadWaitStarted = performance.now()
 while (loadavg()[0] >= LOAD_MAX) {
   if (Date.now() - started > LOAD_WAIT_MS) throw new Error(`the load average stayed at or above ${LOAD_MAX}`)
   console.log(`parity: load ${loadavg()[0].toFixed(2)}, waiting for under ${LOAD_MAX}`)
   await sleep(30_000)
 }
+spend('load wait', performance.now() - loadWaitStarted)
 console.log(`parity: browser phase at load ${loadavg()[0].toFixed(2)}`)
 
 /** Headless, so no window takes the user's focus; Chromium is the installed Chrome. */
@@ -359,8 +404,8 @@ async function record(side, name, mode, meta, plant) {
   context.pages.set(new URL(url).pathname, html)
   // Each side is served under its own path, so a relative url() resolves there; the record names every side's path alike.
   const own = `${ORIGIN}/${side}/`
-  const raw = await collect(host, url, meta, plant?.page ?? null)
-  if (meta.firstPaint && meta.render !== 'client') raw.firstPaint = await collectFirstPaint(host, url, meta, plant?.firstPaint ?? null)
+  const raw = await collect(host, url, meta, plant?.page ?? null, spend)
+  if (meta.firstPaint && meta.render !== 'client') raw.firstPaint = await timed('first paint', () => collectFirstPaint(host, url, meta, plant?.firstPaint ?? null))
   const collected = JSON.parse(JSON.stringify(raw).replaceAll(own, `${ORIGIN}/<side>/`))
   return { record: collected, html: built[side].ssr[mode][name].body }
 }
@@ -440,7 +485,9 @@ async function forcedOnReload(spec, keys, loads, cache) {
     const { html, url } = await open(spec.side, spec.name, spec.mode, spec.plant?.html)
     context.pages.set(new URL(url).pathname, html)
     const own = `${ORIGIN}/${spec.side}/`
-    const read = JSON.parse(JSON.stringify(await remeasureForced(host, url, spec.meta, spec.plant?.page ?? null, short)).replaceAll(own, `${ORIGIN}/<side>/`))
+    const read = JSON.parse(
+      JSON.stringify(await timed('confirm reloads', () => remeasureForced(host, url, spec.meta, spec.plant?.page ?? null, short))).replaceAll(own, `${ORIGIN}/<side>/`),
+    )
     for (const k of short) memo.get(k).push(read[k])
   }
 }
@@ -461,7 +508,9 @@ async function forcedOnResweep(spec, keys, cache) {
     context.pages.set(new URL(url).pathname, html)
     const own = `${ORIGIN}/${spec.side}/`
     memo.sweeps.push(
-      JSON.parse(JSON.stringify(await resweepForced(host, url, spec.meta, spec.plant?.page ?? null, memo.upTo)).replaceAll(own, `${ORIGIN}/<side>/`)),
+      JSON.parse(
+        JSON.stringify(await timed('confirm sweeps', () => resweepForced(host, url, spec.meta, spec.plant?.page ?? null, memo.upTo))).replaceAll(own, `${ORIGIN}/<side>/`),
+      ),
     )
   }
   return memo.sweeps
@@ -814,6 +863,7 @@ try {
           continue
         }
         let oracle
+        startRow({ case: name, mode, side: 'runtime' })
         try {
           oracle = await record('runtime', name, mode, meta)
         } catch (error) {
@@ -828,8 +878,10 @@ try {
         for (const side of COMPARED) {
           let all
           let left = []
+          startRow({ case: name, mode, side })
           try {
             records[side] = await record(side, name, mode, meta)
+            const compareStarted = performance.now()
             all = compareRecords(oracle, records[side])
             // The nodes that must render as with extraction off, compared with the "off" record exactly.
             if (side === 'on' && records.off && records.on.record.exact?.length) all.push(...compareExact(records.off.record, records.on.record))
@@ -842,6 +894,7 @@ try {
                   compile,
                 ),
               )
+            spend('compare', performance.now() - compareStarted)
             const pages = {
               oracle: { spec: specOf('runtime'), record: oracle.record },
               off: records.off && { spec: specOf('off'), record: records.off.record },
@@ -885,6 +938,7 @@ try {
         }
       }
       timings[name] = Date.now() - started
+      phaseSink = null
     }
   }
 } finally {
@@ -905,6 +959,7 @@ if (REPORT)
       reloadCounts,
       outliers,
       timings,
+      phases: { totals: phaseTotals, build: buildPhases, rows: rowPhases },
     }),
   )
 if (unstable.length) {
@@ -917,6 +972,7 @@ if (outliers.length) {
   for (const [name, rows] of Object.entries(Object.groupBy(outliers, u => u.case)))
     console.log(`  ${name}: ${[...new Set(rows.flatMap(u => u.states))].join(', ')}`)
 }
+console.log(phaseLine())
 if (blockers.size) console.log(`release blockers (${blockers.size}), pinned and still differing:\n${[...blockers].map(b => `  ${b}`).join('\n')}`)
 console.log(
   failures
