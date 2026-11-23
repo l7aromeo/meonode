@@ -14,6 +14,13 @@ is rendered in two server modes:
 - **plain**: react-dom/server with no registry, so the server css cache path;
 - **registry**: under `StyleRegistry`, with Next's inserted-HTML context.
 
+Each server render, one case in one mode on one side, runs in a process of
+its own, as a fresh server's first request: a module-level store, such as an
+Emotion cache a case creates and the names it has inserted, would otherwise
+carry from one render to the next and leave the later one without its
+styles. `ssr.mjs` refuses a second render in the same process. The renders
+run side by side, as many as the machine has cores.
+
 A case can instead render on the client only, stream its server render, or be
 a server component: rendered through Flight on the React Server Components
 layer against the side's rsc build, then server-rendered from that payload and

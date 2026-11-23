@@ -1,8 +1,9 @@
 // Renders the server-component cases of one built side through React's Flight
-// protocol, as the React Server Components layer does, and prints JSON:
-// `{ <case>: { payload } | { error } }`.
+// protocol, as the React Server Components layer does, and prints JSON
+// `{ payload }` or `{ error }`. One case per process, as ssr.mjs renders, so
+// no module state carries from one case's render to another's.
 //
-//   node --conditions=react-server rsc.mjs <side dir> <case>...
+//   node --conditions=react-server rsc.mjs <side dir> <case>
 //
 // `react` then resolves to its react-server build, and each case is the one
 // compiled against the side's rsc entry. A bundler replaces every module that
@@ -16,7 +17,8 @@ import { Writable } from 'node:stream'
 import { pathToFileURL } from 'node:url'
 import { readFileSync } from 'node:fs'
 
-const [dir, ...names] = process.argv.slice(2)
+const [dir, name, ...rest] = process.argv.slice(2)
+if (!name || rest.length) throw new Error('usage: node --conditions=react-server rsc.mjs <side dir> <case>: one case per process')
 const clientModules = JSON.parse(readFileSync(join(dir, 'rsc/client-modules.json'), 'utf8'))
 const SERVER = 'react-server-dom-turbopack/server'
 
@@ -60,14 +62,12 @@ function flight(element) {
   })
 }
 
-const out = {}
-for (const name of names) {
-  try {
-    if (shell.error) throw shell.error
-    const mod = await import(pathToFileURL(join(dir, 'rsc/corpus', `${name}.mjs`)).href)
-    out[name] = { payload: await flight(shell.Shell(createElement(mod.App))) }
-  } catch (error) {
-    out[name] = { error: String(error?.stack ?? error) }
-  }
+let out
+try {
+  if (shell.error) throw shell.error
+  const mod = await import(pathToFileURL(join(dir, 'rsc/corpus', `${name}.mjs`)).href)
+  out = { payload: await flight(shell.Shell(createElement(mod.App))) }
+} catch (error) {
+  out = { error: String(error?.stack ?? error) }
 }
 process.stdout.write(JSON.stringify(out))

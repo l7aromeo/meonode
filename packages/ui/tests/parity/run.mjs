@@ -23,14 +23,15 @@
 // - PARITY_GRAMMAR_CASES: a JSON file of grammar case names, to generate only those
 // - PARITY_SHARD: k/n, to run only the k-th of n interleaved slices of the cases, without the
 //   coverage gate (which a --no-browser run checks for every case), so CI can split a run into jobs
-import { execFileSync } from 'node:child_process'
+import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
-import { loadavg } from 'node:os'
+import { availableParallelism, loadavg } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL, URL } from 'node:url'
 import { setTimeout as sleep } from 'node:timers/promises'
+import { promisify } from 'node:util'
 import { buildSide, caseNames, CORPUS, isRscCase, PACKAGE } from './build.mjs'
 import { collect, collectFirstPaint, INPUT_STATES, remeasureForced, resweepForced } from './collect.mjs'
 import { CACHE_KEYS, compareExact, compareRecords, compareRuleText, DIMENSIONS } from './compare.mjs'
@@ -198,25 +199,60 @@ const sides = PLANT_RUN ? ['runtime', 'off'] : ['runtime', ...COMPARED]
 const WASM_SHA256 = existsSync(WASM) ? createHash('sha256').update(readFileSync(WASM)).digest('hex') : null
 console.log(`parity: ${names.length} case(s); sides ${sides.join(', ')}; wasm ${existsSync(WASM) ? `${WASM} (sha256 ${WASM_SHA256})` : '(missing)'}`)
 
-// 1. Build each side, server-render it in its own process.
+/** Server-render processes run at once: each is mostly start-up and one render. */
+const RENDER_PROCESSES = availableParallelism()
+const execFileAsync = promisify(execFile)
+
+/** Runs `fn` over `items`, at most `size` at once. */
+async function pool(items, size, fn) {
+  let next = 0
+  const worker = async () => {
+    while (next < items.length) await fn(items[next++])
+  }
+  await Promise.all(Array.from({ length: Math.min(size, items.length) }, worker))
+}
+
+/** One script's JSON output, run in a process of its own. */
+async function runScript(args) {
+  const { stdout } = await execFileAsync(process.execPath, args, { env: process.env, maxBuffer: 1 << 28 })
+  return JSON.parse(stdout)
+}
+
+/**
+ * Server-renders `names` of a built side, each case and mode in a process of
+ * its own (ssr.mjs), as a fresh server's first request: module state, such
+ * as the names an Emotion cache has inserted, never carries from one render
+ * to another. Server-component cases first render on the server layer, one
+ * process per case (rsc.mjs), and SSR reads their payloads.
+ * @returns `{ plain: { <case>: { head, body } | { error } }, registry: { … } }`
+ */
+async function serverRender(dir, names) {
+  const rscNames = metasFromSource(names)
+  if (rscNames.length) {
+    const payloads = {}
+    await timed('rsc', () =>
+      pool(rscNames, RENDER_PROCESSES, async name => {
+        payloads[name] = await runScript(['--conditions=react-server', join(import.meta.dirname, 'rsc.mjs'), dir, name])
+      }),
+    )
+    writeFileSync(join(dir, 'rsc/payloads.json'), JSON.stringify(payloads))
+  }
+  const out = { plain: {}, registry: {} }
+  const renders = names.flatMap(name => ['plain', 'registry'].map(mode => ({ name, mode })))
+  await timed('ssr', () =>
+    pool(renders, RENDER_PROCESSES, async ({ name, mode }) => {
+      out[mode][name] = await runScript([join(import.meta.dirname, 'ssr.mjs'), dir, mode, name])
+    }),
+  )
+  return out
+}
+
+// 1. Build each side and server-render it.
 const built = {}
 for (const s of sides) {
   phaseSink = buildPhases[s] = {}
   const { dir, compiled, parts } = await timed('build', () => buildSide(SIDES[s], names))
-  // Server-component cases first render on the server layer, which SSR then reads.
-  const rscNames = metasFromSource(names)
-  if (rscNames.length) {
-    const payloads = await timed('rsc', () =>
-      execFileSync(process.execPath, ['--conditions=react-server', join(import.meta.dirname, 'rsc.mjs'), dir, ...rscNames], {
-        env: process.env,
-        maxBuffer: 1 << 28,
-      }).toString(),
-    )
-    writeFileSync(join(dir, 'rsc/payloads.json'), payloads)
-  }
-  const ssr = await timed('ssr', () =>
-    JSON.parse(execFileSync(process.execPath, [join(import.meta.dirname, 'ssr.mjs'), dir, ...names], { env: process.env, maxBuffer: 1 << 28 }).toString()),
-  )
+  const ssr = await serverRender(dir, names)
   built[s] = { dir, compiled, parts, ssr, client: readFileSync(join(dir, 'client.js'), 'utf8') }
 }
 phaseSink = null
@@ -810,16 +846,12 @@ try {
         ['planted', plant.rewrite],
       ]) {
         const { dir, compiled, parts } = await buildSide({ ...SIDES.on, name, rewrite }, [plant.case])
-        const ssr = JSON.parse(
-          execFileSync(process.execPath, [join(import.meta.dirname, 'ssr.mjs'), dir, plant.case], { env: process.env, maxBuffer: 1 << 28 }).toString(),
-        )
+        const ssr = await serverRender(dir, [plant.case])
         built[name] = sideBuilt[name] = { dir, compiled, parts, ssr, client: readFileSync(join(dir, 'client.js'), 'utf8') }
       }
       if (!built.runtime.ssr.plain[plant.case]) {
         const { dir, compiled } = await buildSide(SIDES.runtime, [plant.case])
-        const ssr = JSON.parse(
-          execFileSync(process.execPath, [join(import.meta.dirname, 'ssr.mjs'), dir, plant.case], { env: process.env, maxBuffer: 1 << 28 }).toString(),
-        )
+        const ssr = await serverRender(dir, [plant.case])
         built.runtime = { dir, compiled, ssr, client: readFileSync(join(dir, 'client.js'), 'utf8') }
       }
       // The rewrite reaches the case module and every part it may import.
@@ -832,9 +864,7 @@ try {
       const clean = new Set(compareRecords(oracle, await record('on', plant.case, 'plain', caseMeta)).map(text))
       if (!built.off?.ssr.plain[plant.case]) {
         const { dir, compiled } = await buildSide(SIDES.off, [plant.case])
-        const ssr = JSON.parse(
-          execFileSync(process.execPath, [join(import.meta.dirname, 'ssr.mjs'), dir, plant.case], { env: process.env, maxBuffer: 1 << 28 }).toString(),
-        )
+        const ssr = await serverRender(dir, [plant.case])
         built.off = { dir, compiled, ssr, client: readFileSync(join(dir, 'client.js'), 'utf8') }
       }
       const html = s => built[s].ssr.plain[plant.case].head + built[s].ssr.plain[plant.case].body
