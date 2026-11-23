@@ -2,6 +2,7 @@ import type { CSSProperties } from '@emotion/serialize'
 import type { CssProp, Theme } from '@src/types/node.type.js'
 import { isInPrelude, keyHasThemeToken, removeBlocksWithThemeTokens, replaceKeyTokens, textHasThemeTokenInPrelude } from '@src/util/theme-key.util.js'
 import { getValueByPath } from '@src/helper/common.helper.js'
+import { concreteThemeValue } from '@src/util/theme-value.util.js'
 import {
   CSS_TEXT,
   holdsReservedStylesKey,
@@ -84,17 +85,6 @@ const processThemeString = (value: string, asVar: boolean, themeSystem: Record<s
     return match
   })
   return hasChanged ? resolved : value
-}
-
-/**
- * The theme's concrete value at a path, for a place CSS needs one — a condition or
- * a selector — or `undefined` when the theme has none there.
- */
-const concreteThemeValue = (themeSystem: Record<string, unknown>, path: string): string | undefined => {
-  const themeValue = getValueByPath(themeSystem, path)
-  if (themeValue === undefined || themeValue === null) return undefined
-  if (typeof themeValue === 'object') return !Array.isArray(themeValue) && 'default' in themeValue ? String(themeValue.default) : undefined
-  return String(themeValue)
 }
 
 /**

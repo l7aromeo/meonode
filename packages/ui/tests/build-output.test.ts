@@ -296,6 +296,7 @@ describe('build output: the server build and the default build', () => {
     { specifier: '@meonode/ui', file: 'main' },
     { specifier: '@meonode/ui/client', file: 'client' },
     { specifier: '@meonode/ui/nextjs-registry', file: 'nextjs-registry/index' },
+    { specifier: '@meonode/ui/factory-call', file: 'factory-call/index' },
   ]
 
   it.each(SUBPATHS)('resolves $specifier to the server build under `react-server` and to the default build otherwise', ({ specifier, file }) => {
@@ -435,5 +436,130 @@ describe('build output: webpack against a React without Activity', () => {
   it('builds the package entry', async () => {
     const errors = await bundle('package-entry', `import { Activity, Div } from '@meonode/ui'\nconsole.log(Activity, Div)\n`, stubReact('Activity'))
     expect(errors).toEqual([])
+  })
+})
+
+/**
+ * `@meonode/ui/factory-call` is what compiled output imports to call a factory
+ * from another module. A module the compiler rewrites, such as a route handler
+ * calling a factory, must load nothing more for it: the entry imports nothing,
+ * and reads the brands core gives the factories it makes, from whichever copy.
+ */
+describe('build output: the factory-call entry', () => {
+  const ENTRY_FILES = [
+    'dist/esm/factory-call/index.js',
+    'dist/cjs/factory-call/index.cjs',
+    'dist/rsc/esm/factory-call/index.js',
+    'dist/rsc/cjs/factory-call/index.cjs',
+  ]
+
+  it.each(ENTRY_FILES)('%s imports and requires nothing', file => {
+    const code = readFileSync(path.join(ROOT, file), 'utf8')
+    expect(code).toContain('__meoFactoryCall')
+    expect(code.match(/\bimport\s*(?:[\w{*]|['"])|\bimport\(|\brequire\(/g)).toBeNull()
+  })
+
+  it.each([false, true])('loads only itself from the CommonJS build (react-server: %s)', reactServer => {
+    const loaded = JSON.parse(
+      execFileSync(
+        process.execPath,
+        [
+          ...(reactServer ? ['--conditions=react-server'] : []),
+          '-e',
+          `const { __meoFactoryCall } = require('@meonode/ui/factory-call')
+           const plain = (props, extra) => ({ props, extra })
+           const called = __meoFactoryCall(plain, { at: 0 }, { a: 1 }, 2)
+           console.log(JSON.stringify({ called, modules: Object.keys(require.cache).map(file => require('node:path').relative(${JSON.stringify(ROOT)}, file)) }))`,
+        ],
+        { cwd: ROOT, encoding: 'utf8', stdio: 'pipe' },
+      ),
+    )
+    expect(loaded).toEqual({
+      called: { props: { a: 1 }, extra: 2 },
+      modules: [reactServer ? 'dist/rsc/cjs/factory-call/index.cjs' : 'dist/cjs/factory-call/index.cjs'],
+    })
+  })
+
+  /** The preload that loads `'use client'` modules as client references, as a bundler's server layer does. */
+  const CLIENT_REFERENCES = path.join(ROOT, 'tests/react-server-client-references.mjs')
+
+  it.each([
+    { build: 'default', format: 'esm' },
+    { build: 'default', format: 'cjs' },
+    { build: 'server', format: 'esm' },
+    { build: 'server', format: 'cjs' },
+  ] as const)('joins a call of a factory core made, in the $build $format build', ({ build, format }) => {
+    const load = (specifier: string) => (format === 'esm' ? `await import(${JSON.stringify(specifier)})` : `require(${JSON.stringify(specifier)})`)
+    const code = `
+      const ui = ${load('@meonode/ui')}
+      const leaf = ${load('@meonode/ui/factory-call')}
+      const Box = ui.createNode('div', { padding: 8 })
+      const named = call => typeof call(Box, { at: 0 }, { margin: 4, children: 'x' }).props.__meo$n
+      const before = named(leaf.__meoFactoryCall)
+      const main = named(ui.__meoFactoryCall)
+      console.log(JSON.stringify({ before, main, after: named(leaf.__meoFactoryCall) }))`
+    const args = [
+      ...(build === 'server' ? ['--conditions=react-server', '--import', CLIENT_REFERENCES] : []),
+      ...(format === 'esm' ? ['--input-type=module', '-e', code] : ['-e', `(async () => {${code}})()`]),
+    ]
+    const result = JSON.parse(execFileSync(process.execPath, args, { cwd: ROOT, encoding: 'utf8', stdio: 'pipe' }).trim().split('\n').at(-1)!)
+    // The light entry joins once the join, which `@meonode/ui` exports the name from, has run.
+    expect(result).toEqual({ before: 'undefined', main: 'string', after: 'string' })
+  })
+
+  /** The build's modules that render code into `source` bundled by rollup against the ESM build, every other package left external. */
+  async function treeShaken(source: string): Promise<string[]> {
+    const entry = '\0app'
+    const bundle = await rollup({
+      input: entry,
+      external: id => !id.startsWith('.') && !id.startsWith('/') && id !== entry && id !== '@meonode/ui',
+      plugins: [
+        {
+          name: 'app',
+          resolveId: id => (id === entry ? id : id === '@meonode/ui' ? path.join(ROOT, 'dist/esm/main.js') : null),
+          load: id => (id === entry ? source : null),
+        },
+      ],
+      onwarn: () => {},
+    })
+    const { output } = await bundle.generate({ format: 'esm' })
+    await bundle.close()
+    return output.flatMap(chunk =>
+      'modules' in chunk
+        ? Object.entries(chunk.modules)
+            .filter(([, module]) => module.renderedLength > 0)
+            .map(([id]) => path.relative(path.join(ROOT, 'dist/esm'), id))
+        : [],
+    )
+  }
+
+  // An app built without the compiler never imports the name, nor registers a
+  // compiled style, so neither the join nor what renders a registered style (the
+  // named runtime, the compiled-style resolution, the resolver of themed
+  // conditions, the registry) reaches its bundle; compiled output brings in what
+  // it uses. The element a server component hands a client reference comes only
+  // through the server build's client reference, never this one's main entry.
+  it.each([
+    [
+      'an app built without the compiler',
+      `import { createNode, createChildrenFirstNode, Div, ThemeProvider } from '@meonode/ui'\nexport default [createNode, createChildrenFirstNode, Div, ThemeProvider]`,
+      false,
+      false,
+    ],
+    ['compiled output with no joined call', `import { Div, registerStaticCss } from '@meonode/ui'\nexport default [Div, registerStaticCss]`, false, true],
+    ['compiled output with a joined call', `import { Div, __meoFactoryCall } from '@meonode/ui'\nexport default [Div, __meoFactoryCall]`, true, true],
+  ])('tree-shakes for %s', async (_, source, join, registers) => {
+    const modules = await treeShaken(source)
+    expect(modules).toContain('core.node.js')
+    expect(modules.includes('factory-call/join.js')).toBe(join)
+    for (const module of [
+      'util/themed-text.util.js',
+      'util/named-runtime.util.js',
+      'util/compiled-style.util.js',
+      'util/named-style.util.js',
+      'util/static-css.util.js',
+    ])
+      expect([module, modules.includes(module)]).toEqual([module, registers])
+    expect(modules).not.toContain('components/compiled-styled-renderer.client.js')
   })
 })

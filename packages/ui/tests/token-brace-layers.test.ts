@@ -38,9 +38,10 @@ const CLIENT_MODULES = globSync('**/*.ts', { cwd: SRC })
 const COMPILED = process.env.MEONODE_COMPILED === '1'
 /** The compiler's wasm, where `vitest.compiled.config.ts` finds it. */
 const WASM = [
+  process.env.MEONODE_COMPILER_WASM,
   path.resolve(SRC, '../node_modules/@meonode/compiler/meonode_swc_plugin.wasm'),
   path.resolve(SRC, '../../compiler/npm/meonode_swc_plugin.wasm'),
-].find(existsSync)
+].find(file => file !== undefined && existsSync(file))
 
 /** The client's Emotion cache key, and the server layer's. */
 const CLIENT_KEY = 'css'

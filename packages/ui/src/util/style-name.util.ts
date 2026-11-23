@@ -1,4 +1,4 @@
-import type { SerializedStyles } from '@emotion/serialize'
+import { serializeStyles, type SerializedStyles } from '@emotion/serialize'
 
 /**
  * The name MeoNode gives a style, in place of the one Emotion computes.
@@ -250,6 +250,22 @@ export function nameStyles(serialized: SerializedStyles): SerializedStyles {
   const label = serialized.name.indexOf('-')
   const name = nameOf(serialized.styles)
   return { ...serialized, name: label === -1 ? name : name + serialized.name.slice(label) }
+}
+
+/** Text that `serializeStyles` reads more of than its characters: a label it names, or keyframes it reports in development. */
+const SERIALIZE_READS = /label:|_EMO_/
+
+/**
+ * The name `nameStyles(serializeStyles([text]))` gives a lone string, without
+ * Emotion's own hash of it, which that name never uses. Serializing a string
+ * keeps its text as it is; only a label in it adds to the name, and a
+ * keyframes value interpolated into it is reported, so those still go through
+ * Emotion.
+ * @param text A whole style's serialized text.
+ * @returns Its name.
+ */
+export function nameText(text: string): string {
+  return SERIALIZE_READS.test(text) ? nameStyles(serializeStyles([text] as never)).name : nameOf(text)
 }
 
 /** Test seam: how many texts the memo holds, and how many characters of text. */

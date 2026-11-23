@@ -4,7 +4,7 @@
 // text, as 13 base-36 characters, and the memo that saves hashing a text twice.
 import { createHash } from 'node:crypto'
 import { serializeStyles } from '@emotion/serialize'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   __clearStyleNameMemo,
   __setStyleHash,
@@ -12,6 +12,7 @@ import {
   base36,
   hashStyles,
   nameStyles,
+  nameText,
   STYLE_NAME_MEMO_CHARACTERS,
   STYLE_NAME_MEMO_ENTRIES,
 } from '@src/util/style-name.util.js'
@@ -118,6 +119,27 @@ describe('a serialized style under its MeoNode name', () => {
     const other = nameStyles({ name: 'same', styles: 'color:blue;' } as never)
 
     expect(named.name).not.toBe(other.name)
+  })
+})
+
+describe('a lone text under its MeoNode name', () => {
+  it.each([
+    ['a plain text', 'flex-shrink:0;color:red;&:hover{color:blue;}'],
+    ['a text with a label', 'label:card;color:red;'],
+    ['a text with two labels', 'label:card;color:red;label:wide;'],
+    ['a text holding keyframes written as a string', 'animation:_EMO_abc_@keyframes abc{from{opacity:0;}}_EMO_ 1s;'],
+    ['an empty text', ''],
+    ['a text holding a source map comment', 'color:red;/*# sourceMappingURL=data:application/json;base64,e30= */'],
+  ])('is the name Emotion’s serialization gives it, for %s, with the same reports', (_, text) => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const name = nameText(text)
+    const reports = error.mock.calls.length
+    const emotion = serializeStyles([text] as never)
+    expect(name).toBe(nameStyles(emotion).name)
+    // The node keeps the text it was handed, so Emotion must keep it too.
+    expect(emotion.styles).toBe(text)
+    expect(error.mock.calls.length).toBe(2 * reports)
+    error.mockRestore()
   })
 })
 

@@ -51,3 +51,15 @@ export function registerThemeProvider(component: unknown): void {
 export function providesTheme(component: unknown): boolean {
   return (typeof component === 'function' || typeof component === 'object') && component !== null && themeProviders.has(component)
 }
+
+/**
+ * Whether the theme can differ inside this element from outside it.
+ *
+ * A component can render a provider around its children, a nested
+ * `ThemeProvider` being the case that matters, so its children may read another
+ * theme than its parent does. A host element and the built-in symbols (fragments,
+ * Suspense, StrictMode) supply no context.
+ */
+export function mayChangeTheme(renderTarget: unknown): boolean {
+  return typeof renderTarget === 'function' || (typeof renderTarget === 'object' && renderTarget !== null)
+}

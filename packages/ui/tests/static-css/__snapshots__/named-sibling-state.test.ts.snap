@@ -1,0 +1,2277 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`keyed counters, written out, keep their state as the uncompiled run did > with it in at first > a conditional counter, a static host, a counter 1`] = `
+[
+  {
+    "counters": [
+      "x:0",
+      "b:0",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-1p93ehfdslh5n { flex-shrink: 0; min-size: 0px; color: rgb(0, 0, 200); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:1",
+      "b:1",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-1p93ehfdslh5n { flex-shrink: 0; min-size: 0px; color: rgb(0, 0, 200); }",
+    ],
+  },
+  {
+    "counters": [
+      "b:1",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-1p93ehfdslh5n { flex-shrink: 0; min-size: 0px; color: rgb(0, 0, 200); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:0",
+      "b:2",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-1p93ehfdslh5n { flex-shrink: 0; min-size: 0px; color: rgb(0, 0, 200); }",
+    ],
+  },
+  {
+    "counters": [
+      "b:3",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-1p93ehfdslh5n { flex-shrink: 0; min-size: 0px; color: rgb(0, 0, 200); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:0",
+      "b:4",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-1p93ehfdslh5n { flex-shrink: 0; min-size: 0px; color: rgb(0, 0, 200); }",
+    ],
+  },
+]
+`;
+
+exports[`keyed counters, written out, keep their state as the uncompiled run did > with it in at first > a conditional counter, then a counter 1`] = `
+[
+  {
+    "counters": [
+      "x:0",
+      "b:0",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+    ],
+  },
+  {
+    "counters": [
+      "x:1",
+      "b:1",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+    ],
+  },
+  {
+    "counters": [
+      "b:1",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+    ],
+  },
+  {
+    "counters": [
+      "x:0",
+      "b:2",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+    ],
+  },
+  {
+    "counters": [
+      "b:3",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+    ],
+  },
+  {
+    "counters": [
+      "x:0",
+      "b:4",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+    ],
+  },
+]
+`;
+
+exports[`keyed counters, written out, keep their state as the uncompiled run did > with it in at first > a conditional static host, then a counter 1`] = `
+[
+  {
+    "counters": [
+      "b:0",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "b:1",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "b:1",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "b:2",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "b:3",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "b:4",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+]
+`;
+
+exports[`keyed counters, written out, keep their state as the uncompiled run did > with it in at first > a counter, a conditional static host, a counter 1`] = `
+[
+  {
+    "counters": [
+      "x:0",
+      "b:0",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:1",
+      "b:1",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:1",
+      "b:1",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:2",
+      "b:2",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:3",
+      "b:3",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:4",
+      "b:4",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+]
+`;
+
+exports[`keyed counters, written out, keep their state as the uncompiled run did > with it in at first > a counter, a static host, the spread, a counter 1`] = `
+[
+  {
+    "counters": [
+      "x:0",
+      "b:0",
+      "y:0",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-1p93ehfdslh5n { flex-shrink: 0; min-size: 0px; color: rgb(0, 0, 200); }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:1",
+      "b:1",
+      "y:1",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-1p93ehfdslh5n { flex-shrink: 0; min-size: 0px; color: rgb(0, 0, 200); }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:1",
+      "y:1",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-1p93ehfdslh5n { flex-shrink: 0; min-size: 0px; color: rgb(0, 0, 200); }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:2",
+      "b:0",
+      "y:2",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-1p93ehfdslh5n { flex-shrink: 0; min-size: 0px; color: rgb(0, 0, 200); }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:3",
+      "y:3",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-1p93ehfdslh5n { flex-shrink: 0; min-size: 0px; color: rgb(0, 0, 200); }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:4",
+      "b:0",
+      "y:4",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-1p93ehfdslh5n { flex-shrink: 0; min-size: 0px; color: rgb(0, 0, 200); }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+]
+`;
+
+exports[`keyed counters, written out, keep their state as the uncompiled run did > with it in at first > a counter, a static host, then the spread at the end 1`] = `
+[
+  {
+    "counters": [
+      "x:0",
+      "b:0",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-1p93ehfdslh5n { flex-shrink: 0; min-size: 0px; color: rgb(0, 0, 200); }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:1",
+      "b:1",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-1p93ehfdslh5n { flex-shrink: 0; min-size: 0px; color: rgb(0, 0, 200); }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:1",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-1p93ehfdslh5n { flex-shrink: 0; min-size: 0px; color: rgb(0, 0, 200); }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:2",
+      "b:0",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-1p93ehfdslh5n { flex-shrink: 0; min-size: 0px; color: rgb(0, 0, 200); }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:3",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-1p93ehfdslh5n { flex-shrink: 0; min-size: 0px; color: rgb(0, 0, 200); }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:4",
+      "b:0",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-1p93ehfdslh5n { flex-shrink: 0; min-size: 0px; color: rgb(0, 0, 200); }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+]
+`;
+
+exports[`keyed counters, written out, keep their state as the uncompiled run did > with it in at first > a counter, the spread, a counter 1`] = `
+[
+  {
+    "counters": [
+      "x:0",
+      "b:0",
+      "y:0",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:1",
+      "b:1",
+      "y:1",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:1",
+      "y:1",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:2",
+      "b:0",
+      "y:2",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:3",
+      "y:3",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:4",
+      "b:0",
+      "y:4",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+]
+`;
+
+exports[`keyed counters, written out, keep their state as the uncompiled run did > with it in at first > a counter, then the spread at the end 1`] = `
+[
+  {
+    "counters": [
+      "x:0",
+      "b:0",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:1",
+      "b:1",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:1",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:2",
+      "b:0",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:3",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:4",
+      "b:0",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+]
+`;
+
+exports[`keyed counters, written out, keep their state as the uncompiled run did > with it in at first > the spread first, of the counter type, then a counter 1`] = `
+[
+  {
+    "counters": [
+      "b:0",
+      "y:0",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "b:1",
+      "y:1",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "y:1",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "b:0",
+      "y:2",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "y:3",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "b:0",
+      "y:4",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+]
+`;
+
+exports[`keyed counters, written out, keep their state as the uncompiled run did > with it out at first > a conditional counter, a static host, a counter 1`] = `
+[
+  {
+    "counters": [
+      "b:0",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-1p93ehfdslh5n { flex-shrink: 0; min-size: 0px; color: rgb(0, 0, 200); }",
+    ],
+  },
+  {
+    "counters": [
+      "b:1",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-1p93ehfdslh5n { flex-shrink: 0; min-size: 0px; color: rgb(0, 0, 200); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:0",
+      "b:1",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-1p93ehfdslh5n { flex-shrink: 0; min-size: 0px; color: rgb(0, 0, 200); }",
+    ],
+  },
+  {
+    "counters": [
+      "b:2",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-1p93ehfdslh5n { flex-shrink: 0; min-size: 0px; color: rgb(0, 0, 200); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:0",
+      "b:3",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-1p93ehfdslh5n { flex-shrink: 0; min-size: 0px; color: rgb(0, 0, 200); }",
+    ],
+  },
+  {
+    "counters": [
+      "b:4",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-1p93ehfdslh5n { flex-shrink: 0; min-size: 0px; color: rgb(0, 0, 200); }",
+    ],
+  },
+]
+`;
+
+exports[`keyed counters, written out, keep their state as the uncompiled run did > with it out at first > a conditional counter, then a counter 1`] = `
+[
+  {
+    "counters": [
+      "b:0",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+    ],
+  },
+  {
+    "counters": [
+      "b:1",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+    ],
+  },
+  {
+    "counters": [
+      "x:0",
+      "b:1",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+    ],
+  },
+  {
+    "counters": [
+      "b:2",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+    ],
+  },
+  {
+    "counters": [
+      "x:0",
+      "b:3",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+    ],
+  },
+  {
+    "counters": [
+      "b:4",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+    ],
+  },
+]
+`;
+
+exports[`keyed counters, written out, keep their state as the uncompiled run did > with it out at first > a conditional static host, then a counter 1`] = `
+[
+  {
+    "counters": [
+      "b:0",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+    ],
+  },
+  {
+    "counters": [
+      "b:1",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+    ],
+  },
+  {
+    "counters": [
+      "b:1",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "b:2",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "b:3",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "b:4",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+]
+`;
+
+exports[`keyed counters, written out, keep their state as the uncompiled run did > with it out at first > a counter, a conditional static host, a counter 1`] = `
+[
+  {
+    "counters": [
+      "x:0",
+      "b:0",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+    ],
+  },
+  {
+    "counters": [
+      "x:1",
+      "b:1",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+    ],
+  },
+  {
+    "counters": [
+      "x:1",
+      "b:1",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:2",
+      "b:2",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:3",
+      "b:3",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:4",
+      "b:4",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+]
+`;
+
+exports[`keyed counters, written out, keep their state as the uncompiled run did > with it out at first > a counter, a static host, the spread, a counter 1`] = `
+[
+  {
+    "counters": [
+      "x:0",
+      "y:0",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-1p93ehfdslh5n { flex-shrink: 0; min-size: 0px; color: rgb(0, 0, 200); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:1",
+      "y:1",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-1p93ehfdslh5n { flex-shrink: 0; min-size: 0px; color: rgb(0, 0, 200); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:1",
+      "b:0",
+      "y:1",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-1p93ehfdslh5n { flex-shrink: 0; min-size: 0px; color: rgb(0, 0, 200); }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:2",
+      "y:2",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-1p93ehfdslh5n { flex-shrink: 0; min-size: 0px; color: rgb(0, 0, 200); }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:3",
+      "b:0",
+      "y:3",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-1p93ehfdslh5n { flex-shrink: 0; min-size: 0px; color: rgb(0, 0, 200); }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:4",
+      "y:4",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-1p93ehfdslh5n { flex-shrink: 0; min-size: 0px; color: rgb(0, 0, 200); }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+]
+`;
+
+exports[`keyed counters, written out, keep their state as the uncompiled run did > with it out at first > a counter, a static host, then the spread at the end 1`] = `
+[
+  {
+    "counters": [
+      "x:0",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-1p93ehfdslh5n { flex-shrink: 0; min-size: 0px; color: rgb(0, 0, 200); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:1",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-1p93ehfdslh5n { flex-shrink: 0; min-size: 0px; color: rgb(0, 0, 200); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:1",
+      "b:0",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-1p93ehfdslh5n { flex-shrink: 0; min-size: 0px; color: rgb(0, 0, 200); }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:2",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-1p93ehfdslh5n { flex-shrink: 0; min-size: 0px; color: rgb(0, 0, 200); }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:3",
+      "b:0",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-1p93ehfdslh5n { flex-shrink: 0; min-size: 0px; color: rgb(0, 0, 200); }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:4",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-1p93ehfdslh5n { flex-shrink: 0; min-size: 0px; color: rgb(0, 0, 200); }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+]
+`;
+
+exports[`keyed counters, written out, keep their state as the uncompiled run did > with it out at first > a counter, the spread, a counter 1`] = `
+[
+  {
+    "counters": [
+      "x:0",
+      "y:0",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+    ],
+  },
+  {
+    "counters": [
+      "x:1",
+      "y:1",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+    ],
+  },
+  {
+    "counters": [
+      "x:1",
+      "b:0",
+      "y:1",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:2",
+      "y:2",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:3",
+      "b:0",
+      "y:3",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:4",
+      "y:4",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+]
+`;
+
+exports[`keyed counters, written out, keep their state as the uncompiled run did > with it out at first > a counter, then the spread at the end 1`] = `
+[
+  {
+    "counters": [
+      "x:0",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+    ],
+  },
+  {
+    "counters": [
+      "x:1",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+    ],
+  },
+  {
+    "counters": [
+      "x:1",
+      "b:0",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:2",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:3",
+      "b:0",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:4",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+]
+`;
+
+exports[`keyed counters, written out, keep their state as the uncompiled run did > with it out at first > the spread first, of the counter type, then a counter 1`] = `
+[
+  {
+    "counters": [
+      "y:0",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+    ],
+  },
+  {
+    "counters": [
+      "y:1",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+    ],
+  },
+  {
+    "counters": [
+      "b:0",
+      "y:1",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "y:2",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "b:0",
+      "y:3",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "y:4",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+]
+`;
+
+exports[`unkeyed counters, written out, keep their state as the uncompiled run did > with it in at first > a conditional counter, a static host, a counter 1`] = `
+[
+  {
+    "counters": [
+      "x:0",
+      "b:0",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-1p93ehfdslh5n { flex-shrink: 0; min-size: 0px; color: rgb(0, 0, 200); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:1",
+      "b:1",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-1p93ehfdslh5n { flex-shrink: 0; min-size: 0px; color: rgb(0, 0, 200); }",
+    ],
+  },
+  {
+    "counters": [
+      "b:1",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-1p93ehfdslh5n { flex-shrink: 0; min-size: 0px; color: rgb(0, 0, 200); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:0",
+      "b:2",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-1p93ehfdslh5n { flex-shrink: 0; min-size: 0px; color: rgb(0, 0, 200); }",
+    ],
+  },
+  {
+    "counters": [
+      "b:3",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-1p93ehfdslh5n { flex-shrink: 0; min-size: 0px; color: rgb(0, 0, 200); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:0",
+      "b:4",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-1p93ehfdslh5n { flex-shrink: 0; min-size: 0px; color: rgb(0, 0, 200); }",
+    ],
+  },
+]
+`;
+
+exports[`unkeyed counters, written out, keep their state as the uncompiled run did > with it in at first > a conditional counter, then a counter 1`] = `
+[
+  {
+    "counters": [
+      "x:0",
+      "b:0",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+    ],
+  },
+  {
+    "counters": [
+      "x:1",
+      "b:1",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+    ],
+  },
+  {
+    "counters": [
+      "b:1",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+    ],
+  },
+  {
+    "counters": [
+      "x:0",
+      "b:2",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+    ],
+  },
+  {
+    "counters": [
+      "b:3",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+    ],
+  },
+  {
+    "counters": [
+      "x:0",
+      "b:4",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+    ],
+  },
+]
+`;
+
+exports[`unkeyed counters, written out, keep their state as the uncompiled run did > with it in at first > a conditional static host, then a counter 1`] = `
+[
+  {
+    "counters": [
+      "b:0",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "b:1",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "b:1",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "b:2",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "b:3",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "b:4",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+]
+`;
+
+exports[`unkeyed counters, written out, keep their state as the uncompiled run did > with it in at first > a counter, a conditional static host, a counter 1`] = `
+[
+  {
+    "counters": [
+      "x:0",
+      "b:0",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:1",
+      "b:1",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:1",
+      "b:1",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:2",
+      "b:2",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:3",
+      "b:3",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:4",
+      "b:4",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+]
+`;
+
+exports[`unkeyed counters, written out, keep their state as the uncompiled run did > with it in at first > a counter, a static host, the spread, a counter 1`] = `
+[
+  {
+    "counters": [
+      "x:0",
+      "b:0",
+      "y:0",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-1p93ehfdslh5n { flex-shrink: 0; min-size: 0px; color: rgb(0, 0, 200); }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:1",
+      "b:1",
+      "y:1",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-1p93ehfdslh5n { flex-shrink: 0; min-size: 0px; color: rgb(0, 0, 200); }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:1",
+      "y:1",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-1p93ehfdslh5n { flex-shrink: 0; min-size: 0px; color: rgb(0, 0, 200); }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:2",
+      "b:2",
+      "y:0",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-1p93ehfdslh5n { flex-shrink: 0; min-size: 0px; color: rgb(0, 0, 200); }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:3",
+      "y:3",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-1p93ehfdslh5n { flex-shrink: 0; min-size: 0px; color: rgb(0, 0, 200); }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:4",
+      "b:4",
+      "y:0",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-1p93ehfdslh5n { flex-shrink: 0; min-size: 0px; color: rgb(0, 0, 200); }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+]
+`;
+
+exports[`unkeyed counters, written out, keep their state as the uncompiled run did > with it in at first > a counter, a static host, then the spread at the end 1`] = `
+[
+  {
+    "counters": [
+      "x:0",
+      "b:0",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-1p93ehfdslh5n { flex-shrink: 0; min-size: 0px; color: rgb(0, 0, 200); }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:1",
+      "b:1",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-1p93ehfdslh5n { flex-shrink: 0; min-size: 0px; color: rgb(0, 0, 200); }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:1",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-1p93ehfdslh5n { flex-shrink: 0; min-size: 0px; color: rgb(0, 0, 200); }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:2",
+      "b:0",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-1p93ehfdslh5n { flex-shrink: 0; min-size: 0px; color: rgb(0, 0, 200); }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:3",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-1p93ehfdslh5n { flex-shrink: 0; min-size: 0px; color: rgb(0, 0, 200); }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:4",
+      "b:0",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-1p93ehfdslh5n { flex-shrink: 0; min-size: 0px; color: rgb(0, 0, 200); }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+]
+`;
+
+exports[`unkeyed counters, written out, keep their state as the uncompiled run did > with it in at first > a counter, the spread, a counter 1`] = `
+[
+  {
+    "counters": [
+      "x:0",
+      "b:0",
+      "y:0",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:1",
+      "b:1",
+      "y:1",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:1",
+      "y:0",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:2",
+      "b:0",
+      "y:0",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:3",
+      "y:0",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:4",
+      "b:0",
+      "y:0",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+]
+`;
+
+exports[`unkeyed counters, written out, keep their state as the uncompiled run did > with it in at first > a counter, then the spread at the end 1`] = `
+[
+  {
+    "counters": [
+      "x:0",
+      "b:0",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:1",
+      "b:1",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:1",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:2",
+      "b:0",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:3",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:4",
+      "b:0",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+]
+`;
+
+exports[`unkeyed counters, written out, keep their state as the uncompiled run did > with it in at first > the spread first, of the counter type, then a counter 1`] = `
+[
+  {
+    "counters": [
+      "b:0",
+      "y:0",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "b:1",
+      "y:1",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "y:1",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "b:2",
+      "y:0",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "y:3",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "b:4",
+      "y:0",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+]
+`;
+
+exports[`unkeyed counters, written out, keep their state as the uncompiled run did > with it out at first > a conditional counter, a static host, a counter 1`] = `
+[
+  {
+    "counters": [
+      "b:0",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-1p93ehfdslh5n { flex-shrink: 0; min-size: 0px; color: rgb(0, 0, 200); }",
+    ],
+  },
+  {
+    "counters": [
+      "b:1",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-1p93ehfdslh5n { flex-shrink: 0; min-size: 0px; color: rgb(0, 0, 200); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:0",
+      "b:1",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-1p93ehfdslh5n { flex-shrink: 0; min-size: 0px; color: rgb(0, 0, 200); }",
+    ],
+  },
+  {
+    "counters": [
+      "b:2",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-1p93ehfdslh5n { flex-shrink: 0; min-size: 0px; color: rgb(0, 0, 200); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:0",
+      "b:3",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-1p93ehfdslh5n { flex-shrink: 0; min-size: 0px; color: rgb(0, 0, 200); }",
+    ],
+  },
+  {
+    "counters": [
+      "b:4",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-1p93ehfdslh5n { flex-shrink: 0; min-size: 0px; color: rgb(0, 0, 200); }",
+    ],
+  },
+]
+`;
+
+exports[`unkeyed counters, written out, keep their state as the uncompiled run did > with it out at first > a conditional counter, then a counter 1`] = `
+[
+  {
+    "counters": [
+      "b:0",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+    ],
+  },
+  {
+    "counters": [
+      "b:1",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+    ],
+  },
+  {
+    "counters": [
+      "x:0",
+      "b:1",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+    ],
+  },
+  {
+    "counters": [
+      "b:2",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+    ],
+  },
+  {
+    "counters": [
+      "x:0",
+      "b:3",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+    ],
+  },
+  {
+    "counters": [
+      "b:4",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+    ],
+  },
+]
+`;
+
+exports[`unkeyed counters, written out, keep their state as the uncompiled run did > with it out at first > a conditional static host, then a counter 1`] = `
+[
+  {
+    "counters": [
+      "b:0",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+    ],
+  },
+  {
+    "counters": [
+      "b:1",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+    ],
+  },
+  {
+    "counters": [
+      "b:1",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "b:2",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "b:3",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "b:4",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+]
+`;
+
+exports[`unkeyed counters, written out, keep their state as the uncompiled run did > with it out at first > a counter, a conditional static host, a counter 1`] = `
+[
+  {
+    "counters": [
+      "x:0",
+      "b:0",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+    ],
+  },
+  {
+    "counters": [
+      "x:1",
+      "b:1",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+    ],
+  },
+  {
+    "counters": [
+      "x:1",
+      "b:1",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:2",
+      "b:2",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:3",
+      "b:3",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:4",
+      "b:4",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+]
+`;
+
+exports[`unkeyed counters, written out, keep their state as the uncompiled run did > with it out at first > a counter, a static host, the spread, a counter 1`] = `
+[
+  {
+    "counters": [
+      "x:0",
+      "y:0",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-1p93ehfdslh5n { flex-shrink: 0; min-size: 0px; color: rgb(0, 0, 200); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:1",
+      "y:1",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-1p93ehfdslh5n { flex-shrink: 0; min-size: 0px; color: rgb(0, 0, 200); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:1",
+      "b:1",
+      "y:0",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-1p93ehfdslh5n { flex-shrink: 0; min-size: 0px; color: rgb(0, 0, 200); }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:2",
+      "y:2",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-1p93ehfdslh5n { flex-shrink: 0; min-size: 0px; color: rgb(0, 0, 200); }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:3",
+      "b:3",
+      "y:0",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-1p93ehfdslh5n { flex-shrink: 0; min-size: 0px; color: rgb(0, 0, 200); }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:4",
+      "y:4",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-1p93ehfdslh5n { flex-shrink: 0; min-size: 0px; color: rgb(0, 0, 200); }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+]
+`;
+
+exports[`unkeyed counters, written out, keep their state as the uncompiled run did > with it out at first > a counter, a static host, then the spread at the end 1`] = `
+[
+  {
+    "counters": [
+      "x:0",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-1p93ehfdslh5n { flex-shrink: 0; min-size: 0px; color: rgb(0, 0, 200); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:1",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-1p93ehfdslh5n { flex-shrink: 0; min-size: 0px; color: rgb(0, 0, 200); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:1",
+      "b:0",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-1p93ehfdslh5n { flex-shrink: 0; min-size: 0px; color: rgb(0, 0, 200); }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:2",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-1p93ehfdslh5n { flex-shrink: 0; min-size: 0px; color: rgb(0, 0, 200); }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:3",
+      "b:0",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-1p93ehfdslh5n { flex-shrink: 0; min-size: 0px; color: rgb(0, 0, 200); }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:4",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-1p93ehfdslh5n { flex-shrink: 0; min-size: 0px; color: rgb(0, 0, 200); }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+]
+`;
+
+exports[`unkeyed counters, written out, keep their state as the uncompiled run did > with it out at first > a counter, the spread, a counter 1`] = `
+[
+  {
+    "counters": [
+      "x:0",
+      "y:0",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+    ],
+  },
+  {
+    "counters": [
+      "x:1",
+      "y:1",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+    ],
+  },
+  {
+    "counters": [
+      "x:1",
+      "b:0",
+      "y:0",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:2",
+      "y:0",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:3",
+      "b:0",
+      "y:0",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:4",
+      "y:0",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+]
+`;
+
+exports[`unkeyed counters, written out, keep their state as the uncompiled run did > with it out at first > a counter, then the spread at the end 1`] = `
+[
+  {
+    "counters": [
+      "x:0",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+    ],
+  },
+  {
+    "counters": [
+      "x:1",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+    ],
+  },
+  {
+    "counters": [
+      "x:1",
+      "b:0",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:2",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:3",
+      "b:0",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "x:4",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+]
+`;
+
+exports[`unkeyed counters, written out, keep their state as the uncompiled run did > with it out at first > the spread first, of the counter type, then a counter 1`] = `
+[
+  {
+    "counters": [
+      "y:0",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+    ],
+  },
+  {
+    "counters": [
+      "y:1",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+    ],
+  },
+  {
+    "counters": [
+      "b:1",
+      "y:0",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "y:2",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "b:3",
+      "y:0",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+  {
+    "counters": [
+      "y:4",
+    ],
+    "rules": [
+      ".css-0sarzzd6hluve { flex-shrink: 0; min-size: 0px; display: grid; }",
+      ".css-2wclph1hvi90r { flex-shrink: 0; min-size: 0px; color: rgb(200, 0, 0); }",
+    ],
+  },
+]
+`;

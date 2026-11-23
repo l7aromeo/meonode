@@ -8,8 +8,10 @@ export { For, type ForIdentity } from '@src/helper/for.helper.js'
 export { themeScript, THEME_SCRIPT_CSP_HASH, type ThemeScriptConfig } from '@src/helper/theme-script.helper.js'
 
 // Compiled output: the rules and values of the styles the compiler extracted
-export { registerStaticCss, type StaticCssRule } from '@src/util/static-css.util.js'
+export { registerStaticCss, registerStaticTemplate, type StaticCssRule } from '@src/util/static-css.util.js'
 export { toCssValue } from '@src/util/css-value.util.js'
+export { __meoFactoryCall } from '@src/factory-call/join.js'
+export type { FactoryCallSite } from '@src/factory-call/index.js'
 
 // Core
 export { Node, createNode, createChildrenFirstNode } from '@src/core.node.js'

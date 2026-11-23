@@ -21,6 +21,8 @@ const input = {
   main: 'src/main.ts',
   client: 'src/client.ts',
   'nextjs-registry/index': 'src/nextjs-registry/index.ts',
+  // Imports nothing, so compiled output can call an imported factory through it without loading core.
+  'factory-call/index': 'src/factory-call/index.ts',
 }
 
 /**
@@ -44,6 +46,7 @@ const DEFAULT_BUILD_MODULES: Alias[] = [
   { find: '@src/util/react-layer.util.js', replacement: path.join(SRC_DIR, 'util/react-layer.default.util.ts') },
   { find: '@src/util/server-layer-guard.js', replacement: path.join(SRC_DIR, 'util/server-layer-guard.default.ts') },
   { find: '@src/components/static-styles.js', replacement: path.join(SRC_DIR, 'components/static-styles.default.ts') },
+  { find: '@src/util/emotion-cache.util.js', replacement: path.join(SRC_DIR, 'util/emotion-cache.default.util.ts') },
 ]
 
 const clientModuleCache = new Map<string, boolean>()

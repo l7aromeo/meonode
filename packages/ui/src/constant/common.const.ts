@@ -95,7 +95,7 @@ export function setDebugMode(enabled: boolean) {
 /**
  * The precedence of the runtime rules React hoists into the head: those of
  * server components, and the ones a client renders through React's hoistable
- * styles. The static buckets' precedences must come before it.
+ * styles.
  */
 export const RUNTIME_PRECEDENCE = 'meonode'
 
@@ -161,28 +161,64 @@ export const LIST_MARKER = '__meo$list'
 export const LOCATION_MARKER = '__meo$loc'
 
 /**
- * Marker key holding the classes of a call site's styles the compiler extracted
- * at build time, as one space-separated string. Their rules reach the page
- * through {@link registerStaticCss}; the runtime only adds the classes to the
- * element's own.
+ * Marker key holding the name of a call site's whole style, which the compiler
+ * serialized at build time: the name `StyledRenderer` would give the same css,
+ * so the element's class is `${cache.key}-${name}`, the one it would have with
+ * extraction off. Its text reaches the page through {@link registerStaticCss},
+ * inserted where Emotion would insert it.
  */
-export const STATIC_CLASSES_MARKER = '__meo$s'
+export const STATIC_NAME_MARKER = '__meo$n'
 
 /**
- * Marker key holding the CSS variables an extracted rule reads its runtime
- * values from: `--mv-*` names to values the compiled call site computed with
- * `toCssValue`. The runtime sets them on the element's `style`.
+ * Marker key of a named node the compiler chose to carry the named styles that
+ * begin after it, up to the next cut or the end of its render: it renders
+ * through `StyledRenderer`, as a runtime node does, so its insertion puts them
+ * in after its own, with no element added to the children. The compiler marks
+ * every call site that may begin a stretch in any render, so whether a node
+ * carries never changes from one render to the next, and React keeps it.
  */
-export const STATIC_VARS_MARKER = '__meo$v'
+export const STATIC_CARRIER_MARKER = '__meo$r'
 
 /**
- * Marker keys of a call site with one spread: the source of the static entries
- * written before it and after it. They are the css the node renders with when
- * the spread brings a key that could override, or be overridden by, a static
- * entry, as `{ ...before, ...spread, ...after }` would.
+ * Marker key holding a call site's template and its values: the id of a
+ * template registered by `registerStaticTemplate`, then each hole's value as
+ * `toCssValue` writes it. Filled in, it is the call site's whole style, named
+ * as the runtime names any serialized styles, so the node is a named one.
  */
-export const STATIC_BEFORE_SPREAD_MARKER = '__meo$b'
-export const STATIC_AFTER_SPREAD_MARKER = '__meo$a'
+export const STATIC_TEMPLATE_MARKER = '__meo$t'
+
+/**
+ * The prop a node built from a template keeps its whole style's text on: it is
+ * its own, so no registry holds the text of every value it is rendered with.
+ */
+export const STATIC_TEXT_PROP = '__meonodeStaticText'
+
+/**
+ * The prop of a `StyledRenderer` holding the run of named styles of its render
+ * that began after the previous rule: it inserts them ahead of its own rule.
+ */
+export const STATIC_RUN_PROP = '__meonodeStaticRun'
+
+/**
+ * The prop of a `StyledRenderer` holding, in `run`, the named styles of its
+ * render that began after it and that no later rule takes: it inserts them after
+ * its own. Filled in once the walk has passed them, after the element is built.
+ */
+export const STATIC_RUN_AFTER_PROP = '__meonodeStaticRunAfter'
+
+/**
+ * The prop of a `StyledRenderer` holding its scope on a server render with no
+ * cache provider: the outermost styled element above it, whose cache Emotion
+ * would share with it, so its rule goes out once in that scope.
+ */
+export const STATIC_SCOPE_PROP = '__meonodeStaticScope'
+
+/**
+ * The prop of a `StyledRenderer` that a server component hands a compiled
+ * node's style, `{ name, styles }`, in place of `css`: the module that registered
+ * it never loads in the browser, so the text goes with the element.
+ */
+export const STATIC_STYLE_PROP = '__meonodeStaticStyle'
 
 /**
  * Marker key of a layout factory's call site whose initial props the compiler
@@ -198,7 +234,16 @@ export const INITIAL_PROPS_MARKER = '__meo$i'
 export const COMPILER_SCHEMA_KEYS: Readonly<
   Record<
     number,
-    { css: string; dom: string; key: string; dyn: string; list?: string; loc?: string; classes?: string; vars?: string; before?: string; after?: string }
+    {
+      css: string
+      dom: string
+      key: string
+      dyn: string
+      list?: string
+      loc?: string
+      name?: string
+      template?: string
+    }
   >
 > = {
   // Schema 1 gets no `list` entry, and must not: its bucket names are unprefixed,
@@ -213,10 +258,8 @@ export const COMPILER_SCHEMA_KEYS: Readonly<
     dyn: '__meo$dyn',
     list: LIST_MARKER,
     loc: LOCATION_MARKER,
-    classes: STATIC_CLASSES_MARKER,
-    vars: STATIC_VARS_MARKER,
-    before: STATIC_BEFORE_SPREAD_MARKER,
-    after: STATIC_AFTER_SPREAD_MARKER,
+    name: STATIC_NAME_MARKER,
+    template: STATIC_TEMPLATE_MARKER,
   },
   // Schema 3 reuses schema 2's names. `css`/`dom`/`dyn` are never present on a
   // schema 3 call site, but naming them keeps the marker-stripping loop in
@@ -228,9 +271,7 @@ export const COMPILER_SCHEMA_KEYS: Readonly<
     dyn: '__meo$dyn',
     list: LIST_MARKER,
     loc: LOCATION_MARKER,
-    classes: STATIC_CLASSES_MARKER,
-    vars: STATIC_VARS_MARKER,
-    before: STATIC_BEFORE_SPREAD_MARKER,
-    after: STATIC_AFTER_SPREAD_MARKER,
+    name: STATIC_NAME_MARKER,
+    template: STATIC_TEMPLATE_MARKER,
   },
 }

@@ -3,9 +3,9 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { DOCS_STYLE_SRC, STRICT_STYLE_SRC, underDocsPolicy } from './_docs-csp.js'
 
 /**
- * Compiled output with extracted styles in a Next app, written by hand in the
- * contract's shape: a server component with static and runtime css, a client
- * component that registers its own module, and a server component streamed in
+ * Compiled output with named styles in a Next app, written by hand in the
+ * contract's shape: a server component with named and runtime css, a client
+ * component that registers its own template, and a server component streamed in
  * through a Suspense boundary after the shell. Served by `next dev` and hydrated
  * in Chromium.
  */
@@ -30,7 +30,7 @@ afterAll(async () => {
   browser = null
 })
 
-/** Every `useId` reader on the page: inside and after a fast-path subtree, in the server tree and the client tree. */
+/** Every `useId` reader on the page: inside and after a named subtree, in the server tree and the client tree. */
 const ID_PROBES = ['id-probe-value-static-inside-server', 'id-probe-value-static-after-server', 'static-client-label-inside', 'static-client-label-after']
 
 /** Each probe's id in served markup, by test id. */
@@ -46,27 +46,24 @@ function groupsIn(html: string): [string, string][] {
   return [...head.matchAll(/<style data-precedence="([^"]+)" data-href="([^"]*)"/g)].map(match => [match[1], match[2]])
 }
 
-describe('extracted styles in a Next app', () => {
-  it('serves the static css in the head, in bucket order and before the runtime rules', async () => {
+describe('named styles in a Next app', () => {
+  it('serves each named style once, where the same css would go uncompiled', async () => {
     const html = await (await fetch(`${base()}${PAGE}`)).text()
-    const groups = groupsIn(html)
-    const precedences = groups.map(([precedence]) => precedence)
+    const head = html.slice(0, html.indexOf('</head>'))
 
-    expect(precedences.slice(0, 5)).toEqual(['mn-static-0', 'mn-static-1', 'mn-static-2', 'mn-static-3', 'mn-static-4'])
-    expect(precedences.slice(5)).toContain('meonode')
-    // Each group holds its bucket's seed, then each class the shell's nodes use,
-    // once, from the server tree and the client tree alike.
-    const hrefs = groups.slice(0, 5).map(([, href]) => href.split(' ').sort())
-    expect(hrefs).toEqual([
-      ['mn-static-0'],
-      ['mn-static-1', 'mn-static-mn-00000000cli1a', 'mn-static-mn-00000000cli1w', 'mn-static-mn-00000000srv1a'],
-      ['mn-static-2'],
-      ['mn-static-3', 'mn-static-mn-00000000srv3m'],
-      ['mn-static-4'],
-    ])
-    // The streamed boundary's classes are not in the shell's head; they arrive with it.
-    expect(html).toContain('mn-static-mn-0000000late1a')
-    expect(html).toContain('mn-static-mn-0000000late2h')
+    // The server component's named style is hoisted at the runtime rules'
+    // precedence, in render order with them, once for the two nodes that use it.
+    const groups = groupsIn(html)
+    expect(groups.map(([precedence]) => precedence)).toEqual(['meonode'])
+    expect(groups[0][1].split(' ')[0]).toBe('meonode-css-fxsrv1')
+    expect(groups.flatMap(([, hrefs]) => hrefs.split(' ')).filter(href => href === 'meonode-css-fxsrv1')).toHaveLength(1)
+    // The client component's template goes in through Emotion's cache, which
+    // the registry flushes into the head.
+    expect(head).toMatch(/<style data-emotion="meonode-css [^"]*">[^<]*\{color:rgb\(0, 0, 255\);width:40px;\}/)
+    // The streamed boundary's style is not in the shell's head; it arrives with it.
+    expect(head).not.toContain('fxlate1')
+    expect(html).toContain('.meonode-css-fxlate1{margin-top:3px;}')
+    expect(html).not.toContain('mn-static')
   })
 
   it('hydrates with no mismatch, applies every rule, and inserts nothing the server sent', async () => {
@@ -98,11 +95,15 @@ describe('extracted styles in a Next app', () => {
               element.textContent,
             ]),
           ),
-          ownRules: [...document.querySelectorAll<HTMLStyleElement>('style[data-meonode-static]')].reduce(
-            (sum, element) => sum + element.sheet!.cssRules.length,
-            0,
+          // Each named style in one sheet: the browser inserted none the server sent again.
+          sheets: [document.querySelector('[data-testid="static-server"]')!.className, document.querySelector('[data-testid="static-client"]')!.className].map(
+            className =>
+              [...document.querySelectorAll('style')].filter(
+                element =>
+                  element.textContent?.includes(`.${className}{`) ||
+                  [...(element.sheet?.cssRules ?? [])].some(rule => rule.cssText.startsWith(`.${className}`)),
+              ).length,
           ),
-          precedences: [...document.head.querySelectorAll('style[data-precedence]')].map(element => element.getAttribute('data-precedence')),
         }
       })
 
@@ -113,11 +114,7 @@ describe('extracted styles in a Next app', () => {
       expect(state.clientPartial).toEqual(['rgb(0, 0, 255)', '5px'])
       expect(state.late).toBe('3px')
       expect(state.ids).toEqual(serverIds)
-      expect(state.ownRules).toBe(0)
-      // The streamed module joined its buckets' groups; the order held.
-      const firstRuntime = state.precedences.indexOf('meonode')
-      const lastStatic = Math.max(...state.precedences.map((precedence, i) => (precedence?.startsWith('mn-static-') ? i : -1)))
-      expect(lastStatic).toBeLessThan(firstRuntime)
+      expect(state.sheets).toEqual([1, 1])
     } finally {
       await context.close()
     }
@@ -125,9 +122,9 @@ describe('extracted styles in a Next app', () => {
 
   /**
    * The page under meonode-docs' policy, which MeoNode's styles are held to: the
-   * static rules, the runtime rules and the variables of extracted values must
-   * all apply with no violation. The same page under a `style-src` without
-   * `'unsafe-inline'`, which MeoNode does not support, shows the check sees one.
+   * named rules and the runtime rules must all apply with no violation. The same
+   * page under a `style-src` without `'unsafe-inline'`, which MeoNode does not
+   * support, shows the check sees one: the inline style elements are blocked.
    */
   it.each([
     ['meonode-docs’ policy', DOCS_STYLE_SRC, true],
@@ -149,7 +146,7 @@ describe('extracted styles in a Next app', () => {
         expect(messages.filter(message => /hydrat|did not match|recoverable/i.test(message))).toEqual([])
         expect([width, color]).toEqual(['40px', 'rgb(255, 0, 0)'])
       } else {
-        expect(seen.some(violation => violation.startsWith('style-src-attr'))).toBe(true)
+        expect(seen.some(violation => violation.startsWith('style-src-elem'))).toBe(true)
         expect(width).not.toBe('40px')
       }
     } finally {
