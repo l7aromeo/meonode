@@ -5,7 +5,9 @@
 // with every node's css on the runtime path. Emotion's cache adopts the server's
 // styles by the names they list and moves them out of the body before React
 // hydrates, so both must hydrate without a mismatch, keep their `useId` ids,
-// and leave the head with the same rules in the same order. It runs with no
+// and leave the head with the same rules in the same order. Pages whose styles
+// need a sheet edge go out as several `<style>` elements, with no registry and
+// under `StyleRegistry`; each must be adopted, none added. It runs with no
 // `act`, so React's production build runs it too.
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import { builtinEnvironments } from 'vitest/runtime'
@@ -50,6 +52,40 @@ type Tree = (ui: Main, react: typeof import('react'), style: Style) => import('@
 const RED = { color: 'rgb(200, 0, 0)' }
 const BLUE = { color: 'rgb(0, 0, 200)' }
 
+/**
+ * Pages whose named server styles need a sheet edge, so the server writes them
+ * as several `<style>` elements where it writes one otherwise: a style whose
+ * key leaves a `(` open, and a style that is an `@import` alone. Emotion's
+ * development build drops a nested `@import` (with a console error), so that
+ * page splits only in production.
+ */
+const SPLIT_CASES: Record<string, Tree> = {
+  'a static node whose key leaves a `(` open, before statics and an id': (ui, react, style) => {
+    const Id = () => ui.Span('id', { 'data-id': react.useId() }).render() as import('react').ReactElement
+    return ui.Div({
+      children: [
+        ui.Div({ key: 1, ...style({ padding: 2, '&:not(.a': RED }) }),
+        ui.Div({ key: 2, ...style({ padding: 3 }) }),
+        ui.Div({ key: 3, ...style({ padding: 4 }), children: ui.Node(Id) }),
+      ],
+    })
+  },
+  ...(process.env.NODE_ENV === 'production'
+    ? {
+        'a static node that is an `@import` alone, after a static, before an id': ((ui, react, style) => {
+          const Id = () => ui.Span('id', { 'data-id': react.useId() }).render() as import('react').ReactElement
+          return ui.Div({
+            children: [
+              ui.Div({ key: 1, ...style({ padding: 2 }) }),
+              ui.Div({ key: 2, ...style({ minHeight: undefined, minWidth: undefined, flexShrink: undefined, '@import url("b.css")': {} }) }),
+              ui.Div({ key: 3, ...style({ padding: 4 }), children: ui.Node(Id) }),
+            ],
+          })
+        }) satisfies Tree,
+      }
+    : {}),
+}
+
 const CASES: Record<string, Tree> = {
   'statics and runtimes interleaved, with an id below them': (ui, react, style) => {
     const Id = () => ui.Span('id', { 'data-id': react.useId() }).render() as import('react').ReactElement
@@ -77,6 +113,7 @@ const CASES: Record<string, Tree> = {
     }),
   'a static parent’s & > * against a runtime child': (ui, _, style) => ui.Div({ ...style({ '& > *': RED }), children: ui.Span('c', style(BLUE, false)) }),
   'a runtime parent’s & > * against a static child': (ui, _, style) => ui.Div({ ...style({ '& > *': RED }, false), children: ui.Span('c', style(BLUE)) }),
+  ...SPLIT_CASES,
 }
 
 /**
@@ -165,7 +202,7 @@ const CARRIER_CASES: Record<string, Tree> = {
 /** Loads the package afresh, so it reads whether a document exists as it loads. */
 async function load() {
   vi.resetModules()
-  const [ui, react, registry, theme, names, serialize, emotion, createCache] = await Promise.all([
+  const [ui, react, registry, theme, names, serialize, emotion, createCache, StyleRegistry, navigation] = await Promise.all([
     import('@src/main.js'),
     import('react'),
     import('@src/util/static-css.util.js'),
@@ -174,6 +211,8 @@ async function load() {
     import('@emotion/serialize'),
     import('@emotion/react'),
     import('@emotion/cache').then(module => module.default),
+    import('@src/components/style-registry.client.js').then(module => module.default),
+    import('next/navigation.js'),
   ])
   const compile = (css: Css) => {
     const resolved = theme.ThemeUtil.resolveObjWithTheme(css, undefined, { processFunctions: true, themeStringsMode: 'vars' })
@@ -196,13 +235,18 @@ async function load() {
         },
       },
     )
-  /** The case's page, under a cache of its own unless `provider` is `'none'`, as an app with a registry renders it. */
-  const page = (tree: Tree, compiled: boolean, provider: Provider) => {
+
+  /**
+   * The case's page, under a cache of its own unless `provider` is `'none'`, as
+   * an app with a registry renders it, or under `StyleRegistry` for `'registry'`.
+   */
+  const page = (tree: Tree, compiled: boolean, provider: Provider | 'registry') => {
     // From a component, where an app's walk runs and reads its cache.
     const element = react.createElement(function Page() {
       return tree(ui, react, styles(compiled)).render() as import('react').ReactElement
     })
     if (provider === 'none') return element
+    if (provider === 'registry') return react.createElement(StyleRegistry, null, element)
     // The insertion point is the page's, so only the browser's cache has one.
     const insertionPoint =
       provider === 'insertion-point' && typeof document !== 'undefined'
@@ -210,26 +254,52 @@ async function load() {
         : undefined
     return react.createElement(emotion.CacheProvider, { value: createCache({ key: 'css', prepend: provider === 'prepend', insertionPoint }) }, element)
   }
-  return { react, page }
+  return { react, page, ServerInsertedHTMLContext: navigation.ServerInsertedHTMLContext }
 }
+
+/** What jsdom's virtual console prints for a stylesheet its CSS parser rejects. */
+const JSDOM_CSS_PARSE_ERROR = 'Could not parse CSS stylesheet'
 
 /** How long React's scheduler gets to finish a hydration or an unmount: its tasks run on timers in a document with no frames. */
 const HYDRATION_SETTLE_MS = 50
 
-/** Renders `tree` on the server, hydrates it in a document, and reads what came of it. */
-async function serverThenHydrate(tree: Tree, compiled: boolean, provider: Provider) {
+/**
+ * Renders `tree` on the server, hydrates it in a document, and reads what came
+ * of it. Under `'registry'`, the registry's flush goes into the head, as Next
+ * puts it there.
+ */
+async function serverThenHydrate(tree: Tree, compiled: boolean, provider: Provider | 'registry') {
   const server = await load()
   const { renderToString } = await import('react-dom/server')
-  const html = renderToString(server.page(tree, compiled, provider))
+  const flushes: (() => import('react').ReactNode)[] = []
+  const element = server.page(tree, compiled, provider)
+  // What the server render reports, its registry's flush included, as React's development build warns there.
+  const serverErrors: string[] = []
+  const serverError = vi.spyOn(console, 'error').mockImplementation((...args) => void serverErrors.push(args.map(String).join(' ')))
+  const html = renderToString(
+    provider === 'registry'
+      ? server.react.createElement(server.ServerInsertedHTMLContext.Provider, { value: flush => void flushes.push(flush) }, element)
+      : element,
+  )
+  const head =
+    provider === 'registry' ? renderToString(server.react.createElement(server.react.Fragment, null, ...flushes.map(flush => flush()))) : headOf(provider)
+  serverError.mockRestore()
+  /** How many `<style>` elements the server wrote. */
+  const serverSheets = (head + html).match(/<style\b/g)?.length ?? 0
 
   // The page loads in a document of its own, with the globals a jsdom suite has.
   const browser = await builtinEnvironments.jsdom.setup(globalThis, {
-    jsdom: { html: `<!doctype html><html><head>${headOf(provider)}</head><body><div id="root">${html}</div></body></html>` },
+    jsdom: { html: `<!doctype html><html><head>${head}</head><body><div id="root">${html}</div></body></html>` },
   })
   try {
     const client = await load()
     const errors: string[] = []
-    const error = vi.spyOn(console, 'error').mockImplementation((...args) => void errors.push(args.map(String).join(' ')))
+    // jsdom's CSS parser rejects a whole sheet with an unclosed `(` and says so;
+    // a browser keeps the rules before it. That half is the parity suite's.
+    const error = vi.spyOn(console, 'error').mockImplementation((...args) => {
+      const message = args.map(String).join(' ')
+      if (message !== JSDOM_CSS_PARSE_ERROR) errors.push(message)
+    })
     const { hydrateRoot } = await import('react-dom/client')
     const container = document.getElementById('root')!
     const ids = () => [...container.querySelectorAll('[data-id]')].map(element => element.getAttribute('data-id'))
@@ -249,8 +319,14 @@ async function serverThenHydrate(tree: Tree, compiled: boolean, provider: Provid
     const root = hydrateRoot(container, element, { onRecoverableError: reported => void errors.push(String(reported)) })
     await new Promise(resolve => setTimeout(resolve, HYDRATION_SETTLE_MS))
     error.mockRestore()
+    /** The names each Emotion style element lists, in document order. */
+    const names = [...document.querySelectorAll<HTMLStyleElement>('style[data-emotion]')].flatMap(sheet => sheet.dataset.emotion!.split(' ').slice(1))
     const result = {
+      serverErrors,
       errors,
+      serverSheets,
+      sheets: document.querySelectorAll('style[data-emotion]').length,
+      namesListedOnce: new Set(names).size === names.length,
       ids: before.length,
       idsKept: JSON.stringify(ids()) === JSON.stringify(before),
       firstPaint,
@@ -268,32 +344,59 @@ async function serverThenHydrate(tree: Tree, compiled: boolean, provider: Provid
   }
 }
 
+/**
+ * What a hydration came to, without how many `<style>` elements carried the
+ * rules: the runtime twin writes one per node, a compiled page one per run.
+ */
+function hydrated(result: Awaited<ReturnType<typeof serverThenHydrate>>) {
+  const { serverSheets: _, sheets: __, ...rest } = result
+  return rest
+}
+
 afterAll(() => vi.resetModules())
 
 describe.each(PROVIDERS)('a server-rendered page %s, with compiled nodes, hydrates as its runtime twin does', (_, provider) => {
   it.each(Object.entries(CASES))('%s', async (_, tree) => {
     const expected = await serverThenHydrate(tree, false, provider)
-    expect(expected).toMatchObject({ errors: [], idsKept: true, stylesLeftInBody: 0 })
+    expect(expected).toMatchObject({ serverErrors: [], errors: [], idsKept: true, stylesLeftInBody: 0 })
     expect(expected.firstPaint.length).toBeGreaterThan(0)
     expect(expected.firstPaint).toEqual(expected.rules)
-    expect(await serverThenHydrate(tree, true, provider)).toEqual(expected)
+    expect(hydrated(await serverThenHydrate(tree, true, provider))).toEqual(hydrated(expected))
   })
 })
 
 describe.each(PROVIDERS)('a server-rendered page %s, with carriers, hydrates as its runtime twin does', (_, provider) => {
   it.each(Object.entries(CARRIER_CASES))('%s', async (_, tree) => {
     const expected = await serverThenHydrate(tree, false, provider)
-    expect(expected).toMatchObject({ errors: [], idsKept: true, stylesLeftInBody: 0 })
+    expect(expected).toMatchObject({ serverErrors: [], errors: [], idsKept: true, stylesLeftInBody: 0 })
     expect(expected.firstPaint.length).toBeGreaterThan(0)
-    expect(await serverThenHydrate(tree, true, provider)).toEqual(expected)
+    expect(hydrated(await serverThenHydrate(tree, true, provider))).toEqual(hydrated(expected))
   })
 })
 
 describe.each(PROVIDERS)('a server-rendered page %s, with no carrier marked, hydrates as its runtime twin does', (_, provider) => {
   it.each(Object.entries(UNMARKED_CASES))('%s', async (_, tree) => {
     const expected = await serverThenHydrate(tree, false, provider)
-    expect(expected).toMatchObject({ errors: [], idsKept: true, stylesLeftInBody: 0 })
-    expect(await serverThenHydrate(tree, true, provider)).toEqual(expected)
+    expect(expected).toMatchObject({ serverErrors: [], errors: [], idsKept: true, stylesLeftInBody: 0 })
+    expect(hydrated(await serverThenHydrate(tree, true, provider))).toEqual(hydrated(expected))
+  })
+})
+
+// A split writes several `<style>` elements where the server wrote one, under
+// the plain server render and under a registry alike. Emotion's cache adopts
+// each by the names it lists, so hydration keeps every element, adds none, and
+// lists no name twice. The runtime twin splits under a registry too.
+describe('a server-rendered page whose named styles need a sheet edge', () => {
+  it.each(Object.entries(SPLIT_CASES))('%s: splits them and hydrates with each element kept, none added', async (_, tree) => {
+    const result = await serverThenHydrate(tree, true, 'none')
+    expect(result).toMatchObject({ serverErrors: [], errors: [], idsKept: true, stylesLeftInBody: 0, serverSheets: 2, sheets: 2, namesListedOnce: true })
+  })
+
+  it.each(Object.entries(SPLIT_CASES))('%s: under StyleRegistry, hydrates as its runtime twin does, the flush split', async (_, tree) => {
+    const expected = await serverThenHydrate(tree, false, 'registry')
+    expect(expected).toMatchObject({ serverErrors: [], errors: [], idsKept: true, stylesLeftInBody: 0, serverSheets: 2, sheets: 2, namesListedOnce: true })
+    expect(expected.firstPaint).toEqual(expected.rules)
+    expect(hydrated(await serverThenHydrate(tree, true, 'registry'))).toEqual(hydrated(expected))
   })
 })
 

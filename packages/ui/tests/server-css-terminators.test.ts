@@ -23,6 +23,7 @@ import { ServerInsertedHTMLContext } from 'next/navigation.js'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import StyleRegistry from '@src/components/style-registry.client.js'
 import { ThemedRule } from '@src/components/styled-renderer.client.js'
+import { RUNTIME_PRECEDENCE } from '@src/constant/common.const.js'
 import { Div, Span } from '@src/main.js'
 import { compileServerEmotionRule } from '@src/util/server-emotion.util.js'
 import { leavesOpen, needsSheetStart, sheetStarts, terminateRules } from '@src/util/rule-text.util.js'
@@ -313,6 +314,33 @@ describe('server CSS joined by a StyleRegistry flush', () => {
 })
 
 describe('server CSS React may join', () => {
+  // A known limit: React's server render writes every `<style href precedence>`
+  // of one precedence as one element, so a server component's rule text that
+  // leaves a `(` open takes the rules after it, as MeoNode's own joins did. Only
+  // another precedence, or a style left in place, keeps it apart, and either puts
+  // it after rules that came later. The browser inserts each on its own, so
+  // only the server's HTML has it. A React that keeps them apart shows here.
+  it('lets React join a rule text left open with the rules of its precedence after it (known limit)', () => {
+    const rules = [{ padding: 1 }, UNBALANCED, NEXT].map(css => compileServerEmotionRule(ThemeUtil.resolveDefaultStyle(css as never))!)
+    expect(leavesOpen(rules[1]!.cssText)).toBe(true)
+    const html = renderToString(
+      createElement(
+        'html',
+        null,
+        createElement('head'),
+        createElement(
+          'body',
+          null,
+          ...rules.map(rule => createElement('style', { key: rule.ownClassName, href: rule.ownClassName, precedence: RUNTIME_PRECEDENCE }, rule.cssText)),
+        ),
+      ),
+    )
+    const texts = styleTexts(html)
+    expect(texts).toHaveLength(1)
+    expect(texts[0]).toBe(rules.map(rule => rule.cssText).join(''))
+    expect(startsFresh(texts[0]!, rules[2]!.ownClassName)).toBe(false)
+  })
+
   it("ends a server component's rule text where a statement could end", () => {
     const rule = compileServerEmotionRule(ThemeUtil.resolveDefaultStyle(IMPORTING as never))!
     expect(rule.cssText).toContain('@import url("a.css")')
