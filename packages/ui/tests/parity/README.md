@@ -151,7 +151,8 @@ each rewrites the "on" side's compiled output of one case (a selector list in
 the registered rule text cut to its first selector, or the carrier marks
 stripped, for instance), and must show a difference from the oracle that the
 unrewritten output does not, in some server mode the case runs in; the log
-gives each mode's result. A compiled plant with `noDifference` pins a
+gives each mode's result. A plant on an identity case also records the case's variant
+mounted on the client only (`render: 'client'`, as an SPA renders it). A compiled plant with `noDifference` pins a
 rewrite the browser cannot see, with its reason: the mark stripped from a
 themed carrier, which the runtime makes a carrier on every render anyway. It
 must change the output and show no difference in any mode. The registry check has a plant of its own: an

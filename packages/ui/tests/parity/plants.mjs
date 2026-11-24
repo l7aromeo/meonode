@@ -80,7 +80,9 @@ export const stripMark = key => code => code.replace(new RegExp(`__meo\\$r: 1,\\
  * "on" side's compiled module of one case (and the parts it imports), and
  * the run must find a difference from the oracle that the unrewritten output
  * does not have, in some server mode the case runs in, each recorded; in
- * `dimension`, when the plant names one. `html` rewrites
+ * `dimension`, when the plant names one. `client` names the case's variant
+ * mounted on the client only, which the plant's rewrite reaches too, and
+ * whose modes are recorded as well. `html` rewrites
  * the planted side's [plain] server HTML instead of, or besides, its
  * compiled output. A plant with
  * `noDifference` pins a rewrite the browser cannot see, for the reason it
@@ -166,6 +168,7 @@ export const COMPILED_PLANTS = [
   {
     name: 'the carrier marks stripped (host-toggle)',
     case: 'identity-host-toggle',
+    client: 'identity-host-toggle-client',
     // Without its mark the node is a carrier only while no rule comes before it, so the step changes its element
     // type and React remounts it: styles and tree stay equal, and only identity shows it.
     dimension: 'identity',
@@ -174,6 +177,7 @@ export const COMPILED_PLANTS = [
   {
     name: 'the carrier marks stripped (factory-toggle)',
     case: 'identity-factory-toggle',
+    client: 'identity-factory-toggle-client',
     // Without its mark the node is a carrier only while no rule comes before it, so the step changes its element
     // type and React remounts it: styles and tree stay equal, and only identity shows it.
     dimension: 'identity',
@@ -182,6 +186,7 @@ export const COMPILED_PLANTS = [
   {
     name: 'the carrier marks stripped (host-reorder)',
     case: 'identity-host-reorder',
+    client: 'identity-host-reorder-client',
     // Without its mark the node is a carrier only while no rule comes before it, so the step changes its element
     // type and React remounts it: styles and tree stay equal, and only identity shows it.
     dimension: 'identity',
@@ -190,6 +195,7 @@ export const COMPILED_PLANTS = [
   {
     name: 'the carrier marks stripped (host-list)',
     case: 'identity-host-list',
+    client: 'identity-host-list-client',
     // Without its mark the node is a carrier only while no rule comes before it, so the step changes its element
     // type and React remounts it: styles and tree stay equal, and only identity shows it.
     dimension: 'identity',
@@ -205,6 +211,7 @@ export const COMPILED_PLANTS = [
   {
     name: 'the carrier mark stripped (plain)',
     case: MARK_PLANT_CASE,
+    client: `${MARK_PLANT_CASE}-client`,
     // Without its mark the node follows a component on one render and a rule on the next, so the toggle changes
     // its element type and React remounts it.
     dimension: 'identity',
@@ -213,18 +220,21 @@ export const COMPILED_PLANTS = [
   {
     name: 'the carrier mark stripped (merged)',
     case: MARK_PLANT_CASE,
+    client: `${MARK_PLANT_CASE}-client`,
     dimension: 'identity',
     rewrite: stripMark('marked-merged'),
   },
   {
     name: 'the carrier mark stripped (themed)',
     case: MARK_PLANT_CASE,
+    client: `${MARK_PLANT_CASE}-client`,
     noDifference: 'the runtime makes every themed named node a carrier as its walk begins, so the mark changes nothing it renders',
     rewrite: stripMark('marked-themed'),
   },
   {
     name: 'the carrier marks stripped (footer)',
     case: 'identity-footer',
+    client: 'identity-footer-client',
     // Without its mark the node is a carrier only while no rule comes before it, so the step changes its element
     // type and React remounts it: styles and tree stay equal, and only identity shows it.
     dimension: 'identity',
@@ -233,6 +243,7 @@ export const COMPILED_PLANTS = [
   {
     name: 'the carrier marks stripped (helper-exported)',
     case: 'identity-helper-exported',
+    client: 'identity-helper-exported-client',
     // Without its mark the node is a carrier only while no rule comes before it, so the step changes its element
     // type and React remounts it: styles and tree stay equal, and only identity shows it.
     dimension: 'identity',

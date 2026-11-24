@@ -963,13 +963,15 @@ try {
     }
     // Compiled plants: the oracle against a rewritten "on" output, beside the unrewritten one.
     for (const plant of pick(COMPILED_PLANTS)) {
+      /** The plant's case, and its client-only variant when it names one. */
+      const plantCases = [plant.case, ...(plant.client ? [plant.client] : [])]
       const sideBuilt = {}
       for (const [name, rewrite] of [
         ['on', null],
         ['planted', plant.rewrite],
       ]) {
-        const { dir, compiled, parts } = await buildSide({ ...SIDES.on, name, rewrite }, [plant.case])
-        const ssr = await serverRender(dir, [plant.case])
+        const { dir, compiled, parts } = await buildSide({ ...SIDES.on, name, rewrite }, plantCases)
+        const ssr = await serverRender(dir, plantCases)
         // A plant on the server HTML rewrites the [plain] page the planted side serves.
         if (name === 'planted' && plant.html) {
           const page = ssr.plain[plant.case]
@@ -977,9 +979,9 @@ try {
         }
         built[name] = sideBuilt[name] = { dir, compiled, parts, ssr, client: readFileSync(join(dir, 'client.js'), 'utf8') }
       }
-      if (!built.runtime.ssr.plain[plant.case]) {
-        const { dir, compiled } = await buildSide(SIDES.runtime, [plant.case])
-        const ssr = await serverRender(dir, [plant.case])
+      if (plantCases.some(c => !built.runtime.ssr.plain[c])) {
+        const { dir, compiled } = await buildSide(SIDES.runtime, plantCases)
+        const ssr = await serverRender(dir, plantCases)
         built.runtime = { dir, compiled, ssr, client: readFileSync(join(dir, 'client.js'), 'utf8') }
       }
       // The rewrite reaches the case module and every part it may import, or the server HTML.
@@ -988,26 +990,28 @@ try {
         sideBuilt.on.compiled[plant.case] !== sideBuilt.planted.compiled[plant.case] ||
         Object.keys(sideBuilt.on.parts).some(part => sideBuilt.on.parts[part] !== sideBuilt.planted.parts[part]) ||
         pageOf('on').head + pageOf('on').body !== pageOf('planted').head + pageOf('planted').body
-      const caseMeta = (await import(pathToFileURL(join(built.runtime.dir, 'corpus', `${plant.case}.mjs`)).href)).meta
-      if (!built.off?.ssr.plain[plant.case]) {
-        const { dir, compiled } = await buildSide(SIDES.off, [plant.case])
-        const ssr = await serverRender(dir, [plant.case])
+      if (plantCases.some(c => !built.off?.ssr.plain[c])) {
+        const { dir, compiled } = await buildSide(SIDES.off, plantCases)
+        const ssr = await serverRender(dir, plantCases)
         built.off = { dir, compiled, ssr, client: readFileSync(join(dir, 'client.js'), 'utf8') }
       }
       const text = d => `${d.dimension} ${d.where} ${d.text}`
       // Each server mode the case runs in: a rewrite may change nothing in one mode and show in another (the carrier
       // mark is redundant where [plain] renders style slots, and holds identity in [registry]).
       const byMode = []
-      for (const mode of caseMeta.serverModes ?? ['plain', 'registry']) {
-        const oracle = await record('runtime', plant.case, mode, caseMeta)
-        const clean = new Set(compareRecords(oracle, await record('on', plant.case, mode, caseMeta)).map(text))
-        const html = s => built[s].ssr[mode][plant.case].head + built[s].ssr[mode][plant.case].body
-        for (const d of compareRuleText(html('off'), html('on'), compile)) clean.add(text(d))
-        const found = [
-          ...compareRecords(oracle, await record('planted', plant.case, mode, caseMeta)),
-          ...compareRuleText(html('off'), html('planted'), compile),
-        ].filter(d => !clean.has(text(d)))
-        byMode.push({ mode, found })
+      for (const name of plantCases) {
+        const caseMeta = (await import(pathToFileURL(join(built.runtime.dir, 'corpus', `${name}.mjs`)).href)).meta
+        for (const mode of caseMeta.serverModes ?? ['plain', 'registry']) {
+          const oracle = await record('runtime', name, mode, caseMeta)
+          const clean = new Set(compareRecords(oracle, await record('on', name, mode, caseMeta)).map(text))
+          const html = s => built[s].ssr[mode][name].head + built[s].ssr[mode][name].body
+          for (const d of compareRuleText(html('off'), html('on'), compile)) clean.add(text(d))
+          const found = [
+            ...compareRecords(oracle, await record('planted', name, mode, caseMeta)),
+            ...compareRuleText(html('off'), html('planted'), compile),
+          ].filter(d => !clean.has(text(d)))
+          byMode.push({ mode: name === plant.case ? mode : `client ${mode}`, found })
+        }
       }
       // A plant that names a dimension must show there, not only elsewhere, in some mode; one with `noDifference` must
       // show in none.
