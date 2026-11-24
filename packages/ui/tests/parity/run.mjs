@@ -500,6 +500,19 @@ async function record(side, name, mode, meta, plant) {
 }
 
 /**
+ * Whether forced-state differences are exactly one per named state, all on one
+ * element and each holding the text: no state missing, repeated or extra. A
+ * difference's `where` reads `element <index><state>`, as `element 5:hover`.
+ */
+function isExactly(differences, text, states) {
+  const places = differences.map(d => /^element (\d+)(:.+)$/.exec(d.where))
+  if (places.some(p => !p) || new Set(places.map(p => p[1])).size !== 1) return false
+  const found = places.map(p => p[2]).sort()
+  const wanted = [...states].sort()
+  return found.length === wanted.length && found.every((state, i) => state === wanted[i]) && differences.every(d => d.text.includes(text))
+}
+
+/**
  * Splits a side's differences into those the case records as expected and the
  * rest, and counts each expectation's matches; one that applies to the side
  * but matches nothing is reported, so a fixed or changed difference shows. An
@@ -911,11 +924,12 @@ try {
       }
       const ofDimension = found.filter(d => d.dimension === plant.dimension)
       // A plant that names its exact differences must make those and no others in its dimension.
-      const exact = !plant.exactly || (ofDimension.length === plant.exactly.count && ofDimension.every(d => d.text.includes(plant.exactly.text)))
+      const exactStates = plant.exactly?.states[FORCE_BY_INPUT ? 'input' : 'protocol']
+      const exact = !plant.exactly || isExactly(ofDimension, plant.exactly.text, exactStates)
       const caught = ofDimension.length > 0 && exact
       if (!caught) failures++
       console.log(
-        `${caught ? 'caught' : 'MISSED'} plant ${plant.dimension}${plant.name ? ` ${plant.name}` : ''}: ${found.length} difference(s) in ${[...new Set(found.map(d => d.dimension))].join(', ') || 'none'}${plant.exactly ? `; ${ofDimension.length} in ${plant.dimension}, ${exact ? 'exactly as planted' : `not the ${plant.exactly.count} holding "${plant.exactly.text}": ${ofDimension.slice(0, 3).map(d => d.text).join(' | ')}`}` : ''}`,
+        `${caught ? 'caught' : 'MISSED'} plant ${plant.dimension}${plant.name ? ` ${plant.name}` : ''}: ${found.length} difference(s) in ${[...new Set(found.map(d => d.dimension))].join(', ') || 'none'}${plant.exactly ? `; ${ofDimension.length} in ${plant.dimension}, ${exact ? 'exactly as planted' : `not ${exactStates.join(', ')} of one element, each holding "${plant.exactly.text}": ${ofDimension.slice(0, 3).map(d => `${d.where}: ${d.text}`).join(' | ')}`}` : ''}`,
       )
       // A recorded difference excuses what it matches and nothing else, and one that matches nothing is reported.
       const mine = found.find(d => d.dimension === plant.dimension)

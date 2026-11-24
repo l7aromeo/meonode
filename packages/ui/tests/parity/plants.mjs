@@ -271,8 +271,10 @@ export const COMPILED_PLANTS = [
  * names the outcome a forced-state plant must reach under real input:
  * `stable` (the same in every sweep), `only-compared` (varying on the planted
  * page alone) or `in-session` (in every sweep and on no fresh load); each
- * stays a failure. `exactly` names how many differences of its dimension a
- * plant must make and text each holds. `input` marks a plant only real input can set off: where
+ * stays a failure. `exactly` names the text every difference of its dimension
+ * must hold and, for each way states are forced (`protocol` through the
+ * DevTools protocol, `input` through real input), the states of one element
+ * those differences must be in: one each, and none in any other. `input` marks a plant only real input can set off: where
  * states are forced through the DevTools protocol no pointer moves, so it is
  * skipped there.
  */
@@ -288,13 +290,14 @@ export const PLANTS = [
     name: ':hover after a transition',
     page: addRule(`${ROOT} { transition: outline-offset 2s linear } ${ROOT}:hover { ${WRONG} }`),
   },
-  // One value in one part of one element in one state: the forced-state diff must report exactly that value, so a
-  // diff that mishandles a part or an out-of-scope element cannot hide behind a plant that changes many.
+  // One value in one part of one element: the forced-state diff must report exactly that value in exactly those
+  // states, so a diff that mishandles a part or an out-of-scope element cannot hide behind a plant that changes many.
+  // Under real input :active is read with the pointer still over the element, so the :hover rule shows there too.
   {
     dimension: 'forced-state',
     name: 'one ::before value under :hover',
     page: addRule(`${ROOT} button:hover::before { background-color: rgb(1, 2, 3) }`),
-    exactly: { count: 1, text: '/1/background-color:' },
+    exactly: { text: '/1/background-color:', states: { protocol: [':hover'], input: [':hover', ':active'] } },
   },
   { dimension: 'forced-state', name: ':checked', page: addRule(`${ROOT} input:checked { ${WRONG} }`) },
   { dimension: 'forced-state', name: ':disabled', page: addRule(`${ROOT} input:disabled { ${WRONG} }`) },

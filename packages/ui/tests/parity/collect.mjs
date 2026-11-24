@@ -370,7 +370,9 @@ async function forcedByCdp(page, base, sets, onlyMarked, read, spend = () => {})
  * Forced states through real input: the pointer over the element's centre for
  * :hover, pressed there for :active (and released away from it, so nothing is
  * clicked), focus after a pointer click for :focus, and focus after a key press
- * for :focus-visible. An element with no box gets no pointer states.
+ * for :focus-visible. An element with no box gets no pointer states. The
+ * :active read is taken with the pointer still over the element, so :hover
+ * holds in it too, and a rule under :hover alone shows in both reads.
  */
 async function forcedByInput(page, base, sets, onlyMarked, read, upTo = Infinity, samples = {}) {
   const elements = await comparedElements(page)
