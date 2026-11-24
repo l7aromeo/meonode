@@ -2,7 +2,7 @@ import { registerStaticCss as __meoCss, __meoFactoryCall } from "@meonode/ui";
 import { Div } from "@meonode/ui";
 import { Card, Title } from "./nodes";
 import { Inter } from "next/font/google";
-__meoCss("3gng7kheu33tg", []);
+__meoCss("au4q9n7qvj8d6", []);
 const __meoSite0 = {
     at: 0,
     r: 1

@@ -8,9 +8,9 @@ import { RichTreeView } from "@meonode/mui/x-tree-view";
 import { StyleRegistry } from "@meonode/ui/nextjs-registry";
 import { Inter } from "next/font/google";
 import { Roboto } from "@next/font/google";
-__meoCss("1cbfyawp0yl3b", [
+__meoCss("21ikcp9e3un0r", [
     [
-        "1aqk60jpzzigw",
+        "2mqacvfk8fi0e",
         "flex-shrink:0;min-height:0;min-width:0;padding:1px;"
     ]
 ]);
@@ -121,7 +121,7 @@ export const r7 = ()=>__meoFactoryCall(Card, __meoSite10, {
 // some, so only the second is marked.
 export const r8 = ()=>Div({
         __meo$: 2,
-        __meo$n: "1aqk60jpzzigw",
+        __meo$n: "2mqacvfk8fi0e",
         __meo$r: 1,
         __meo$k: "m9lbj1cupjlpa",
         children: [

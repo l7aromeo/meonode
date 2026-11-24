@@ -1,44 +1,44 @@
 import { registerStaticCss as __meoCss, registerStaticTemplate as __meoTpl, toCssValue as __meoVal } from "@meonode/ui";
 import { Div } from "@meonode/ui";
-__meoCss("1bnpj3vr3agvh", [
+__meoCss("e2le9gi3cpv74", [
     [
-        "25gvbuz2cy217",
+        "e8518v0d9mm09",
         "flex-shrink:0;min-height:0;min-width:0;padding:4px;@media (min-width: 1px){margin-top:4px;}"
     ],
     [
-        "3pghyoa9mq71n",
+        "2hiq5i8auk828",
         "flex-shrink:0;min-height:0;min-width:0;padding:4px;@media (min-width: 1px){margin-top:8px;}"
     ],
     [
-        "01hnvshbfsnd0",
+        "8f3ja6css4gmb",
         "flex-shrink:0;min-height:0;min-width:0;padding:4px;&:hover{color:blue;}"
     ],
     [
-        "0mdwjznn1arn1",
+        "3ahnrvmpadoc1",
         "flex-shrink:0;min-height:0;min-width:0;padding:4px;&:hover{}"
     ]
 ]);
-__meoTpl("0j6fj2s0e4d43", [
+__meoTpl("82b3o88s5go08", [
     "flex-shrink:0;min-height:0;min-width:0;padding:4px;&:hover{color:",
     ";}"
 ]);
-__meoTpl("13rpbjvkualez", [
+__meoTpl("7s5fpjoumcpqn", [
     "flex-shrink:0;min-height:0;min-width:0;padding:4px;.dark &{color:blue;margin-top:",
     ";}"
 ]);
-__meoTpl("2jnzf9llrxgdn", [
+__meoTpl("40mi7ooofnjou", [
     "flex-shrink:0;min-height:0;min-width:0;padding:4px;.dark &{color:green;margin-top:",
     ";}"
 ]);
-__meoTpl("2djksr5tuztki", [
+__meoTpl("6jc22bencbgep", [
     "flex-shrink:0;min-height:0;min-width:0;padding:4px;& > p{color:",
     ";}"
 ]);
-__meoTpl("1l72c5arl6y9k", [
+__meoTpl("4nqairdac839m", [
     "flex-shrink:0;min-height:0;min-width:0;padding:4px;&:hover{user-select:",
     ";}"
 ]);
-__meoTpl("1m1xyprrt17pw", [
+__meoTpl("2a912hue1sn8g", [
     "flex-shrink:0;min-height:0;min-width:0;padding:4px;&:where(.x){color:",
     ";}&::before{content:",
     ";}"
@@ -46,7 +46,7 @@ __meoTpl("1m1xyprrt17pw", [
 export const a = (p)=>Div({
         __meo$: 2,
         __meo$t: [
-            "0j6fj2s0e4d43",
+            "82b3o88s5go08",
             __meoVal("color", `${p.color}`)
         ],
         __meo$r: 1,
@@ -54,17 +54,17 @@ export const a = (p)=>Div({
     });
 export const b = (p)=>Div({
         __meo$: 2,
-        __meo$n: p.on ? "25gvbuz2cy217" : "3pghyoa9mq71n",
+        __meo$n: p.on ? "e8518v0d9mm09" : "2hiq5i8auk828",
         __meo$r: 1,
         __meo$k: "m551qrbsxphac"
     });
 export const c = (p)=>Div({
         __meo$: 2,
         __meo$t: p.on ? [
-            "13rpbjvkualez",
+            "7s5fpjoumcpqn",
             __meoVal("marginTop", p.n * 2)
         ] : [
-            "2jnzf9llrxgdn",
+            "40mi7ooofnjou",
             __meoVal("marginTop", p.n * 2)
         ],
         __meo$r: 1,
@@ -72,14 +72,14 @@ export const c = (p)=>Div({
     });
 export const d = (p)=>Div({
         __meo$: 2,
-        __meo$n: p.on ? "01hnvshbfsnd0" : "0mdwjznn1arn1",
+        __meo$n: p.on ? "8f3ja6css4gmb" : "3ahnrvmpadoc1",
         __meo$r: 1,
         __meo$k: "m3qpmewokk8af4"
     });
 export const e = (p)=>Div({
         __meo$: 2,
         __meo$t: [
-            "2djksr5tuztki",
+            "6jc22bencbgep",
             __meoVal("color", `${p.color}`)
         ],
         __meo$r: 1,
@@ -88,7 +88,7 @@ export const e = (p)=>Div({
 export const f = (p)=>Div({
         __meo$: 2,
         __meo$t: [
-            "1l72c5arl6y9k",
+            "4nqairdac839m",
             __meoVal("userSelect", `${p.color}`)
         ],
         __meo$r: 1,
@@ -97,7 +97,7 @@ export const f = (p)=>Div({
 export const g = (p)=>Div({
         __meo$: 2,
         __meo$t: [
-            "1m1xyprrt17pw",
+            "2a912hue1sn8g",
             __meoVal("color", `${p.color}`),
             __meoVal("content", `"${p.color}"`)
         ],

@@ -106,10 +106,17 @@ const STYLE_NAME_SAMPLES = [
   '@media (min-width: 600px)\u0000:hover\u0000color\u0000red',
   'color:š',
   'content:"\u{1F600}"',
-  'x'.repeat(55),
-  'x'.repeat(56),
+  // BLAKE3's block (64 bytes) and chunk (1024 bytes) boundaries, a text the
+  // runtime reads from its units and one past a chunk it hashes from its bytes.
+  'x'.repeat(63),
   'x'.repeat(64),
+  'x'.repeat(65),
   'x'.repeat(200),
+  'x'.repeat(1024),
+  'x'.repeat(1025),
+  'x'.repeat(4097),
+  'x'.repeat(130) + 'é',
+  'é'.repeat(600),
 ]
 
 function hostFactories(uiDir: string): string[] {

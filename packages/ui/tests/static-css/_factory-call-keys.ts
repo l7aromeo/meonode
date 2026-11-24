@@ -44,7 +44,7 @@ export function expectListReport(make: (props: Props) => NodeInstance): void {
   act(() => root.unmount())
   error.mockRestore()
   expect({ html, messages }).toEqual({
-    html: '<div><section class="css-1dgdtqnt1xkm6">a</section><section class="css-1dgdtqnt1xkm6">c</section></div>',
+    html: '<div><section class="css-164hu2kohfjcl">a</section><section class="css-164hu2kohfjcl">c</section></div>',
     messages: [
       'Each child in a list should have a unique "key" prop.%s%s See https://react.dev/link/warning-keys for more information. \n\nCheck the render method of `ListPage`. ',
     ],

@@ -1,13 +1,13 @@
 import { registerStaticCss as __meoCss } from "@meonode/ui";
 import { Div, Node } from "@meonode/ui";
 import { Card } from "./card";
-__meoCss("39up3i7kuujvl", [
+__meoCss("btk1riukjljq2", [
     [
-        "0v0utqiwbarms",
+        "7n9meh9ns0ubk",
         "flex-shrink:0;min-height:0;min-width:0;padding:8px;"
     ],
     [
-        "38c90dwgtj0in-x",
+        "f8oom2lq97sl4-x",
         "flex-shrink:0;min-height:0;min-width:0;label:x;padding:8px;"
     ]
 ]);
@@ -20,7 +20,7 @@ Node(Card, {
 });
 Node("section", {
     __meo$: 2,
-    __meo$n: "0v0utqiwbarms",
+    __meo$n: "7n9meh9ns0ubk",
     __meo$r: 1,
     __meo$k: "m2f7je3rclcq1d"
 });
@@ -52,7 +52,7 @@ Div({
 });
 Div({
     __meo$: 2,
-    __meo$n: "38c90dwgtj0in-x",
+    __meo$n: "f8oom2lq97sl4-x",
     __meo$r: 1,
     __meo$k: "mmnxjlch36c33"
 });

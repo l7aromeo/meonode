@@ -1,15 +1,16 @@
 // @vitest-environment node
 //
-// The name MeoNode gives a style: the first 64 bits of a SHA-256 of its whole
-// text, as 13 base-36 characters, and the memo that saves hashing a text twice.
-import { createHash } from 'node:crypto'
+// The name MeoNode gives a style: the first 64 bits of a BLAKE3 digest of its
+// whole text, as 13 base-32 characters, and the memo that saves hashing a text
+// twice.
 import { serializeStyles } from '@emotion/serialize'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   __clearStyleNameMemo,
   __setStyleHash,
   __styleNameMemoSize,
-  base36,
+  __nameBytes,
+  base32,
   hashStyles,
   nameStyles,
   nameText,
@@ -31,17 +32,59 @@ function unitBytes(text: string): Buffer {
   return Buffer.from(out)
 }
 
-/** The name node:crypto gives the same bytes: its first 64 bits in base 36, 13 characters. */
-const reference = (text: string) => createHash('sha256').update(unitBytes(text)).digest().readBigUInt64BE(0).toString(36).padStart(13, '0')
+/** A 64-bit value, given as 16 hex digits, in 13 base-32 characters. */
+const base32Of = (hex: string) => BigInt(`0x${hex}`).toString(32).padStart(13, '0')
+
+/**
+ * The first 64 bits of BLAKE3's own test vectors, as the `blake3` crate 1.8.7
+ * hashes them: an input of each length whose byte `i` is `i % 251`. The lengths
+ * cross a block (64 bytes), a chunk (1024) and every depth of the chunk tree
+ * up to 100 chunks.
+ */
+const VECTORS: Record<number, string> = {
+  0: 'af1349b9f5f9a1a6',
+  1: '2d3adedff11b61f1',
+  63: 'e9bc37a594daad83',
+  64: '4eed7141ea4a5cd4',
+  65: 'de1e5fa0be70df6d',
+  1023: '10108970eeda3eb9',
+  1024: '42214739f095a406',
+  1025: 'd00278ae47eb27b3',
+  2048: 'e776b6028c7cd22a',
+  2049: '5f4d72f40d7a5f82',
+  3072: 'b98cb0ff3623be03',
+  3073: '7124b49501012f81',
+  4096: '015094013f57a527',
+  4097: '9b4052b38f1c5fc8',
+  5120: '9cadc15fed8b5d85',
+  5121: '628bd2cb2004694a',
+  6144: '3e2e5b74e048f3ad',
+  6145: 'f1323a8631446cc5',
+  7168: '61da957ec2499a95',
+  7169: 'a003fc7a51754a9b',
+  8192: 'aae792484c8efe4f',
+  8193: 'bab6c09cb8ce8cf4',
+  16384: 'f875d6646de28985',
+  31744: '62b6960e1a44bcc1',
+  102400: 'bc3e3d41a1146b06',
+}
 
 const TEXTS = [
   '',
   'a',
   'flex-shrink:0;min-height:0;min-width:0;color:#02ab73;padding:4px;',
-  // Padding boundaries: 55 bytes fit one block, 56 and 64 need a second.
-  'x'.repeat(55),
-  'x'.repeat(56),
+  // Block and chunk boundaries, read from the units: a block is 64 bytes, a
+  // chunk 1024, and a text longer than a chunk is hashed from its bytes.
+  'x'.repeat(63),
   'x'.repeat(64),
+  'x'.repeat(65),
+  'x'.repeat(1023),
+  'x'.repeat(1024),
+  'x'.repeat(1025),
+  // A unit above 0x7f after whole blocks were read from the units, and in the
+  // last unit of a word.
+  'x'.repeat(130) + 'é',
+  'xyz' + 'é',
   // Two- and three-byte units, a surrogate pair, and lone surrogates.
   'content:"é";',
   'content:"中";',
@@ -50,19 +93,32 @@ const TEXTS = [
   'content:"\uDFFF";',
   'é'.repeat(2000),
   'a'.repeat(5000),
+  '中'.repeat(700),
 ]
 
 describe('the name of a styles text', () => {
-  // Forward, then back, so a short text follows a long one in the reused buffer.
-  it.each([...TEXTS, ...[...TEXTS].reverse()].map(text => [text.slice(0, 24), text]))('is the first 64 bits of its SHA-256, in base 36: %j', (_, text) => {
-    expect(hashStyles(text)).toBe(reference(text))
+  it.each(Object.entries(VECTORS))('hashes BLAKE3’s %s-byte test vector to its first 64 bits', (length, prefix) => {
+    const input = Uint8Array.from({ length: Number(length) }, (_, i) => i % 251)
+    expect(__nameBytes(input)).toBe(base32Of(prefix))
   })
 
-  it('writes a 64-bit value as exactly its 13 base-36 digits', () => {
-    const digits = (high: number, low: number) => ((BigInt(high) << 32n) + BigInt(low)).toString(36).padStart(13, '0')
-    // Place-value boundaries of each half, and of each four-digit chunk.
-    const edges = [0, 1, 35, 36, 1295, 1296, 46_655, 46_656, 36 ** 4 - 1, 36 ** 4, 0xffff, 0x10000, 2 ** 31 - 1, 2 ** 31, 2 ** 32 - 1]
-    for (const high of edges) for (const low of edges) expect(base36(high, low)).toBe(digits(high, low))
+  // Forward, then back, so a short text follows a long one in the reused buffers.
+  it.each([...TEXTS, ...[...TEXTS].reverse()].map(text => [text.slice(0, 24), text]))(
+    'is the BLAKE3 of each unit’s UTF-8 encoding, read from the units or the bytes alike: %j',
+    (_, text) => {
+      expect(hashStyles(text)).toBe(__nameBytes(unitBytes(text)))
+    },
+  )
+
+  it('is pinned: a change here renames every class in every app, and the compiler’s too', () => {
+    expect(hashStyles('a')).toBe('1ethfrncmj92j')
+  })
+
+  it('writes a 64-bit value as exactly its 13 base-32 digits', () => {
+    const digits = (high: number, low: number) => ((BigInt(high) << 32n) + BigInt(low)).toString(32).padStart(13, '0')
+    // Each digit's place-value boundaries, across the two halves.
+    const edges = [0, 1, 7, 8, 31, 32, 2 ** 25 - 1, 2 ** 25, 2 ** 28 - 1, 2 ** 28, 2 ** 30 - 1, 2 ** 30, 2 ** 31, 2 ** 32 - 1]
+    for (const high of edges) for (const low of edges) expect(base32(high, low)).toBe(digits(high, low))
     // A fixed sequence of values over the whole range (xorshift32, seeded).
     let seed = 0x2545f491
     const next = () => {
@@ -75,13 +131,13 @@ describe('the name of a styles text', () => {
     for (let i = 0; i < 200_000; i++) {
       const high = next()
       const low = next()
-      if (base36(high, low) !== digits(high, low)) wrong++
+      if (base32(high, low) !== digits(high, low)) wrong++
     }
     expect(wrong).toBe(0)
   })
 
-  it('is 13 base-36 characters', () => {
-    for (const text of TEXTS) expect(hashStyles(text)).toMatch(/^[0-9a-z]{13}$/)
+  it('is 13 base-32 characters', () => {
+    for (const text of TEXTS) expect(hashStyles(text)).toMatch(/^[0-9a-v]{13}$/)
   })
 
   it('differs for texts that differ only in a lone surrogate', () => {

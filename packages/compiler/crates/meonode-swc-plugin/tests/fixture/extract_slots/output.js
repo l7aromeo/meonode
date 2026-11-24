@@ -2,17 +2,17 @@ import { registerStaticCss as __meoCss } from "@meonode/ui";
 import { createElement } from "react";
 import { Div, Node, Row, Span, ThemeProvider } from "@meonode/ui";
 import { Card } from "./card";
-__meoCss("34xxgbvlj8w7h", [
+__meoCss("1souf81070h1i", [
     [
-        "27fvjgatqmrja",
+        "7k6jtd0ljnn25",
         "flex-shrink:0;min-height:0;min-width:0;color:red;"
     ],
     [
-        "2scoofan7u119",
+        "f3cik7eaq92qp",
         "flex-shrink:0;min-height:0;min-width:0;padding:4px;"
     ],
     [
-        "2clwfawpu9xmz",
+        "471abfskhggek",
         "flex-shrink:0;min-height:0;min-width:0;display:flex;flex-direction:row;"
     ]
 ]);
@@ -20,14 +20,14 @@ __meoCss("34xxgbvlj8w7h", [
 // unknown value or a branch that may hold one takes one before it.
 Div({
     __meo$: 2,
-    __meo$n: "2scoofan7u119",
+    __meo$n: "f3cik7eaq92qp",
     __meo$r: 1,
     __meo$k: "m13vuz97gkmrxv",
     __meo$list: 1,
     children: [
         Div({
             __meo$: 2,
-            __meo$n: "27fvjgatqmrja",
+            __meo$n: "7k6jtd0ljnn25",
             __meo$k: "m2gtfxc0hfwt7u"
         }),
         Node(Card, {
@@ -72,7 +72,7 @@ Div({
 // a slot before the value as a whole.
 Span(label, {
     __meo$: 2,
-    __meo$n: "2scoofan7u119",
+    __meo$n: "f3cik7eaq92qp",
     __meo$r: 1,
     __meo$k: "m1i9vrn1065hf3",
     __meo$list: 1
@@ -145,7 +145,7 @@ Div({
 // A layout factory is a host.
 Row({
     __meo$: 2,
-    __meo$n: "2clwfawpu9xmz",
+    __meo$n: "471abfskhggek",
     __meo$r: 1,
     __meo$i: "{k7:displays4:flexk13:flexDirections3:row}",
     __meo$k: "m14wsbo5ei4ta0",

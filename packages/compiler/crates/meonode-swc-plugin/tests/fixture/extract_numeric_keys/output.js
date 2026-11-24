@@ -4,7 +4,7 @@ import { registerStaticCss as __meoCss } from "@meonode/ui";
 import { Div, createNode } from "@meonode/ui";
 import { Card } from "./nodes";
 import { createElement } from "react";
-__meoCss("3gng7kheu33tg", []);
+__meoCss("au4q9n7qvj8d6", []);
 export const X = createNode("div", {
     padding: 1
 });

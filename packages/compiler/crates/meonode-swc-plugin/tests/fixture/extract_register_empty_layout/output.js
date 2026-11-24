@@ -1,6 +1,6 @@
 import { registerStaticCss as __meoCss } from "@meonode/ui";
 import { Body, Html } from "@meonode/ui";
-__meoCss("3gng7kheu33tg", []);
+__meoCss("au4q9n7qvj8d6", []);
 export default function RootLayout({ children }) {
     return Html({
         __meo$: 2,
