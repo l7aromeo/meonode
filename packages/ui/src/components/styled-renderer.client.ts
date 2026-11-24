@@ -70,17 +70,16 @@ export default function StyledRenderer<E extends NodeElement, TProps extends Rec
   // The cache of its scope on a server render with no provider, which it gives
   // the elements below it, as Emotion gives its own to the ones below it.
   const scope = (props as Record<string, unknown>)[STATIC_SCOPE_PROP] as EmotionCache | undefined
-  if (NodeUtil.isServer && emotionCache === null && scope !== undefined) {
-    const { element, children, ...rest } = props
-    const own =
-      run || after
-        ? renderOwnClass(props as Record<string, any>, theme, scope, emotionTheme, context, run, after)
-        : renderStyled(element, children, rest, theme, scope, emotionTheme, context)
-    return createElement(CacheProvider, { value: scope }, own)
-  }
+  // A server render that writes styles in place, with compiled styles in the
+  // app, writes each through MeoNode's own leaf, whose `<style>` says it was
+  // written in place. A named node after a rule writes its style only if no
+  // node wrote it before; whichever did, the page then says so, and the client
+  // renders the same tree as the server.
+  if (NodeUtil.isServer && emotionCache === null && scope !== undefined)
+    return createElement(CacheProvider, { value: scope }, renderOwnClass(props as Record<string, any>, theme, scope, emotionTheme, context, run, after))
   if (NodeUtil.isServer || emotionCache === null) {
-    // Only a walk's runs reach here, and the runtime that made them is installed.
-    if (run || after)
+    // Only a walk's runs reach here with no cache, and the runtime that made them is installed.
+    if (run || after || (emotionCache !== null && emotionCache.compat !== true && namedRuntime.current !== undefined))
       return renderOwnClass(props as Record<string, any>, theme, emotionCache ?? namedRuntime.current!.standInServerCache(), emotionTheme, context, run, after)
     const { element, children, ...rest } = props
     return renderStyled(element, children, rest, theme, emotionCache, emotionTheme, context)
