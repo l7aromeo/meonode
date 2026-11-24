@@ -143,6 +143,10 @@ bun run test:parity
 bun run test:parity:plants
 ```
 
+Both first typecheck this directory (`typecheck:parity`, its own tsconfig): the
+cases import @meonode/mui, which resolves only once mui is built, so `lint`
+leaves them out and CI's package-entries job checks them after building mui.
+
 `test:parity` compares every case. `test:parity:plants` plants one wrong rule,
 attribute or text per dimension on the compared side (one per pseudo-class for
 forced states), and fails unless each is caught in its own dimension. A

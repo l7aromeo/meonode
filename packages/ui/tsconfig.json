@@ -20,5 +20,5 @@
     }
   },
   "include": ["src", "tests", "scripts", "rollup.config.ts"],
-  "exclude": ["dist", "node_modules", "tests/augmented"]
+  "exclude": ["dist", "node_modules", "tests/augmented", "tests/parity"]
 }
