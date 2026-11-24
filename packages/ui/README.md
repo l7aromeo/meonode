@@ -356,7 +356,7 @@ messages themselves ship either way: the flag is a runtime binding, not a build-
 the text, and a minified bundle built with `process.env.NODE_ENV` substituted still contains every one of them. That is
 deliberate — the bugs worth this much logging are usually the ones that only reproduce in production.
 
-The cost is the diagnostics' code in every browser bundle: about 4.8 KB gzipped (the theme checks about 2.9 KB, the
+The cost is the diagnostics' code in every browser bundle: about 3.9 KB gzipped (the theme checks about 2.0 KB, the
 generated-list report about 1.2 KB, the `deps` and style-value checks about 0.7 KB), whether or not the flag is ever set.
 
 📖 [Full list of what it logs](https://ui.meonode.com/docs/getting-started/faq)
@@ -378,10 +378,10 @@ same tree:
 
 | Case                                  | Emotion `css` prop | MeoNode, styled | MeoNode, `className` only |
 |:--------------------------------------|-------------------:|----------------:|--------------------------:|
-| Mount, 10k flat nodes                 | 1.16 · 1.02        | 2.87 · 2.62     | 0.91 · 0.99               |
-| Mount, 500 nested levels              | 1.06 · 1.52        | 2.36 · 2.97     | 0.78 · 1.34               |
-| Update, 1k rows whose colour flips    | 0.96 · 0.90        | 2.20 · 2.63     | 0.80 · 0.82               |
-| Update, a controlled input            | 1.10               | 3.05            | 1.20                      |
+| Mount, 10k flat nodes                 | 1.19 · 0.95        | 2.73 · 2.47     | 1.01 · 1.06               |
+| Mount, 500 nested levels              | 1.09 · 1.36        | 2.26 · 2.74     | 0.81 · 1.28               |
+| Update, 1k rows whose colour flips    | 0.95 · 0.93        | 2.01 · 2.59     | 0.80 · 0.69               |
+| Update, a controlled input            | 1.16               | 2.94            | 1.18                      |
 
 Each cell is **JavaScript only · to the frame**. "Styled" gives every node one style prop, which MeoNode resolves and
 hands to Emotion, so it includes Emotion's own cost (the first column). "`className` only" is MeoNode with no
@@ -394,23 +394,45 @@ An app-shaped tree of about 10k nodes, 31 levels deep with a component every 3 l
 and one inside, theme tokens, and css that differs on every node; its update changes the css of 30% of the nodes. And
 10k styled spans under a `ThemeProvider`. **Cold** is the first mount on a fresh page, with Emotion's sheet empty and
 the code not yet run, and for the app the update right after it; **warm** is a later mount or update on the same page.
-In ms, JavaScript only, this release against the one before:
+In ms, JavaScript only, this release against 3.3.0:
 
-| Case                         | Before | This release | Change              |
-|:-----------------------------|-------:|-------------:|:--------------------|
-| App, cold mount              | 117.3  | 111.5        | −5.6 ± 1.1 (−4.8%)  |
-| App, cold update             | 67.4   | 61.4         | −5.8 ± 1.0 (−8.7%)  |
-| App, warm mount              | 51.6   | 43.0         | −8.7 ± 0.7 (−16.8%) |
-| App, warm update             | 46.5   | 39.2         | −7.4 ± 0.3 (−15.9%) |
-| 10k under a provider, cold   | 71.2   | 67.1         | −3.7 ± 0.9 (−5.2%)  |
-| 10k under a provider, warm   | 48.2   | 41.2         | −7.3 ± 0.6 (−15.0%) |
+| Case                         | 3.3.0 | This release | Change             |
+|:-----------------------------|------:|-------------:|:-------------------|
+| App, cold mount              | 108.6 | 116.1        | +8.0 ± 1.6 (+7.3%) |
+| App, cold update             | 60.4  | 63.2         | +2.2 ± 0.9 (+3.6%) |
+| App, warm mount              | 41.9  | 39.8         | −1.8 ± 0.4 (−4.2%) |
+| App, warm update             | 38.5  | 37.9         | −0.4 ± 0.4 (−1.1%) |
+| 10k under a provider, cold   | 64.1  | 59.0         | −5.5 ± 0.9 (−8.6%) |
+| 10k under a provider, warm   | 40.2  | 37.3         | −3.1 ± 0.8 (−7.7%) |
 
-To the frame, the app's cold mount takes 163.7 ms (−5.5 ± 1.0) and its warm mount 79.6 ms (−8.8 ± 0.9).
+The app's css differs on every node, so every style in it is new on the first mount and on the update after it. This
+release names each style from a BLAKE3 digest of its text, where 3.3.0 used Emotion's 32-bit hash, which could give two
+styles one class name; that accounts for about 7.0 ms of the cold mount. Later mounts and updates do less work than with
+Emotion's serializer, which hashes every style it serializes. To the frame, the app's cold mount takes 167.4 ms
+(+8.4 ± 2.4) and its warm mount 75.6 ms (−1.6 ± 0.7).
 
 **±** is the resolution: the half-width of a 90% bootstrap interval of the per-page differences, plus the largest
 difference two copies of one build showed between runs (up to about 0.17 µs per node on some cases; its cause is not
 known). A change inside its ± is not a measured change, and at 90% about one figure in twenty that did not change will
-still land outside it, so a lone small change near its ± needs a second run before it is quoted.
+still land outside it, so a lone small change near its ± needs a second run before it is quoted. Every figure in the
+table above was measured in two runs that agree within their ±.
+
+### With CSS extraction
+
+With `@meonode/compiler`'s `experimental_extractCss`, a call site whose style is known at build time renders with the
+class and rule it was given at build time, and skips its style work at render. How much that saves depends on how much
+of a page the compiler can name. The same two cases, compiled with extraction on, against the same build uncompiled, in
+ms, JavaScript only, first mount on a fresh page:
+
+| Case                   | Call sites named         | Uncompiled | Extraction on | Change       |
+|:-----------------------|:-------------------------|-----------:|--------------:|:-------------|
+| 10k under a provider   | 1 (every span)           | 55.8       | 51.3          | −4.3 (−7.8%) |
+| App                    | 1 of 6 (the grid's root) | 111.3      | 112.8         | +1.4 (+1.3%) |
+
+The app computes every node's css at run time, so the compiler names only its root and every other node stays on the
+runtime path; with the named runtime loaded, that costs 1 to 2% on the first mount. On later mounts of the same page,
+the provider case is about 3.8 ms slower with extraction on than uncompiled. A component styled with literals, theme
+tokens and constants is the case extraction is for.
 
 ### Fibers and depth
 
@@ -418,9 +440,15 @@ A styled node takes **3 fibers** on the mount that first inserts its rule and **
 and React with a `className` 1.
 
 `.render()` itself walks the tree with an explicit stack, but React's commit recurses through every fiber, so a deep
-tree is bounded by the browser's stack. In Chrome 158, on the first mount of a fresh page, a chain of styled nodes
-mounts **1,287** levels deep; under a `ThemeProvider` with different css on every level, **1,355**; with a component at
-every level, **875**.
+tree is bounded by the browser's stack. In Chrome 158, on the first mount of a fresh page:
+
+| Chain                                                             | Deepest that mounts |
+|:------------------------------------------------------------------|--------------------:|
+| `Div({ padding: 1, children })` at every level                    |         about 1,295 |
+| Under a `ThemeProvider`, css different on every level (the app's) |         about 1,355 |
+| A function component rendering a styled `Div` at every level      |           about 857 |
+
+The same as 3.3.0 within a few levels; the exact limit moves by up to 15 levels between pages.
 
 ### Memory Management
 
@@ -429,7 +457,7 @@ against the ceiling each check asserts:
 
 | Check                              | Growth      | Ceiling  |
 |:-----------------------------------|:------------|:---------|
-| 50 heavy state updates             | **1.8 MB**  | 150 MB   |
+| 50 heavy state updates             | **1.9 MB**  | 150 MB   |
 | 200 mounts/unmounts over 20 cycles | 14.1 MB     | 20 MB    |
 | 10 navigation cycles               | **1.0 MB**  | 20 MB    |
 
