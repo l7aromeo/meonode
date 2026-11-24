@@ -1,7 +1,7 @@
 {
   "name": "@meonode/ui",
   "description": "A structured approach to component composition, direct CSS-first prop styling, built-in theming, smart prop handling (including raw property pass-through), and dynamic children.",
-  "version": "3.3.0",
+  "version": "3.4.0",
   "type": "module",
   "main": "./dist/cjs/main.cjs",
   "module": "./dist/esm/main.js",
@@ -142,7 +142,7 @@
     "@emotion/jest": "^11.14.2",
     "@emotion/styled": "^11.14.1",
     "@eslint/js": "^10.0.1",
-    "@meonode/compiler": "^0.10.4",
+    "@meonode/compiler": "^0.11.0",
     "@mui/material": "^9.5.0",
     "@playwright/test": "^1.65.1",
     "@rollup/plugin-alias": "^6.0.1",
