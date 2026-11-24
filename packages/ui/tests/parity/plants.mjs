@@ -209,6 +209,13 @@ export const COMPILED_PLANTS = [
     html: html => html.replace(/ data-meonode-place(="")?/g, ''),
   },
   {
+    name: 'the in-place marker stripped (one style twice)',
+    case: 'slot-dedup-siblings-hydrate',
+    // The second of two named siblings with one style carries the page's only marker; without it the client
+    // renders no style slots and its tree differs from the server's.
+    html: html => html.replace(/ data-meonode-place(="")?/g, ''),
+  },
+  {
     name: 'the carrier mark stripped (plain)',
     case: MARK_PLANT_CASE,
     client: `${MARK_PLANT_CASE}-client`,
