@@ -219,9 +219,22 @@ export const STATIC_SCOPE_PROP = '__meonodeStaticScope'
  * The prop of a `StyledRenderer` for a carrier that follows a rule in this
  * render: it keeps the carrier's type, so React keeps the element, and renders
  * the host with the class the walk composed. Its rule goes in with the run of
- * the rule before it, as an unmarked node's would, so it has no leaf.
+ * the rule before it, as an unmarked node's would, so it has no leaf. Where a
+ * server writes styles in place, every named node that follows a rule renders
+ * this way, its own rule written before its host on the server.
  */
 export const STATIC_CLASS_ONLY_PROP = '__meonodeStaticClassOnly'
+
+/**
+ * The attribute every `<style>` MeoNode writes in place on a server render
+ * carries, empty. Emotion moves those elements into the head before any of
+ * MeoNode's code runs in the browser, where they look like the ones a cache that
+ * collects its rules writes, so this is the only sign left that the server
+ * wrote each named node's rules before its element, as Emotion does, and gave
+ * each a place for them in the tree. The browser gives each the same place, so
+ * React keeps every element and `useId` id.
+ */
+export const IN_PLACE_STYLE_ATTRIBUTE = 'data-meonode-place'
 
 /**
  * The prop of a `StyledRenderer` that a server component hands a compiled

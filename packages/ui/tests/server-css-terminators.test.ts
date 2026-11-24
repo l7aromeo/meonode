@@ -220,9 +220,11 @@ describe('server CSS joined by MeoNode', () => {
         return Div({ children: [Span('before'), Div({ ...named(IMPORTING), children: 'x' }), Div({ ...named(NEXT), children: 'y' })] }).render()
       }),
     )
-    const text = styleTexts(html).find(t => t.includes(`.css-${second}{`))!
-    expect(text).toContain(`.css-${first}{`)
-    expect(text).toContain('@import url("a.css")')
+    // Each named node writes its rules in a `<style>` of its own, before its element, as Emotion does.
+    const texts = styleTexts(html)
+    expect(texts.find(t => t.includes(`.css-${first}{`))).toContain('@import url("a.css")')
+    const text = texts.find(t => t.includes(`.css-${second}{`))!
+    expect(text).not.toContain(`.css-${first}{`)
     expect(startsFresh(text, `css-${second}`)).toBe(true)
     // A `;` after a rule's block would open the next rule's selector with it.
     expect(text).not.toContain('};')

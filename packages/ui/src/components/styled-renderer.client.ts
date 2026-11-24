@@ -58,7 +58,7 @@ export default function StyledRenderer<E extends NodeElement, TProps extends Rec
   // A marked carrier that follows a rule: its class is composed and its rule goes
   // in with that rule's run, so it renders its host alone, in the place a host
   // has beside a leaf, after the same hooks as any render of this component.
-  if ((props as Record<string, unknown>)[STATIC_CLASS_ONLY_PROP]) return renderHost(props as Record<string, unknown>)
+  if ((props as Record<string, unknown>)[STATIC_CLASS_ONLY_PROP]) return renderHost(props as Record<string, unknown>, emotionCache)
   const theme = context && mode !== undefined ? { ...context.theme, mode: mode as typeof context.theme.mode } : context?.theme
   // The named styles of its render that began since the previous rule, which go
   // in ahead of its own. With them, the server renders the element as the
@@ -134,11 +134,18 @@ const RENDERER_ONLY = new Set([
  * The host of a carrier that carries nothing in this render, with the class it
  * is handed. A fragment holds it in the second place, where
  * {@link renderOwnClass} puts it, so React keeps it when the carrier carries again.
+ * On a server that writes styles in place, the first place holds the node's own
+ * rule, which the walk hands it as its run, written before the host as Emotion
+ * writes an element's; the browser leaves that place empty.
  */
-function renderHost(props: Record<string, unknown>): JSX.Element {
+function renderHost(props: Record<string, unknown>, emotionCache: EmotionCache | null): JSX.Element {
   const hostProps: Record<string, unknown> = {}
   for (const name in props) if (!RENDERER_ONLY.has(name)) hostProps[name] = props[name]
-  return createElement(Fragment, null, null, createElement(props.element as ElementType, hostProps, props.children as ReactNode))
+  const own = props[STATIC_RUN_PROP] as readonly NamedStyle[] | undefined
+  // Each style names its scope's cache where it has one, so the stand-in only serves a provided cache's absence.
+  const leaf =
+    NodeUtil.isServer && own !== undefined ? namedRuntime.current!.serverStyleElement(emotionCache ?? namedRuntime.current!.standInServerCache(), own) : null
+  return createElement(Fragment, null, leaf, createElement(props.element as ElementType, hostProps, props.children as ReactNode))
 }
 
 /**

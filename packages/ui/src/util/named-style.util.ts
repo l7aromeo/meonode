@@ -5,6 +5,7 @@ import { createElement, Fragment, type ReactElement } from 'react'
 import { createServerCssCache } from '@src/util/server-css-cache.util.js'
 import { nameStyles } from '@src/util/style-name.util.js'
 import { sheetStarts, terminateRules } from '@src/util/rule-text.util.js'
+import { IN_PLACE_STYLE_ATTRIBUTE } from '@src/constant/common.const.js'
 
 /**
  * A node's whole style, as the compiler serialized it, ready for Emotion's own
@@ -82,8 +83,9 @@ export function standInServerCache(): EmotionCache {
  * browser adopts by those names and moves before hydration. Emotion gives each
  * element a sheet of its own, so a style whose text must start a sheet, or
  * leaves one open, gets a sheet edge there ({@link sheetStarts}), and the
- * element becomes several. A cache that collects its rules instead, as a
- * registry's does, returns none, so nothing renders.
+ * element becomes several. Each carries {@link IN_PLACE_STYLE_ATTRIBUTE}, which
+ * tells the browser the server wrote styles in place. A cache that collects its
+ * rules instead, as a registry's does, returns none, so nothing renders.
  * @param cache The server render's cache.
  * @param styles The styles, in the order they go in.
  * @returns The element (a fragment of them, where a sheet edge splits it), or
@@ -91,6 +93,8 @@ export function standInServerCache(): EmotionCache {
  */
 export function serverStyleElement(cache: EmotionCache, styles: readonly NamedStyle[]): ReactElement | null {
   const names: string[] = []
+  /** Each style's text as Emotion's cache wrote it, and as it reads joined to more text. */
+  const written: string[] = []
   const texts: string[] = []
   const repeats = standIns.has(cache)
   for (const { serialized, isStringTag, scope } of styles) {
@@ -100,6 +104,7 @@ export function serverStyleElement(cache: EmotionCache, styles: readonly NamedSt
       for (let current: SerializedStyles | undefined = serialized; current !== undefined; current = current.next) delete cache.inserted[current.name]
     const inserted = insertStyles(target, serialized, isStringTag)
     if (inserted === undefined) continue
+    written.push(inserted)
     texts.push(terminateRules(inserted))
     let styleNames = ''
     for (let current: SerializedStyles | undefined = serialized; current !== undefined; current = current.next) styleNames += ` ${current.name}`
@@ -110,9 +115,11 @@ export function serverStyleElement(cache: EmotionCache, styles: readonly NamedSt
   const starts = sheetStarts(texts)
   const sheets = starts.map((start, index) => {
     const end = starts[index + 1] ?? texts.length
+    // The last style ends with its element, as in Emotion's own, so it keeps the text Emotion wrote.
     return createElement('style', {
       'data-emotion': `${cache.key}${names.slice(start, end).join('')}`,
-      dangerouslySetInnerHTML: { __html: texts.slice(start, end).join('') },
+      [IN_PLACE_STYLE_ATTRIBUTE]: '',
+      dangerouslySetInnerHTML: { __html: texts.slice(start, end - 1).join('') + written[end - 1] },
       nonce: cache.sheet.nonce,
     })
   })
