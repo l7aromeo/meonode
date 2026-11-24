@@ -55,11 +55,22 @@ export default function StyledRenderer<E extends NodeElement, TProps extends Rec
   const readsTheme = ThemeUtil.hasThemeFunction(props.css)
   const mode = useThemeSnapshot(context?.store ?? null, readsTheme ? selectMode : null)
   const emotionTheme = useContext(EmotionThemeContext)
+  const theme = context && mode !== undefined ? { ...context.theme, mode: mode as typeof context.theme.mode } : context?.theme
+  // The props below exist only on nodes a walk hands compiled styles, which
+  // needs the named runtime that registering a compiled style installs. In an
+  // app built without the compiler there is none, so this renders the element
+  // without reading them: each read would miss on every styled node.
+  if (namedRuntime.current === undefined) {
+    if (NodeUtil.isServer || emotionCache === null) {
+      const { element, children, ...rest } = props
+      return renderStyled(element, children, rest, theme, emotionCache, emotionTheme, context)
+    }
+    return renderOwnClass(props as Record<string, any>, theme, emotionCache, emotionTheme, context)
+  }
   // A marked carrier that follows a rule: its class is composed and its rule goes
   // in with that rule's run, so it renders its host alone, in the place a host
   // has beside a leaf, after the same hooks as any render of this component.
   if ((props as Record<string, unknown>)[STATIC_CLASS_ONLY_PROP]) return renderHost(props as Record<string, unknown>, emotionCache)
-  const theme = context && mode !== undefined ? { ...context.theme, mode: mode as typeof context.theme.mode } : context?.theme
   // The named styles of its render that began since the previous rule, which go
   // in ahead of its own. With them, the server renders the element as the
   // browser does, beside MeoNode's own leaf, which renders them with its rule.
@@ -70,21 +81,36 @@ export default function StyledRenderer<E extends NodeElement, TProps extends Rec
   // The cache of its scope on a server render with no provider, which it gives
   // the elements below it, as Emotion gives its own to the ones below it.
   const scope = (props as Record<string, unknown>)[STATIC_SCOPE_PROP] as EmotionCache | undefined
+  // The node's compiled style, which it renders under the name the compiler gave it.
+  const ownStyle = (props as Record<string, unknown>)[STATIC_STYLE_PROP] as CompiledStyle | undefined
   // A server render that writes styles in place, with compiled styles in the
   // app, writes each through MeoNode's own leaf, whose `<style>` says it was
   // written in place. A named node after a rule writes its style only if no
   // node wrote it before; whichever did, the page then says so, and the client
   // renders the same tree as the server.
   if (NodeUtil.isServer && emotionCache === null && scope !== undefined)
-    return createElement(CacheProvider, { value: scope }, renderOwnClass(props as Record<string, any>, theme, scope, emotionTheme, context, run, after))
+    return createElement(
+      CacheProvider,
+      { value: scope },
+      renderOwnClass(props as Record<string, any>, theme, scope, emotionTheme, context, run, after, ownStyle),
+    )
   if (NodeUtil.isServer || emotionCache === null) {
     // Only a walk's runs reach here with no cache, and the runtime that made them is installed.
     if (run || after || (emotionCache !== null && emotionCache.compat !== true && namedRuntime.current !== undefined))
-      return renderOwnClass(props as Record<string, any>, theme, emotionCache ?? namedRuntime.current!.standInServerCache(), emotionTheme, context, run, after)
+      return renderOwnClass(
+        props as Record<string, any>,
+        theme,
+        emotionCache ?? namedRuntime.current!.standInServerCache(),
+        emotionTheme,
+        context,
+        run,
+        after,
+        ownStyle,
+      )
     const { element, children, ...rest } = props
     return renderStyled(element, children, rest, theme, emotionCache, emotionTheme, context)
   }
-  return renderOwnClass(props as Record<string, any>, theme, emotionCache, emotionTheme, context, run, after)
+  return renderOwnClass(props as Record<string, any>, theme, emotionCache, emotionTheme, context, run, after, ownStyle)
 }
 
 /**
@@ -195,6 +221,13 @@ function serializedOf(registered: unknown[], compiled: CompiledStyle | undefined
   return nameStyles(serializeStyles(registered as never, undefined, emotionTheme as never))
 }
 
+/** Whether any of `styles` is not yet in its cache: its scope's, or `cache`. */
+function hasPending(styles: readonly NamedStyle[] | undefined, cache: EmotionCache): boolean {
+  if (styles === undefined) return false
+  for (const style of styles) if ((style.scope ?? cache).inserted[style.serialized.name] === undefined) return true
+  return false
+}
+
 /**
  * Renders the element with the class Emotion's `css` prop would give it under
  * MeoNode's name for its styles ({@link nameStyles}), computed here rather than
@@ -211,12 +244,13 @@ function renderOwnClass(
   context: ThemeContextState | null,
   run?: readonly NamedStyle[],
   after?: readonly NamedStyle[],
+  ownStyle?: CompiledStyle,
 ): JSX.Element {
   const asTarget = props.as
   const renderTarget = (asTarget != null && isValidElementType(asTarget) ? asTarget : props.element) as ElementType
   const givenClass = props.className
   let className = ''
-  const compiled = compiledOf(props[STATIC_STYLE_PROP] as CompiledStyle | undefined, theme, context)
+  const compiled = compiledOf(ownStyle, theme, context)
   const registered: unknown[] = [compiled ? compiled.styles : cssOf(props.css, theme, context)]
   if (typeof givenClass === 'string') className = getRegisteredStyles(cache.registered, registered as string[], givenClass)
   else if (givenClass != null) className = `${givenClass as string} `
@@ -230,10 +264,8 @@ function renderOwnClass(
   const host = createElement(renderTarget, hostProps, props.children as ReactNode)
   // Each named style goes into its own scope's cache where it has one: on a server
   // render with no provider, a style after this element's scope may be under another.
-  const notIn = (styles: readonly NamedStyle[] | undefined) =>
-    styles !== undefined && styles.some(style => (style.scope ?? cache).inserted[style.serialized.name] === undefined)
-  const pending = cache.inserted[serialized.name] === undefined || notIn(run) || notIn(after)
-  const leaf = pending ? createElement(RuleInsertion, { cache, serialized, isStringTag, ...(run && { run }), ...(after && { after }) }) : null
+  const pending = cache.inserted[serialized.name] === undefined || hasPending(run, cache) || hasPending(after, cache)
+  const leaf = pending ? createElement(RuleInsertion, { cache, serialized, isStringTag, run, after }) : null
   return createElement(Fragment, null, leaf, host)
 }
 
