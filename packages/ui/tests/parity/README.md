@@ -150,10 +150,11 @@ dimension counts only after its plant is caught. It also plants compiler bugs:
 each rewrites the "on" side's compiled output of one case (a selector list in
 the registered rule text cut to its first selector, or the carrier marks
 stripped, for instance), and must show a difference from the oracle that the
-unrewritten output does not. A compiled plant with `noDifference` pins a
+unrewritten output does not, in some server mode the case runs in; the log
+gives each mode's result. A compiled plant with `noDifference` pins a
 rewrite the browser cannot see, with its reason: the mark stripped from a
 themed carrier, which the runtime makes a carrier on every render anyway. It
-must change the output and show no difference. The registry check has a plant of its own: an
+must change the output and show no difference in any mode. The registry check has a plant of its own: an
 unclosed `(` ahead of the registry's joined styles on the [registry] page of
 both the oracle and the "off" side, which their own row reads as the same and
 the registry check must catch.

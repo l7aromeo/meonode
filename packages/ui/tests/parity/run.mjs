@@ -989,28 +989,37 @@ try {
         Object.keys(sideBuilt.on.parts).some(part => sideBuilt.on.parts[part] !== sideBuilt.planted.parts[part]) ||
         pageOf('on').head + pageOf('on').body !== pageOf('planted').head + pageOf('planted').body
       const caseMeta = (await import(pathToFileURL(join(built.runtime.dir, 'corpus', `${plant.case}.mjs`)).href)).meta
-      const oracle = await record('runtime', plant.case, 'plain', caseMeta)
-      const text = d => `${d.dimension} ${d.where} ${d.text}`
-      const clean = new Set(compareRecords(oracle, await record('on', plant.case, 'plain', caseMeta)).map(text))
       if (!built.off?.ssr.plain[plant.case]) {
         const { dir, compiled } = await buildSide(SIDES.off, [plant.case])
         const ssr = await serverRender(dir, [plant.case])
         built.off = { dir, compiled, ssr, client: readFileSync(join(dir, 'client.js'), 'utf8') }
       }
-      const html = s => built[s].ssr.plain[plant.case].head + built[s].ssr.plain[plant.case].body
-      for (const d of compareRuleText(html('off'), html('on'), compile)) clean.add(text(d))
-      const found = [
-        ...compareRecords(oracle, await record('planted', plant.case, 'plain', caseMeta)),
-        ...compareRuleText(html('off'), html('planted'), compile),
-      ].filter(d => !clean.has(text(d)))
-      // A plant that names a dimension must show there, not only elsewhere; one with `noDifference` must show nowhere.
-      const caught = plant.noDifference
-        ? changed && found.length === 0
-        : changed && found.length > 0 && (!plant.dimension || found.some(d => d.dimension === plant.dimension))
+      const text = d => `${d.dimension} ${d.where} ${d.text}`
+      // Each server mode the case runs in: a rewrite may change nothing in one mode and show in another (the carrier
+      // mark is redundant where [plain] renders style slots, and holds identity in [registry]).
+      const byMode = []
+      for (const mode of caseMeta.serverModes ?? ['plain', 'registry']) {
+        const oracle = await record('runtime', plant.case, mode, caseMeta)
+        const clean = new Set(compareRecords(oracle, await record('on', plant.case, mode, caseMeta)).map(text))
+        const html = s => built[s].ssr[mode][plant.case].head + built[s].ssr[mode][plant.case].body
+        for (const d of compareRuleText(html('off'), html('on'), compile)) clean.add(text(d))
+        const found = [
+          ...compareRecords(oracle, await record('planted', plant.case, mode, caseMeta)),
+          ...compareRuleText(html('off'), html('planted'), compile),
+        ].filter(d => !clean.has(text(d)))
+        byMode.push({ mode, found })
+      }
+      // A plant that names a dimension must show there, not only elsewhere, in some mode; one with `noDifference` must
+      // show in none.
+      const shows = ({ found }) => found.length > 0 && (!plant.dimension || found.some(d => d.dimension === plant.dimension))
+      const caught = plant.noDifference ? changed && byMode.every(m => m.found.length === 0) : changed && byMode.some(shows)
       if (!caught) failures++
       const outcome = plant.noDifference ? (caught ? 'held' : 'BROKEN') : caught ? 'caught' : 'MISSED'
+      const modes = byMode
+        .map(({ mode, found }) => `[${mode}] ${found.length} new difference(s) in ${[...new Set(found.map(d => d.dimension))].join(', ') || 'none'}`)
+        .join('; ')
       console.log(
-        `${outcome} compiled plant "${plant.name}": ${changed ? '' : 'the rewrite changed nothing; '}${found.length} new difference(s) in ${[...new Set(found.map(d => d.dimension))].join(', ') || 'none'}${plant.noDifference ? ` (expected none: ${plant.noDifference})` : ''}`,
+        `${outcome} compiled plant "${plant.name}": ${changed ? '' : 'the rewrite changed nothing; '}${modes}${plant.noDifference ? ` (expected none: ${plant.noDifference})` : ''}`,
       )
     }
     const planted = new Set(PLANTS.map(p => p.dimension))

@@ -79,7 +79,8 @@ export const stripMark = key => code => code.replace(new RegExp(`__meo\\$r: 1,\\
  * Plants in the compiler's output rather than on the page: each rewrites the
  * "on" side's compiled module of one case (and the parts it imports), and
  * the run must find a difference from the oracle that the unrewritten output
- * does not have; in `dimension`, when the plant names one. `html` rewrites
+ * does not have, in some server mode the case runs in, each recorded; in
+ * `dimension`, when the plant names one. `html` rewrites
  * the planted side's [plain] server HTML instead of, or besides, its
  * compiled output. A plant with
  * `noDifference` pins a rewrite the browser cannot see, for the reason it
