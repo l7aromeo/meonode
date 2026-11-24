@@ -243,7 +243,8 @@ export const COMPILED_PLANTS = [
  * names the outcome a forced-state plant must reach under real input:
  * `stable` (the same in every sweep), `only-compared` (varying on the planted
  * page alone) or `in-session` (in every sweep and on no fresh load); each
- * stays a failure. `input` marks a plant only real input can set off: where
+ * stays a failure. `exactly` names how many differences of its dimension a
+ * plant must make and text each holds. `input` marks a plant only real input can set off: where
  * states are forced through the DevTools protocol no pointer moves, so it is
  * skipped there.
  */
@@ -258,6 +259,14 @@ export const PLANTS = [
     dimension: 'forced-state',
     name: ':hover after a transition',
     page: addRule(`${ROOT} { transition: outline-offset 2s linear } ${ROOT}:hover { ${WRONG} }`),
+  },
+  // One value in one part of one element in one state: the forced-state diff must report exactly that value, so a
+  // diff that mishandles a part or an out-of-scope element cannot hide behind a plant that changes many.
+  {
+    dimension: 'forced-state',
+    name: 'one ::before value under :hover',
+    page: addRule(`${ROOT} button:hover::before { background-color: rgb(1, 2, 3) }`),
+    exactly: { count: 1, text: '/1/background-color:' },
   },
   { dimension: 'forced-state', name: ':checked', page: addRule(`${ROOT} input:checked { ${WRONG} }`) },
   { dimension: 'forced-state', name: ':disabled', page: addRule(`${ROOT} input:disabled { ${WRONG} }`) },

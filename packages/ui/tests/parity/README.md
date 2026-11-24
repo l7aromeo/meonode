@@ -179,11 +179,23 @@ Settings, from the environment:
   forced, steps, first paint, compare, confirm sweeps and confirm reloads).
   Every run also logs the totals, with the wall time, as `time by phase`.
   The phases named `forced: …` are parts of `forced`: the read in the page,
-  the rest of the read's round trip (serialising and moving the values), the
-  diff against the unforced read, and with the DevTools protocol the force,
-  the unforce and the transitions wait after each.
+  which diffs against the unforced read there, the rest of the read's round
+  trip (serialising and moving what changed), and with the DevTools protocol
+  the force, the unforce and the transitions wait after each.
+- `PARITY_CACHE`: the directory the sides are built into (default
+  `packages/ui/node_modules/.cache/parity`), so runs that go on at once in one
+  checkout do not build over each other. It must lie inside `packages/ui`, so
+  the built pages resolve the package's own dependencies.
+- `PARITY_WORKERS`: how many worker processes the comparison's cases are
+  spread over, each with its own browser and connection (default: two fewer
+  than the cores where states are forced through the DevTools protocol, 4
+  under real input, where hover timing shifts with load). The process that builds the sides hands each worker the
+  next case and adds each case's lines and records once every case before it
+  has been added, so the log and `PARITY_REPORT` read as a serial run's. A
+  forced-state read diffs against the unforced read inside the page and
+  returns only what changed, so no worker's thread carries every value.
 - `PARITY_SHARD`: `k/n`, to run only the k-th of n interleaved slices of the
-  cases, so CI can run one engine as n jobs. A shard skips the coverage gate;
+  cases, so one engine's run can be split across machines. A shard skips the coverage gate;
   a `--no-browser` run checks it for every case.
 - `--case=<name>`: one case only, without the coverage gate.
 - `--plant=<text>[,<text>…]`: with `--plants`, only the plants whose name (or, unnamed, dimension) holds one of the texts, for checking a few plants; such a run proves no dimension whole.

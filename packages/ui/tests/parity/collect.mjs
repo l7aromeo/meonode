@@ -65,10 +65,18 @@ function readTree(skipped) {
  * `data-parity-scope` element holding the element at `index` are read, and
  * the others are null. Given a third item, true, the result also holds `ms`,
  * the time the read took in the page.
+ *
+ * A fourth item names a mode that keeps the values in the page: `'base'`
+ * stores the read as the page's baseline and returns only its element count;
+ * `'changed'` returns only `{ changed }`, the values that differ from the
+ * baseline (`<element index>/<part>/<prop>` → value, by strict inequality,
+ * elements outside the read's scope skipped), so a forced-state read moves
+ * only its differences out of the page, not every value.
  */
 function readStyles(arg) {
   const started = performance.now()
-  const [skipped, scopeIndex, timed] = Array.isArray(arg[0]) ? arg : [arg, null, false]
+  const [skipped, scopeIndex, timed, mode] = Array.isArray(arg[0]) ? arg : [arg, null, false, null]
+  const BASE = Symbol.for('parity.base')
   const elements = [...document.querySelectorAll('#root *')].filter(el => !skipped.includes(el.tagName))
   const scope = scopeIndex === null ? null : elements[scopeIndex].closest('[data-parity-scope]')
   const first = elements.length ? getComputedStyle(elements[0]) : getComputedStyle(document.body)
@@ -84,7 +92,28 @@ function readStyles(arg) {
       return false
     }
   })
-  return {
+  const parts = el => [
+    values(getComputedStyle(el)),
+    values(getComputedStyle(el, '::before')),
+    values(getComputedStyle(el, '::after')),
+    el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' ? values(getComputedStyle(el, '::placeholder')) : [],
+    readSelection ? values(getComputedStyle(el, '::selection')) : [],
+  ]
+  if (mode === 'changed') {
+    // Element by element, part by part, property by property, against the baseline at the same indices.
+    const base = window[BASE]
+    const changed = {}
+    elements.forEach((el, e) => {
+      if (scope && !scope.contains(el)) return
+      parts(el).forEach((vals, part) =>
+        vals.forEach((v, p) => {
+          if (v !== base.elements[e]?.[part]?.[p]) changed[`${e}/${part}/${props[p]}`] = v
+        }),
+      )
+    })
+    return { changed, ...(timed && { ms: performance.now() - started }) }
+  }
+  const read = {
     props,
     paths: elements.map(el => {
       const path = []
@@ -92,21 +121,18 @@ function readStyles(arg) {
         path.unshift(`${e.tagName.toLowerCase()}:nth-child(${[...e.parentElement.children].indexOf(e) + 1})`)
       return path.join(' > ')
     }),
-    elements: elements.map(el =>
-      scope && !scope.contains(el)
-        ? null
-        : [
-            values(getComputedStyle(el)),
-            values(getComputedStyle(el, '::before')),
-            values(getComputedStyle(el, '::after')),
-            el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' ? values(getComputedStyle(el, '::placeholder')) : [],
-            readSelection ? values(getComputedStyle(el, '::selection')) : [],
-          ],
-    ),
+    elements: elements.map(el => (scope && !scope.contains(el) ? null : parts(el))),
     // With `timed`, the milliseconds the read took in the page, for the run's phase times.
     ...(timed && { ms: performance.now() - started }),
   }
+  if (mode !== 'base') return read
+  // Held where the page's own scripts do not look, under a registered symbol.
+  Object.defineProperty(window, BASE, { value: read, configurable: true })
+  return { count: read.elements.length }
 }
+
+/** Reads the page's unforced styles and keeps them in the page as the baseline forced-state reads are diffed against. */
+const storeBase = page => page.evaluate(readStyles, [SKIPPED_TAGS, null, false, 'base'])
 
 /** Waits for two frames, so effects and style recalculation have run. */
 const settle = page =>
@@ -225,19 +251,6 @@ function readIdentity(skipped) {
  */
 const FORCE_BY_CDP = (process.env.PARITY_BROWSER ?? 'chromium') === 'chromium' && process.env.PARITY_FORCE !== 'input'
 
-/** The computed values in `now` that differ from `base`, keyed `<element index>/<part>/<prop>`. */
-function changedFrom(now, base) {
-  const changed = {}
-  now.elements.forEach((parts, e) =>
-    parts?.forEach((vals, part) =>
-      vals.forEach((v, p) => {
-        if (v !== base.elements[e]?.[part]?.[p]) changed[`${e}/${part}/${now.props[p]}`] = v
-      }),
-    ),
-  )
-  return changed
-}
-
 /**
  * For each compared element and each forced pseudo-class, the properties of any
  * element whose computed value differs from the unforced state.
@@ -250,11 +263,10 @@ const forcedStates = async (page, base, meta, samples = {}, spend = () => {}) =>
   // Its time is split into the read in the page and the rest of the round trip (serialising and moving the values).
   const read = async index => {
     const started = performance.now()
-    const now = await page.evaluate(readStyles, [SKIPPED_TAGS, meta.forceScope === 'fixture' ? index : null, true])
-    spend('forced: read in page', now.ms)
-    spend('forced: read transfer', performance.now() - started - now.ms)
-    delete now.ms
-    return now
+    const { changed, ms } = await page.evaluate(readStyles, [SKIPPED_TAGS, meta.forceScope === 'fixture' ? index : null, true, 'changed'])
+    spend('forced: read in page', ms)
+    spend('forced: read transfer', performance.now() - started - ms)
+    return changed
   }
   return {
     ...(await (FORCE_BY_CDP ? forcedByCdp(page, base, sets, onlyMarked, read, spend) : forcedByInput(page, base, sets, onlyMarked, read, Infinity, samples))),
@@ -307,15 +319,14 @@ function flipState([index, state, skipped]) {
 /** For each compared element and each DOM state it has, what changes while the state is flipped. */
 async function domStates(page, base) {
   const out = {}
-  for (let index = 0; index < base.elements.length; index++) {
+  for (let index = 0; index < base.count; index++) {
     for (const state of DOM_STATES) {
       if (!(await page.evaluate(flipState, [index, state, SKIPPED_TAGS]))) continue
       await settle(page)
       await assertNoHover(page, `the ${state} read of element ${index}`)
-      const now = await page.evaluate(readStyles, SKIPPED_TAGS)
+      out[`${index}:${state}`] = (await page.evaluate(readStyles, [SKIPPED_TAGS, null, false, 'changed'])).changed
       await page.evaluate(() => window.__parityUndo())
       await settle(page)
-      out[`${index}:${state}`] = changedFrom(now, base)
     }
   }
   return out
@@ -346,10 +357,9 @@ async function forcedByCdp(page, base, sets, onlyMarked, read, spend = () => {})
     for (const states of sets) {
       await timed('forced: force', () => cdp.send('CSS.forcePseudoState', { nodeId, forcedPseudoClasses: states }))
       await timed('forced: transitions', () => finishTransitions(page))
-      const now = await read(index)
+      out[`${index}:${states.join('+')}`] = await read(index)
       await timed('forced: unforce', () => cdp.send('CSS.forcePseudoState', { nodeId, forcedPseudoClasses: [] }))
       await timed('forced: transitions', () => finishTransitions(page))
-      out[`${index}:${states.join('+')}`] = await timed('forced: diff', () => changedFrom(now, base))
     }
   }
   await cdp.detach()
@@ -495,7 +505,7 @@ async function applyByInput(page, base, element, index, centre, states, read) {
   const pointerStates = centre ? states.filter(state => state === 'hover' || state === 'active') : []
   const waited = pointerStates.length ? await element.evaluate(waitForStates, [pointerStates, STATE_WAIT_FRAMES]) : true
   await settle(page)
-  const now = await read(index)
+  const changed = await read(index)
   // Whether the element still matched the pointer's states when it was read: a hover that moves the element from
   // under the pointer ends itself, and a read without the state is no sample of it.
   const kept = pointerStates.length ? await element.evaluate((el, list) => list.every(state => el.matches(`:${state}`)), pointerStates) : true
@@ -517,7 +527,7 @@ async function applyByInput(page, base, element, index, centre, states, read) {
     await page.mouse.move(...NEUTRAL)
     await page.mouse.up()
   }
-  return { changed: changedFrom(now, base), held, waited, layout, ...(stray.length && { stray }) }
+  return { changed, held, waited, layout, ...(stray.length && { stray }) }
 }
 
 /**
@@ -541,8 +551,8 @@ export async function resweepForced(browser, url, meta, plant, upTo) {
     if (plant) await plant(page)
     await page.evaluate(() => window.__parityShell.setMode('light'))
     await settle(page)
-    const base = await page.evaluate(readStyles, SKIPPED_TAGS)
-    const read = index => page.evaluate(readStyles, meta.forceScope === 'fixture' ? [SKIPPED_TAGS, index] : SKIPPED_TAGS)
+    const base = await storeBase(page)
+    const read = async index => (await page.evaluate(readStyles, [SKIPPED_TAGS, meta.forceScope === 'fixture' ? index : null, false, 'changed'])).changed
     const sets = [...FORCED_STATES.map(state => [state]), ...(meta.forceCombos ?? [])].filter(set => set.every(state => INPUT_STATES.includes(state)))
     const samples = {}
     const forced = await forcedByInput(page, base, sets, meta.force === 'marked', read, upTo, samples)
@@ -574,8 +584,8 @@ export async function remeasureForced(browser, url, meta, plant, keys) {
     if (plant) await plant(page)
     await page.evaluate(() => window.__parityShell.setMode('light'))
     await settle(page)
-    const base = await page.evaluate(readStyles, SKIPPED_TAGS)
-    const read = index => page.evaluate(readStyles, meta.forceScope === 'fixture' ? [SKIPPED_TAGS, index] : SKIPPED_TAGS)
+    const base = await storeBase(page)
+    const read = async index => (await page.evaluate(readStyles, [SKIPPED_TAGS, meta.forceScope === 'fixture' ? index : null, false, 'changed'])).changed
     const elements = await comparedElements(page)
     const out = {}
     for (const key of keys) {
@@ -653,7 +663,7 @@ export async function collect(browser, url, meta, plant, spend = () => {}) {
     }
     lap('environments')
     await settle(page)
-    const base = await page.evaluate(readStyles, SKIPPED_TAGS)
+    const base = await storeBase(page)
     record.exact = await page.evaluate(readExact)
     // Each real-input read's sample: whether the element held its states when read, and whether it took them in time.
     record.forcedSamples = {}

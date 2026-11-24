@@ -22,17 +22,18 @@
 // - PARITY_GRAMMAR: the selector grammar module to generate pages from (default: the compiler's tests/selector-grammar.ts)
 // - PARITY_GRAMMAR_CASES: a JSON file of grammar case names, to generate only those
 // - PARITY_SHARD: k/n, to run only the k-th of n interleaved slices of the cases, without the
-//   coverage gate (which a --no-browser run checks for every case), so CI can split a run into jobs
-import { execFile } from 'node:child_process'
+//   coverage gate (which a --no-browser run checks for every case), to split a run across machines
+import { AsyncLocalStorage } from 'node:async_hooks'
+import { execFile, fork } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { availableParallelism, loadavg } from 'node:os'
 import { join } from 'node:path'
-import { pathToFileURL, URL } from 'node:url'
+import { fileURLToPath, pathToFileURL, URL } from 'node:url'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { promisify } from 'node:util'
-import { buildSide, caseNames, CORPUS, isRscCase, PACKAGE } from './build.mjs'
+import { BUILD_CACHE, buildSide, caseNames, CORPUS, isRscCase, PACKAGE } from './build.mjs'
 import { collect, collectFirstPaint, INPUT_STATES, remeasureForced, resweepForced } from './collect.mjs'
 import { CACHE_KEYS, compareExact, compareRecords, compareRuleText, DIMENSIONS } from './compare.mjs'
 import { writeGeneratedCases } from './generate.mjs'
@@ -51,7 +52,12 @@ const args = process.argv.slice(2)
 const PLANT_RUN = args.includes('--plants')
 /** `--plant=<text>[,<text>…]`: with --plants, only the plants whose name holds one of these; the run then proves nothing whole. */
 const PLANT_FILTER = args.find(a => a.startsWith('--plant='))?.slice('--plant='.length)
-const pick = list => (PLANT_FILTER ? list.filter(p => PLANT_FILTER.split(',').some(t => (p.name ?? p.dimension).includes(t))) : list)
+/** Whether a plant's name or dimension holds the text. */
+const plantNamed = (plant, text) => [plant.name, plant.dimension].some(s => s?.includes(text))
+const pick = list => (PLANT_FILTER ? list.filter(p => PLANT_FILTER.split(',').some(t => plantNamed(p, t))) : list)
+// A filter that names no plant would pass having planted nothing.
+for (const text of PLANT_FILTER?.split(',') ?? [])
+  if (![...PLANTS, ...MODE_PLANTS, ...COMPILED_PLANTS].some(p => plantNamed(p, text))) throw new Error(`--plant=${text} names no plant`)
 /** `--case=<name>[,<name>…]`: only these cases, without the coverage gate. */
 const ONLY = args
   .find(a => a.startsWith('--case='))
@@ -103,11 +109,33 @@ const buildPhases = {}
 const rowPhases = []
 /** Where the phase times of the row being read go, besides the totals; null outside a row. */
 let phaseSink = null
+
+/**
+ * The case a worker is reading: its log lines and phase rows, sent to the
+ * coordinator with the case, which prints them once every case before it has,
+ * so the log reads in case order as a serial run's.
+ */
+const caseScope = new AsyncLocalStorage()
+
+/**
+ * Set in a worker process the coordinator forked: it reads the cases it is
+ * handed and sends their lines and records back, and prints nothing itself.
+ */
+const WORKER = process.env.PARITY_WORKER === '1'
+// A worker whose coordinator is gone has no one to report to.
+if (WORKER) process.on('disconnect', () => process.exit(1))
+const print = console.log
+console.log = (...parts) => {
+  const scope = caseScope.getStore()
+  if (scope) scope.lines.push(parts)
+  else if (!WORKER) print(...parts)
+}
 const runStarted = performance.now()
 /** Adds `ms` to a phase's total and to the current row's. */
 function spend(phase, ms) {
   phaseTotals[phase] = (phaseTotals[phase] ?? 0) + ms
-  if (phaseSink) phaseSink[phase] = (phaseSink[phase] ?? 0) + ms
+  const sink = caseScope.getStore()?.sink ?? phaseSink
+  if (sink) sink[phase] = (sink[phase] ?? 0) + ms
 }
 /** Runs `fn`, adding its time to `phase`. */
 async function timed(phase, fn) {
@@ -120,8 +148,15 @@ async function timed(phase, fn) {
 }
 /** Starts a row's phase times; the row's record goes to PARITY_REPORT. */
 function startRow(row) {
-  phaseSink = {}
-  rowPhases.push({ ...row, phases: phaseSink })
+  const sink = {}
+  const scope = caseScope.getStore()
+  if (scope) {
+    scope.sink = sink
+    scope.rows.push({ ...row, phases: sink })
+  } else {
+    phaseSink = sink
+    rowPhases.push({ ...row, phases: sink })
+  }
 }
 /** The log line of where the run's time went. */
 function phaseLine() {
@@ -133,6 +168,21 @@ function phaseLine() {
 const ENGINE = process.env.PARITY_BROWSER ?? 'chromium'
 if (!['chromium', 'webkit', 'firefox'].includes(ENGINE)) throw new Error(`PARITY_BROWSER must be chromium, webkit or firefox, not ${ENGINE}`)
 const FORCE_BY_INPUT = ENGINE !== 'chromium' || process.env.PARITY_FORCE === 'input'
+
+/**
+ * Worker processes the comparison's cases are spread over, each with its own
+ * browser and connection, so no one process's thread or connection carries
+ * every page. Two fewer than the cores where states are forced through the
+ * DevTools protocol. Under real input, hover timing shifts with load: a WebKit
+ * A/A at 4 and 8 processes held more disagreements than at 1, but stayed in
+ * the recorded hover limit, and every unstable state is still listed: so
+ * REAL_INPUT_WORKERS under real input.
+ */
+const REAL_INPUT_WORKERS = 4
+const WORKERS = WORKER
+  ? 1
+  : Number(process.env.PARITY_WORKERS ?? (FORCE_BY_INPUT ? REAL_INPUT_WORKERS : Math.max(1, availableParallelism() - 2)))
+if (!Number.isInteger(WORKERS) || WORKERS < 1) throw new Error(`PARITY_WORKERS must be a whole number from 1, not ${process.env.PARITY_WORKERS}`)
 /** How long to wait for the load average to fall before giving up. */
 const LOAD_WAIT_MS = 20 * 60_000
 
@@ -191,7 +241,8 @@ const SIDES = {
 /** The server-component cases among some case names. */
 const metasFromSource = list => list.filter(isRscCase)
 
-await writeGeneratedCases()
+// Workers read the cases their coordinator wrote; writing them again would race the other workers.
+if (!WORKER) await writeGeneratedCases()
 const names = PLANT_RUN ? [PLANT_CASE] : caseNames().filter((n, i) => (!ONLY || ONLY.includes(n)) && (!SHARD || i % SHARD[1] === SHARD[0] - 1))
 const sides = PLANT_RUN ? ['runtime', 'off'] : ['runtime', ...COMPARED]
 /** The compiler wasm's SHA-256, so every log and report names the exact compiler it ran. */
@@ -248,7 +299,10 @@ async function serverRender(dir, names) {
 
 // 1. Build each side and server-render it.
 const built = {}
-for (const s of sides) {
+if (WORKER)
+  for (const [s, side] of Object.entries(JSON.parse(readFileSync(process.env.PARITY_BUILT, 'utf8'))))
+    built[s] = { ...side, client: readFileSync(join(side.dir, 'client.js'), 'utf8') }
+else for (const s of sides) {
   phaseSink = buildPhases[s] = {}
   const { dir, compiled, parts } = await timed('build', () => buildSide(SIDES[s], names))
   const ssr = await serverRender(dir, names)
@@ -370,7 +424,7 @@ if (NO_BROWSER) {
 // 3. The browser phase, once the machine is quiet enough.
 const started = Date.now()
 const loadWaitStarted = performance.now()
-while (loadavg()[0] >= LOAD_MAX) {
+while (!WORKER && loadavg()[0] >= LOAD_MAX) {
   if (Date.now() - started > LOAD_WAIT_MS) throw new Error(`the load average stayed at or above ${LOAD_MAX}`)
   console.log(`parity: load ${loadavg()[0].toFixed(2)}, waiting for under ${LOAD_MAX}`)
   await sleep(30_000)
@@ -720,6 +774,8 @@ function noteOnlyCompared(row, states) {
 
 /** Each row's sweep outliers: states its first sweep read differently and its repeated sweeps did not, kept for PARITY_REPORT. */
 const outliers = []
+/** The run's records gathered per case, which a worker sends back with each case it reads. */
+const GATHERED = { report, unstable, onlyCompared, outliers, reloadCounts }
 
 /** Prints and keeps a row's sweep outliers, with the load, the time and every page's sweep counts. */
 function noteOutliers(row, states, swept) {
@@ -853,10 +909,13 @@ try {
           `${reached ? 'confirmed' : 'FAIL'} plant ${plant.dimension} ${plant.name}: ${confirmation.confirmed.length} state(s) confirmed, ${confirmation.onlyCompared.length} varying on the planted page only, ${inSession.length} reproduced in every sweep and on no fresh load, ${confirmation.unstable.length} excused as unstable, ${confirmation.outliers.length} as outliers`,
         )
       }
-      const caught = found.some(d => d.dimension === plant.dimension)
+      const ofDimension = found.filter(d => d.dimension === plant.dimension)
+      // A plant that names its exact differences must make those and no others in its dimension.
+      const exact = !plant.exactly || (ofDimension.length === plant.exactly.count && ofDimension.every(d => d.text.includes(plant.exactly.text)))
+      const caught = ofDimension.length > 0 && exact
       if (!caught) failures++
       console.log(
-        `${caught ? 'caught' : 'MISSED'} plant ${plant.dimension}${plant.name ? ` ${plant.name}` : ''}: ${found.length} difference(s) in ${[...new Set(found.map(d => d.dimension))].join(', ') || 'none'}`,
+        `${caught ? 'caught' : 'MISSED'} plant ${plant.dimension}${plant.name ? ` ${plant.name}` : ''}: ${found.length} difference(s) in ${[...new Set(found.map(d => d.dimension))].join(', ') || 'none'}${plant.exactly ? `; ${ofDimension.length} in ${plant.dimension}, ${exact ? 'exactly as planted' : `not the ${plant.exactly.count} holding "${plant.exactly.text}": ${ofDimension.slice(0, 3).map(d => d.text).join(' | ')}`}` : ''}`,
       )
       // A recorded difference excuses what it matches and nothing else, and one that matches nothing is reported.
       const mine = found.find(d => d.dimension === plant.dimension)
@@ -950,7 +1009,8 @@ try {
     const planted = new Set(PLANTS.map(p => p.dimension))
     for (const d of DIMENSIONS) if (!planted.has(d)) console.log(`note: dimension ${d} has no plant`)
   } else {
-    for (const { name, meta } of metas) {
+    /** Reads one case: every mode's oracle, the registry check and each compared side. */
+    const readCase = async ({ name, meta }) => {
       const started = Date.now()
       /** Each mode's oracle record, for the registry check. */
       const oracles = {}
@@ -1022,10 +1082,90 @@ try {
       timings[name] = Date.now() - started
       phaseSink = null
     }
+    if (WORKER) {
+      // Asks the coordinator for a case, reads it, and sends back its lines and records, until none are left.
+      const nextCase = () =>
+        new Promise(resolve => {
+          process.once('message', message => resolve(message.index))
+          process.send({ type: 'next' })
+        })
+      for (let index = await nextCase(); index !== null; index = await nextCase()) {
+        const mark = { failures, blockers: new Set(blockers), ...Object.fromEntries(Object.entries(GATHERED).map(([key, list]) => [key, list.length])) }
+        const scope = { lines: [], rows: [], sink: null }
+        await caseScope.run(scope, () => readCase(metas[index]))
+        process.send({
+          type: 'case',
+          index,
+          lines: scope.lines,
+          rows: scope.rows,
+          failures: failures - mark.failures,
+          blockers: [...blockers].filter(b => !mark.blockers.has(b)),
+          timing: timings[metas[index].name],
+          gathered: Object.fromEntries(Object.entries(GATHERED).map(([key, list]) => [key, list.slice(mark[key])])),
+        })
+      }
+      await new Promise(resolve => process.send({ type: 'totals', phaseTotals }, resolve))
+    } else if (WORKERS > 1 && metas.length > 1) {
+      // The coordinator: WORKERS processes, each with its own browser, take the next case in turn; each case's
+      // lines and records are added once every case before it has been, so the log and report read as a serial run's.
+      const file = join(BUILD_CACHE, `built-${process.pid}.json`)
+      writeFileSync(file, JSON.stringify(Object.fromEntries(sides.map(s => [s, { dir: built[s].dir, ssr: built[s].ssr, compiled: built[s].compiled, parts: built[s].parts }]))))
+      const results = []
+      const children = []
+      let next = 0
+      let added = 0
+      const add = () => {
+        for (; added < metas.length && results[added]; added++) {
+          const result = results[added]
+          for (const parts of result.lines) print(...parts)
+          rowPhases.push(...result.rows)
+          for (const [key, list] of Object.entries(result.gathered)) GATHERED[key].push(...list)
+          failures += result.failures
+          for (const b of result.blockers) blockers.add(b)
+          timings[metas[added].name] = result.timing
+        }
+      }
+      try {
+        await Promise.all(
+          Array.from(
+            { length: Math.min(WORKERS, metas.length) },
+            () =>
+              new Promise((resolve, reject) => {
+                const child = fork(fileURLToPath(import.meta.url), process.argv.slice(2), {
+                  env: { ...process.env, PARITY_WORKER: '1', PARITY_BUILT: file },
+                  stdio: ['ignore', 'ignore', 'inherit', 'ipc'],
+                })
+                child.on('message', message => {
+                  if (message.type === 'next') child.send({ index: next < metas.length ? next++ : null })
+                  else if (message.type === 'case') {
+                    results[message.index] = message
+                    add()
+                  } else if (message.type === 'totals')
+                    // The browser phase's own phases; the build, checks and load wait are the coordinator's.
+                    for (const [phase, ms] of Object.entries(message.phaseTotals))
+                      if (!['build', 'rsc', 'ssr', 'checks', 'load wait'].includes(phase)) phaseTotals[phase] = (phaseTotals[phase] ?? 0) + ms
+                })
+                children.push(child)
+                child.on('exit', code => {
+                  if (code === 0) return resolve()
+                  // One worker failing fails the run: stop the others, so none reads on against a cache the next run rebuilds.
+                  for (const other of children) if (other.exitCode === null) other.kill()
+                  reject(new Error(`a parity worker exited with code ${code}`))
+                })
+              }),
+          ),
+        )
+      } finally {
+        rmSync(file, { force: true })
+      }
+      if (added < metas.length) throw new Error(`the workers read ${added} of ${metas.length} cases`)
+    } else for (const entry of metas) await readCase(entry)
   }
 } finally {
   await browser.close()
 }
+// A worker's cases went back to the coordinator, which reports them.
+if (WORKER) process.exit(0)
 if (REPORT)
   writeFileSync(
     REPORT,
