@@ -20,7 +20,8 @@ export const SHAPES = {
   'value.token-composite': 'a token inside a composite value (border shorthand, calc)',
   'value.fallback-array': 'a fallback array of values for one property',
   'value.important': 'a value with !important',
-  'value.custom-property': 'custom properties set and read through var(): inherited, with fallbacks, registered, following state, overridden, inline and as a node prop',
+  'value.custom-property':
+    'custom properties set and read through var(): inherited, with fallbacks, registered, following state, overridden, inline and as a node prop',
   'value.omitted': 'null, undefined and false values, which render nothing',
   'value.keyframes': 'an animation using keyframes',
   'value.theme-fn-top': 'a theme function as a property value',
@@ -28,7 +29,8 @@ export const SHAPES = {
   'value.theme-fn-object': 'a theme function returning an object of declarations',
   'value.theme-fn-mode': 'a theme function that reads the mode',
   'value.runtime': 'a runtime value (state, prop) in a known property',
-  'value.sizing-keyword': 'an intrinsic sizing keyword (fit-content, max-content) arriving at runtime in a sizing property, which Emotion prefixes and a variable does not',
+  'value.sizing-keyword':
+    'an intrinsic sizing keyword (fit-content, max-content) arriving at runtime in a sizing property, which Emotion prefixes and a variable does not',
   // Placement
   'place.style-props': 'style props at the top level of a factory call',
   'place.css': 'the css prop',
@@ -52,6 +54,7 @@ export const SHAPES = {
   'sel.descendant': 'a descendant combinator (& p)',
   'sel.child': 'a child combinator (& > p)',
   'sel.sibling': 'sibling combinators (& + p, & ~ p)',
+  'sel.structural': 'structural pseudo-classes (:first-child, :nth-child, :last-child, :first-of-type), read before hydration too',
   'sel.ancestor': 'an ancestor context (.x &, [data-theme=dark] &)',
   'sel.comma': 'a comma list of selectors',
   'sel.where-is-has': ':where, :is and :has',
@@ -77,6 +80,7 @@ export const SHAPES = {
   'dyn.state': 'styles that follow component state',
   'dyn.conditional': 'a conditional value whose branches are static',
   'dyn.key-toggle': 'a style key present, then absent',
+  'dyn.sibling-toggle': 'a runtime-styled sibling before a named node toggled, moved or emptied, which a node must survive',
   'dyn.list-reorder': 'a keyed list reordered',
   'dyn.keyed-remount': 'a keyed remount',
   'dyn.deps-memo': 'a node with deps (memo)',
@@ -89,54 +93,59 @@ export const SHAPES = {
   // Environments the corpus runs in
   'env.client-only': 'a client render with no server HTML',
   'env.ssr-hydrate': 'server HTML, then hydration',
-  'env.streaming': 'a streamed server render',
+  'env.streaming': 'a streamed server render, sent once every boundary is ready',
+  'env.streaming-late': 'a streamed server render sent from the shell on, with a boundary arriving after it',
   'env.rsc': 'a server component render',
 }
 
 /**
- * Every compiler route, by id. `runtime:*` are the reasons an entry, a node or
- * a module stays on today's path, one id per reason the compiler documents.
+ * Every compiler route, by id. The exact design routes a node whole: it is
+ * named, templated or left on the runtime path, never split. The extracted
+ * routes say how a node is named; each `RUNTIME:*` route is one reason the
+ * compiler leaves a node on the runtime path, one per `explain::bail` reason
+ * a page can reach, plus the reasons it gives none for. Its two hole-marker
+ * checks are defensive and unreachable from source, and "a prop that is not
+ * key: value" sits behind detect, which leaves such a call unpartitioned, so
+ * these have no route.
  */
 export const ROUTES = {
-  STATIC: 'extracted: a literal, a token string or a same-file top-level const literal',
-  SWITCH: 'extracted: a conditional whose branches are all static (including && with a boolean left side)',
-  VAR: 'extracted with var(--mv-*): a runtime value in a known property',
-  // Not a host call site: the whole node.
-  'runtime:component-target': 'a component target (Node(Card, …))',
-  'runtime:local-factory': 'a factory made in the module (createNode) or listed in factoryModules',
-  'runtime:untraced': 'a call site whose factory is chosen at runtime',
-  'runtime:spread': 'a call site with a props spread',
-  'runtime:node-prop': 'a node with the as, theme or disableEmotion prop',
-  // The css prop's own shape: the whole node.
-  'runtime:css-not-literal': 'css that is an identifier or a call',
-  'runtime:css-spread-computed': 'a css object with a spread or a computed key at its top level',
-  'runtime:css-label-styles': 'a label or styles key in the node\'s own css',
-  // Values: the entry.
-  'runtime:dynamic-value': 'a value from a let, an import, a parameter, a member read or a call',
-  'runtime:theme-fn': 'a theme function',
-  'runtime:array-value': 'an array value (fallbacks)',
-  'runtime:logical': '||, ?? or && whose left side is not provably boolean',
-  'runtime:var-prefixed': 'a runtime value in a property the prefixer rewrites (sizing properties excepted)',
-  'runtime:stylis-unsafe': 'a value stylis would parse differently (; { } : & @ \\, a comment, a newline)',
-  // Order-dependent combinations: the property.
-  'runtime:overlap-one-context': 'shorthand beside longhand, or logical beside physical, in one context',
-  'runtime:multi-context': 'one property in two or more non-base contexts',
-  'runtime:overlap-runtime': 'a property overlapping one already on the runtime path',
-  'runtime:partial-layout': 'display, overflow*, flex* and min-* on a node with anything left on the runtime path',
-  // At-rules and selectors.
-  'runtime:at-rule-other': 'an at-rule other than @media, @supports and @container',
-  'runtime:at-rule-token': 'a theme token in an at-rule key',
-  'runtime:selector-unsupported': 'a ::placeholder, :read-only or :read-write selector',
-  'runtime:node-free-selector': 'a selector that can match without the node (& only inside :not, :is or :where), which keeps the whole node',
-  'runtime:self-reference': 'a selector naming & more than once in one list item (& + &, & &, &&), which keeps the whole node',
-  'runtime:selector-list-mixed-reach': 'a selector list styling the node and an element rendered after it (&, .x), whose block stays on the runtime path',
-  'runtime:selector-block-mixed': 'per-node selector blocks with a non-static entry, or a property shared with a static pseudo rule',
-  // The module.
-  'runtime:module-skip': 'a script rather than an ES module, or one that already uses __meoCss or __meoVal',
+  // Extracted: the node carries a name, and its module registers the name's rule.
+  NAMED: 'every style entry known at build time: literals, tokens, same-file const literals and templates over them, switches over these (__meo$n)',
+  NAMED_THEMED: 'named, with a theme token in an at-rule prelude left in the text for the runtime to resolve (__meo$n)',
+  CARRIER: 'a named or templated node that carries the run of named styles before it (__meo$r)',
+  TEMPLATE: 'a value provably a string or a number over pure reads, a hole in a registered template (__meo$t)',
+  FACTORY_MERGED: "a layout factory's or a same-file createNode's literal defaults merged at build time (__meo$i)",
+  JOINED: 'a factory imported from a local module, joined with its defaults and named at run time (__meoFactoryCall)',
+  // The props.
+  'RUNTIME:props-spread': 'a spread among the props',
+  'RUNTIME:node-prop': 'a prop that blocks extraction: disableEmotion, as or theme',
+  'RUNTIME:computed-key': 'a spread or a computed key in the props, the DOM props or the css',
+  'RUNTIME:css-not-literal': 'css that is not an object literal',
+  'RUNTIME:css-composed': 'css the runtime composes rather than merges',
+  // The values.
+  'RUNTIME:dynamic-value': 'a value left to the runtime: a dynamic value that is no hole, a function, an array, || or ??',
+  'RUNTIME:bigint-order': 'arithmetic in a flat style prop whose place a BigInt result would change',
+  'RUNTIME:layout-value': 'a value only the call site knows in a key the defaults read (flex, display, overflow*, flexFlow, flexWrap, flexDirection)',
+  'RUNTIME:read-key-hole': 'a value only the call site knows in a key Emotion reads (animation, animationName)',
+  'RUNTIME:css-unfollowed': "a value Emotion's serialization is not followed for (a number written in exponent form)",
+  'RUNTIME:switch-cap': 'more SWITCH combinations than the cap',
+  // The keys.
+  'RUNTIME:serialized-key': 'a key Emotion reads as serialized styles or keyframes (styles, anim)',
+  'RUNTIME:index-key': 'a key JavaScript orders before the others',
+  'RUNTIME:too-deep': 'css nested too deep',
+  'RUNTIME:theme-selector': 'a theme token in a selector',
+  'RUNTIME:theme-key-no-block': 'a theme token in an at-rule holding no block',
+  'RUNTIME:theme-key-collision': 'two keys a theme may make one',
+  'RUNTIME:theme-prelude-hole': 'a brace or a hole in a style with a theme token in a condition',
+  // No bail.
+  'RUNTIME:not-extractable':
+    'a call of no factory the compiler extracts: a component target, a factory chosen at run time, @meonode/* subpaths, a createNode with non-literal defaults',
+  'RUNTIME:unpartitioned': 'a call whose props argument is not an object literal, or holds a getter, a setter or a method',
+  'RUNTIME:module-skip': 'a module holding a top-level name a compiler helper takes, or a script',
 }
 
 /** The routes that extract; every other route stays on the runtime path. */
-export const EXTRACTED_ROUTES = ['STATIC', 'SWITCH', 'VAR']
+export const EXTRACTED_ROUTES = ['NAMED', 'NAMED_THEMED', 'CARRIER', 'TEMPLATE', 'FACTORY_MERGED', 'JOINED']
 
 /**
  * The gate: every shape and every route has a case, every route is proven on

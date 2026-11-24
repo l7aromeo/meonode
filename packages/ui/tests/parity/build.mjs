@@ -151,13 +151,21 @@ async function transformModule(file, plugin, out, distRoot, entries = ENTRIES) {
 }
 
 /**
- * Builds a side into packages/ui/node_modules/.cache/parity/<name>.
+ * Where the sides are built: packages/ui/node_modules/.cache/parity, or
+ * PARITY_CACHE, so runs that go on at once in one checkout each build into a
+ * directory of their own. It must lie inside packages/ui, so the built pages
+ * resolve the package's own dependencies.
+ */
+export const BUILD_CACHE = process.env.PARITY_CACHE ?? join(PACKAGE, 'node_modules/.cache/parity')
+
+/**
+ * Builds a side into BUILD_CACHE/<name>.
  * @param side `{ name, ui, plugin, rewrite? }`: the packages/ui dir whose dist to use, `[wasm, options]` or null, and a rewrite of its compiled case and part modules (a planted compiler bug).
  * @param names The case names to build.
  * @returns `{ dir, compiled, parts }`: the side's directory, each case's compiled module text, and each part module's.
  */
 export async function buildSide(side, names) {
-  const dir = join(PACKAGE, 'node_modules/.cache/parity', side.name)
+  const dir = join(BUILD_CACHE, side.name)
   rmSync(dir, { recursive: true, force: true })
   mkdirSync(dir, { recursive: true })
   if (!existsSync(join(side.ui, 'dist/esm/main.js'))) throw new Error(`${side.ui} has no built dist: run \`bun run build:ui\` at the repository root`)

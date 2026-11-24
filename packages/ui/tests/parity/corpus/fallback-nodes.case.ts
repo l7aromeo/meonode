@@ -9,15 +9,15 @@ import type { CaseMeta } from '../case.js'
 
 export const meta: CaseMeta = {
   shapes: ['place.style-props', 'place.css', 'place.create-node', 'place.as', 'place.disable-emotion', 'env.ssr-hydrate'],
-  routes: ['runtime:local-factory', 'runtime:node-prop', 'runtime:css-not-literal', 'runtime:css-spread-computed', 'runtime:css-label-styles'],
+  routes: ['FACTORY_MERGED', 'NAMED', 'RUNTIME:computed-key', 'RUNTIME:css-not-literal', 'RUNTIME:node-prop'],
   routing: [
-    { node: 'chip', route: 'runtime:local-factory', runtime: ['backgroundColor'], whole: true },
-    { node: 'as', route: 'runtime:node-prop', runtime: ['margin', 'color'], whole: true },
-    { node: 'disabled', route: 'runtime:node-prop', runtime: ['padding'], whole: true },
-    { node: 'held', route: 'runtime:css-not-literal', runtime: ['css'], whole: true },
-    { node: 'spread', route: 'runtime:css-spread-computed', runtime: ['color', 'textDecoration'], whole: true },
-    { node: 'computed', route: 'runtime:css-spread-computed', runtime: ['borderStyle'], whole: true },
-    { node: 'label', route: 'runtime:css-label-styles', runtime: ['label', 'fontStyle'], whole: true },
+    { node: 'chip', route: 'FACTORY_MERGED' },
+    { node: 'as', route: 'RUNTIME:node-prop' },
+    { node: 'disabled', route: 'RUNTIME:node-prop' },
+    { node: 'held', route: 'RUNTIME:css-not-literal' },
+    { node: 'spread', route: 'RUNTIME:computed-key' },
+    { node: 'computed', route: 'RUNTIME:computed-key' },
+    { node: 'label', route: 'NAMED' },
   ],
 }
 

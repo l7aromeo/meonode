@@ -8,17 +8,17 @@ import type { CaseMeta } from '../case.js'
 
 export const meta: CaseMeta = {
   shapes: ['place.create-node', 'place.style-props', 'dyn.state', 'env.ssr-hydrate'],
-  routes: ['STATIC', 'VAR'],
+  routes: ['FACTORY_MERGED'],
   routing: [
-    { node: 'column', route: 'STATIC', extracted: ['gap'] },
-    { node: 'row', route: 'STATIC', extracted: ['gap', 'padding'] },
-    { node: 'row-partial', route: 'VAR', extracted: ['gap'] },
-    { node: 'row-grid', route: 'STATIC', extracted: ['display', 'gridTemplateColumns'] },
-    { node: 'grid', route: 'STATIC', extracted: ['gridTemplateColumns'] },
-    { node: 'center', route: 'STATIC', extracted: ['height'] },
-    { node: 'main', route: 'STATIC', extracted: ['padding'] },
-    { node: 'relative', route: 'STATIC', extracted: ['height'] },
-    { node: 'absolute', route: 'STATIC', extracted: ['top', 'right'] },
+    { node: 'column', route: 'FACTORY_MERGED' },
+    { node: 'row', route: 'FACTORY_MERGED' },
+    { node: 'row-partial', route: 'FACTORY_MERGED' },
+    { node: 'row-grid', route: 'FACTORY_MERGED' },
+    { node: 'grid', route: 'FACTORY_MERGED' },
+    { node: 'center', route: 'FACTORY_MERGED' },
+    { node: 'main', route: 'FACTORY_MERGED' },
+    { node: 'relative', route: 'FACTORY_MERGED' },
+    { node: 'absolute', route: 'FACTORY_MERGED' },
   ],
   steps: [{ name: 'step 1', click: '[data-act="next"]' }],
 }

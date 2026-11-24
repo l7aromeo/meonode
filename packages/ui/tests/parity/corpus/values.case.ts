@@ -20,12 +20,10 @@ export const meta: CaseMeta = {
     'place.css',
     'env.ssr-hydrate',
   ],
-  routes: ['STATIC', 'runtime:array-value'],
+  routes: ['NAMED', 'RUNTIME:dynamic-value'],
   routing: [
-    { node: 'root', route: 'STATIC', extracted: ['padding', 'width', 'opacity', 'backgroundColor'] },
-    { node: 'root', route: 'runtime:array-value', runtime: ['position'] },
-    { node: 'root', route: 'STATIC', extracted: ['--parity-inner', 'textIndent'], runtime: ['--parity-local'] },
-    { node: 'a', route: 'STATIC', extracted: ['margin', 'borderRadius'] },
+    { node: 'root', route: 'RUNTIME:dynamic-value' },
+    { node: 'a', route: 'NAMED' },
   ],
 }
 

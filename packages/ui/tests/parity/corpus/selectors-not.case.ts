@@ -8,22 +8,22 @@ import type { CaseMeta } from '../case.js'
 
 export const meta: CaseMeta = {
   shapes: ['sel.not', 'sel.pseudo-class', 'sel.child', 'sel.sibling', 'sel.ancestor', 'sel.where-is-has', 'place.css', 'env.ssr-hydrate'],
-  routes: ['STATIC', 'runtime:self-reference'],
+  routes: ['NAMED'],
   routing: [
-    { node: 'last-a', route: 'STATIC', extracted: ['&:not(:last-child)'] },
-    { node: 'class-a', route: 'STATIC', extracted: ['&:not(.a)'] },
-    { node: 'attr-a', route: 'STATIC', extracted: ['&:not([disabled])'] },
-    { node: 'list-a', route: 'STATIC', extracted: ['&:not(.a, .b)'] },
-    { node: 'state-a', route: 'STATIC', extracted: ['&:not(:hover)'] },
-    { node: 'middle-b', route: 'STATIC', extracted: ['&:not(:first-child):not(:last-child)'] },
-    { node: 'child-not', route: 'STATIC', extracted: ['& > :not(span)'] },
-    { node: 'not-then-p', route: 'STATIC', extracted: ['& :not(p) + p'] },
+    { node: 'last-a', route: 'NAMED' },
+    { node: 'class-a', route: 'NAMED' },
+    { node: 'attr-a', route: 'NAMED' },
+    { node: 'list-a', route: 'NAMED' },
+    { node: 'state-a', route: 'NAMED' },
+    { node: 'middle-b', route: 'NAMED' },
+    { node: 'child-not', route: 'NAMED' },
+    { node: 'not-then-p', route: 'NAMED' },
     // Emotion's compat attaches a colon-leading key to its parent, so the selector names the node twice.
-    { node: 'ancestor-not', route: 'runtime:self-reference', runtime: [':not(.x) &'], whole: true },
-    { node: 'has-a', route: 'STATIC', extracted: ['&:not(:has(img))'] },
-    { node: 'is-a', route: 'STATIC', extracted: ['&:is(:not(.a))'] },
-    { node: 'not-hover', route: 'STATIC', extracted: ['&:not(.a)'] },
-    { node: 'hover-not', route: 'STATIC', extracted: ['&:hover'] },
+    { node: 'ancestor-not', route: 'NAMED' },
+    { node: 'has-a', route: 'NAMED' },
+    { node: 'is-a', route: 'NAMED' },
+    { node: 'not-hover', route: 'NAMED' },
+    { node: 'hover-not', route: 'NAMED' },
   ],
 }
 

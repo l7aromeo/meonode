@@ -7,9 +7,10 @@ import type { CaseMeta } from '../case.js'
 
 export const meta: CaseMeta = {
   shapes: ['place.style-props', 'place.css', 'at.media', 'dyn.state', 'dyn.conditional', 'env.ssr-hydrate'],
-  routes: ['STATIC', 'SWITCH', 'runtime:css-not-literal'],
-  routing: [{ node: 'exact', route: 'runtime:css-not-literal', runtime: ['css'], whole: true }],
+  routes: ['CARRIER', 'NAMED', 'RUNTIME:css-not-literal', 'RUNTIME:unpartitioned'],
+  routing: [{ node: 'exact', route: 'RUNTIME:css-not-literal' }],
   breakpoints: [600],
+  firstPaint: true,
   steps: [{ name: 'press', click: '[data-act="toggle"]' }],
 }
 

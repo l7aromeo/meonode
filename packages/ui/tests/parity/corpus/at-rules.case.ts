@@ -7,10 +7,10 @@ import type { CaseMeta } from '../case.js'
 
 export const meta: CaseMeta = {
   shapes: ['at.media', 'at.prefers-color-scheme', 'at.container', 'at.supports', 'at.nested', 'at.token-in-key', 'place.css', 'env.ssr-hydrate'],
-  routes: ['STATIC', 'runtime:at-rule-token'],
+  routes: ['NAMED', 'NAMED_THEMED'],
   routing: [
-    { node: 'root', route: 'runtime:at-rule-token', runtime: ['@media (max-width: theme.breakpoint.md)'] },
-    { node: 'a', route: 'STATIC', extracted: ['@container (min-width: 500px)'] },
+    { node: 'root', route: 'NAMED_THEMED' },
+    { node: 'a', route: 'NAMED' },
   ],
   breakpoints: [600, 900],
 }

@@ -12,19 +12,14 @@ import type { CaseMeta } from '../case.js'
 
 export const meta: CaseMeta = {
   shapes: ['at.token-in-key', 'at.media', 'value.keyframes', 'sel.sibling', 'place.css', 'env.ssr-hydrate'],
-  routes: ['STATIC', 'runtime:at-rule-token', 'runtime:at-rule-other', 'runtime:overlap-runtime', 'runtime:self-reference'],
+  routes: ['FACTORY_MERGED', 'NAMED', 'NAMED_THEMED'],
   routing: [
-    {
-      node: 'column',
-      route: 'runtime:at-rule-token',
-      runtime: ['@media (max-width: theme.breakpoint.md)', 'display', 'flexDirection'],
-      extracted: ['padding'],
-    },
-    { node: 'hide', route: 'runtime:at-rule-token', runtime: ['@media (max-width: theme.breakpoint.md)', 'display'], extracted: ['padding'] },
-    { node: 'color', route: 'runtime:overlap-runtime', runtime: ['color', '@media (max-width: theme.breakpoint.md)'], extracted: ['padding'] },
-    { node: 'spin', route: 'runtime:at-rule-other', runtime: ['@keyframes parity-spin'], extracted: ['opacity', 'padding', 'animation'] },
-    { node: 'sibling-2', route: 'runtime:self-reference', runtime: ['marginTop', '& + &', 'color'], whole: true },
-    { node: 'unlike-2', route: 'runtime:self-reference', runtime: ['marginTop', '& + &', 'color'], whole: true },
+    { node: 'column', route: 'FACTORY_MERGED' },
+    { node: 'hide', route: 'NAMED_THEMED' },
+    { node: 'color', route: 'NAMED_THEMED' },
+    { node: 'spin', route: 'NAMED' },
+    { node: 'sibling-2', route: 'NAMED' },
+    { node: 'unlike-2', route: 'NAMED' },
   ],
   breakpoints: [600],
 }

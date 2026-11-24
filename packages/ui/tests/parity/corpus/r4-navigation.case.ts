@@ -10,7 +10,7 @@ import type { CaseMeta } from '../case.js'
 
 export const meta: CaseMeta = {
   shapes: ['sel.descendant', 'sel.ancestor', 'place.css', 'dyn.state', 'env.client-only'],
-  routes: ['STATIC'],
+  routes: ['CARRIER'],
   render: 'client',
   steps: [{ name: 'navigate to the parent', click: '[data-act="go"]' }],
 }

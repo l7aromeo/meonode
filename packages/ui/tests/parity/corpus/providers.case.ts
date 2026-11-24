@@ -6,8 +6,8 @@ import type { CaseMeta } from '../case.js'
 
 export const meta: CaseMeta = {
   shapes: ['dyn.nested-providers', 'place.disable-emotion', 'value.token', 'env.ssr-hydrate'],
-  routes: ['STATIC', 'runtime:node-prop'],
-  routing: [{ node: 'off', route: 'runtime:node-prop', runtime: ['padding', 'color'] }],
+  routes: ['CARRIER', 'RUNTIME:node-prop'],
+  routing: [{ node: 'off', route: 'RUNTIME:node-prop' }],
   steps: [{ name: 'dark mode', mode: 'dark' }],
 }
 

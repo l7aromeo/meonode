@@ -8,14 +8,14 @@ import type { CaseMeta } from '../case.js'
 
 export const meta: CaseMeta = {
   shapes: ['sel.not', 'sel.where-is-has', 'sel.comma', 'place.css', 'dyn.state', 'env.client-only'],
-  routes: ['STATIC', 'runtime:node-free-selector', 'runtime:self-reference', 'runtime:selector-list-mixed-reach'],
+  routes: ['NAMED'],
   routing: [
-    { node: 'not-self', route: 'runtime:node-free-selector', runtime: [':not(&)'], whole: true },
-    { node: 'is-self', route: 'runtime:node-free-selector', runtime: [':is(&, .x)'], whole: true },
-    { node: 'where-self', route: 'runtime:node-free-selector', runtime: [':where(&, .x)'], whole: true },
-    { node: 'other', route: 'runtime:selector-list-mixed-reach', runtime: ['&, .other'], extracted: ['paddingLeft'] },
+    { node: 'not-self', route: 'NAMED' },
+    { node: 'is-self', route: 'NAMED' },
+    { node: 'where-self', route: 'NAMED' },
+    { node: 'other', route: 'NAMED' },
     // Emotion's compat attaches a colon-leading key to its parent, so the selector names the node twice.
-    { node: 'has-self', route: 'runtime:self-reference', runtime: [':has(&)'], whole: true },
+    { node: 'has-self', route: 'NAMED' },
   ],
   render: 'client',
   steps: [{ name: 'navigate', click: '[data-act="go"]' }],

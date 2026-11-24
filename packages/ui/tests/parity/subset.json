@@ -1,0 +1,31 @@
+{
+  "cases": [
+    "at-rule-blocks",
+    "atrule-shapes-client",
+    "custom-props-client",
+    "dynamics",
+    "fallback-nodes",
+    "generated/grammar-101",
+    "identity-factory-toggle",
+    "invalid-value-client",
+    "module-skip",
+    "mui",
+    "placement",
+    "plant-target",
+    "providers",
+    "runtime-reasons",
+    "runtime-routes",
+    "runtime-values",
+    "selectors",
+    "selectors-chains",
+    "server-component",
+    "sizing-keywords",
+    "spreads",
+    "structural-hydrate",
+    "suspense",
+    "suspense-late",
+    "tokens",
+    "values"
+  ],
+  "features": 128
+}

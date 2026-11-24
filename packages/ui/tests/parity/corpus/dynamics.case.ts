@@ -17,11 +17,11 @@ export const meta: CaseMeta = {
     'dyn.state',
     'env.ssr-hydrate',
   ],
-  routes: ['STATIC', 'SWITCH', 'VAR', 'runtime:spread', 'runtime:css-not-literal'],
+  routes: ['NAMED', 'RUNTIME:css-not-literal', 'RUNTIME:dynamic-value', 'RUNTIME:not-extractable', 'RUNTIME:props-spread'],
   routing: [
-    { node: 'memo', route: 'SWITCH', extracted: ['fontWeight'] },
-    { node: 'toggle', route: 'runtime:spread', runtime: ['css'] },
-    { node: 'mutated', route: 'runtime:css-not-literal', runtime: ['css'] },
+    { node: 'memo', route: 'NAMED' },
+    { node: 'toggle', route: 'RUNTIME:props-spread' },
+    { node: 'mutated', route: 'RUNTIME:css-not-literal' },
   ],
   steps: [
     { name: 'advance 1', click: '[data-act="next"]' },

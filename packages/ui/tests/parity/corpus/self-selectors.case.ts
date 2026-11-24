@@ -8,11 +8,11 @@ import type { CaseMeta } from '../case.js'
 
 export const meta: CaseMeta = {
   shapes: ['sel.sibling', 'sel.descendant', 'place.css', 'env.ssr-hydrate'],
-  routes: ['runtime:self-reference'],
+  routes: ['CARRIER', 'NAMED', 'RUNTIME:css-not-literal'],
   routing: [
-    { node: 'like-b', route: 'runtime:self-reference', runtime: ['color', '& ~ &'], whole: true },
-    { node: 'unlike-b', route: 'runtime:self-reference', runtime: ['color', '& ~ &'], whole: true },
-    { node: 'inner-unlike', route: 'runtime:self-reference', runtime: ['color', '& &'], whole: true },
+    { node: 'like-b', route: 'NAMED' },
+    { node: 'unlike-b', route: 'NAMED' },
+    { node: 'inner-unlike', route: 'NAMED' },
   ],
 }
 

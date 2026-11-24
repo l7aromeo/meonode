@@ -14,10 +14,10 @@ import type { CaseMeta } from '../case.js'
 
 export const meta: CaseMeta = {
   shapes: ['place.style-props', 'place.classname-merge', 'env.ssr-hydrate'],
-  routes: ['STATIC'],
+  routes: ['CARRIER', 'RUNTIME:not-extractable'],
   routing: [
-    { node: 'card', route: 'STATIC', extracted: ['padding'] },
-    { node: 'card-other', route: 'STATIC', extracted: ['padding'] },
+    { node: 'card', route: 'CARRIER' },
+    { node: 'card-other', route: 'CARRIER' },
   ],
   pageCss: '.card{padding:0;border:1px solid rgb(0, 0, 0)}',
 }
