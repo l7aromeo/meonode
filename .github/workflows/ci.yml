@@ -181,6 +181,9 @@ jobs:
       - run: bun run build:ui
       - run: bun run build:mui
       - run: bun run check:packages
+      # The parity cases import @meonode/mui, which only resolves once mui is
+      # built, so they are typechecked here rather than in Lint.
+      - run: bun run --filter @meonode/ui typecheck:parity
 
   ui-test:
     name: Test (ui, ${{ matrix.mode }})
@@ -195,8 +198,16 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
+      # compiled-extract runs the compiled suites with CSS extraction on, the
+      # path the extraction option takes in a consumer's build.
       matrix:
-        mode: [plain, compiled]
+        include:
+          - mode: plain
+            script: test
+          - mode: compiled
+            script: test:compiled
+          - mode: compiled-extract
+            script: test:compiled:extract
     steps:
       - uses: actions/checkout@v7
         if: needs.changes.outputs.ui == 'true'
@@ -213,7 +224,7 @@ jobs:
         with:
           name: meonode-swc-plugin
           path: packages/compiler/npm
-      - run: bun run --filter @meonode/ui ${{ matrix.mode == 'compiled' && 'test:compiled' || 'test' }}
+      - run: bun run --filter @meonode/ui ${{ matrix.script }}
         if: needs.changes.outputs.ui == 'true'
       # Activity rendered by a server component through Flight, from the built package.
       - run: bun run build:ui && bun run --filter @meonode/ui test:flight
@@ -231,8 +242,16 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
+      # compiled-extract runs the compiled suites with CSS extraction on, the
+      # path the extraction option takes in a consumer's build.
       matrix:
-        mode: [plain, compiled]
+        include:
+          - mode: plain
+            script: test
+          - mode: compiled
+            script: test:compiled
+          - mode: compiled-extract
+            script: test:compiled:extract
     steps:
       - uses: actions/checkout@v7
         if: needs.changes.outputs.ui == 'true'
@@ -269,7 +288,7 @@ jobs:
         with:
           name: meonode-swc-plugin
           path: packages/compiler/npm
-      - run: bun run --filter @meonode/ui ${{ matrix.mode == 'compiled' && 'test:compiled' || 'test' }}
+      - run: bun run --filter @meonode/ui ${{ matrix.script }}
         if: needs.changes.outputs.ui == 'true'
       - run: bun run build:ui && bun run --filter @meonode/ui test:flight
         if: needs.changes.outputs.ui == 'true' && matrix.mode == 'plain'

@@ -1,0 +1,10 @@
+import { Div } from "@meonode/ui";
+Div({ padding: 8, color: "red", css: { "@media (max-width: theme.breakpoint.md)": { display: "none" } } });
+Div({ color: "red", gap: 4, css: { "@media (max-width: theme.breakpoint.md)": { color: "blue" } } });
+Div({ margin: 4, rowGap: 2, css: { "@layer base": { marginTop: 2 } } });
+Div({ opacity: 1, css: { animation: "spin 1s", "@keyframes spin": { from: { opacity: 0 }, to: { opacity: 1 } } } });
+Div({ color: "red", css: { "&:hover": { background: "red", "@media (min-width: theme.breakpoint.md)": { color: "blue" } } } });
+Div({ padding: 8, css: { "@media (max-width: theme.breakpoint.md)": styles } });
+Div({ padding: 8, css: { "@media (max-width: theme.breakpoint.md)": { "&:hover": hover } } });
+Div({ color: "red", padding: 4, css: { "[data-on] &": { color: tone } } });
+Div({ padding: 4, css: { "& > p": { color: "red", "@media (max-width: theme.breakpoint.md)": { color: "blue" } } } });

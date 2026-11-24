@@ -4,6 +4,9 @@ node_modules
 .idea
 .fleet
 
+# The parity suite's generated selector cases, written at the start of every run
+tests/parity/corpus/generated
+
 # RSC integration fixture
 tests/rsc-fixtures/next-app/.next
 tests/rsc-fixtures/next-app/node_modules

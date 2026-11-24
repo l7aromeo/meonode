@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { chromium, type Browser } from '@playwright/test'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { serverLog } from './globalSetup.build.js'
+import { DOCS_STYLE_SRC, STRICT_STYLE_SRC, underDocsPolicy } from './_docs-csp.js'
 
 /**
  * What a production build of a MeoNode app emits.
@@ -1008,5 +1009,130 @@ describe.each(['cc', 'plain'] as const)('development diagnostics in a production
     }
     expect(messages).toEqual([])
     expect(readFileSync(serverLog(variant), 'utf8')).not.toContain(warning)
+  })
+})
+
+/**
+ * Compiled output with named styles, written by hand in the contract's shape: a
+ * server component with named and runtime css, a client component that
+ * registers its own template, and a boundary that streams in at request time.
+ */
+describe.each(['cc', 'plain'] as const)('named styles in a production build (%s)', variant => {
+  let browser: Browser | null = null
+  beforeAll(async () => {
+    browser = await chromium.launch({ headless: true })
+  })
+  afterAll(async () => {
+    await browser?.close()
+  })
+
+  const PAGE = '/static-css'
+  const ID_PROBES = ['id-probe-value-static-inside-server', 'id-probe-value-static-after-server', 'static-client-label-inside', 'static-client-label-after']
+  const html = async () => (await fetch(`http://localhost:${port(variant)}${PAGE}`)).text()
+  /** Each `useId` reader's id in served markup, by test id. */
+  const idsIn = (page: string) => {
+    const ids: Record<string, string> = {}
+    for (const match of page.matchAll(/data-testid="((?:id-probe-value-static|static-client-label)-[a-z-]+)"[^>]*>([^<]+)</g)) ids[match[1]] = match[2]
+    return Object.fromEntries(ID_PROBES.filter(probe => probe in ids).map(probe => [probe, ids[probe]]))
+  }
+
+  it('serves each named style once, where the same css would go uncompiled', async () => {
+    const page = await html()
+    const head = page.slice(0, page.indexOf('</head>'))
+    const groups = [...head.matchAll(/<style data-precedence="([^"]+)" data-href="([^"]*)"/g)].map(match => [match[1], match[2]] as const)
+
+    // The server component's named style is hoisted at the runtime rules'
+    // precedence, in render order with them, once for the two nodes that use it.
+    expect(groups.map(([precedence]) => precedence)).toEqual(['meonode'])
+    expect(groups[0][1].split(' ')[0]).toBe('meonode-css-fxsrv1')
+    expect(groups.flatMap(([, hrefs]) => hrefs.split(' ')).filter(href => href === 'meonode-css-fxsrv1')).toHaveLength(1)
+    // The client component's template goes in through Emotion's cache, which
+    // the registry flushes into the head.
+    expect(head).toMatch(/<style data-emotion="meonode-css [^"]*">[^<]*\{color:rgb\(0, 0, 255\);width:40px;\}/)
+    // The streamed boundary's style arrives after the shell.
+    expect(head).not.toContain('fxlate1')
+    expect(page).toContain('.meonode-css-fxlate1{margin-top:3px;}')
+    expect(page).not.toContain('mn-static')
+  })
+
+  it('hydrates with no mismatch and identical ids, applies every rule, and inserts nothing the server sent', async () => {
+    const serverIds = idsIn(await html())
+    expect(Object.keys(serverIds)).toEqual(ID_PROBES)
+    const page = await browser!.newPage()
+    try {
+      const messages: string[] = []
+      page.on('console', message => void messages.push(message.text()))
+      page.on('pageerror', error => void messages.push(error.message))
+      await page.goto(`http://localhost:${port(variant)}${PAGE}`, { waitUntil: 'networkidle' })
+      await page.waitForSelector('[data-testid="static-late"]')
+      const state = await page.evaluate(() => {
+        const style = (testId: string) => getComputedStyle(document.querySelector(`[data-testid="${testId}"]`)!)
+        return {
+          colors: ['static-server', 'static-server-partial', 'static-client', 'static-client-partial'].map(id => style(id).color),
+          paddings: [style('static-server').paddingLeft, style('static-server-partial').padding, style('static-client-partial').padding],
+          width: style('static-client').width,
+          late: style('static-late').marginTop,
+          ids: Object.fromEntries(
+            [...document.querySelectorAll('[data-testid^="static-client-label-"], [data-testid^="id-probe-value-static-"]')].map(element => [
+              element.getAttribute('data-testid'),
+              element.textContent,
+            ]),
+          ),
+          // Each named style in one sheet: the browser inserted none the server sent again.
+          sheets: [document.querySelector('[data-testid="static-server"]')!.className, document.querySelector('[data-testid="static-client"]')!.className].map(
+            className =>
+              [...document.querySelectorAll('style')].filter(
+                element =>
+                  element.textContent?.includes(`.${className}{`) ||
+                  [...(element.sheet?.cssRules ?? [])].some(rule => rule.cssText.startsWith(`.${className}`)),
+              ).length,
+          ),
+        }
+      })
+
+      expect(messages.filter(message => /hydrat|did not match|recoverable/i.test(message))).toEqual([])
+      expect(state.colors).toEqual(['rgb(255, 0, 0)', 'rgb(255, 0, 0)', 'rgb(0, 0, 255)', 'rgb(0, 0, 255)'])
+      expect(state.paddings).toEqual(['7px', '4px', '5px'])
+      expect(state.width).toBe('40px')
+      expect(state.late).toBe('3px')
+      expect(state.ids).toEqual(serverIds)
+      expect(state.sheets).toEqual([1, 1])
+    } finally {
+      await page.close()
+    }
+  })
+
+  /**
+   * The page under meonode-docs' policy, which MeoNode's styles are held to: the
+   * named rules and the runtime rules must all apply with no violation. The same
+   * page under a `style-src` without `'unsafe-inline'`, which MeoNode does not
+   * support, shows the check sees one: the inline style elements are blocked.
+   */
+  it.each([
+    ['meonode-docs’ policy', DOCS_STYLE_SRC, true],
+    ['a strict style-src', STRICT_STYLE_SRC, false],
+  ] as const)('under %s, applies every value: %s', async (_, styleSrc, allowed) => {
+    const page = await browser!.newPage()
+    try {
+      const violations = await underDocsPolicy(page, { styleSrc, dev: false })
+      const messages: string[] = []
+      page.on('console', message => void messages.push(message.text()))
+      await page.goto(`http://localhost:${port(variant)}${PAGE}`, { waitUntil: 'networkidle' })
+      await page.waitForSelector('[data-testid="static-late"]')
+      const width = await page.evaluate(() => getComputedStyle(document.querySelector('[data-testid="static-client"]')!).width)
+      const color = await page.evaluate(() => getComputedStyle(document.querySelector('[data-testid="static-server"]')!).color)
+      const seen = await violations()
+
+      if (allowed) {
+        expect(seen).toEqual([])
+        expect(messages.filter(message => /hydrat|did not match|recoverable/i.test(message))).toEqual([])
+        expect([width, color]).toEqual(['40px', 'rgb(255, 0, 0)'])
+      } else {
+        expect(seen.some(violation => violation.startsWith('style-src-elem'))).toBe(true)
+        expect(width).not.toBe('40px')
+      }
+    } finally {
+      await page.close()
+    }
   })
 })

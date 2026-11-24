@@ -1,0 +1,108 @@
+import { registerStaticCss as __meoCss } from "@meonode/ui";
+import { Div } from "@meonode/ui";
+__meoCss("9bumc67k6crvo", [
+    [
+        "akrdh6sqpt6q8",
+        "flex-shrink:0;min-height:0;min-width:0;padding:8px;color:red;@media (max-width: theme.breakpoint.md){display:none;}"
+    ],
+    [
+        "4a4kmjo4nc1te",
+        "flex-shrink:0;min-height:0;min-width:0;color:red;gap:4px;@media (max-width: theme.breakpoint.md){color:blue;}"
+    ],
+    [
+        "cogmv013tbv20",
+        "flex-shrink:0;min-height:0;min-width:0;margin:4px;row-gap:2px;@layer base{margin-top:2px;}"
+    ],
+    [
+        "co4slemur8ec9",
+        "flex-shrink:0;min-height:0;min-width:0;opacity:1;animation:spin 1s;@keyframes spin{from{opacity:0;}to{opacity:1;}}"
+    ],
+    [
+        "2envifk4n1jgr",
+        "flex-shrink:0;min-height:0;min-width:0;color:red;&:hover{background:red;@media (min-width: theme.breakpoint.md){color:blue;}}"
+    ],
+    [
+        "65attq2ag4v71",
+        "flex-shrink:0;min-height:0;min-width:0;padding:4px;& > p{color:red;@media (max-width: theme.breakpoint.md){color:blue;}}"
+    ]
+]);
+Div({
+    __meo$: 2,
+    __meo$n: "akrdh6sqpt6q8",
+    __meo$r: 1,
+    __meo$k: "m15q3hgi76utyt"
+});
+Div({
+    __meo$: 2,
+    __meo$n: "4a4kmjo4nc1te",
+    __meo$r: 1,
+    __meo$k: "mfydoxsozl5p6"
+});
+Div({
+    __meo$: 2,
+    __meo$n: "cogmv013tbv20",
+    __meo$r: 1,
+    __meo$k: "m2io8biguckg52"
+});
+Div({
+    __meo$: 2,
+    __meo$n: "co4slemur8ec9",
+    __meo$r: 1,
+    __meo$k: "m3e8uzavjyqktz"
+});
+Div({
+    __meo$: 2,
+    __meo$n: "2envifk4n1jgr",
+    __meo$r: 1,
+    __meo$k: "m2akx16bnogt6x"
+});
+Div({
+    __meo$: 2,
+    __meo$c: {
+        padding: 8
+    },
+    __meo$k: "m41jkgsmfs7c5",
+    __meo$dyn: [
+        "css"
+    ],
+    css: {
+        "@media (max-width: theme.breakpoint.md)": styles
+    }
+});
+Div({
+    __meo$: 2,
+    __meo$c: {
+        padding: 8
+    },
+    __meo$k: "mxdk1mqlaczks",
+    __meo$dyn: [
+        "css"
+    ],
+    css: {
+        "@media (max-width: theme.breakpoint.md)": {
+            "&:hover": hover
+        }
+    }
+});
+Div({
+    __meo$: 2,
+    __meo$c: {
+        color: "red",
+        padding: 4
+    },
+    __meo$k: "m2aukpax71xfvr",
+    __meo$dyn: [
+        "css"
+    ],
+    css: {
+        "[data-on] &": {
+            color: tone
+        }
+    }
+});
+Div({
+    __meo$: 2,
+    __meo$n: "65attq2ag4v71",
+    __meo$r: 1,
+    __meo$k: "m35yxf19mub59d"
+});

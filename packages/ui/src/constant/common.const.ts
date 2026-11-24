@@ -91,6 +91,14 @@ export function setDebugMode(enabled: boolean) {
  * props objects (e.g. `{ __meo$: 2, __meo$c: {...}, __meo$d: {...} }`) produced
  * for a call site.
  */
+
+/**
+ * The precedence of the runtime rules React hoists into the head: those of
+ * server components, and the ones a client renders through React's hoistable
+ * styles.
+ */
+export const RUNTIME_PRECEDENCE = 'meonode'
+
 export const COMPILED_MARKER = '__meo$'
 
 /**
@@ -153,18 +161,142 @@ export const LIST_MARKER = '__meo$list'
 export const LOCATION_MARKER = '__meo$loc'
 
 /**
+ * Marker key holding the name of a call site's whole style, which the compiler
+ * serialized at build time: the name `StyledRenderer` would give the same css,
+ * so the element's class is `${cache.key}-${name}`, the one it would have with
+ * extraction off. Its text reaches the page through {@link registerStaticCss},
+ * inserted where Emotion would insert it.
+ */
+export const STATIC_NAME_MARKER = '__meo$n'
+
+/**
+ * Marker key of a named node the compiler chose to carry the named styles that
+ * begin after it, up to the next cut or the end of its render: it renders
+ * through `StyledRenderer`, as a runtime node does, so its insertion puts them
+ * in after its own, with no element added to the children. The compiler marks
+ * every call site that may begin a stretch in any render, so the node renders
+ * through `StyledRenderer` in every render, and React keeps it. In a render
+ * where a rule comes before it, it carries nothing: its rule goes in with that
+ * rule's run, and it renders only its host (see {@link STATIC_CLASS_ONLY_PROP}).
+ */
+export const STATIC_CARRIER_MARKER = '__meo$r'
+
+/**
+ * Marker key holding a call site's template and its values: the id of a
+ * template registered by `registerStaticTemplate`, then each hole's value as
+ * `toCssValue` writes it. Filled in, it is the call site's whole style, named
+ * as the runtime names any serialized styles, so the node is a named one.
+ */
+export const STATIC_TEMPLATE_MARKER = '__meo$t'
+
+/**
+ * The prop a node built from a template keeps its whole style's text on: it is
+ * its own, so no registry holds the text of every value it is rendered with.
+ */
+export const STATIC_TEXT_PROP = '__meonodeStaticText'
+
+/**
+ * The prop of a `StyledRenderer` holding the run of named styles of its render
+ * that began after the previous rule: it inserts them ahead of its own rule.
+ */
+export const STATIC_RUN_PROP = '__meonodeStaticRun'
+
+/**
+ * The prop of a `StyledRenderer` holding, in `run`, the named styles of its
+ * render that began after it and that no later rule takes: it inserts them after
+ * its own. Filled in once the walk has passed them, after the element is built.
+ */
+export const STATIC_RUN_AFTER_PROP = '__meonodeStaticRunAfter'
+
+/**
+ * The prop of a `StyledRenderer` holding its scope on a server render with no
+ * cache provider: the outermost styled element above it, whose cache Emotion
+ * would share with it, so its rule goes out once in that scope.
+ */
+export const STATIC_SCOPE_PROP = '__meonodeStaticScope'
+
+/**
+ * The prop of a `StyledRenderer` for a carrier that follows a rule in this
+ * render: it keeps the carrier's type, so React keeps the element, and renders
+ * the host with the class the walk composed. Its rule goes in with the run of
+ * the rule before it, as an unmarked node's would, so it has no leaf. Where a
+ * server writes styles in place, every named node that follows a rule renders
+ * this way, its own rule written before its host on the server.
+ */
+export const STATIC_CLASS_ONLY_PROP = '__meonodeStaticClassOnly'
+
+/**
+ * The attribute every `<style>` MeoNode writes in place on a server render
+ * carries, empty. Emotion moves those elements into the head before any of
+ * MeoNode's code runs in the browser, where they look like the ones a cache that
+ * collects its rules writes, so this is the only sign left that the server
+ * wrote each element's rules before it, as Emotion does, and gave each named
+ * node after a rule a place for them in the tree. With compiled styles in the
+ * app, a runtime node's `<style>` carries it too, so a page whose named nodes
+ * found their styles written already still says so. The browser gives each
+ * named node the same place, so React keeps every element and `useId` id.
+ */
+export const IN_PLACE_STYLE_ATTRIBUTE = 'data-meonode-place'
+
+/**
+ * The prop of a `StyledRenderer` that a server component hands a compiled
+ * node's style, `{ name, styles }`, in place of `css`: the module that registered
+ * it never loads in the browser, so the text goes with the element.
+ */
+export const STATIC_STYLE_PROP = '__meonodeStaticStyle'
+
+/**
+ * Marker key of a layout factory's call site whose initial props the compiler
+ * merged itself: a fingerprint of what it merged (see `initialPropsFingerprint`).
+ * When it is the factory's own, the factory uses the call site's props as given.
+ */
+export const INITIAL_PROPS_MARKER = '__meo$i'
+
+/**
  * Per-schema names of the compiled marker's contract keys. Indexed by the schema
  * version found in {@link COMPILED_MARKER}.
  */
-export const COMPILER_SCHEMA_KEYS: Readonly<Record<number, { css: string; dom: string; key: string; dyn: string; list?: string; loc?: string }>> = {
+export const COMPILER_SCHEMA_KEYS: Readonly<
+  Record<
+    number,
+    {
+      css: string
+      dom: string
+      key: string
+      dyn: string
+      list?: string
+      loc?: string
+      name?: string
+      template?: string
+    }
+  >
+> = {
   // Schema 1 gets no `list` entry, and must not: its bucket names are unprefixed,
   // so a spread carrying a real prop of the same name would collide with it, the
   // same hazard that retired `d` (a valid SVG `<path>` attribute). A schema 1 call
   // site therefore never reports a missing key — it predates the contract.
   1: { css: 'c', dom: 'd', key: 'k', dyn: 'dyn' },
-  2: { css: '__meo$c', dom: '__meo$d', key: '__meo$k', dyn: '__meo$dyn', list: LIST_MARKER, loc: LOCATION_MARKER },
+  2: {
+    css: '__meo$c',
+    dom: '__meo$d',
+    key: '__meo$k',
+    dyn: '__meo$dyn',
+    list: LIST_MARKER,
+    loc: LOCATION_MARKER,
+    name: STATIC_NAME_MARKER,
+    template: STATIC_TEMPLATE_MARKER,
+  },
   // Schema 3 reuses schema 2's names. `css`/`dom`/`dyn` are never present on a
   // schema 3 call site, but naming them keeps the marker-stripping loop in
   // `_processCompiledProps` uniform across schemas.
-  3: { css: '__meo$c', dom: '__meo$d', key: '__meo$k', dyn: '__meo$dyn', list: LIST_MARKER, loc: LOCATION_MARKER },
+  3: {
+    css: '__meo$c',
+    dom: '__meo$d',
+    key: '__meo$k',
+    dyn: '__meo$dyn',
+    list: LIST_MARKER,
+    loc: LOCATION_MARKER,
+    name: STATIC_NAME_MARKER,
+    template: STATIC_TEMPLATE_MARKER,
+  },
 }

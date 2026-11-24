@@ -17,10 +17,22 @@ import type {
 } from '@src/types/node.type.js'
 import { isClientReference, isForwardRef, isMemo, isReactClassComponent } from '@src/helper/react-is.helper.js'
 import { getCSSProps, getDOMProps, getElementTypeName, omitUndefined } from '@src/helper/common.helper.js'
-import { __DEBUG__, COMPILED_MARKER, COMPILER_SCHEMA_KEYS, LIST_MARKER, LOCATION_MARKER, SUPPORTED_COMPILER_SCHEMAS } from '@src/constant/common.const.js'
+import {
+  __DEBUG__,
+  COMPILED_MARKER,
+  COMPILER_SCHEMA_KEYS,
+  isDevMode,
+  LIST_MARKER,
+  LOCATION_MARKER,
+  STATIC_CARRIER_MARKER,
+  STATIC_NAME_MARKER,
+  STATIC_TEXT_PROP,
+  SUPPORTED_COMPILER_SCHEMAS,
+} from '@src/constant/common.const.js'
 import { BaseNode } from '@src/core.node.js'
 import { diagnosticsEnabled } from '@src/util/theme-diagnostics.util.js'
 import { checkCss, isMergeableCss } from '@src/util/css.util.js'
+import { namedRuntime } from '@src/util/named-runtime-slot.util.js'
 
 /**
  * NodeUtil provides a collection of static utility methods and properties
@@ -227,17 +239,16 @@ export class NodeUtil {
     for (const propKey in source) {
       if (!Object.prototype.hasOwnProperty.call(source, propKey)) continue
       if (
-        propKey === COMPILED_MARKER ||
+        // Stripped on every schema, read on only some: the `__meo$` prefix is
+        // the compiler's, so no schema has a reason to forward a key wearing it,
+        // and a schema declining to *act* on a marker, or one no runtime reads
+        // any more, is no reason to let it out to the element.
+        propKey.startsWith(COMPILED_MARKER) ||
         propKey === schemaKeys.css ||
         propKey === schemaKeys.dom ||
         propKey === schemaKeys.key ||
         propKey === schemaKeys.dyn ||
-        // Stripped on every schema, read on only some: the `__meo$` prefix is
-        // the compiler's, so no schema has a reason to forward a key wearing it,
-        // and schema 1 declining to *act* on the marker is no reason to let it
-        // out to the element.
-        propKey === LIST_MARKER ||
-        propKey === LOCATION_MARKER ||
+        propKey === STATIC_TEXT_PROP ||
         NodeUtil.DESTRUCTURED_SPECIAL_KEYS.has(propKey)
       ) {
         continue
@@ -295,6 +306,26 @@ export class NodeUtil {
     if (generatedChildren) result[LIST_MARKER] = true
     const compiledLocation = schemaKeys.loc === undefined ? undefined : source[schemaKeys.loc]
     if (typeof compiledLocation === 'string') result[LOCATION_MARKER] = compiledLocation
+    // The name of the call site's whole style, which the compiler serialized.
+    const staticName = schemaKeys.name === undefined ? undefined : source[schemaKeys.name]
+    if (typeof staticName === 'string' && staticName !== '') result[STATIC_NAME_MARKER] = staticName
+    // A template filled with the call site's values is its whole style, named
+    // as Emotion's pipeline names the text, so the node is a named one.
+    const template = schemaKeys.template === undefined ? undefined : source[schemaKeys.template]
+    if (Array.isArray(template) && typeof template[0] === 'string') {
+      const filled = namedRuntime.current?.template(template[0], template.slice(1))
+      if (filled !== undefined) {
+        result[STATIC_NAME_MARKER] = filled.name
+        result[STATIC_TEXT_PROP] = filled.text
+      } else if (isDevMode()) {
+        console.error(
+          `[MeoNode] The static template \`${template[0]}\` is used but no module registered it with ${template.length - 1} holes, so the node renders unstyled.`,
+        )
+      }
+    }
+
+    // A carrier the compiler marked.
+    if (source[STATIC_CARRIER_MARKER]) result[STATIC_CARRIER_MARKER] = 1
 
     return result as FinalNodeProps
   }

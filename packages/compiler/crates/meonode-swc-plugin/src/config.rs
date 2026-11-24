@@ -34,6 +34,12 @@ pub struct CompileConfig {
     /// `setDebugMode`, so enabling this costs a string per marked call site
     /// and nothing else.
     pub call_site_locations: bool,
+    /// Write the styles of host call sites as CSS at build time, and leave the
+    /// runtime only what cannot be proved (see `extract.rs`). Off by default,
+    /// and the output is then exactly what it is without this option. The key
+    /// is spelled as the option is announced, not in camel case like the rest.
+    #[serde(rename = "experimental_extractCss")]
+    pub experimental_extract_css: bool,
 }
 
 impl CompileConfig {
@@ -82,6 +88,19 @@ mod tests {
     fn empty_json_object_yields_default() {
         let config = CompileConfig::from_json(Some("{}"));
         assert_eq!(config, CompileConfig::default());
+    }
+
+    #[test]
+    fn extraction_is_off_by_default_and_read_under_its_announced_key() {
+        assert!(!CompileConfig::from_json(Some("{}")).experimental_extract_css);
+        assert!(
+            CompileConfig::from_json(Some(r#"{"experimental_extractCss":true}"#))
+                .experimental_extract_css
+        );
+        assert!(
+            !CompileConfig::from_json(Some(r#"{"experimentalExtractCss":true}"#))
+                .experimental_extract_css
+        );
     }
 
     #[test]

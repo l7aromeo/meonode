@@ -1,0 +1,15 @@
+import { Div } from "@meonode/ui";
+Div({ padding: 4, css: { ":not(&)": { color: "red" } } });
+Div({ padding: 4, css: { ":is(&, .a)": { color: "red" } } });
+Div({ padding: 4, css: { ":where(&, .a)": { color: "red" } } });
+Div({ padding: 4, css: { ":is(&)": { color: "red" } } });
+Div({ padding: 4, css: { "html:not(&) p": { color: "red" } } });
+Div({ padding: 4, css: { ":where(:not(&))": { color: "red" } } });
+Div({ padding: 4, css: { "body:not(.a:has(&))": { color: "red" } } });
+Div({ padding: 4, css: { ":NOT(&)": { color: "red" } } });
+Div({ padding: 4, css: { "&, :not(&)": { color: "red" } } });
+Div({ padding: 4, css: { "& > p": { ":not(&)": { color: "red" } } } });
+Div({ margin: 1, css: { "&, .other": { color: "red" } } });
+Div({ margin: 2, css: { ".a:has(&)": { color: "red" } } });
+Div({ margin: 3, css: { "&:not(.a)": { color: "red" } } });
+Div({ margin: 4, css: { "&::placeholder": { color: "gray", "@media (min-width: 600px)": { color: "silver" } } } });

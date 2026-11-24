@@ -15,6 +15,7 @@ import {
 import type {
   Children,
   DependencyList,
+  CssProp,
   FinalNodeProps,
   HasRequiredProps,
   MergedProps,
@@ -30,15 +31,42 @@ import { isFragment, isValidElementType, REACT_LAZY_TYPE } from '@src/helper/rea
 import { getComponentType, getElementTypeName, hasNoStyleTag, getGlobalState, omitUndefined } from '@src/helper/common.helper.js'
 import StyledRenderer, { ThemedRule, ThemeTokenCheck } from '@src/components/styled-renderer.client.js'
 import MeoMemo from '@src/components/meo-memo.client.js'
-import { COMPILED_MARKER, COMPILER_SCHEMA_KEYS, isDevMode, LIST_MARKER, LOCATION_MARKER } from '@src/constant/common.const.js'
+import {
+  COMPILED_MARKER,
+  COMPILER_SCHEMA_KEYS,
+  INITIAL_PROPS_MARKER,
+  isDevMode,
+  LIST_MARKER,
+  LOCATION_MARKER,
+  RUNTIME_PRECEDENCE,
+  STATIC_CARRIER_MARKER,
+  STATIC_CLASS_ONLY_PROP,
+  STATIC_NAME_MARKER,
+  STATIC_STYLE_PROP,
+  STATIC_TEXT_PROP,
+} from '@src/constant/common.const.js'
 import { checkCss, checkFactoryCss, isMergeableCss, markCombinedCssChecked } from '@src/util/css.util.js'
+import CSSPropertySet from '@src/constant/css-properties.const.js'
 import { NodeUtil } from '@src/util/node.util.js'
 import { IS_REACT_SERVER_LAYER } from '@src/util/react-layer.util.js'
-import { passesChildrenThrough } from '@src/util/children-pass-through.util.js'
+import { mayChangeTheme, passesChildrenThrough } from '@src/util/children-pass-through.util.js'
+import { namedRuntime } from '@src/util/named-runtime-slot.util.js'
 import { noteOnce, observeChildren } from '@src/util/generated-list.util.js'
-import { compileServerEmotionRule } from '@src/util/server-emotion.util.js'
+import { compileServerEmotionRule, compileServerNamedRule } from '@src/util/server-emotion.util.js'
+import { factoryShapes, type FactoryJoinSlot } from '@src/factory-call/index.js'
+import type { EmotionCache } from '@emotion/cache'
+import { themedTexts } from '@src/util/themed-text-slot.util.js'
 import { replaceThemeTokensWithCssVars } from '@src/util/server-theme.util.js'
-import { collectThemeVarRefs, diagnosticsEnabled, getThemeVarIndex, reportThemeIssues, reportUnresolvedThemeKey } from '@src/util/theme-diagnostics.util.js'
+import {
+  collectNamedThemeVarRefs,
+  collectThemeVarRefs,
+  diagnosticsEnabled,
+  getThemeVarIndex,
+  reportThemeIssues,
+  reportThemeVarRefs,
+  reportUnresolvedThemeKey,
+  type ThemeVarIndex,
+} from '@src/util/theme-diagnostics.util.js'
 import { ThemeUtil } from '@src/util/theme.util.js'
 
 /**
@@ -93,18 +121,6 @@ function canAnchorRules(renderTarget: unknown, props: Record<string, unknown>, i
 }
 
 /**
- * Whether the theme can differ inside this element from outside it.
- *
- * A component can render a provider around its children, a nested
- * `ThemeProvider` being the case that matters, so its children may read another
- * theme than its parent does. A host element and the built-in symbols (fragments,
- * Suspense, StrictMode) supply no context.
- */
-function mayChangeTheme(renderTarget: unknown): boolean {
-  return typeof renderTarget === 'function' || (typeof renderTarget === 'object' && renderTarget !== null)
-}
-
-/**
  * The `<style>` element for a rule, one object per request.
  *
  * Every anchor that needs a rule gets it, so a subtree the client does not
@@ -119,7 +135,7 @@ function ruleElement(rule: { id: string; ownClassName: string; cssText: string }
   const elements = requestRuleElements()
   let element = elements.get(rule.id)
   if (!element) {
-    element = createElement('style', { key: rule.ownClassName, href: rule.ownClassName, precedence: 'meonode' }, rule.cssText)
+    element = createElement('style', { key: rule.ownClassName, href: rule.ownClassName, precedence: RUNTIME_PRECEDENCE }, rule.cssText)
     elements.set(rule.id, element)
   }
   return element
@@ -520,6 +536,10 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
     // `ThemedRule`s that render beside the element keyed here, inside one of
     // MeoNode's own providers, because no host in that provider can carry them.
     const besideRules = new Map<BaseNode, Map<string, ReactElement>>()
+    // The named nodes compiled output marks, walked by the runtime it installed
+    // when it registered a style (`named-runtime.util.ts`); outside the server
+    // layer, whose output is final and compiles each style where it is.
+    const named = IS_REACT_SERVER_LAYER ? undefined : namedRuntime.current?.walk()
 
     try {
       // Fast capacity check with exponential growth
@@ -547,6 +567,9 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
         inForeignNamespace: false,
         themeAnchor: null,
         besidePassThrough: false,
+        opaqueAbove: false,
+        themeOwn: undefined,
+        scope: null,
       }
 
       // Iterative depth-first traversal with explicit begin/complete phases to avoid recursion.
@@ -556,7 +579,27 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
           stackPointer--
           continue
         }
-        const { node, isProcessed, theme: inheritedTheme, anchor, inForeignNamespace, themeAnchor, besidePassThrough } = currentWork
+        // A cut, right before a child that may put its rules out of the walk's
+        // order: the run since the last rule goes in after that rule, and what
+        // follows is no longer next to it.
+        if ((currentWork as { cut?: true }).cut) {
+          stackPointer--
+          named!.cut()
+          continue
+        }
+        const {
+          node,
+          isProcessed,
+          theme: inheritedTheme,
+          anchor,
+          inForeignNamespace,
+          themeAnchor,
+          besidePassThrough,
+          opaqueAbove,
+          themeOwn,
+        } = currentWork as typeof currentWork & { opaqueAbove: boolean; themeOwn: ThemeVarIndex | undefined }
+        /** The scope this node's children are in: the one above, or this node's if it is the outermost styled one. */
+        let childScope = (currentWork as { scope?: EmotionCache | null }).scope ?? null
 
         const getActiveTheme = (props: FinalNodeProps, current?: Theme): Theme | undefined => {
           const candidate = (props as { theme?: unknown }).theme
@@ -573,13 +616,17 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
           const activeTheme = getActiveTheme(node.props, inheritedTheme)
           // The topmost host above each child that can carry its rules, and
           // whether the child sits in SVG or MathML, where none can. Only the
-          // server layer compiles rules, so elsewhere no child gets an anchor.
+          // server layer compiles rules, and only static css is carried
+          // elsewhere, so without either no child gets an anchor.
           const beginAs = (node.props as { as?: NodeElementType }).as
           const beginTarget = beginAs != null && isValidElementType(beginAs) ? beginAs : node.element
           const childAnchor = IS_REACT_SERVER_LAYER
             ? (anchor ?? (canAnchorRules(beginTarget, node.props as Record<string, unknown>, inForeignNamespace) ? node : null))
             : null
           const childInForeignNamespace = inForeignNamespace || beginTarget === 'svg' || beginTarget === 'math'
+          // A named node joins the run since the last rule, as its class is
+          // composed; a runtime node takes that run, to insert ahead of its own.
+          if (named) childScope = named.begin(node, node.props as Record<string, unknown>, beginTarget, childScope)
           // The same, for a `ThemedRule`, which resolves against the theme where it
           // renders: the topmost host since the last component above, which may
           // supply another theme.
@@ -587,6 +634,17 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
             !IS_REACT_SERVER_LAYER || mayChangeTheme(beginTarget)
               ? null
               : (themeAnchor ?? (canAnchorRules(beginTarget, node.props as Record<string, unknown>, inForeignNamespace) ? node : null))
+          // For the theme scope of the child's checks: whether a component the render
+          // cannot see into is above it. MeoNode's own providers render their
+          // children as given, and a ThemeProvider's tokens are known here, so the
+          // child's tokens resolve against those merged over the ones above.
+          let childOpaqueAbove = opaqueAbove
+          let childThemeOwn = themeOwn
+          if (named?.checks && mayChangeTheme(beginTarget)) {
+            const below = named.scopeBelow(beginTarget, node.props as Record<string, unknown>, themeOwn)
+            if (below === null) childOpaqueAbove = true
+            else childThemeOwn = below
+          }
 
           if (children) {
             // Only consider BaseNode children for further traversal; primitives and React elements are terminal.
@@ -596,13 +654,20 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
             // other child, so they are collected here — a nested array skipped at
             // this phase would never reach `renderedElements`, and the complete
             // phase below would then fail to look it up rather than rendering it.
+            // With named styles, a cut goes right before each child that may put
+            // its rules out of the walk's order.
             const pending = collectNodeChildren(childArray)
 
-            ensureCapacity(stackPointer + pending.length)
+            ensureCapacity(stackPointer + (named ? 2 * pending.length : pending.length))
 
             for (let i = pending.length - 1; i >= 0; i--) {
               const child = pending[i]
-              if (!NodeUtil.isNodeInstance(child)) continue
+              // Pushed after the child, so the walk reaches it first.
+              const cut = named !== undefined && named.cutsAt(child)
+              if (!NodeUtil.isNodeInstance(child)) {
+                if (cut) workStack[stackPointer++] = { node, isProcessed: true, cut: true } as unknown as (typeof workStack)[number]
+                continue
+              }
 
               // Fiber-backed memoization: hand the subtree to React instead of
               // deriving a key for it. The child becomes terminal for this walk
@@ -612,6 +677,7 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
               if (!NodeUtil.isServer && child.dependencies) {
                 const childKey = (child.rawProps as { key?: string | number }).key
                 renderedElements.set(child, createElement(MeoMemo, { key: childKey, node: child, deps: child.dependencies }))
+                if (cut) workStack[stackPointer++] = { node, isProcessed: true, cut: true } as unknown as (typeof workStack)[number]
                 continue
               }
 
@@ -626,7 +692,11 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
                 // their children as given, so a rule may go beside it. Not inside
                 // SVG or MathML, where a `<style>` would be that namespace's element.
                 besidePassThrough: IS_REACT_SERVER_LAYER && !childInForeignNamespace && passesChildrenThrough(beginTarget),
+                opaqueAbove: childOpaqueAbove,
+                themeOwn: childThemeOwn,
+                scope: childScope,
               }
+              if (cut) workStack[stackPointer++] = { node, isProcessed: true, cut: true } as unknown as (typeof workStack)[number]
             }
           }
         } else {
@@ -645,11 +715,16 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
             as: asTarget,
             [LIST_MARKER]: generatedChildren,
             [LOCATION_MARKER]: callSiteLocation,
+            [STATIC_CARRIER_MARKER]: _carrier,
+            [STATIC_NAME_MARKER]: staticName,
+            [STATIC_TEXT_PROP]: staticText,
             ...otherProps
           } = node.props
 
           const activeTheme = getActiveTheme(node.props, inheritedTheme)
           const builtFrom = node._builtFrom
+          /** The text of the node's whole style: its own, filled from a template, or the registered one. */
+          const namedText = typeof staticName === 'string' ? ((staticText as string | undefined) ?? namedRuntime.current?.textOf(staticName)) : undefined
 
           // Resolve the element to actually render. `as` swaps the render target
           // ("render this other tag/component, keep the styles") while reusing the
@@ -662,6 +737,10 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
           if (asTarget != null && isValidElementType(asTarget)) {
             renderTarget = asTarget
           }
+          // A component may insert rules of its own after its children's, and a
+          // boundary or a memoized node may render them apart: the run since the
+          // last rule goes in after that rule, and what follows is no longer next to it.
+          named?.complete(node, renderTarget)
           // A node in a prop is a supported pattern — a component can take one and
           // put it in its own `children`, where the walk resolves it (see
           // `tests/props-attributes.test.ts`). So this cannot be a general check.
@@ -854,6 +933,11 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
             delete (elementProps as Record<string, unknown>).theme
           }
 
+          // A named node's class, composed in its begin phase as `StyledRenderer`
+          // composes one: the given classes the cache registered folded into it.
+          const ownNamedClass = named?.classOf(node, namedText, opaqueAbove, themeOwn)
+          if (ownNamedClass !== undefined) (elementProps as Record<string, unknown>).className = ownNamedClass
+
           let element: ReactElement<FinalNodeProps>
 
           // Handle fragments specially: create fragment element with key and children.
@@ -876,52 +960,124 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
             // The layer constant comes first in these conditions, so the default build, where
             // it is `false`, folds the server-layer path out.
             const shouldBypassStyledRendererOnServer = IS_REACT_SERVER_LAYER && NodeUtil.isServer
+            // In that layer a compiled node's style compiles here as css does, since
+            // its output is final there too; elsewhere the walk inserted it.
+            const namedStylesHere = shouldBypassStyledRendererOnServer && !disableEmotion ? namedText : undefined
+            // A client reference renders in the browser, through `StyledRenderer`
+            // as its css would; the style goes with it, since the module that
+            // registered it does not load there, and so does how it renders, in
+            // `CompiledStyledRenderer`.
+            const namedForClient = namedStylesHere !== undefined && NodeUtil.isClientReference(renderTarget) ? namedRuntime.current?.clientRenderer : undefined
+            const serverNamedStyles = namedForClient !== undefined ? undefined : namedStylesHere
             // Keep server/client on the same StyledRenderer path for client references.
             // This avoids Emotion hash drift not only for theme tokens, but also for raw
             // CSS values (e.g. "red", "#ff0000") that would otherwise use different
             // server vs client compilation routes.
             const shouldUseRuntimeThemeOnServer = shouldBypassStyledRendererOnServer && isStyledComponent && NodeUtil.isClientReference(renderTarget)
 
-            if ((isStyledComponent && !shouldBypassStyledRendererOnServer) || shouldUseRuntimeThemeOnServer) {
+            if (named?.rendersAtRender(node)) {
+              element = createElement(
+                StyledRenderer,
+                {
+                  element: renderTarget,
+                  ...elementProps,
+                  [STATIC_STYLE_PROP]: { name: staticName, styles: namedText },
+                  ...named.runProps(node),
+                },
+                ...elementChildren,
+              )
+            } else if (named?.rendersClassOnly(node)) {
+              // A marked carrier that carries nothing in this render, or a named node
+              // given a place for its rule: the type it has in every render, with the
+              // class the walk composed, and on the server its own rule.
+              element = createElement(
+                StyledRenderer,
+                { element: renderTarget, ...elementProps, [STATIC_CLASS_ONLY_PROP]: true, ...named.runProps(node) },
+                ...elementChildren,
+              )
+            } else if (namedForClient !== undefined) {
+              element = createElement(
+                namedForClient,
+                { element: renderTarget, ...elementProps, [STATIC_STYLE_PROP]: { name: staticName, styles: namedStylesHere } },
+                ...elementChildren,
+              )
+            } else if ((isStyledComponent && !shouldBypassStyledRendererOnServer) || shouldUseRuntimeThemeOnServer) {
               // `elementProps` was already pre-processed above, so only `css`
               // needs the var conversion here on the server. Aligning with the
               // client runtime's vars-mode resolution keeps the Emotion class
               // hash identical across SSR/CSR.
               const cssForRenderer = NodeUtil.isServer ? replaceThemeTokensWithCssVars(css) : css
-              element = createElement(StyledRenderer, { element: renderTarget, ...elementProps, css: cssForRenderer }, ...elementChildren)
-            } else if (shouldBypassStyledRendererOnServer && isStyledComponent && !NodeUtil.acceptsServerCss(renderTarget)) {
-              // Emit `var(--meonode-theme-*)` on the server so the generated Emotion class
-              // matches the client runtime output — unifies the class hash across SSR/CSR.
-              // `replaceThemeTokensWithCssVars` runs even when activeTheme is undefined
-              // (e.g., RSC/SSR bundler-layer split where the layout-set global state does not
-              // carry into the client page's SSR pass), so string tokens still produce vars.
-              // `processFunctions: true` executes any callable theme refs in `css`,
-              // and with no theme in scope drops them, so none reaches `ThemedRule`:
-              // a function cannot be handed to a client component. What one returns
-              // is converted to vars too, as the client converts it.
-              const themedCss = ThemeUtil.resolveObjWithTheme(replaceThemeTokensWithCssVars(css), activeTheme, {
-                processFunctions: true,
-                themeStringsMode: 'vars',
-              })
-              // Development only; no-ops in production. With a theme in scope this
-              // is the check `StyledRenderer` makes. With none, the token
-              // references are left to `ThemeTokenCheck` below, which runs where
-              // the ThemeProvider is.
-              reportThemeIssues(themedCss, activeTheme ? getThemeVarIndex(activeTheme) : undefined)
-              const cssWithDefaults = ThemeUtil.resolveDefaultStyle(themedCss)
-              // A key holding a theme token needs the theme's concrete value. With
-              // a theme in scope it has been resolved above, and one still holding
-              // a token names a value the theme lacks, so it is left out. With none,
-              // the part from the first such key on goes to `ThemedRule`, which
-              // resolves it where the theme is; the rest compiles here, under a
-              // class named after the whole css.
-              const { plain, themed } = activeTheme
-                ? { plain: ThemeUtil.dropThemedKeys(cssWithDefaults, reportUnresolvedThemeKey), themed: undefined }
-                : ThemeUtil.splitThemedCss(ThemeUtil.dropReservedStylesKeys(cssWithDefaults))
-              const rule = compileServerEmotionRule(plain, elementProps.className, {
-                share: typeof renderTarget !== 'string',
-                identity: themed ? cssWithDefaults : undefined,
-              })
+              element = createElement(
+                StyledRenderer,
+                {
+                  element: renderTarget,
+                  ...elementProps,
+                  css: cssForRenderer,
+                  ...named?.runProps(node),
+                },
+                ...elementChildren,
+              )
+            } else if (
+              (shouldBypassStyledRendererOnServer && isStyledComponent && !NodeUtil.acceptsServerCss(renderTarget)) ||
+              serverNamedStyles !== undefined
+            ) {
+              // A compiled node's style takes the same route as css here, with the
+              // compiler's text in place of the css it was written from.
+              let rule: ReturnType<typeof compileServerEmotionRule>
+              let plain: CssProp | undefined
+              let themed: CssProp | undefined
+              /** The part of a named style's text compiled here, where it is not the whole text. */
+              let namedPlainText: string | undefined
+              if (serverNamedStyles !== undefined) {
+                // A text whose conditions hold theme tokens resolves against the theme in
+                // scope, as css's keys do; with none, it splits as css does: from the first
+                // block whose condition holds a token, it goes to `ThemedRule`, which
+                // resolves it where the theme is, and the rest compiles here, under the
+                // class of the whole text.
+                const parts = themedTexts.resolver?.forServer(serverNamedStyles, activeTheme, diagnosticsEnabled() ? reportUnresolvedThemeKey : undefined)
+                rule = compileServerNamedRule(parts?.name ?? (staticName as string), parts?.styles ?? serverNamedStyles, elementProps.className, {
+                  share: typeof renderTarget !== 'string',
+                  identity: parts?.identity,
+                })
+                themed = parts?.themed
+                if (parts?.identity !== undefined) namedPlainText = parts.styles
+                // With a theme in scope, checked here, as css is above; with none, where the providers are, below.
+                if (activeTheme) reportThemeVarRefs(collectNamedThemeVarRefs(serverNamedStyles), getThemeVarIndex(activeTheme))
+              } else {
+                // Emit `var(--meonode-theme-*)` on the server so the generated Emotion class
+                // matches the client runtime output — unifies the class hash across SSR/CSR.
+                // `replaceThemeTokensWithCssVars` runs even when activeTheme is undefined
+                // (e.g., RSC/SSR bundler-layer split where the layout-set global state does not
+                // carry into the client page's SSR pass), so string tokens still produce vars.
+                // `processFunctions: true` executes any callable theme refs in `css`,
+                // and with no theme in scope drops them, so none reaches `ThemedRule`:
+                // a function cannot be handed to a client component. What one returns
+                // is converted to vars too, as the client converts it.
+                const themedCss = ThemeUtil.resolveObjWithTheme(replaceThemeTokensWithCssVars(css), activeTheme, {
+                  processFunctions: true,
+                  themeStringsMode: 'vars',
+                })
+                // Development only; no-ops in production. With a theme in scope this
+                // is the check `StyledRenderer` makes. With none, the token
+                // references are left to `ThemeTokenCheck` below, which runs where
+                // the ThemeProvider is.
+                reportThemeIssues(themedCss, activeTheme ? getThemeVarIndex(activeTheme) : undefined)
+                const cssWithDefaults = ThemeUtil.resolveDefaultStyle(themedCss)
+                // A key holding a theme token needs the theme's concrete value. With
+                // a theme in scope it has been resolved above, and one still holding
+                // a token names a value the theme lacks, so it is left out. With none,
+                // the part from the first such key on goes to `ThemedRule`, which
+                // resolves it where the theme is; the rest compiles here, under a
+                // class named after the whole css.
+                const split = activeTheme
+                  ? { plain: ThemeUtil.dropThemedKeys(cssWithDefaults, reportUnresolvedThemeKey), themed: undefined }
+                  : ThemeUtil.splitThemedCss(ThemeUtil.dropReservedStylesKeys(cssWithDefaults))
+                ;({ plain, themed } = split)
+                rule = compileServerEmotionRule(plain, elementProps.className, {
+                  share: typeof renderTarget !== 'string',
+                  identity: themed ? cssWithDefaults : undefined,
+                })
+              }
               const elementPropsWithClassName = rule ? { ...elementProps, className: rule.className } : elementProps
               element = createElement(renderTarget, elementPropsWithClassName, ...elementChildren)
               if (rule && (rule.cssText || themed || rule.clientCss)) {
@@ -959,7 +1115,7 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
                 // `ThemedRule` checks its own part. Only while diagnostics are on,
                 // so production output carries nothing for it.
                 if (!activeTheme && diagnosticsEnabled()) {
-                  const refs = collectThemeVarRefs(plain)
+                  const refs = plain !== undefined ? collectThemeVarRefs(plain) : collectNamedThemeVarRefs(namedPlainText ?? serverNamedStyles ?? '')
                   if (refs.length > 0) {
                     const ruleKey = `${rule.id}:check`
                     carryWithTheme(ruleKey, createElement(ThemeTokenCheck, { key: ruleKey, refs }))
@@ -976,8 +1132,8 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
             }
           }
 
-          // A host carrying rules gets them as one trailing keyed slot, after its
-          // own children, so none of those shift and the element stays the one
+          // A host carrying rules gets them after its own children, as one trailing
+          // keyed list, so none of its children shift and the element stays the one
           // element it would be without them.
           const carriedRules = anchoredRules.get(node)
           if (carriedRules) element = cloneElement(element, undefined, ...elementChildren, [...carriedRules.values()])
@@ -999,6 +1155,8 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
 
       // Get the final rendered element for the root node of this render cycle.
       const rootElement = renderedElements.get(this) as ReactElement<FinalNodeProps>
+      // The run since the last rule goes in after it.
+      named?.finish()
       if (rootRules.size === 0) return rootElement
 
       // Rules whose consumer has no host above it in this render that could carry
@@ -1108,11 +1266,12 @@ function Node<AdditionalProps, E extends NodeElementType, ExactProps extends obj
  * the call site's stack is cut at the caller's frame.
  * @param factory The function the author called, where the call site's stack begins.
  */
-function buildNode(element: NodeElementType, props: object, deps: DependencyList | undefined, factory: (...args: never[]) => unknown): BaseNode {
+export function buildNode(element: NodeElementType, props: object, deps: DependencyList | undefined, factory: (...args: never[]) => unknown): BaseNode {
   if (diagnosticsEnabled()) observeChildren(element, props as Record<string, unknown>, factory)
   if (isDevMode()) {
     NodeUtil.markWrittenOutChildren(props as Record<string, unknown>)
     checkDeps(element, deps, factory)
+    checkStyleValues(element, props as Record<string, unknown>)
   }
   return new BaseNode(element, props as NodeProps, deps)
 }
@@ -1182,6 +1341,102 @@ function checkDeps(element: NodeElementType, deps: unknown, factory: (...args: n
   console.error(message)
 }
 
+/**
+ * Distinct style-value messages remembered at once, dropped and started again
+ * when full, as with {@link MAX_DEPS_REPORTS}.
+ */
+const MAX_STYLE_VALUE_REPORTS = 500
+
+/** The style-value messages already logged, so a call a component makes on every render is reported once. */
+const reportedStyleValues = new Set<string>()
+
+/** How many style-value messages are remembered, and the cap, for tests. */
+export function __styleValueReportState(): { reported: number; cap: number } {
+  return { reported: reportedStyleValues.size, cap: MAX_STYLE_VALUE_REPORTS }
+}
+
+/** Forgets every style-value message logged, for tests. */
+export function __resetStyleValueReport(): void {
+  reportedStyleValues.clear()
+}
+
+/**
+ * What a value under a style prop is when no style can be it, or `undefined`
+ * when a style can: a string, number, function, array or plain object holds a
+ * style, while a DOM node, a React element, a node, an instance of a class, or
+ * an object that contains itself does not. Emotion would walk such a value's
+ * links without end, so it is the first of them found, with its path below
+ * `path`. `within` maps each object being walked above it to its path.
+ */
+function notAStyle(value: unknown, path: string, within: Map<object, string>): { path: string; kind: string } | undefined {
+  if (typeof value !== 'object' || value === null) return undefined
+  const above = within.get(value)
+  if (above !== undefined) return { path, kind: `a reference back to \`${above}\`, an object that contains itself` }
+  const nodeType = (value as { nodeType?: unknown }).nodeType
+  const nodeName = (value as { nodeName?: unknown }).nodeName
+  if (typeof nodeType === 'number' && typeof nodeName === 'string') return { path, kind: `a DOM node (${nodeName})` }
+  if (isValidElement(value)) return { path, kind: 'a React element' }
+  if (NodeUtil.isNodeInstance(value)) return { path, kind: `a node (${getElementTypeName(value.element)})` }
+  const prototype = Object.getPrototypeOf(value)
+  if (!Array.isArray(value) && prototype !== Object.prototype && prototype !== null) {
+    return { path, kind: `an instance of ${(prototype?.constructor as { name?: string } | undefined)?.name || 'a class'}` }
+  }
+  within.set(value, path)
+  try {
+    for (const key in value) {
+      if (!Object.prototype.hasOwnProperty.call(value, key)) continue
+      const found = notAStyle((value as Record<string, unknown>)[key], `${path}.${key}`, within)
+      if (found) return found
+    }
+  } finally {
+    within.delete(value)
+  }
+  return undefined
+}
+
+/**
+ * Reports a value no style can be under a prop MeoNode takes as a style: one
+ * named like a CSS property, or `css`. A component prop that shares a CSS
+ * property's name, as a portal's `container`, never reaches the component, and
+ * a DOM node or an object that contains itself there sends styling into
+ * endless recursion with nothing that names the prop. Only the message is
+ * added; the call behaves as before. Each distinct message is logged once,
+ * since a component makes the same call on every render.
+ */
+function checkStyleValues(element: NodeElementType, props: Record<string, unknown>): void {
+  // Compiled output carries the values only known at run time in its css
+  // bucket, under the names they were written with.
+  const bucketName = COMPILER_SCHEMA_KEYS[props[COMPILED_MARKER] as number]?.css
+  const bucket = bucketName === undefined ? undefined : props[bucketName]
+  if (typeof bucket === 'object' && bucket !== null) checkStyleEntries(element, bucket as Record<string, unknown>, true)
+  checkStyleEntries(element, props, false)
+}
+
+/**
+ * {@link checkStyleValues} for one object: each of its entries taken as a
+ * style, or, unless `allStyles`, only `css` and those named like a CSS property.
+ */
+function checkStyleEntries(element: NodeElementType, props: Record<string, unknown>, allStyles: boolean): void {
+  for (const key in props) {
+    if (!allStyles && key !== 'css' && !CSSPropertySet.has(key)) continue
+    const value = props[key]
+    if (typeof value !== 'object' || value === null) continue
+    const found = notAStyle(value, key, new Map())
+    if (!found) continue
+    const component = componentRenderers.get(element as object)
+    const node = component === undefined ? `'${getElementTypeName(element)}'` : `Component(${component})`
+    const message =
+      `[MeoNode] The \`${found.path}\` style on ${node} holds ${found.kind}, which no style can be. ` +
+      (key === 'css'
+        ? 'MeoNode takes everything in the css prop as a style. To pass a value to the element as a prop, put it in `props: { … }`.'
+        : `\`${key}\` is a CSS property, so MeoNode takes it as a style and never passes it on as a prop. To pass it as a prop, put it in \`props: { ${key}: … }\`.`)
+    if (reportedStyleValues.has(message)) continue
+    if (reportedStyleValues.size >= MAX_STYLE_VALUE_REPORTS) reportedStyleValues.clear()
+    reportedStyleValues.add(message)
+    console.error(message)
+  }
+}
+
 // Export the Node factory as the main export
 export { Node }
 
@@ -1233,21 +1488,121 @@ function stylesSomething(css: unknown): boolean {
  * `__meo$c`, but `css` is one of the keys the compiler always leaves top-level,
  * as a plain object whose `theme.*` tokens may already have been replaced.
  */
-function combineFactoryProps(initialProps: Record<string, unknown> | undefined, props: Record<string, unknown> | undefined): Record<string, unknown> {
+export function combineFactoryProps(initialProps: Record<string, unknown> | undefined, props: Record<string, unknown> | undefined): Record<string, unknown> {
+  // Checked before they are combined, so an error names the `css` it was written in.
+  checkFactoryCss(initialProps?.css)
+  checkCss(props?.css)
+  const combined = mergeFactoryProps(initialProps, props)
+  // Made only of what was just checked, so the node does not walk it again.
+  markCombinedCssChecked(combined.css)
+  return combined
+}
+
+/** {@link combineFactoryProps}'s merge, without its development checks. */
+export function mergeFactoryProps(initialProps: Record<string, unknown> | undefined, props: Record<string, unknown> | undefined): Record<string, unknown> {
   const combined: Record<string, unknown> = { ...initialProps, ...props }
   const factoryCss = initialProps?.css
   const callSiteCss = props?.css
-  // Checked before they are combined, so an error names the `css` it was written in.
-  checkFactoryCss(factoryCss)
-  checkCss(callSiteCss)
   if (isMergeableCss(factoryCss) && isMergeableCss(callSiteCss)) {
     combined.css = mergeCss(factoryCss, callSiteCss)
   } else if (stylesSomething(factoryCss) && stylesSomething(callSiteCss)) {
     combined.css = [factoryCss, callSiteCss]
   }
-  // Made only of what was just checked, so the node does not walk it again.
-  markCombinedCssChecked(combined.css)
   return combined
+}
+
+/**
+ * A factory's initial props as the compiler writes them in `__meo$i`, so a call
+ * site the compiler merged with them can say which it merged. The entries go in
+ * the order JavaScript gives them, the order the merge keeps, since that order
+ * decides the merged style's text and so its name. Each part is written so the
+ * text needs no escaping and no two entries give the same text:
+ * - a key: `k<length>:<key>`, then its value;
+ * - a string: `s<length>:<text>`;
+ * - a finite number: `n<number as JavaScript writes it>;`;
+ * - `true`, `false` and `null`: `t`, `f` and `z`;
+ * - a plain object, the initial props included: `{`, its entries, `}`.
+ *
+ * A length counts UTF-16 code units, as a string's `length` does. Initial props
+ * holding any other value (a function, an array, `undefined`, a number that is
+ * not finite, an object that is not plain) or a symbol key have no fingerprint,
+ * so the compiler does not merge them.
+ * @returns The fingerprint, or `undefined` when the props have none.
+ */
+export function initialPropsFingerprint(initialProps: Record<string, unknown> | undefined): string | undefined {
+  return initialProps === undefined ? undefined : fingerprintOf(initialProps)
+}
+
+/** {@link initialPropsFingerprint}'s text for one value, or `undefined` when it has none. */
+function fingerprintOf(value: unknown): string | undefined {
+  switch (typeof value) {
+    case 'string':
+      return `s${value.length}:${value}`
+    case 'number':
+      return Number.isFinite(value) ? `n${String(value)};` : undefined
+    case 'boolean':
+      return value ? 't' : 'f'
+    case 'object': {
+      if (value === null) return 'z'
+      const prototype = Object.getPrototypeOf(value)
+      if ((prototype !== Object.prototype && prototype !== null) || Object.getOwnPropertySymbols(value).length > 0) return undefined
+      let text = '{'
+      for (const key of Object.keys(value)) {
+        const entry = fingerprintOf((value as Record<string, unknown>)[key])
+        if (entry === undefined) return undefined
+        text += `k${key.length}:${key}${entry}`
+      }
+      return `${text}}`
+    }
+    default:
+      return undefined
+  }
+}
+
+/** Each factory's fingerprint, worked out at its first marked call. */
+const fingerprints = new WeakMap<object, string | undefined>()
+
+/**
+ * A call site's props with its factory's initial props merged in, unless the
+ * compiler merged them itself: a call site marked with the factory's own
+ * fingerprint already holds every initial entry, the call site's winning, so its
+ * props are used as given and the initial ones do not come back as runtime css.
+ * Any other call merges as before. A marker naming other initial props means the
+ * compiler saw another version of the factory, and merging again only re-adds
+ * what it merged.
+ */
+function factoryProps(initialProps: Record<string, unknown> | undefined, props: Record<string, unknown> | undefined): Record<string, unknown> {
+  const marker = props?.[INITIAL_PROPS_MARKER]
+  if (typeof marker === 'string' && initialProps !== undefined) {
+    let own = fingerprints.get(initialProps)
+    if (!fingerprints.has(initialProps)) {
+      own = initialPropsFingerprint(initialProps)
+      fingerprints.set(initialProps, own)
+    }
+    if (own !== undefined && marker === own) return props as Record<string, unknown>
+  }
+  return combineFactoryProps(initialProps, props)
+}
+
+/**
+ * The slot the join of this copy of core goes in, once `factory-call/join.ts`
+ * loads: only compiled output calls it, so an app built without the compiler
+ * never loads it.
+ */
+export const FACTORY_JOIN: FactoryJoinSlot = {}
+
+/**
+ * Records a factory `createNode` or `createChildrenFirstNode` made, in the
+ * registry `__meoFactoryCall` reads: its element, its initial props, which
+ * argument holds a call's props, and this copy's join slot.
+ */
+function recordFactory(
+  factory: (...args: never[]) => unknown,
+  element: NodeElementType,
+  initialProps: Record<string, unknown> | undefined,
+  propsAt: 0 | 1,
+): void {
+  factoryShapes.set(factory, { element, initialProps, propsAt, core: FACTORY_JOIN })
 }
 
 /**
@@ -1277,13 +1632,14 @@ export function createNode<AdditionalInitialProps, E extends NodeElementType, Ex
   ): BaseNode => {
     const node = buildNode(
       element,
-      combineFactoryProps(initialProps as Record<string, unknown> | undefined, props as Record<string, unknown> | undefined),
+      factoryProps(initialProps as Record<string, unknown> | undefined, props as Record<string, unknown> | undefined),
       deps,
       Instance,
     )
     return node
   }
   Instance.element = element
+  recordFactory(Instance, element, initialProps as Record<string, unknown> | undefined, 0)
   return Instance as any
 }
 
@@ -1315,7 +1671,7 @@ export function createChildrenFirstNode<AdditionalInitialProps, E extends NodeEl
   ): BaseNode => {
     const node = buildNode(
       element,
-      { ...combineFactoryProps(initialProps as Record<string, unknown> | undefined, props as Record<string, unknown> | undefined), children },
+      { ...factoryProps(initialProps as Record<string, unknown> | undefined, props as Record<string, unknown> | undefined), children },
       deps,
       Instance,
     )
@@ -1323,5 +1679,6 @@ export function createChildrenFirstNode<AdditionalInitialProps, E extends NodeEl
   }
   Instance.element = element
   childrenFirstFactories.add(Instance)
+  recordFactory(Instance, element, initialProps as Record<string, unknown> | undefined, 1)
   return Instance as any
 }

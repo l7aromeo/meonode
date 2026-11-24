@@ -142,3 +142,41 @@ export const removeBlocksWithThemeTokens = (text: string, report: (prelude: stri
     result = result.slice(0, start) + result.slice(Math.min(end + 1, result.length))
   }
 }
+
+/** The literal text of a key before its first token and after its last, or `undefined` for a key holding none. */
+const literalEnds = (key: string): { prefix: string; suffix: string } | undefined => {
+  KEY_TOKEN.lastIndex = 0
+  let first = -1
+  let last = -1
+  let match: RegExpExecArray | null
+  while ((match = KEY_TOKEN.exec(key)) !== null) {
+    if (first < 0) first = match.index + match[1].length
+    last = match.index + match[0].length
+  }
+  return first < 0 ? undefined : { prefix: key.slice(0, first), suffix: key.slice(last) }
+}
+
+/**
+ * Whether some theme could give two keys of one object the same text, once
+ * their tokens take its values: a key with tokens and a literal it may become,
+ * or two keys with tokens whose literal text around them agrees. Resolving the
+ * keys of an object folds such a pair into one key, where text resolved prelude
+ * by prelude keeps two blocks, so a style holding one is resolved as an object.
+ * A token's value may be any text, so only the literal ends of a key bound what
+ * it becomes; two keys whose ends disagree never meet.
+ * @param a A key.
+ * @param b Another key of the same object.
+ */
+export const keysMayMeet = (a: string, b: string): boolean => {
+  const endsA = literalEnds(a)
+  const endsB = literalEnds(b)
+  if (endsA === undefined && endsB === undefined) return false
+  if (endsA === undefined || endsB === undefined) {
+    const literal = endsA === undefined ? a : b
+    const { prefix, suffix } = (endsA ?? endsB)!
+    return literal.length >= prefix.length + suffix.length && literal.startsWith(prefix) && literal.endsWith(suffix)
+  }
+  const prefixesAgree = endsA.prefix.startsWith(endsB.prefix) || endsB.prefix.startsWith(endsA.prefix)
+  const suffixesAgree = endsA.suffix.endsWith(endsB.suffix) || endsB.suffix.endsWith(endsA.suffix)
+  return prefixesAgree && suffixesAgree
+}

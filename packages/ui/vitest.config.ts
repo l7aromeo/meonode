@@ -1,8 +1,6 @@
-import path from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vitest/config'
-
-const rootDir = path.dirname(fileURLToPath(import.meta.url))
+import { sourceAliases } from './vitest.aliases.ts'
+import { SERVER_THEN_BROWSER } from './vitest.server-then-browser.config.ts'
 
 export default defineConfig({
   test: {
@@ -10,10 +8,7 @@ export default defineConfig({
     globals: true,
     setupFiles: ['./jest.setup.ts'],
     include: ['**/__tests__/**/*.test.ts', '**/?(*.)+(spec|test).ts'],
-    exclude: ['**/node_modules/**', '**/dist/**'],
-    alias: {
-      '@src': path.resolve(rootDir, 'src'),
-      '@tests': path.resolve(rootDir, 'tests'),
-    },
+    exclude: ['**/node_modules/**', '**/dist/**', ...SERVER_THEN_BROWSER],
+    alias: sourceAliases,
   },
 })

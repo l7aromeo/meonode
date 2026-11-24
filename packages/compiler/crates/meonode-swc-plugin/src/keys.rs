@@ -41,6 +41,17 @@ pub fn is_special_key(name: &str) -> bool {
 /// `Decision::Compilable` call site), computed/numeric/bigint keys have
 /// already been rejected — only `Ident` and identifier-or-not `Str` keys
 /// (see `detect::validate_key`) survive.
+/// A key's name, when it is an identifier or a string; `None` for a numeric,
+/// bigint or computed key. For keys no validation has vetted, where
+/// [`key_name_atom`] would panic.
+pub fn plain_key(key: &PropName) -> Option<Atom> {
+    match key {
+        PropName::Ident(id) => Some(id.sym.clone()),
+        PropName::Str(s) => Some(Atom::from(s.value.as_str().unwrap_or_default())),
+        _ => None,
+    }
+}
+
 pub fn key_name_atom(key: &PropName) -> Atom {
     match key {
         PropName::Ident(id) => id.sym.clone(),

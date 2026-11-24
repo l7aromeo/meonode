@@ -4,8 +4,8 @@
   "private": true,
   "description": "Repo-root tooling scripts for @meonode/compiler (codegen, drift checks). Not published — see npm/package.json for the published package.",
   "scripts": {
-    "codegen": "bun run scripts/codegen-css-set.ts && bun run scripts/codegen-factories.ts",
-    "check:drift": "bun run scripts/codegen-css-set.ts && bun run scripts/codegen-factories.ts && git diff --exit-code crates/meonode-swc-plugin/src/css_props.rs crates/meonode-swc-plugin/src/factories.rs",
+    "codegen": "bun run scripts/codegen-css-set.ts && bun run scripts/codegen-factories.ts && bun run scripts/codegen-extract-tables.ts",
+    "check:drift": "bun run scripts/codegen-css-set.ts && bun run scripts/codegen-factories.ts && bun run scripts/codegen-extract-tables.ts && git diff --exit-code crates/meonode-swc-plugin/src/css_props.rs crates/meonode-swc-plugin/src/factories.rs crates/meonode-swc-plugin/src/extract_tables.rs crates/meonode-swc-plugin/tests/fixture/extract",
     "build:wasm": "bun run scripts/build-wasm.ts && cp README.md npm/README.md",
     "build:wasm:linux-x64": "bun run scripts/build-wasm.ts --linux-x64 && cp README.md npm/README.md",
     "test": "vitest run",
@@ -21,6 +21,7 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@typescript/native": "npm:typescript@^7.0.2",
+    "@webref/css": "^8.7.10",
     "jsdom": "^31.0.1",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",

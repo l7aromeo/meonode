@@ -1,0 +1,13 @@
+{
+  // The parity cases import @meonode/mui, which resolves through mui's exports
+  // map to packages/mui/dist, so they typecheck only once mui is built. The main
+  // program excludes this directory to keep `lint` free of that build; this
+  // project checks it where mui is built (CI's package-entries job, and before
+  // every parity run).
+  //
+  // `exclude` is inherited and would drop this directory, so it is reset here;
+  // `paths` are inherited and resolve against the parent's directory.
+  "extends": "../../tsconfig.json",
+  "include": ["."],
+  "exclude": []
+}

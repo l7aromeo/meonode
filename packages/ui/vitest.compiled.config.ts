@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { defineConfig, mergeConfig, type Plugin } from 'vitest/config'
 import baseConfig from './vitest.config'
+import { sourceAliases } from './vitest.aliases.ts'
 
 const rootDir = path.dirname(fileURLToPath(import.meta.url))
 
@@ -11,6 +12,9 @@ const ENTRY_SPECIFIERS = { main: '@meonode/ui', client: '@meonode/ui/client' } a
 
 /** An import of an entry by its `@src` path, as the tests write it. */
 const ENTRY_IMPORT = /(\bfrom\s*)(['"])@src\/(main|client)\.js\2/g
+
+/** Whether the suites run with the plugin's css extraction on. */
+const extractCss = process.env.MEONODE_EXTRACT_CSS === '1'
 
 /** Names a wasm build to compile with instead of the ones found below. */
 const WASM_ENV = 'MEONODE_COMPILER_WASM'
@@ -54,10 +58,12 @@ function resolveWasm(): string {
  * plugin compiles them as an app's code is compiled: those imports are given
  * the package specifiers an app imports them by, with the plugin's default
  * options, and the specifiers resolve back to the sources under test.
+ * `MEONODE_EXTRACT_CSS=1` turns the plugin's css extraction on as well.
  */
 function meonodeCompilerPlugin(): Plugin {
   const wasm = resolveWasm()
   let transformed = 0
+  let extracted = 0
 
   return {
     name: 'meonode-compiler',
@@ -83,11 +89,12 @@ function meonodeCompilerPlugin(): Plugin {
           experimental: {
             // No `factoryModules`: it would compile the package's own factories
             // as a wrapper library's, props first, which no app gets.
-            plugins: [[wasm, {}]],
+            plugins: [[wasm, extractCss ? { experimental_extractCss: true } : {}]],
           },
         },
       })
       if (result.code.includes('__meo$')) transformed++
+      if (result.code.includes('__meo$n')) extracted++
       return { code: result.code, map: result.map }
     },
     buildEnd() {
@@ -96,8 +103,11 @@ function meonodeCompilerPlugin(): Plugin {
       if (transformed === 0) {
         throw new Error('meonode-compiler transformed no call sites — compiled test mode would be vacuous.')
       }
-
-      console.log(`[meonode-compiler] emitted markers into ${transformed} file(s)`)
+      // With extraction on, a suite that extracted nothing passes on any runtime.
+      if (extractCss && extracted === 0) {
+        throw new Error('meonode-compiler extracted no css with MEONODE_EXTRACT_CSS=1 — the run would test the runtime path only.')
+      }
+      console.log(`[meonode-compiler] emitted markers into ${transformed} file(s)${extractCss ? `, named styles into ${extracted}` : ''}`)
     },
   }
 }
@@ -117,17 +127,21 @@ export default mergeConfig(
     },
     test: {
       // The compiler rewrites `@meonode/ui` factory calls; aliasing `@src`
-      // means the library's own sources compile too, not just the tests.
-      alias: { '@src': path.resolve(rootDir, 'src') },
+      // means the library's own sources compile too, not just the tests. The
+      // unit suites' aliases, so `@src` resolves to the same `.default` variants.
+      alias: sourceAliases,
       // Vitest's module cache keys a transform by the file's source and the
       // config, not by the wasm the config loads, so after a rebuild it would
-      // replay what the previous build compiled (#154).
+      // replay what the previous build compiled (#154), or a transform made
+      // with extraction the other way.
       fsModuleCache: false,
       // Lets a test tell which mode it is running under. A few assertions are
       // legitimately mode-specific: uncompiled keys are derived from props, so
       // structurally identical nodes share one, while compiled keys come from
       // source position and never do.
-      env: { MEONODE_COMPILED: '1' },
+      // `MEONODE_EXTRACTED` says the plugin extracted css too: a test's `css`
+      // written as a literal is then no longer on the runtime path.
+      env: { MEONODE_COMPILED: '1', MEONODE_EXTRACTED: extractCss ? '1' : '' },
     },
   }),
 )

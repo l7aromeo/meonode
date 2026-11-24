@@ -1,6 +1,7 @@
 'use client'
 import { useMemo, type ReactElement } from 'react'
 import type { DependencyList, NodeInstance } from '@src/types/node.type.js'
+import { namedRuntime } from '@src/util/named-runtime-slot.util.js'
 
 /**
  * Holds one memoized subtree in a fiber of its own.
@@ -40,5 +41,11 @@ export default function MeoMemo({ node, deps }: { node: NodeInstance; deps: Depe
   //
   // The element type is stable for a given call site, so this invalidates on a
   // genuine swap without weakening memoization for the ordinary case.
-  return useMemo(() => node.render(true), [node.element, ...deps])
+  //
+  // React allows no hook inside `useMemo`, and a walk with named styles reads
+  // the Emotion cache, and in development the theme, as it renders: they are
+  // read here, where hooks may be called, and handed to the walk.
+  const runtime = namedRuntime.current
+  const contexts = runtime?.memoContexts()
+  return useMemo(() => (contexts ? runtime!.withContexts(contexts, () => node.render(true)) : node.render(true)), [node.element, ...deps])
 }

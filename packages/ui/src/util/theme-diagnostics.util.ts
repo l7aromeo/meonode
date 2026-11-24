@@ -400,6 +400,90 @@ export const collectThemeVarRefs = (value: unknown): ThemeVarRef[] => {
 }
 
 /**
+ * A CSS property as a style object spells it, so a named style's warning names
+ * the property as the call site wrote it: `background-color` is `backgroundColor`,
+ * `-webkit-user-select` is `WebkitUserSelect`, `-ms-flex` is `msFlex`.
+ */
+const toStyleKey = (property: string): string =>
+  property.startsWith('--') ? property : property.replace(/^-ms-/, 'ms-').replace(/-([a-z])/g, (_, letter: string) => letter.toUpperCase())
+
+/** References of named styles, by their text: bounded by the styles the build registered. */
+const namedStyleRefs = new Map<string, ThemeVarRef[]>()
+
+/**
+ * Every theme variable a compiled node's whole style references, as
+ * `collectThemeVarRefs` gives them for the css it was written from: each under
+ * the property it is the value of, as the css spells it. The text is Emotion's
+ * serialized styles, before any prefixing, so each declaration is one the call
+ * site wrote, at the top level or inside a nested selector or at-rule.
+ * @param styles The style's serialized text, as registered.
+ * @returns Its references.
+ */
+export const collectNamedThemeVarRefs = (styles: string): ThemeVarRef[] => {
+  const known = namedStyleRefs.get(styles)
+  if (known !== undefined) return known
+  const refs: ThemeVarRef[] = []
+  const declare = (text: string) => {
+    const colon = text.indexOf(':')
+    if (colon <= 0) return
+    const key = toStyleKey(text.slice(0, colon).trim())
+    forEachVarRef(text.slice(colon + 1), varName => addThemeVarRef(refs, [varName, key]))
+  }
+  // What comes before a `{` is a selector or an at-rule's prelude; what a `;`
+  // or a `}` ends is a declaration.
+  let start = 0
+  for (let i = 0; i < styles.length; i++) {
+    const char = styles[i]
+    if (char === '{') start = i + 1
+    else if (char === ';' || char === '}') {
+      declare(styles.slice(start, i))
+      start = i + 1
+    }
+  }
+  declare(styles.slice(start))
+  namedStyleRefs.set(styles, refs)
+  return refs
+}
+
+/**
+ * Adds a theme variable reference unless it is already there.
+ * @param refs The references so far.
+ * @param ref The one to add.
+ */
+export const addThemeVarRef = (refs: ThemeVarRef[], ref: ThemeVarRef): void => {
+  if (!refs.some(([varName, property]) => varName === ref[0] && property === ref[1])) refs.push(ref)
+}
+
+/** Indexes of providers' tokens, by the tokens object: a provider's tokens are usually one object for its lifetime. */
+const tokensIndexCache = new WeakMap<object, ThemeVarIndex>()
+
+/**
+ * Every variable a provider with these tokens defines, as `getThemeVarIndex`
+ * gives it for the provider's theme, which only its tokens decide.
+ * @param tokens A ThemeProvider's `tokens`.
+ * @returns Its variables.
+ */
+export const getTokensVarIndex = (tokens: unknown): ThemeVarIndex => {
+  if (typeof tokens !== 'object' || tokens === null) return new Map()
+  let index = tokensIndexCache.get(tokens)
+  if (!index) tokensIndexCache.set(tokens, (index = buildThemeVarIndex({ system: tokens } as Theme)))
+  return index
+}
+
+/**
+ * The variables defined under a nested provider, as `mergeThemeVarIndexes`
+ * gives them, without its report: the provider itself reports a redefined token.
+ * @param outer What the providers above define, or `null` when there are none.
+ * @param own What the nested provider defines.
+ * @returns Both.
+ */
+export const unionThemeVarIndexes = (outer: ThemeVarIndex | null, own: ThemeVarIndex): ThemeVarIndex => {
+  if (!outer || outer.size === 0) return own
+  if (own.size === 0) return outer
+  return new Map([...outer, ...own])
+}
+
+/**
  * Reports each referenced variable the providers above do not define, or every
  * one when no provider is above.
  * @param refs The references, from `collectThemeVarRefs`.
@@ -558,6 +642,14 @@ export const trackProviderVars = (owner: object, own: ThemeVarIndex): (() => voi
     }
   }
 }
+
+/**
+ * Every variable a mounted provider defines, from the record kept while
+ * diagnostics are on, or `null` when none is mounted.
+ * @returns The variables.
+ */
+export const mountedThemeVarIndex = (): ThemeVarIndex | null =>
+  mountedVars.size === 0 ? null : new Map([...mountedVars.keys()].map(varName => [varName, true]))
 
 /** Test seam: clears the once-per-problem memo and the record of mounted providers. */
 export const __resetThemeDiagnostics = (): void => {
