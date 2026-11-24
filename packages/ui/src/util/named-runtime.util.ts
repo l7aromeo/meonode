@@ -106,8 +106,10 @@ function beginsStyledRenderer(props: Record<string, unknown>): boolean {
  * `.render()` returns.
  */
 class Walk implements NamedWalk {
-  /** The cache the render's elements go under, read once, at its first named node. */
+  /** The cache the render's elements go under, made from what was read, at its first named node that needs one. */
   private cache: EmotionCache | undefined
+  /** Whether the cache where the walk runs was read yet. */
+  private hasRead = false
   /** Whether the walk runs outside a component's render, where no cache can be read. */
   private underNoRender = false
 
@@ -161,18 +163,30 @@ class Walk implements NamedWalk {
   private candidates: StaticThemeCandidate[] | undefined
   private readonly checksAfterCommit = this.checks && isDevMode() && !NodeUtil.isServer
 
-  private cacheOfWalk(): EmotionCache {
-    if (this.cache === undefined) {
-      const read = readEmotionCache()
+  /** What the walk reads where it runs, once: a provider's cache, Emotion's default (`null` on a server), or `undefined` outside a render. */
+  private readCache(): EmotionCache | null | undefined {
+    const read = this.hasRead ? this.cache : readEmotionCache()
+    if (!this.hasRead) {
+      this.hasRead = true
       this.underNoRender = read === undefined
-      this.cache = read ?? createServerCssCache()
+      if (read) this.cache = read
     }
-    return this.cache
+    return read
+  }
+
+  /**
+   * The cache read, or a server's own where none is given. Only a walk inside a
+   * render asks for it: in the browser, a cache keyed `css` moves every server
+   * `<style>` still in the body into the head as it is made, and React's
+   * development build runs components outside any render to read their frames.
+   */
+  private cacheOfWalk(): EmotionCache {
+    return (this.cache ??= this.readCache() ?? createServerCssCache())
   }
 
   /** Whether the walk has no cache to read, being outside a component's render. */
   private hasNoCache(): boolean {
-    this.cacheOfWalk()
+    this.readCache()
     return this.underNoRender
   }
 
