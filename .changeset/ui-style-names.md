@@ -6,4 +6,4 @@ Two different styles no longer share one class name (Fixes #143). MeoNode now na
 
 Class names change form, so snapshot tests that record MeoNode class names need updating. Class names are not a stable API and may change between versions. Classes that `@meonode/mui` and code using Emotion directly create keep Emotion's names, and never equal a MeoNode name.
 
-Naming a style costs more the first time it is seen. In Chrome, a page of about 10,000 styled nodes, each with its own style, mounts about 14% slower the first time; later mounts and updates of the same styles take 1–5% longer. Names are kept for up to 40,000 styles, about 9.4 MiB at most for typical styles.
+Naming a style costs more the first time it is seen. In Chrome, against the same runtime naming styles with Emotion's hash, a page of about 10,000 styled nodes, each with its own style, mounts about 14% slower the first time; later mounts and updates of the same styles take 1–5% longer. Names are kept for up to 40,000 styles, about 9.4 MiB at most for typical styles.
