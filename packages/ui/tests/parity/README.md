@@ -178,6 +178,10 @@ Settings, from the environment:
   and per row (`rows`: each case, mode and side, with load, environments,
   forced, steps, first paint, compare, confirm sweeps and confirm reloads).
   Every run also logs the totals, with the wall time, as `time by phase`.
+  The phases named `forced: …` are parts of `forced`: the read in the page,
+  the rest of the read's round trip (serialising and moving the values), the
+  diff against the unforced read, and with the DevTools protocol the force,
+  the unforce and the transitions wait after each.
 - `PARITY_SHARD`: `k/n`, to run only the k-th of n interleaved slices of the
   cases, so CI can run one engine as n jobs. A shard skips the coverage gate;
   a `--no-browser` run checks it for every case.

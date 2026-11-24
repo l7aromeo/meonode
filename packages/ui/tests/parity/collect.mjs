@@ -63,10 +63,12 @@ function readTree(skipped) {
  * it computed before (the same element read twice gives the element's colour
  * once and black once), and a user sees the browser's default either way. Given `[skipped, index]`, only the elements inside the
  * `data-parity-scope` element holding the element at `index` are read, and
- * the others are null.
+ * the others are null. Given a third item, true, the result also holds `ms`,
+ * the time the read took in the page.
  */
 function readStyles(arg) {
-  const [skipped, scopeIndex] = Array.isArray(arg[0]) ? arg : [arg, null]
+  const started = performance.now()
+  const [skipped, scopeIndex, timed] = Array.isArray(arg[0]) ? arg : [arg, null, false]
   const elements = [...document.querySelectorAll('#root *')].filter(el => !skipped.includes(el.tagName))
   const scope = scopeIndex === null ? null : elements[scopeIndex].closest('[data-parity-scope]')
   const first = elements.length ? getComputedStyle(elements[0]) : getComputedStyle(document.body)
@@ -101,6 +103,8 @@ function readStyles(arg) {
             readSelection ? values(getComputedStyle(el, '::selection')) : [],
           ],
     ),
+    // With `timed`, the milliseconds the read took in the page, for the run's phase times.
+    ...(timed && { ms: performance.now() - started }),
   }
 }
 
@@ -239,13 +243,21 @@ function changedFrom(now, base) {
  * element whose computed value differs from the unforced state.
  * @returns Entries `<element index>:<state>` → `{ <element index>/<part>/<prop>: value }`.
  */
-const forcedStates = async (page, base, meta, samples = {}) => {
+const forcedStates = async (page, base, meta, samples = {}, spend = () => {}) => {
   const sets = [...FORCED_STATES.map(state => [state]), ...(meta.forceCombos ?? [])]
   const onlyMarked = meta.force === 'marked'
   // A read while one element is forced: every element, or with `forceScope: 'fixture'` its own fixture's.
-  const read = index => page.evaluate(readStyles, meta.forceScope === 'fixture' ? [SKIPPED_TAGS, index] : SKIPPED_TAGS)
+  // Its time is split into the read in the page and the rest of the round trip (serialising and moving the values).
+  const read = async index => {
+    const started = performance.now()
+    const now = await page.evaluate(readStyles, [SKIPPED_TAGS, meta.forceScope === 'fixture' ? index : null, true])
+    spend('forced: read in page', now.ms)
+    spend('forced: read transfer', performance.now() - started - now.ms)
+    delete now.ms
+    return now
+  }
   return {
-    ...(await (FORCE_BY_CDP ? forcedByCdp(page, base, sets, onlyMarked, read) : forcedByInput(page, base, sets, onlyMarked, read, Infinity, samples))),
+    ...(await (FORCE_BY_CDP ? forcedByCdp(page, base, sets, onlyMarked, read, spend) : forcedByInput(page, base, sets, onlyMarked, read, Infinity, samples))),
     ...(await domStates(page, base)),
   }
 }
@@ -310,7 +322,16 @@ async function domStates(page, base) {
 }
 
 /** Forced states through CSS.forcePseudoState, each set of pseudo-classes at once. */
-async function forcedByCdp(page, base, sets, onlyMarked, read) {
+async function forcedByCdp(page, base, sets, onlyMarked, read, spend = () => {}) {
+  /** Runs `fn`, adding its time to `phase`. */
+  const timed = async (phase, fn) => {
+    const started = performance.now()
+    try {
+      return await fn()
+    } finally {
+      spend(phase, performance.now() - started)
+    }
+  }
   const cdp = await page.context().newCDPSession(page)
   await cdp.send('DOM.enable')
   await cdp.send('CSS.enable')
@@ -323,12 +344,12 @@ async function forcedByCdp(page, base, sets, onlyMarked, read) {
   for (const [index, nodeId] of ids.entries()) {
     if (!targets[index]) continue
     for (const states of sets) {
-      await cdp.send('CSS.forcePseudoState', { nodeId, forcedPseudoClasses: states })
-      await finishTransitions(page)
+      await timed('forced: force', () => cdp.send('CSS.forcePseudoState', { nodeId, forcedPseudoClasses: states }))
+      await timed('forced: transitions', () => finishTransitions(page))
       const now = await read(index)
-      await cdp.send('CSS.forcePseudoState', { nodeId, forcedPseudoClasses: [] })
-      await finishTransitions(page)
-      out[`${index}:${states.join('+')}`] = changedFrom(now, base)
+      await timed('forced: unforce', () => cdp.send('CSS.forcePseudoState', { nodeId, forcedPseudoClasses: [] }))
+      await timed('forced: transitions', () => finishTransitions(page))
+      out[`${index}:${states.join('+')}`] = await timed('forced: diff', () => changedFrom(now, base))
     }
   }
   await cdp.detach()
@@ -636,7 +657,7 @@ export async function collect(browser, url, meta, plant, spend = () => {}) {
     record.exact = await page.evaluate(readExact)
     // Each real-input read's sample: whether the element held its states when read, and whether it took them in time.
     record.forcedSamples = {}
-    record.forced = await forcedStates(page, base, meta, record.forcedSamples)
+    record.forced = await forcedStates(page, base, meta, record.forcedSamples, spend)
     lap('forced')
 
     for (const step of meta.steps ?? []) {
