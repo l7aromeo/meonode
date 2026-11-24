@@ -1,5 +1,15 @@
 # @meonode/compiler
 
+## 0.11.0
+
+### Minor Changes
+
+- [#164](https://github.com/l7aromeo/meonode/pull/164) [`74aef43`](https://github.com/l7aromeo/meonode/commit/74aef43d17edacc221f9c157aa45658e7e6cfba5) Thanks [@l7aromeo](https://github.com/l7aromeo)! - An experimental `experimental_extractCss` option names the styles of host and layout factory call sites at build time. For a call site whose whole style is known when the module is built (literals, same-file `const` literals and template literals over them), the compiler writes the serialized styles and class name the runtime would compute for it, and the runtime inserts them through Emotion under that name, so the node renders with the class and rule it would have uncompiled. A value only the call site knows, but provably a string or a number (a template literal or arithmetic over plain reads), becomes a hole in a template the module registers; the runtime joins the template with the call site's values and names the result. A node with any other value only known at runtime stays on the runtime path. A named node that may be first in its walk on one render and follow a rule on another carries `__meo$r` (`r: 1` on the site of an imported factory's call), so the runtime renders it through `StyledRenderer` on every render and its element type never changes; a node whose place is the same on every render (what `.render()` is called on, a `Component`'s return, a memoized node, a helper's root under callers that all put a rule before it) carries none. It needs `@meonode/ui` 3.4.0 or later, which reads `__meo$n`, `__meo$t`, `__meo$i` and `__meo$r` and exports `registerStaticCss`, `registerStaticTemplate`, `toCssValue` and `__meoFactoryCall`. Off by default, and the output is then unchanged.
+
+### Patch Changes
+
+- [#132](https://github.com/l7aromeo/meonode/pull/132) [`c615f94`](https://github.com/l7aromeo/meonode/commit/c615f940620350644bcacf11a9235b1cd78ad214) Thanks [@l7aromeo](https://github.com/l7aromeo)! - The README's measured effect describes the client-render bench with its real 40 re-renders per mount, not 20 (Fixes [#131](https://github.com/l7aromeo/meonode/issues/131)).
+
 ## 0.10.4
 
 ### Patch Changes
