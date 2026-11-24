@@ -16,12 +16,20 @@ import { createElement, Fragment, useId, type ComponentType, type ReactElement }
 import { Div, Node } from '@meonode/ui'
 
 /**
- * Its own id, as text, in a fixed-width font so two ids of one length take the
- * same width in every engine. A plain element with an inline style: a style
- * rule of its own would give the page a fresh server style, and so a marker.
+ * The id span's box width, wider than any id the cases render. The [registry]
+ * "on" side's id is shorter than the runtime's (an accepted fork), and Firefox
+ * resolves transform-origin from an inline element's width, so a box that grew
+ * with the text would show the fork there as a layout difference.
+ */
+const ID_BOX_WIDTH = '16ch'
+
+/**
+ * Its own id, as text, in a box of fixed width. A plain element with an inline
+ * style: a style rule of its own would give the page a fresh server style, and
+ * so a marker.
  */
 function IdText(): ReactElement {
-  return createElement('span', { style: { fontFamily: 'monospace' } }, `id ${useId()}`)
+  return createElement('span', { style: { display: 'inline-block', width: ID_BOX_WIDTH, fontFamily: 'monospace' } }, `id ${useId()}`)
 }
 
 const id = () => Node(IdText, { key: 'id' })
