@@ -356,8 +356,8 @@ messages themselves ship either way: the flag is a runtime binding, not a build-
 the text, and a minified bundle built with `process.env.NODE_ENV` substituted still contains every one of them. That is
 deliberate — the bugs worth this much logging are usually the ones that only reproduce in production.
 
-The cost is the diagnostics' code in every browser bundle: about 4 KB gzipped in 3.3.0 (the theme checks about 2.5 KB,
-the generated-list report about 1.5 KB), whether or not the flag is ever set.
+The cost is the diagnostics' code in every browser bundle: about 4.8 KB gzipped (the theme checks about 2.9 KB, the
+generated-list report about 1.2 KB, the `deps` and style-value checks about 0.7 KB), whether or not the flag is ever set.
 
 📖 [Full list of what it logs](https://ui.meonode.com/docs/getting-started/faq)
 
