@@ -273,12 +273,13 @@ function renderStyled(
   const {
     css,
     as: asTarget,
-    className: givenClass,
     [STATIC_STYLE_PROP]: given,
     [STATIC_RUN_AFTER_PROP]: _after,
     [STATIC_SCOPE_PROP]: _scope,
     ...otherProps
   } = props as typeof props & { [STATIC_STYLE_PROP]?: CompiledStyle; [STATIC_RUN_AFTER_PROP]?: unknown; [STATIC_SCOPE_PROP]?: unknown }
+  // Kept among the other props, so the class attribute goes where Emotion's css prop puts it: at the given class's place, or last.
+  const givenClass = otherProps.className
   let renderTarget = element as ElementType
   if (asTarget != null && isValidElementType(asTarget)) {
     renderTarget = asTarget
