@@ -58,13 +58,18 @@ Each side's record is compared with the oracle's on:
   before the move, since focusing an element can scroll the page and leave
   an earlier measure on a neighbour. A read under `:hover` or `:active` waits
   until the element matches the state, since real input takes effect on the
-  engine's own frame. A read counts as a sample of its state only when no
-  other compared element matches `:hover` besides the element's own
-  ancestors and descendants; a DOM-state or step read, with the pointer on
-  the square, fails the page if any compared element still matches it, and
-  names the element. In WebKit an element can match `:hover` before its
-  hover rules apply, on no fixed element and with every read holding the
-  state: on grammar-101's 192 forced states, three sweeps of one page
+  engine's own frame. The press for `:active` is made only when the point
+  still lands on the element once its hover has taken effect: a `:hover`
+  rule that moves the element from under the pointer would send the press
+  to another element, and WebKit then keeps `:hover` on the element after
+  the release. That read is kept as not held. A read counts as a sample of
+  its state only when no other compared element matches `:hover` besides the
+  element's own ancestors and descendants. Every return of the pointer to
+  the square between states, and every DOM-state or step read, fails the
+  page if any compared element still matches `:hover`, and names the
+  element; a return between states also names the state applied before.
+  In WebKit an element can match `:hover` before its hover rules apply, on
+  no fixed element and with every read holding the state: on grammar-101's 192 forced states, three sweeps of one page
   disagree on 0 to 6 states per side (6 runs, load average 3.7 to 7.6).
   Releasing the press over the element instead raised that to 6 to 40 over
   12 runs, so the press is released away from it. The repeated sweeps below
