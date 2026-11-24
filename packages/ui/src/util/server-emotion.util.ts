@@ -1,7 +1,7 @@
 import { cache as requestCache } from 'react'
 import createCache from '@emotion/cache'
 import { prefixer } from '@src/util/emotion-prefixer.util.js'
-import { serializeStyles } from '@emotion/serialize'
+import { serializeUnnamed } from '@src/util/serialize-styles.util.js'
 import { nameStyles } from '@src/util/style-name.util.js'
 import { getRegisteredStyles, insertStyles } from '@emotion/utils'
 import type { CssProp } from '@src/types/node.type.js'
@@ -98,7 +98,7 @@ function keepSharedClass(name: string, entry: SharedClass): void {
 function sameThemed(a: CssProp | string | undefined, b: CssProp | string | undefined): boolean {
   if (a === b) return true
   if (a === undefined || b === undefined) return false
-  const textOf = (part: CssProp | string) => (typeof part === 'string' ? part : serializeStyles([part] as never).styles)
+  const textOf = (part: CssProp | string) => (typeof part === 'string' ? part : serializeUnnamed([part] as never).styles)
   return textOf(a) === textOf(b)
 }
 
@@ -263,7 +263,7 @@ function compileRule(
       else if (cache.registered[name] !== undefined) parts.push(`${cache.registered[name]};`)
       else if (name) otherClasses += `${name} `
     }
-    const name = nameStyles(serializeStyles(parts as any, cache.registered)).name
+    const name = nameStyles(serializeUnnamed(parts as any, cache.registered)).name
     const ownClassName = `${cache.key}-${name}`
     themedClasses.set(ownClassName, parts as CssProp)
     if (options?.share) shareClass(ownClassName, '', parts as CssProp)
@@ -273,9 +273,9 @@ function compileRule(
   const compiled =
     knownName !== undefined && styles.length === 1
       ? { name: knownName, styles: css as string, next: undefined }
-      : nameStyles(serializeStyles(styles as any, cache.registered))
+      : nameStyles(serializeUnnamed(styles as any, cache.registered))
   const serialized = options?.identity
-    ? { ...compiled, name: nameStyles(serializeStyles([options.identity, ...styles.slice(1)] as any, cache.registered)).name }
+    ? { ...compiled, name: nameStyles(serializeUnnamed([options.identity, ...styles.slice(1)] as any, cache.registered)).name }
     : compiled
   const stylesForSSR = insertStyles(cache as any, serialized as any, false)
   const cachedStyle = (cache.inserted as Record<string, unknown>)[serialized.name]

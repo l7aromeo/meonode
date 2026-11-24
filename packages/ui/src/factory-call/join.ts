@@ -6,7 +6,7 @@
  * compiler never loads it; a module importing the light entry,
  * `@meonode/ui/factory-call`, joins once this one has run in the app.
  */
-import { serializeStyles } from '@emotion/serialize'
+import { serializeUnnamed } from '@src/util/serialize-styles.util.js'
 import { buildNode, combineFactoryProps, FACTORY_JOIN, initialPropsFingerprint, mergeFactoryProps } from '@src/core.node.js'
 import { COMPILED_MARKER, isDevMode, STATIC_CARRIER_MARKER, STATIC_NAME_MARKER } from '@src/constant/common.const.js'
 import CSSPropertySet from '@src/constant/css-properties.const.js'
@@ -122,7 +122,7 @@ function joinStyle(merged: Record<string, unknown>, own: string | undefined): Jo
   })
   // With no theme, only keys holding tokens are dropped: the `styles` keys are refused above.
   if (themedKey && !joinsWithThemedKeys(resolved)) return null
-  const { name, styles } = nameStyles(serializeStyles([ThemeUtil.resolveDefaultStyle(themedKey ? resolved : kept)] as never))
+  const { name, styles } = nameStyles(serializeUnnamed([ThemeUtil.resolveDefaultStyle(themedKey ? resolved : kept)] as never))
   if (styles === '' || !registerNamedText(name, styles)) return null
   return { name, styles, own }
 }

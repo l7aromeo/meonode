@@ -1,5 +1,6 @@
 import type { EmotionCache } from '@emotion/cache'
-import { serializeStyles, type SerializedStyles } from '@emotion/serialize'
+import type { SerializedStyles } from '@emotion/serialize'
+import { serializeUnnamed } from '@src/util/serialize-styles.util.js'
 import { getRegisteredStyles, insertStyles, registerStyles } from '@emotion/utils'
 import { createElement, Fragment, type ReactElement } from 'react'
 import { createServerCssCache } from '@src/util/server-css-cache.util.js'
@@ -52,7 +53,7 @@ export function namedClass(
   else if (givenClass != null) className = `${givenClass as string} `
   // With nothing folded in, the compiler's name is the one Emotion's pipeline
   // would give the text; folded, the text is another and so is its name.
-  const serialized: SerializedStyles = registered.length === 1 ? { name, styles, next: undefined } : nameStyles(serializeStyles(registered))
+  const serialized: SerializedStyles = registered.length === 1 ? { name, styles, next: undefined } : nameStyles(serializeUnnamed(registered))
   registerStyles(cache, serialized, isStringTag)
   return { className: className + `${cache.key}-${serialized.name}`, style: { serialized, isStringTag } }
 }

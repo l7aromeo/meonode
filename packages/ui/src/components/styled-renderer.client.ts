@@ -10,7 +10,8 @@ import {
 import { createElement, type ElementType, Fragment, type JSX, type ReactElement, type ReactNode, useContext, useInsertionEffect } from 'react'
 import { __unsafe_useEmotionCache as useEmotionCache, CacheProvider, jsx, ThemeContext as EmotionThemeContext } from '@emotion/react'
 import createCache, { type EmotionCache } from '@emotion/cache'
-import { serializeStyles, type SerializedStyles } from '@emotion/serialize'
+import type { SerializedStyles } from '@emotion/serialize'
+import { serializeUnnamed } from '@src/util/serialize-styles.util.js'
 import { getRegisteredStyles, insertStyles, registerStyles } from '@emotion/utils'
 import { NodeUtil } from '@src/util/node.util.js'
 import type { CssProp, NodeElement, Theme } from '@src/types/node.type.js'
@@ -218,7 +219,7 @@ const compiledOf = (given: CompiledStyle | undefined, theme: Theme | undefined, 
  */
 function serializedOf(registered: unknown[], compiled: CompiledStyle | undefined, emotionTheme: unknown): SerializedStyles {
   if (compiled && registered.length === 1) return { name: compiled.name, styles: compiled.styles, next: undefined }
-  return nameStyles(serializeStyles(registered as never, undefined, emotionTheme as never))
+  return nameStyles(serializeUnnamed(registered as never, undefined, emotionTheme as never))
 }
 
 /** Whether any of `styles` is not yet in its cache: its scope's, or `cache`. */
@@ -415,7 +416,7 @@ export function ThemedRule({ className, css }: ThemedRuleProps): ReactElement | 
   const kept = ThemeUtil.dropThemedKeys(resolved, reportUnresolvedThemeKey)
   // The declarations under its keys, as `StyledRenderer` checks a whole element's.
   reportStyleTokens(kept, context)
-  const serialized = nameStyles(serializeStyles([kept as never]))
+  const serialized = nameStyles(serializeUnnamed([kept as never]))
   const cssText = compileRule(className, serialized)
   if (!cssText) return null
   return createElement('style', { href: `${className}-${serialized.name}`, precedence: RUNTIME_PRECEDENCE }, cssText)
