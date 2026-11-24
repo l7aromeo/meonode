@@ -372,7 +372,10 @@ async function forcedByCdp(page, base, sets, onlyMarked, read, spend = () => {})
  * clicked), focus after a pointer click for :focus, and focus after a key press
  * for :focus-visible. An element with no box gets no pointer states. The
  * :active read is taken with the pointer still over the element, so :hover
- * holds in it too, and a rule under :hover alone shows in both reads.
+ * holds in it too, and a rule under :hover alone shows in both reads. The
+ * press is made only when the point still lands on the element once its
+ * hover has taken effect: otherwise it would land on another element, so
+ * that :active read is kept as not held.
  */
 async function forcedByInput(page, base, sets, onlyMarked, read, upTo = Infinity, samples = {}) {
   const elements = await comparedElements(page)
@@ -459,11 +462,19 @@ async function assertNoHover(page, where) {
   if (stray.length) throw new Error(`stray :hover at ${where}: ${stray.join(', ')}`)
 }
 
-/** The pointer on the neutral square and nothing focused, then settled. */
+/** For each page, the last set of states applied by real input, so a hover left behind is named after the state that left it. */
+const lastInput = new WeakMap()
+
+/**
+ * The pointer on the neutral square and nothing focused, then settled. Fails
+ * the page if a compared element still matches :hover there, naming it and
+ * the state applied before, since every later read would carry it.
+ */
 async function resetInput(page) {
   await toNeutral(page)
   await page.evaluate(() => document.activeElement?.blur?.())
   await settle(page)
+  await assertNoHover(page, `the reset after ${lastInput.get(page) ?? 'the page load'}`)
 }
 
 /** Frames to wait for real input to take effect before a read goes ahead without it. */
@@ -476,6 +487,18 @@ function waitForStates(el, [states, frames]) {
     const tick = () => (states.every(state => el.matches(`:${state}`)) || --left <= 0 ? resolve(left > 0) : requestAnimationFrame(tick))
     tick()
   })
+}
+
+/**
+ * Runs with the pointer on the element: whether, once its hover has taken
+ * effect, the element still matches :hover and the point still hits it or a
+ * descendant. A :hover rule that moves the element from under the pointer
+ * fails this, and a press there would land on another element.
+ */
+async function pointerStaysOn(page, element, point) {
+  await element.evaluate(waitForStates, [['hover'], STATE_WAIT_FRAMES])
+  await settle(page)
+  return element.evaluate((el, [x, y]) => el.matches(':hover') && el.contains(document.elementFromPoint(x, y)), point)
 }
 
 /** Applies one set of states to the element at `index` by real input, from a reset, and returns what changed from `base`. */
@@ -499,12 +522,15 @@ async function applyByInput(page, base, element, index, centre, states, read) {
     await settle(page)
     await page.mouse.move(...centre)
   }
-  if (states.includes('active') && centre) {
+  // No press where the element's own hover has moved it from under the pointer: the press would land on another
+  // element, so the read is no sample of :active, and WebKit keeps :hover on the element after that press is released.
+  const offElement = states.includes('active') && centre ? !(await pointerStaysOn(page, element, centre)) : false
+  if (states.includes('active') && centre && !offElement) {
     await page.mouse.down()
     pressed = true
   }
   // Real input takes effect on the engine's own frame, so read only once the element matches the states the pointer set.
-  const pointerStates = centre ? states.filter(state => state === 'hover' || state === 'active') : []
+  const pointerStates = centre && !offElement ? states.filter(state => state === 'hover' || state === 'active') : []
   const waited = pointerStates.length ? await element.evaluate(waitForStates, [pointerStates, STATE_WAIT_FRAMES]) : true
   await settle(page)
   const changed = await read(index)
@@ -512,8 +538,9 @@ async function applyByInput(page, base, element, index, centre, states, read) {
   // under the pointer ends itself, and a read without the state is no sample of it.
   const kept = pointerStates.length ? await element.evaluate((el, list) => list.every(state => el.matches(`:${state}`)), pointerStates) : true
   // Any other hovered element is a state the read carries that the other side may lack: no sample either.
-  const stray = await page.evaluate(strayHovers, [SKIPPED_TAGS, pointerStates.includes('hover') || pointerStates.includes('active') ? index : null])
-  const held = kept && !stray.length
+  const onElement = centre && (states.includes('hover') || states.includes('active'))
+  const stray = await page.evaluate(strayHovers, [SKIPPED_TAGS, onElement ? index : null])
+  const held = !offElement && kept && !stray.length
   // The scroll boxes a state can change: its fixture's and the document's, whose scrollbars an engine may add a frame late.
   const layout = await element.evaluate(el => {
     const box = node =>
@@ -529,6 +556,7 @@ async function applyByInput(page, base, element, index, centre, states, read) {
     await page.mouse.move(...NEUTRAL)
     await page.mouse.up()
   }
+  lastInput.set(page, `the ${states.join('+')} state of element ${index}`)
   return { changed, held, waited, layout, ...(stray.length && { stray }) }
 }
 
