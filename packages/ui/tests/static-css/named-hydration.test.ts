@@ -155,6 +155,40 @@ const PLACE_CASES: Record<string, Tree> = {
 }
 
 /**
+ * Named nodes after a rule whose style is written already when they render:
+ * by a named node before them under the same cache, or by a runtime node with
+ * the same css. Such a node writes no `<style>` of its own, so the page's
+ * signal must come from the style written first, whichever node wrote it.
+ */
+const SHARED_CASES: Record<string, Tree> = {
+  'two named nodes with one style, an id below the second': (ui, react, style) => {
+    const Id = () => ui.Span('id', { 'data-id': react.useId() }).render() as import('react').ReactElement
+    return ui.Div({
+      children: [ui.Div({ key: 1, ...style({ padding: 2 }) }), ui.Div({ key: 2, ...style({ padding: 2 }), children: ui.Node(Id) }), ui.Node(Id, { key: 'i' })],
+    })
+  },
+  'a named parent and child with one style, an id below the child': (ui, react, style) => {
+    const Id = () => ui.Span('id', { 'data-id': react.useId() }).render() as import('react').ReactElement
+    return ui.Div({
+      children: [
+        ui.Div({ key: 1, ...style({ padding: 2 }), children: ui.Div({ ...style({ padding: 2 }), children: ui.Node(Id) }) }),
+        ui.Node(Id, { key: 'i' }),
+      ],
+    })
+  },
+  'a runtime node, then a named node with the same style, an id below it': (ui, react, style) => {
+    const Id = () => ui.Span('id', { 'data-id': react.useId() }).render() as import('react').ReactElement
+    return ui.Div({
+      children: [
+        ui.Div({ key: 1, ...style({ padding: 2 }, false) }),
+        ui.Div({ key: 2, ...style({ padding: 2 }), children: ui.Node(Id) }),
+        ui.Node(Id, { key: 'i' }),
+      ],
+    })
+  },
+}
+
+/**
  * Cases that mark no carrier: the walk carries each run at the first named node
  * of its stretch, as the compiler marks one, on the server and in the browser
  * alike. The carried cases below are the same trees as the compiler marks them.
@@ -668,7 +702,7 @@ describe.each(PROVIDERS)('a server-rendered page %s, with no carrier marked, hyd
 })
 
 describe.each(PROVIDERS)('a server-rendered page %s, with named nodes after a rule, writes and hydrates as its runtime twin does', (_, provider) => {
-  it.each(Object.entries(PLACE_CASES))('%s', async (_, tree) => {
+  it.each(Object.entries({ ...PLACE_CASES, ...SHARED_CASES }))('%s', async (_, tree) => {
     const expected = await serverThenHydrate(tree, false, provider)
     expect(expected).toMatchObject({ serverErrors: [], errors: [], idsKept: true, stylesLeftInBody: 0 })
     expect(expected.ids).toBeGreaterThan(1)
@@ -706,7 +740,7 @@ describe.each([
   ['with no cache provider', 'none'],
   ['under a cache provider', 'cache'],
 ] as const)('a page of two server-rendered roots %s, and a root created after hydration', (_, provider) => {
-  it.each(Object.entries(PLACE_CASES))('%s: keeps every element and id, as its runtime twin does', async (_, tree) => {
+  it.each(Object.entries({ ...PLACE_CASES, ...SHARED_CASES }))('%s: keeps every element and id, as its runtime twin does', async (_, tree) => {
     const expected = await rootsThenHydrate(tree, false, provider)
     expect(expected).toMatchObject({ errors: [], idsKept: true, elementsKept: true })
     expect(await rootsThenHydrate(tree, true, provider)).toEqual(expected)

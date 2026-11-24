@@ -230,9 +230,11 @@ export const STATIC_CLASS_ONLY_PROP = '__meonodeStaticClassOnly'
  * carries, empty. Emotion moves those elements into the head before any of
  * MeoNode's code runs in the browser, where they look like the ones a cache that
  * collects its rules writes, so this is the only sign left that the server
- * wrote each named node's rules before its element, as Emotion does, and gave
- * each a place for them in the tree. The browser gives each the same place, so
- * React keeps every element and `useId` id.
+ * wrote each element's rules before it, as Emotion does, and gave each named
+ * node after a rule a place for them in the tree. With compiled styles in the
+ * app, a runtime node's `<style>` carries it too, so a page whose named nodes
+ * found their styles written already still says so. The browser gives each
+ * named node the same place, so React keeps every element and `useId` id.
  */
 export const IN_PLACE_STYLE_ATTRIBUTE = 'data-meonode-place'
 

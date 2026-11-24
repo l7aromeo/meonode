@@ -6,8 +6,9 @@
 // the client moves them to the head. Structural selectors count those
 // elements, so `& > :first-child` or `& + *` match by where they are. A named
 // node, marked as a carrier or not, must write its `<style>` where its runtime
-// twin does: the server HTML is the same, every `<style>` in its place, and
-// each `<style>` it writes in place says so (IN_PLACE_STYLE_ATTRIBUTE).
+// twin does: the server HTML is the same, every `<style>` in its place. With
+// compiled styles in the app, each `<style>` MeoNode writes in place says so
+// (IN_PLACE_STYLE_ATTRIBUTE), a runtime node's as well as a named node's.
 import { CacheProvider } from '@emotion/react'
 import createCache from '@emotion/cache'
 import { createElement, type ReactElement } from 'react'
@@ -76,10 +77,11 @@ describe.each([
   ['under a cache that collects them', 'collecting'],
 ] as const)('%s', (_, cache) => {
   it.each(Object.entries(CASES))('%s: every <style> where its runtime twin writes it', (__, tree) => {
+    const unmarked = (html: string) => html.replaceAll(` ${IN_PLACE_STYLE_ATTRIBUTE}=""`, '')
     const expected = serverHtml(tree, runtimeStyle, cache)
     if (cache !== 'collecting') expect(expected).toContain('<style')
     const compiled = serverHtml(tree, compiledStyle, cache)
-    expect(compiled.replaceAll(` ${IN_PLACE_STYLE_ATTRIBUTE}=""`, '')).toBe(expected)
+    expect(unmarked(compiled)).toBe(unmarked(expected))
     // Every MeoNode-written style says it was written in place; a collecting cache writes none.
     const styles = compiled.match(/<style [^>]*>/g) ?? []
     const marked = styles.filter(tag => tag.includes(`${IN_PLACE_STYLE_ATTRIBUTE}=""`))

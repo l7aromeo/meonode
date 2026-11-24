@@ -2,11 +2,17 @@
 //
 // Server-rendered bytes for `css` values that are maps. A map is spread over the flat
 // props and never takes the `[flatCssProps, css]` composition, so each row's class
-// name and rule text are fixed. Runs unchanged under `test:compiled`.
+// name and rule text are fixed. Runs unchanged under `test:compiled`; with css
+// extraction on, the nodes are compiled and each `<style>` written in place says
+// so, which the comparison takes out.
 import { renderToString } from 'react-dom/server'
 import { keyframes } from '@emotion/react'
 import { Div, Node, type NodeInstance, type Theme, ThemeProvider } from '@src/main.js'
+import { IN_PLACE_STYLE_ATTRIBUTE } from '@src/constant/common.const.js'
 import { asThemeProps } from './_theme-props.js'
+
+/** Whether this run compiles the tests with css extraction on. */
+const EXTRACTED = process.env.MEONODE_EXTRACTED === '1'
 
 const theme: Theme = { mode: 'light', system: { colors: { primary: 'rgb(255, 0, 0)' }, font: { body: 'Inter' } } }
 const themed = (node: NodeInstance) => ThemeProvider({ ...asThemeProps(theme), children: node })
@@ -15,8 +21,11 @@ const Wrap = ({ make }: { make: () => NodeInstance }) => make().render()
 const viaComponent = (make: () => NodeInstance) => Node(Wrap, { make })
 const bounce = keyframes`from { opacity: 0; } to { opacity: 1; }`
 
-/** The server markup without the provider's `:root` variables block. */
-const ssr = (node: NodeInstance) => renderToString(node.render()).replace(/<style data-meonode-theme-vars="">[^<]*<\/style>/, '')
+/** The server markup without the provider's `:root` variables block, nor the in-place attribute when extracted. */
+const ssr = (node: NodeInstance) => {
+  const html = renderToString(node.render()).replace(/<style data-meonode-theme-vars="">[^<]*<\/style>/, '')
+  return EXTRACTED ? html.replaceAll(` ${IN_PLACE_STYLE_ATTRIBUTE}=""`, '') : html
+}
 
 describe('css maps render byte-identically on the server', () => {
   it.each<[string, () => NodeInstance, string]>([

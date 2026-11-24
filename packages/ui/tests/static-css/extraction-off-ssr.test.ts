@@ -4,13 +4,19 @@
 // each styled node's rule goes out in place, before its element, as Emotion
 // writes it. The snapshots were taken before compiled nodes could hand their
 // rules to a runtime node's insertion, so they hold the output that path must
-// leave as it was.
+// leave as it was. Under the compiler with extraction on, these nodes are
+// compiled, and each `<style>` written in place says so; with that attribute
+// taken out, the output is the same.
 import { CacheProvider } from '@emotion/react'
 import createCache from '@emotion/cache'
 import { createElement, type ReactElement } from 'react'
 import { renderToString } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import { Div, Node, Span, type NodeInstance } from '@src/main.js'
+import { IN_PLACE_STYLE_ATTRIBUTE } from '@src/constant/common.const.js'
+
+/** Whether this run compiles the tests with css extraction on. */
+const EXTRACTED = process.env.MEONODE_EXTRACTED === '1'
 
 const RED = { color: 'rgb(200, 0, 0)' }
 const BLUE = { color: 'rgb(0, 0, 200)' }
@@ -31,6 +37,7 @@ describe.each([
 ])('a server render with nothing compiled, %s', (_, provider) => {
   it.each(Object.entries(CASES))('%s', (_, tree) => {
     const element = tree().render() as ReactElement
-    expect(renderToString(provider ? createElement(CacheProvider, { value: createCache({ key: 'css' }) }, element) : element)).toMatchSnapshot()
+    const html = renderToString(provider ? createElement(CacheProvider, { value: createCache({ key: 'css' }) }, element) : element)
+    expect(EXTRACTED ? html.replaceAll(` ${IN_PLACE_STYLE_ATTRIBUTE}=""`, '') : html).toMatchSnapshot()
   })
 })
