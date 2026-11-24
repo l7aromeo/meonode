@@ -987,9 +987,14 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
                 ...elementChildren,
               )
             } else if (named?.rendersClassOnly(node)) {
-              // A marked carrier that carries nothing in this render: the type it
-              // has in every render, with the class the walk composed.
-              element = createElement(StyledRenderer, { element: renderTarget, ...elementProps, [STATIC_CLASS_ONLY_PROP]: true }, ...elementChildren)
+              // A marked carrier that carries nothing in this render, or a named node
+              // given a place for its rule: the type it has in every render, with the
+              // class the walk composed, and on the server its own rule.
+              element = createElement(
+                StyledRenderer,
+                { element: renderTarget, ...elementProps, [STATIC_CLASS_ONLY_PROP]: true, ...named.runProps(node) },
+                ...elementChildren,
+              )
             } else if (namedForClient !== undefined) {
               element = createElement(
                 namedForClient,

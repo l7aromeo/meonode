@@ -539,6 +539,14 @@ layout say, registers an empty list: the registry then belongs to every module
 that loads the runtime, so a bundler splitting an app into route segments
 keeps it in the chunk they share rather than copying it into each segment.
 
+A server render with no `StyleRegistry`, where Emotion writes each element's
+rules in a `<style>` right before it, gets each named node's `<style>` in the
+same place. Each `<style>` the runtime writes there carries an empty
+`data-meonode-place` attribute: Emotion moves those elements into the head
+before any app code runs, and the attribute is how the browser knows to give
+each named node the same place in its tree, so hydration keeps every element
+and `useId` id.
+
 - **Known at build time:** literals, `theme.*` token strings and same-file
   `const` literals, at any depth of `css`; a template literal whose expressions
   are all known strings or numbers (`` `${GAP}px` `` with `const GAP = 2`),

@@ -1,6 +1,7 @@
 import type { EmotionCache } from '@emotion/cache'
 import { isValidElement, use } from 'react'
 import {
+  IN_PLACE_STYLE_ATTRIBUTE,
   isDevMode,
   STATIC_CARRIER_MARKER,
   STATIC_NAME_MARKER,
@@ -105,9 +106,26 @@ function beginsStyledRenderer(props: Record<string, unknown>): boolean {
  * memoized node. So every run goes in with a rule, and nothing is added to what
  * `.render()` returns.
  */
+
+/**
+ * Whether a server rendered this page writing its styles in place, read from
+ * {@link IN_PLACE_STYLE_ATTRIBUTE} once, when a walk first needs to know, and
+ * kept for the page's life, so no node's type ever changes.
+ */
+let placedByServer: boolean | undefined
+const pageStylesPlacedByServer = (): boolean =>
+  (placedByServer ??= typeof document !== 'undefined' && document.querySelector(`style[${IN_PLACE_STYLE_ATTRIBUTE}]`) !== null)
+
+/** Forgets what the page was read as, for tests that load another page into the same module. */
+export function __resetPlacedByServer(): void {
+  placedByServer = undefined
+}
+
 class Walk implements NamedWalk {
-  /** The cache the render's elements go under, read once, at its first named node. */
+  /** The cache the render's elements go under, made from what was read, at its first named node that needs one. */
   private cache: EmotionCache | undefined
+  /** Whether the cache where the walk runs was read yet. */
+  private hasRead = false
   /** Whether the walk runs outside a component's render, where no cache can be read. */
   private underNoRender = false
 
@@ -130,8 +148,25 @@ class Walk implements NamedWalk {
   /**
    * Marked carriers that follow a rule: their rule joins the run, as an unmarked
    * node's does, and they render through `StyledRenderer` only to keep its type.
+   * Where styles go in place ({@link slotsEachNode}), every named node that
+   * follows a rule.
    */
   private readonly classOnly = new Set<WalkNode>()
+
+  /**
+   * Whether every named node that follows a rule renders as a carrier does, its
+   * host in the place beside a leaf: on a server render whose cache writes each
+   * element's rules in a `<style>` before it, as Emotion's does with no provider
+   * or under one that does not collect them, where that leaf writes the node's
+   * own; and in a browser whose page such a server rendered, where it is empty,
+   * so the tree, and every `useId` id, is the server's. Read at the first such node.
+   */
+  private slots: boolean | undefined
+
+  private slotsEachNode(): boolean {
+    this.slots ??= NodeUtil.isServer ? this.scoped || this.cacheOfWalk().compat !== true : pageStylesPlacedByServer()
+    return this.slots
+  }
   /** Each named node's class, from its begin phase, for its complete phase. */
   private readonly classes = new Map<WalkNode, string>()
   /** The run each runtime node inserts ahead of its own rule. */
@@ -161,18 +196,30 @@ class Walk implements NamedWalk {
   private candidates: StaticThemeCandidate[] | undefined
   private readonly checksAfterCommit = this.checks && isDevMode() && !NodeUtil.isServer
 
-  private cacheOfWalk(): EmotionCache {
-    if (this.cache === undefined) {
-      const read = readEmotionCache()
+  /** What the walk reads where it runs, once: a provider's cache, Emotion's default (`null` on a server), or `undefined` outside a render. */
+  private readCache(): EmotionCache | null | undefined {
+    const read = this.hasRead ? this.cache : readEmotionCache()
+    if (!this.hasRead) {
+      this.hasRead = true
       this.underNoRender = read === undefined
-      this.cache = read ?? createServerCssCache()
+      if (read) this.cache = read
     }
-    return this.cache
+    return read
+  }
+
+  /**
+   * The cache read, or a server's own where none is given. Only a walk inside a
+   * render asks for it: in the browser, a cache keyed `css` moves every server
+   * `<style>` still in the body into the head as it is made, and React's
+   * development build runs components outside any render to read their frames.
+   */
+  private cacheOfWalk(): EmotionCache {
+    return (this.cache ??= this.readCache() ?? createServerCssCache())
   }
 
   /** Whether the walk has no cache to read, being outside a component's render. */
   private hasNoCache(): boolean {
-    this.cacheOfWalk()
+    this.readCache()
     return this.underNoRender
   }
 
@@ -235,10 +282,18 @@ class Walk implements NamedWalk {
       const { className, style } = namedClass(this.cacheOfWalk(), name!, styles, props.className, typeof target === 'string')
       this.classes.set(node, className)
       if (this.scoped) style.scope = childScope!
-      this.pending.push(style)
-      // Where the compiler marks a carrier, a render may need it to carry: it
-      // keeps `StyledRenderer` as its type in this one too, so React keeps it.
-      if (props[STATIC_CARRIER_MARKER]) this.classOnly.add(node)
+      if (this.slotsEachNode()) {
+        // A place of its own: on the server its leaf writes its rule there, before
+        // its host; in the browser its rule goes in with the run.
+        this.classOnly.add(node)
+        if (NodeUtil.isServer) this.runs.set(node, [style])
+        else this.pending.push(style)
+      } else {
+        this.pending.push(style)
+        // Where the compiler marks a carrier, a render may need it to carry: it
+        // keeps `StyledRenderer` as its type in this one too, so React keeps it.
+        if (props[STATIC_CARRIER_MARKER]) this.classOnly.add(node)
+      }
     } else if (beginsStyledRenderer(props)) {
       this.takeRun(node)
     }

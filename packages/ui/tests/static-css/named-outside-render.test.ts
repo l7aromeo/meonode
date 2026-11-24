@@ -102,3 +102,24 @@ describe.each([
     expect(run(compiledStyle)).toEqual(expected)
   })
 })
+
+// React's development build calls a component outside any render to read where
+// its frames are, when it reports an error, so the walk of a component's
+// `.render()` runs with no cache to read there too. Nothing that walk does may
+// touch the document: a cache keyed `css` made in the browser moves every
+// server `<style>` still in the body into the head, the ones of a boundary
+// streamed after Emotion's own cache adopted the rest among them.
+describe('a walk outside any render, in the browser', () => {
+  it('leaves the server’s styles in the body where they are, as its css would', () => {
+    const run = shaped((style: Style) => {
+      __resetStaticCss()
+      document.head.innerHTML = ''
+      document.body.innerHTML = '<div id="late"><style data-emotion="css late1">.css-late1{order:1}</style><span class="css-late1">late</span></div>'
+      tree(style, 'given other').render()
+      return { body: document.body.innerHTML, head: document.head.innerHTML }
+    })
+    const expected = run(runtimeStyle)
+    expect(expected.body).toContain('data-emotion="css late1"')
+    expect(run(compiledStyle)).toEqual(expected)
+  })
+})
