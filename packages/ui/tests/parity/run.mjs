@@ -970,6 +970,11 @@ try {
       ]) {
         const { dir, compiled, parts } = await buildSide({ ...SIDES.on, name, rewrite }, [plant.case])
         const ssr = await serverRender(dir, [plant.case])
+        // A plant on the server HTML rewrites the [plain] page the planted side serves.
+        if (name === 'planted' && plant.html) {
+          const page = ssr.plain[plant.case]
+          ssr.plain[plant.case] = { ...page, head: plant.html(page.head), body: plant.html(page.body) }
+        }
         built[name] = sideBuilt[name] = { dir, compiled, parts, ssr, client: readFileSync(join(dir, 'client.js'), 'utf8') }
       }
       if (!built.runtime.ssr.plain[plant.case]) {
@@ -977,10 +982,12 @@ try {
         const ssr = await serverRender(dir, [plant.case])
         built.runtime = { dir, compiled, ssr, client: readFileSync(join(dir, 'client.js'), 'utf8') }
       }
-      // The rewrite reaches the case module and every part it may import.
+      // The rewrite reaches the case module and every part it may import, or the server HTML.
+      const pageOf = side => sideBuilt[side].ssr.plain[plant.case]
       const changed =
         sideBuilt.on.compiled[plant.case] !== sideBuilt.planted.compiled[plant.case] ||
-        Object.keys(sideBuilt.on.parts).some(part => sideBuilt.on.parts[part] !== sideBuilt.planted.parts[part])
+        Object.keys(sideBuilt.on.parts).some(part => sideBuilt.on.parts[part] !== sideBuilt.planted.parts[part]) ||
+        pageOf('on').head + pageOf('on').body !== pageOf('planted').head + pageOf('planted').body
       const caseMeta = (await import(pathToFileURL(join(built.runtime.dir, 'corpus', `${plant.case}.mjs`)).href)).meta
       const oracle = await record('runtime', plant.case, 'plain', caseMeta)
       const text = d => `${d.dimension} ${d.where} ${d.text}`

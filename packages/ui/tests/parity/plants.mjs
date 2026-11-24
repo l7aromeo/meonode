@@ -79,7 +79,9 @@ export const stripMark = key => code => code.replace(new RegExp(`__meo\\$r: 1,\\
  * Plants in the compiler's output rather than on the page: each rewrites the
  * "on" side's compiled module of one case (and the parts it imports), and
  * the run must find a difference from the oracle that the unrewritten output
- * does not have; in `dimension`, when the plant names one. A plant with
+ * does not have; in `dimension`, when the plant names one. `html` rewrites
+ * the planted side's [plain] server HTML instead of, or besides, its
+ * compiled output. A plant with
  * `noDifference` pins a rewrite the browser cannot see, for the reason it
  * gives: the rewrite must change the output and the run must find nothing.
  */
@@ -191,6 +193,13 @@ export const COMPILED_PLANTS = [
     // type and React remounts it: styles and tree stay equal, and only identity shows it.
     dimension: 'identity',
     rewrite: code => code.replace(/\s*__meo\$r: 1,?/g, '').replace(/(__meoSite\d+ = \{\s*at: \d+),\s*r: 1/g, '$1'),
+  },
+  {
+    name: 'the in-place marker stripped from the server HTML',
+    case: 'structural-direct-hydrate',
+    // Without the marker the client takes the page for a registry page and renders no style slots, so its tree
+    // differs from the server's: hydration fails, or the useId consumer's id forks from the server's.
+    html: html => html.replace(/ data-meonode-place(="")?/g, ''),
   },
   {
     name: 'the carrier mark stripped (plain)',
