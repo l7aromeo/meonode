@@ -686,69 +686,110 @@ const isInputForced = d => d.dimension === 'forced-state' && (forcedKey(d).split
  * through real input. Real input does not take effect the same way in every
  * session, so each differing state is decided by RESWEEPS whole sweeps of
  * every page (the oracle, the "off" side and the compared page), each in a
- * fresh session along the same pointer path. A state is
+ * fresh session along the same pointer path. A state is decided in units: an
+ * element only the state has or loses on some read is a unit of its own,
+ * named `<state> <element key>` (`+<path>`, or the index of an element now
+ * absent), and the rest of the state is its shared unit, named by the state.
+ * Each read is cut down to a unit's entries, from all it holds, not only the
+ * first record's differences. A unit is
  * - excused as unstable when the oracle's or the "off" side's sweeps disagree
- *   among themselves: that is the engine, since neither has extraction;
+ *   among themselves: that is the engine, since neither has extraction; or
+ *   when only the compared page's sweeps disagree and every one of its fresh
+ *   loads reads what the oracle's most common fresh load reads: the first
+ *   record was a load outlier;
  * - excused as an outlier when every sweep of the compared page reads what
  *   the oracle's most common sweep reads: the first sweep's difference does
  *   not reproduce;
- * - confirmed otherwise: the compared page's sweeps reproduce it, every time
- *   or only sometimes (which may be extraction introducing a race), while the
- *   oracle and "off" are steady.
+ * - confirmed otherwise: the compared page's sweeps reproduce it every time,
+ *   or only sometimes and some of its fresh loads too (which may be
+ *   extraction introducing a race), while the oracle and "off" are steady.
+ * A shared unit left out takes its state's own units with it; an own unit
+ * left out takes only its element's differences.
  * Fresh loads that read each state alone (EXCUSING_LOADS of the oracle and
  * "off", COMPARED_LOADS of the compared page) are kept as evidence: a
  * difference that shows only after the pointer has crossed earlier elements
  * reproduces in the sweeps and on no fresh load.
  * @param found The row's differences.
  * @param pages `{ oracle, off, compared }`, each `{ spec: PageSpec, record }`; "off" may be the compared page itself.
- * @returns The differences left, the states excused as unstable or as outliers, the states confirmed and those of them the compared page's sweeps disagree on, and the per-page counts.
+ * @returns The differences left, the units excused as unstable or as outliers, the units confirmed and those of them the compared page's sweeps disagree on, and the per-page counts, each by unit.
  */
 async function confirmForced(found, pages, cache) {
   const keys = [...new Set(found.filter(isInputForced).map(forcedKey))]
   if (!FORCE_BY_INPUT || !keys.length || !pages.off)
     return { found, unstable: [], outliers: [], confirmed: [], onlyCompared: [], notHeld: [], varied: {}, swept: {}, reloadReproduced: {} }
   const roles = ['oracle', 'off', 'compared']
-  const text = v => JSON.stringify(v ?? {})
-  const modal = list => Object.entries(Object.groupBy(list, v => v)).sort((a, b) => b[1].length - a[1].length)[0][0]
+  // The most common value; none of an empty list, as a unit no sweep of the oracle held has.
+  const modal = list => (list.length ? Object.entries(Object.groupBy(list, v => v)).sort((a, b) => b[1].length - a[1].length)[0][0] : undefined)
   // Evidence: fresh loads, each reading the state alone.
   const reads = {}
   for (const role of roles) reads[role] = await forcedOnReload(pages[role].spec, keys, role === 'compared' ? COMPARED_LOADS : EXCUSING_LOADS, cache)
-  const differs = (role, k) => reads[role].get(k).filter(v => text(v) !== text(pages[role].record.forced[k])).length
-  const varied = Object.fromEntries(keys.map(k => [k, Object.fromEntries(roles.map(role => [role, [differs(role, k), reads[role].get(k).length]]))]))
-  const reloadReproduced = Object.fromEntries(
-    keys.map(k => {
-      const oracle = modal(reads.oracle.get(k).map(text))
-      return [k, [reads.compared.get(k).filter(v => text(v) !== oracle).length, reads.compared.get(k).length]]
-    }),
-  )
   // The decision: whole sweeps in fresh sessions, along the same pointer path.
   const sweeps = {}
   for (const role of roles) sweeps[role] = await forcedOnResweep(pages[role].spec, keys, cache)
+  // A state's reads fall into units, each decided on its own: an element only a forced state has (`+<path>`) or loses
+  // (an index with an `(element)` entry), in any read of any page, is a unit named `<state> <element key>`; every
+  // other entry is in the state's shared unit, named by the state. So DOM that comes and goes is left out alone, and
+  // the elements both pages hold steadily stay compared.
+  const readsOf = k => roles.flatMap(role => [pages[role].record.forced[k], ...reads[role].get(k), ...sweeps[role].map(sweep => sweep.forced[k])])
+  const own = new Map(
+    keys.map(k => {
+      const elements = new Set()
+      for (const read of readsOf(k))
+        for (const entry of Object.keys(read ?? {})) {
+          const [element, , prop] = entry.split('/')
+          if (element.startsWith('+') || prop === '(element)') elements.add(element)
+        }
+      return [k, elements]
+    }),
+  )
+  const unitOf = (k, entry) => {
+    const element = entry.split('/')[0]
+    return own.get(k).has(element) ? `${k} ${element}` : k
+  }
+  const stateOf = unit => unit.split(' ')[0]
+  // A read as its unit sees it: the unit's entries, from every entry the read holds.
+  const text = (read, unit) => {
+    const kept = Object.entries(read ?? {}).filter(([entry]) => unitOf(stateOf(unit), entry) === unit)
+    return JSON.stringify(Object.fromEntries(kept.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))))
+  }
+  const units = [...new Set(found.filter(isInputForced).map(d => unitOf(forcedKey(d), d.entry)))]
+  const differs = (role, u) => reads[role].get(stateOf(u)).filter(v => text(v, u) !== text(pages[role].record.forced[stateOf(u)], u)).length
+  const varied = Object.fromEntries(units.map(u => [u, Object.fromEntries(roles.map(role => [role, [differs(role, u), reads[role].get(stateOf(u)).length]]))]))
+  const reloadReproduced = Object.fromEntries(
+    units.map(u => {
+      const oracle = modal(reads.oracle.get(stateOf(u)).map(v => text(v, u)))
+      return [u, [reads.compared.get(stateOf(u)).filter(v => text(v, u) !== oracle).length, reads.compared.get(stateOf(u)).length]]
+    }),
+  )
   // Only valid samples count: reads whose element held the state, the first RESWEEPS of them.
-  const at = (role, k) =>
+  const at = (role, u) =>
     sweeps[role]
-      .filter(sweep => sweep.samples[k]?.held !== false)
+      .filter(sweep => sweep.samples[stateOf(u)]?.held !== false)
       .slice(0, RESWEEPS)
-      .map(sweep => text(sweep.forced[k]))
+      .map(sweep => text(sweep.forced[stateOf(u)], u))
   // A state no sweep of some page could hold has no samples to judge by.
-  const notHeld = keys.filter(k => roles.some(role => at(role, k).length === 0))
-  const steady = (role, k) => new Set(at(role, k)).size === 1
-  const oracleRead = k => modal(at('oracle', k))
-  // How many of each page's sweeps read a state differently from the oracle's most common sweep read.
+  const notHeld = units.filter(u => roles.some(role => at(role, u).length === 0))
+  const steady = (role, u) => new Set(at(role, u)).size === 1
+  const oracleRead = u => modal(at('oracle', u))
+  // How many of each page's sweeps read a unit differently from the oracle's most common sweep read.
   const swept = Object.fromEntries(
-    keys.map(k => [k, Object.fromEntries(roles.map(role => [role, [at(role, k).filter(v => v !== oracleRead(k)).length, RESWEEPS]]))]),
+    units.map(u => [u, Object.fromEntries(roles.map(role => [role, [at(role, u).filter(v => v !== oracleRead(u)).length, RESWEEPS]]))]),
   )
   // The engine: the oracle or "off" (no extraction on either) disagrees with itself across sweeps.
-  const unstable = keys.filter(k => notHeld.includes(k) || !steady('oracle', k) || !steady('off', k))
+  // Or only the compared page disagrees with itself, and every one of its fresh loads reads what the oracle's do.
+  const loadOutlier = u => !steady('compared', u) && reloadReproduced[u][0] === 0
+  const unstable = units.filter(u => notHeld.includes(u) || !steady('oracle', u) || !steady('off', u) || loadOutlier(u))
   // An outlier: every sweep of the compared page reads what the oracle's do.
-  const outliers = keys.filter(k => !unstable.includes(k) && at('compared', k).every(v => v === oracleRead(k)))
-  const confirmed = keys.filter(k => !unstable.includes(k) && !outliers.includes(k))
+  const outliers = units.filter(u => !unstable.includes(u) && at('compared', u).every(v => v === oracleRead(u)))
+  const confirmed = units.filter(u => !unstable.includes(u) && !outliers.includes(u))
+  // A state whose shared unit is left out goes whole: its own elements are no sample once the rest of it is not.
+  const leftOut = u => unstable.includes(u) || outliers.includes(u) || unstable.includes(stateOf(u)) || outliers.includes(stateOf(u))
   return {
-    found: found.filter(d => !(isInputForced(d) && (unstable.includes(forcedKey(d)) || outliers.includes(forcedKey(d))))),
+    found: found.filter(d => !(isInputForced(d) && leftOut(unitOf(forcedKey(d), d.entry)))),
     unstable,
     outliers,
-    confirmed,
-    onlyCompared: confirmed.filter(k => !steady('compared', k)),
+    confirmed: confirmed.filter(u => !leftOut(u)),
+    onlyCompared: confirmed.filter(u => !leftOut(u) && !steady('compared', u)),
     notHeld,
     varied,
     swept,
@@ -792,8 +833,19 @@ function noteOnlyCompared(row, states) {
 
 /** Each row's sweep outliers: states its first sweep read differently and its repeated sweeps did not, kept for PARITY_REPORT. */
 const outliers = []
+/** The pages reloaded once during their forced-state sweep for a stray :hover (collect.mjs, withReload), for PARITY_REPORT. */
+const reloaded = []
 /** The run's records gathered per case, which a worker sends back with each case it reads. */
-const GATHERED = { report, unstable, snapped, onlyCompared, outliers, reloadCounts }
+const GATHERED = { report, unstable, snapped, onlyCompared, outliers, reloadCounts, reloaded }
+
+/** Prints and keeps the stray :hover a page's sweep was reloaded for, with the load and time. */
+function noteReload(row, recorded) {
+  const stray = recorded.record.reloadedFor
+  if (!stray) return
+  const seen = { load1: Number(loadavg()[0].toFixed(2)), time: new Date().toISOString() }
+  console.log(`       ${row.side} page reloaded once, load ${seen.load1} at ${seen.time}, for ${stray}`)
+  reloaded.push({ ...row, stray, ...seen })
+}
 
 /** Prints and keeps a row's sweep outliers, with the load, the time and every page's sweep counts. */
 function noteOutliers(row, states, swept) {
@@ -905,21 +957,59 @@ try {
         console.log(`skipped plant ${plant.dimension} ${plant.name}: states are forced through the DevTools protocol, so no pointer moves`)
         continue
       }
-      const side = await record('off', PLANT_CASE, 'plain', meta, plant)
-      if (plant.html) side.html = plant.html(side.html)
-      // Exact markup compares a compiled side with another, so its plant is checked against the unplanted "off" record.
-      let found = [...compareRecords(oracle, side), ...compareExact(cleanSide.record, side.record)]
+      let side
+      let found
+      try {
+        side = await record('off', PLANT_CASE, 'plain', meta, plant)
+      } catch (error) {
+        // A plant can fail the page itself, as a row's page fails.
+        found = [{ dimension: 'hydration', where: 'page', text: `the page failed: ${error.message}` }]
+      }
+      if (side) {
+        if (plant.html) side.html = plant.html(side.html)
+        // Exact markup compares a compiled side with another, so its plant is checked against the unplanted "off" record.
+        found = [...compareRecords(oracle, side), ...compareExact(cleanSide.record, side.record)]
+      }
+      // A plant the harness recovers from must leave no difference, and its recovery must have happened.
+      if (plant.recovers) {
+        const recovered = !found.length && side?.record[plant.recovers] != null
+        if (!recovered) failures++
+        console.log(
+          `${recovered ? 'recovered' : 'FAIL'} plant ${plant.dimension} ${plant.name}: ${found.length} difference(s)${found.length ? ` (${found.slice(0, 2).map(d => d.text).join(' | ')})` : ''}, ${plant.recovers} ${JSON.stringify(side?.record[plant.recovers] ?? null)}`,
+        )
+        continue
+      }
       // The planted page is confirmed as the compared page of an "on" row: only the oracle or the unplanted "off" side may excuse a state.
       const pages = {
         oracle: { spec: { ...specOf('runtime'), side: 'runtime' }, record: oracle.record },
         off: { spec: specOf('off'), record: cleanSide.record },
-        compared: { spec: specOf(`planted ${plant.name ?? plant.dimension}`, plant), record: side.record },
+        compared: { spec: specOf(`planted ${plant.name ?? plant.dimension}`, plant), record: side?.record },
       }
-      const confirmation = await confirmForced(found, pages, reloads)
+      const before = found.length
+      const confirmation = side ? await confirmForced(found, pages, reloads) : { found, unstable: [], outliers: [], confirmed: [], onlyCompared: [], swept: {}, reloadReproduced: {} }
       noteOnlyCompared({ case: PLANT_CASE, mode: 'plain', side: `plant ${plant.name ?? plant.dimension}` }, confirmation.onlyCompared)
       found = confirmation.found
       noteUnstable({ case: PLANT_CASE, mode: 'plain', side: `plant ${plant.name ?? plant.dimension}` }, confirmation.unstable)
       noteOutliers({ case: PLANT_CASE, mode: 'plain', side: `plant ${plant.name ?? plant.dimension}` }, confirmation.outliers, confirmation.swept)
+      // A plant the confirmation must excuse leaves no difference once its states are left out as unstable.
+      if (plant.excused) {
+        const excused = !found.length && confirmation.unstable.length > 0
+        if (!excused) failures++
+        console.log(
+          `${excused ? 'excused' : 'FAIL'} plant ${plant.dimension} ${plant.name}: ${before} difference(s) before confirming, ${found.length} after${found.length ? ` (${found.slice(0, 2).map(d => `${d.where}: ${d.text}`).join(' | ')})` : ''}; left out as unstable: ${confirmation.unstable.join(', ') || 'none'}`,
+        )
+        continue
+      }
+      // A check with no plant: both pages hold an element only a forced state has, and nothing differs.
+      if (plant.alike) {
+        const stateOnly = record => Object.values(record.forced).filter(read => Object.keys(read).some(entry => entry.startsWith('+'))).length
+        const alike = !found.length && stateOnly(oracle.record) > 0 && stateOnly(side.record) > 0
+        if (!alike) failures++
+        console.log(
+          `${alike ? 'alike' : 'FAIL'} plant ${plant.dimension} ${plant.name}: ${found.length} difference(s)${found.length ? ` (${found.slice(0, 2).map(d => `${d.where}: ${d.text}`).join(' | ')})` : ''}; forced states with an element only the state has: oracle ${stateOnly(oracle.record)}, planted page ${stateOnly(side.record)}`,
+        )
+        continue
+      }
       // Under real input, a plant that names a confirmation outcome must reach it.
       if (FORCE_BY_INPUT && plant.confirm) {
         // In session only: every repeated sweep reproduces it, and no fresh-load read of the state alone does.
@@ -939,10 +1029,12 @@ try {
       // A plant that names its exact differences must make those and no others in its dimension.
       const exactStates = plant.exactly?.states[FORCE_BY_INPUT ? 'input' : 'protocol']
       const exact = !plant.exactly || isExactly(ofDimension, plant.exactly.text, exactStates)
-      const caught = ofDimension.length > 0 && exact
+      // A plant that names a text must make a difference of its dimension holding it.
+      const named = !plant.text || ofDimension.some(d => d.text.includes(plant.text))
+      const caught = ofDimension.length > 0 && exact && named
       if (!caught) failures++
       console.log(
-        `${caught ? 'caught' : 'MISSED'} plant ${plant.dimension}${plant.name ? ` ${plant.name}` : ''}: ${found.length} difference(s) in ${[...new Set(found.map(d => d.dimension))].join(', ') || 'none'}${plant.exactly ? `; ${ofDimension.length} in ${plant.dimension}, ${exact ? 'exactly as planted' : `not ${exactStates.join(', ')} of one element, each holding "${plant.exactly.text}": ${ofDimension.slice(0, 3).map(d => `${d.where}: ${d.text}`).join(' | ')}`}` : ''}`,
+        `${caught ? 'caught' : 'MISSED'} plant ${plant.dimension}${plant.name ? ` ${plant.name}` : ''}: ${found.length} difference(s) in ${[...new Set(found.map(d => d.dimension))].join(', ') || 'none'}${plant.exactly ? `; ${ofDimension.length} in ${plant.dimension}, ${exact ? 'exactly as planted' : `not ${exactStates.join(', ')} of one element, each holding "${plant.exactly.text}": ${ofDimension.slice(0, 3).map(d => `${d.where}: ${d.text}`).join(' | ')}`}` : ''}${plant.text ? `; ${named ? `${plant.dimension} @ ${ofDimension.find(d => d.text.includes(plant.text)).where}: ${ofDimension.find(d => d.text.includes(plant.text)).text}` : `none holding "${plant.text}"`}` : ''}`,
       )
       // A recorded difference excuses what it matches and nothing else, and one that matches nothing is reported.
       const mine = found.find(d => d.dimension === plant.dimension)
@@ -1072,6 +1164,7 @@ try {
         startRow({ case: name, mode, side: 'runtime' })
         try {
           oracle = await record('runtime', name, mode, meta)
+          noteReload({ case: name, mode, side: 'runtime' }, oracle)
         } catch (error) {
           failures++
           console.log(`FAIL ${name} [${mode}] runtime: the oracle page failed: ${error.message}`)
@@ -1096,6 +1189,7 @@ try {
           startRow({ case: name, mode, side })
           try {
             records[side] = await record(side, name, mode, meta)
+            noteReload({ case: name, mode, side }, records[side])
             const compareStarted = performance.now()
             all = compareRecords(oracle, records[side])
             snaps = all.snapped
@@ -1230,6 +1324,7 @@ if (REPORT)
       onlyCompared,
       reloadCounts,
       outliers,
+      reloaded,
       timings,
       phases: { totals: phaseTotals, build: buildPhases, rows: rowPhases },
     }),
@@ -1242,6 +1337,10 @@ if (unstable.length) {
 if (snapped.length) {
   console.log(`layout snapping left out on ${ENGINE}: ${snapped.reduce((n, u) => n + u.differences.length, 0)} difference(s) in ${snapped.length} row(s)`)
   for (const [name, rows] of Object.entries(Object.groupBy(snapped, u => u.case))) console.log(`  ${name}: ${rows.reduce((n, u) => n + u.differences.length, 0)}`)
+}
+if (reloaded.length) {
+  console.log(`pages reloaded once for a stray :hover on ${ENGINE}: ${reloaded.length}`)
+  for (const [name, rows] of Object.entries(Object.groupBy(reloaded, u => u.case))) console.log(`  ${name}: ${rows.map(u => `[${u.mode}] ${u.side}`).join(', ')}`)
 }
 if (outliers.length) {
   console.log(`sweep outliers left out on ${ENGINE}: ${outliers.reduce((n, u) => n + u.states.length, 0)} in ${outliers.length} row(s)`)

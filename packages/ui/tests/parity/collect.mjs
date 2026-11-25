@@ -69,16 +69,35 @@ function readTree(skipped) {
  * A fourth item names a mode that keeps the values in the page: `'base'`
  * stores the read as the page's baseline and returns only its element count;
  * `'changed'` returns only `{ changed }`, the values that differ from the
- * baseline (`<element index>/<part>/<prop>` → value, by strict inequality,
- * elements outside the read's scope skipped), so a forced-state read moves
- * only its differences out of the page, not every value.
+ * baseline, by strict inequality, elements outside the read's scope skipped,
+ * so a forced-state read moves only its differences out of the page, not
+ * every value. An element is matched with the baseline's by its tree path, so
+ * one an earlier state mounted shifts no other: `<element index>/<part>/<prop>`
+ * for an element the baseline has at that path, `+<path>/<part>/<prop>` for
+ * one it has none at (every value, as none is unchanged), and
+ * `<element index>/0/(element)` → `absent` for a baseline element no element
+ * now holds the path of. With a scope, the scope is the one holding the
+ * baseline's element at `index`.
  */
 function readStyles(arg) {
   const started = performance.now()
   const [skipped, scopeIndex, timed, mode] = Array.isArray(arg[0]) ? arg : [arg, null, false, null]
   const BASE = Symbol.for('parity.base')
   const elements = [...document.querySelectorAll('#root *')].filter(el => !skipped.includes(el.tagName))
-  const scope = scopeIndex === null ? null : elements[scopeIndex].closest('[data-parity-scope]')
+  // Each element's path under #root, tag and place among its siblings at every level.
+  const places = new Map()
+  const paths = new Map()
+  const pathOf = el => {
+    if (paths.has(el)) return paths.get(el)
+    const parent = el.parentElement
+    if (!places.has(parent)) places.set(parent, new Map([...parent.children].map((child, i) => [child, i + 1])))
+    const own = `${el.tagName.toLowerCase()}:nth-child(${places.get(parent).get(el)})`
+    const path = parent.id === 'root' ? own : `${pathOf(parent)} > ${own}`
+    paths.set(el, path)
+    return path
+  }
+  const base = mode === 'changed' ? window[BASE] : null
+  const scope = scopeIndex === null ? null : (base ? base.nodes[scopeIndex] : elements[scopeIndex]).closest('[data-parity-scope]')
   const first = elements.length ? getComputedStyle(elements[0]) : getComputedStyle(document.body)
   // The compiler's `--mv-*` variables are ignored: they carry values, and what they style is compared.
   // A case's own custom properties (`meta.customProps`) are read on every element.
@@ -100,33 +119,38 @@ function readStyles(arg) {
     readSelection ? values(getComputedStyle(el, '::selection')) : [],
   ]
   if (mode === 'changed') {
-    // Element by element, part by part, property by property, against the baseline at the same indices.
-    const base = window[BASE]
+    // Element by element, part by part, property by property, against the baseline's element at the same path.
+    const at = base.at ?? (base.at = new Map(base.paths.map((path, e) => [path, e])))
+    const held = new Set()
     const changed = {}
-    elements.forEach((el, e) => {
-      if (scope && !scope.contains(el)) return
+    for (const el of elements) {
+      if (scope && !scope.contains(el)) continue
+      const path = pathOf(el)
+      const e = at.get(path)
+      if (e !== undefined) held.add(e)
+      const key = e ?? `+${path}`
       parts(el).forEach((vals, part) =>
         vals.forEach((v, p) => {
-          if (v !== base.elements[e]?.[part]?.[p]) changed[`${e}/${part}/${props[p]}`] = v
+          if (v !== base.elements[e]?.[part]?.[p]) changed[`${key}/${part}/${props[p]}`] = v
         }),
       )
+    }
+    const scopePath = scope && pathOf(scope)
+    base.paths.forEach((path, e) => {
+      if (!held.has(e) && (!scopePath || path === scopePath || path.startsWith(`${scopePath} > `))) changed[`${e}/0/(element)`] = 'absent'
     })
     return { changed, ...(timed && { ms: performance.now() - started }) }
   }
   const read = {
     props,
-    paths: elements.map(el => {
-      const path = []
-      for (let e = el; e && e.id !== 'root'; e = e.parentElement)
-        path.unshift(`${e.tagName.toLowerCase()}:nth-child(${[...e.parentElement.children].indexOf(e) + 1})`)
-      return path.join(' > ')
-    }),
+    paths: elements.map(pathOf),
     elements: elements.map(el => (scope && !scope.contains(el) ? null : parts(el))),
     // With `timed`, the milliseconds the read took in the page, for the run's phase times.
     ...(timed && { ms: performance.now() - started }),
   }
   if (mode !== 'base') return read
-  // Held where the page's own scripts do not look, under a registered symbol.
+  // The baseline's nodes, for the scope of a later read; held where the page's own scripts do not look, under a registered symbol.
+  read.nodes = elements
   Object.defineProperty(window, BASE, { value: read, configurable: true })
   return { count: read.elements.length }
 }
@@ -256,7 +280,7 @@ const FORCE_BY_CDP = (process.env.PARITY_BROWSER ?? 'chromium') === 'chromium' &
  * element whose computed value differs from the unforced state.
  * @returns Entries `<element index>:<state>` → `{ <element index>/<part>/<prop>: value }`.
  */
-const forcedStates = async (page, base, meta, samples = {}, spend = () => {}) => {
+const forcedStates = async (page, base, meta, samples = {}, spend = () => {}, reload = null) => {
   const sets = [...FORCED_STATES.map(state => [state]), ...(meta.forceCombos ?? [])]
   const onlyMarked = meta.force === 'marked'
   // A read while one element is forced: every element, or with `forceScope: 'fixture'` its own fixture's.
@@ -269,7 +293,7 @@ const forcedStates = async (page, base, meta, samples = {}, spend = () => {}) =>
     return changed
   }
   return {
-    ...(await (FORCE_BY_CDP ? forcedByCdp(page, base, sets, onlyMarked, read, spend) : forcedByInput(page, base, sets, onlyMarked, read, Infinity, samples))),
+    ...(await (FORCE_BY_CDP ? forcedByCdp(page, base, sets, onlyMarked, read, spend) : forcedByInput(page, base, sets, onlyMarked, read, Infinity, samples, reload))),
     ...(await domStates(page, base)),
   }
 }
@@ -377,23 +401,30 @@ async function forcedByCdp(page, base, sets, onlyMarked, read, spend = () => {})
  * hover has taken effect: otherwise it would land on another element, so
  * that :active read is kept as not held.
  */
-async function forcedByInput(page, base, sets, onlyMarked, read, upTo = Infinity, samples = {}) {
-  const elements = await comparedElements(page)
+async function forcedByInput(page, base, sets, onlyMarked, read, upTo = Infinity, samples = {}, reload = null) {
+  let elements = await comparedElements(page)
   const targets = await page.evaluate(forcedTargets, [SKIPPED_TAGS, onlyMarked])
   const out = {}
-  for (const [index, element] of elements.entries()) {
+  for (let index = 0; index < elements.length; index++) {
     if (index > upTo) break
     if (!targets[index]) continue
-    const centre = await centreOf(element)
+    let centre = await centreOf(elements[index])
     await settle(page)
+    // After a reload the page's elements are new nodes, so the handles and the centre are taken again.
+    const again = reload && (async () => {
+      await reload()
+      elements = await comparedElements(page)
+      centre = await centreOf(elements[index])
+      await settle(page)
+    })
     for (const states of sets) {
       const key = `${index}:${states.join('+')}`
-      const { changed, held, waited, layout, stray } = await applyByInput(page, base, element, index, centre, states, read)
+      const { changed, held, waited, layout, stray } = await withReload(page, again, () => applyByInput(page, base, elements[index], index, centre, states, read))
       out[key] = changed
       samples[key] = { held, waited, layout, ...(stray && { stray }) }
     }
   }
-  await resetInput(page)
+  await withReload(page, reload, () => resetInput(page))
   await page.evaluate(() => window.scrollTo(0, 0))
   return out
 }
@@ -415,7 +446,7 @@ async function centreOf(element) {
 /** The side of the blank square the pointer rests on between states, in px. */
 const NEUTRAL_SIZE = 8
 /** Where the pointer rests between states: the centre of the neutral square. */
-const NEUTRAL = [BASE_WIDTH - NEUTRAL_SIZE / 2, HEIGHT - NEUTRAL_SIZE / 2]
+export const NEUTRAL = [BASE_WIDTH - NEUTRAL_SIZE / 2, HEIGHT - NEUTRAL_SIZE / 2]
 
 /**
  * Puts a blank square of the harness's own above everything in the
@@ -465,16 +496,46 @@ async function assertNoHover(page, where) {
 /** For each page, the last set of states applied by real input, so a hover left behind is named after the state that left it. */
 const lastInput = new WeakMap()
 
+/** A compared element still matching :hover at a reset, with the pointer on the neutral square. */
+class StrayHover extends Error {}
+
 /**
- * The pointer on the neutral square and nothing focused, then settled. Fails
- * the page if a compared element still matches :hover there, naming it and
- * the state applied before, since every later read would carry it.
+ * The pointer on the neutral square and nothing focused, then settled. Throws
+ * a StrayHover if a compared element still matches :hover there, naming it
+ * and the state applied before, since every later read would carry it.
  */
 async function resetInput(page) {
   await toNeutral(page)
   await page.evaluate(() => document.activeElement?.blur?.())
   await settle(page)
-  await assertNoHover(page, `the reset after ${lastInput.get(page) ?? 'the page load'}`)
+  const stray = await page.evaluate(strayHovers, [SKIPPED_TAGS, null])
+  if (stray.length) throw new StrayHover(`stray :hover at the reset after ${lastInput.get(page) ?? 'the page load'}: ${stray.join(', ')}`)
+}
+
+/** For each page, the stray :hover that its one reload was for. */
+const reloadedFor = new WeakMap()
+
+/**
+ * Runs `apply`; when a reset in it finds a stray :hover, reloads the page with
+ * `reload` and runs `apply` again. WebKit can keep :hover on an element after
+ * a press there once a :hover rule has moved a box under the pointer, and no
+ * later pointer move clears it, while a fresh page has none. A page reloads
+ * once: a second stray fails it, naming both.
+ * @param reload Loads the page again as it was before its first state; or null, to fail on the first stray.
+ */
+async function withReload(page, reload, apply) {
+  for (;;) {
+    try {
+      return await apply()
+    } catch (error) {
+      if (!(error instanceof StrayHover) || !reload) throw error
+      const first = reloadedFor.get(page)
+      if (first) throw new Error(`${error.message}, after a reload for ${first}`, { cause: error })
+      reloadedFor.set(page, error.message)
+      lastInput.delete(page)
+      await reload()
+    }
+  }
 }
 
 /** Frames to wait for real input to take effect before a read goes ahead without it. */
@@ -561,6 +622,26 @@ async function applyByInput(page, base, element, index, centre, states, read) {
 }
 
 /**
+ * Loads the case page into `page` as the forced-state sweeps start from: the
+ * base viewport, the light scheme and mode, hydrated and settled, with the
+ * plant applied, and stores its baseline.
+ * @returns What `storeBase` returns.
+ */
+async function prepare(page, url, meta, plant) {
+  await page.setViewportSize({ width: BASE_WIDTH, height: HEIGHT })
+  await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'no-preference' })
+  await page.goto(url, { waitUntil: 'load' })
+  await page.waitForFunction(() => window.__parityShell !== undefined, null, { timeout: 10_000 })
+  await page.waitForLoadState('networkidle')
+  await page.evaluate(list => (window.__parityCustomProps = list), meta.customProps ?? [])
+  await settle(page)
+  if (plant) await plant(page)
+  await page.evaluate(() => window.__parityShell.setMode('light'))
+  await settle(page)
+  return storeBase(page)
+}
+
+/**
  * Loads a case page afresh and sweeps its real-input forced states as
  * `collect` does, in the same order and along the same pointer path, up to
  * the element at `upTo`, for confirming a sweep difference in a session of its
@@ -571,21 +652,11 @@ async function applyByInput(page, base, element, index, centre, states, read) {
 export async function resweepForced(browser, url, meta, plant, upTo) {
   const page = await browser.newPage()
   try {
-    await page.setViewportSize({ width: BASE_WIDTH, height: HEIGHT })
-    await page.emulateMedia({ colorScheme: 'light' })
-    await page.goto(url, { waitUntil: 'load' })
-    await page.waitForFunction(() => window.__parityShell !== undefined, null, { timeout: 10_000 })
-    await page.waitForLoadState('networkidle')
-    await page.evaluate(list => (window.__parityCustomProps = list), meta.customProps ?? [])
-    await settle(page)
-    if (plant) await plant(page)
-    await page.evaluate(() => window.__parityShell.setMode('light'))
-    await settle(page)
-    const base = await storeBase(page)
+    const base = await prepare(page, url, meta, plant)
     const read = async index => (await page.evaluate(readStyles, [SKIPPED_TAGS, meta.forceScope === 'fixture' ? index : null, false, 'changed'])).changed
     const sets = [...FORCED_STATES.map(state => [state]), ...(meta.forceCombos ?? [])].filter(set => set.every(state => INPUT_STATES.includes(state)))
     const samples = {}
-    const forced = await forcedByInput(page, base, sets, meta.force === 'marked', read, upTo, samples)
+    const forced = await forcedByInput(page, base, sets, meta.force === 'marked', read, upTo, samples, () => prepare(page, url, meta, plant))
     return { forced, samples }
   } finally {
     await page.close()
@@ -604,25 +675,20 @@ export const INPUT_STATES = ['hover', 'active', 'focus', 'focus-visible', 'focus
 export async function remeasureForced(browser, url, meta, plant, keys) {
   const page = await browser.newPage()
   try {
-    await page.setViewportSize({ width: BASE_WIDTH, height: HEIGHT })
-    await page.emulateMedia({ colorScheme: 'light' })
-    await page.goto(url, { waitUntil: 'load' })
-    await page.waitForFunction(() => window.__parityShell !== undefined, null, { timeout: 10_000 })
-    await page.waitForLoadState('networkidle')
-    await page.evaluate(list => (window.__parityCustomProps = list), meta.customProps ?? [])
-    await settle(page)
-    if (plant) await plant(page)
-    await page.evaluate(() => window.__parityShell.setMode('light'))
-    await settle(page)
-    const base = await storeBase(page)
+    const base = await prepare(page, url, meta, plant)
     const read = async index => (await page.evaluate(readStyles, [SKIPPED_TAGS, meta.forceScope === 'fixture' ? index : null, false, 'changed'])).changed
-    const elements = await comparedElements(page)
+    let elements = await comparedElements(page)
+    const reload = async () => {
+      await prepare(page, url, meta, plant)
+      elements = await comparedElements(page)
+    }
     const out = {}
     for (const key of keys) {
       const [at, list] = key.split(':')
       const index = Number(at)
-      const element = elements[index]
-      out[key] = element ? (await applyByInput(page, base, element, index, await centreOf(element), list.split('+'), read)).changed : null
+      out[key] = elements[index]
+        ? (await withReload(page, reload, async () => applyByInput(page, base, elements[index], index, await centreOf(elements[index]), list.split('+'), read))).changed
+        : null
     }
     return out
   } finally {
@@ -697,7 +763,9 @@ export async function collect(browser, url, meta, plant, spend = () => {}) {
     record.exact = await page.evaluate(readExact)
     // Each real-input read's sample: whether the element held its states when read, and whether it took them in time.
     record.forcedSamples = {}
-    record.forced = await forcedStates(page, base, meta, record.forcedSamples, spend)
+    record.forced = await forcedStates(page, base, meta, record.forcedSamples, spend, () => prepare(page, url, meta, plant))
+    // The stray :hover the page was reloaded for during the sweep, if any.
+    record.reloadedFor = reloadedFor.get(page) ?? null
     lap('forced')
 
     for (const step of meta.steps ?? []) {
@@ -714,7 +782,8 @@ export async function collect(browser, url, meta, plant, spend = () => {}) {
       await assertNoHover(page, `step "${step.name}"`)
       record.steps[step.name] = { ...(await snapshot(page)), identity: await page.evaluate(readIdentity, SKIPPED_TAGS) }
     }
-    record.hydration = await page.evaluate(() => window.__parityErrors)
+    // A reload starts the page's own error list again, so the errors of the first load are kept with it.
+    record.hydration = [...new Set([...record.hydration, ...(await page.evaluate(() => window.__parityErrors))])]
     lap('steps')
     return record
   } finally {
