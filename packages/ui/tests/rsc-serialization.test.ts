@@ -32,6 +32,14 @@ const CASE_ATTRIBUTE = 'data-case'
 const CLIENT_KEY = 'css'
 const SERVER_KEY = 'meonode-css'
 
+/**
+ * The time the setup may take before it counts as hung. It imports every
+ * source module on two layers and renders the corpus on each: about 1.5 s on
+ * an idle machine, past vitest's default 10 s hook timeout on a loaded one.
+ * Only a hang should exceed this.
+ */
+const SETUP_HANG_BUDGET_MS = 120_000
+
 type Factories = Record<'Div' | 'Row' | 'Column' | 'Center' | 'Grid', (props: unknown) => { render(): ReactNode }>
 type CaseFn = (factories: Factories, p: unknown) => { render(): ReactNode }
 
@@ -135,7 +143,7 @@ beforeAll(async () => {
       return names
     }),
   )
-})
+}, SETUP_HANG_BUDGET_MS)
 
 afterAll(() => {
   vi.doUnmock('react')
