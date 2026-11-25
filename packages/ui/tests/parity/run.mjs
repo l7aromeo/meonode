@@ -6,23 +6,9 @@
 // Needs a built dist (`bun run build:ui` at the repository root), the compiler
 // wasm (`bun run build:compiler`) and the mui build (`bun run build:mui`).
 //
-// usage: NODE_ENV=production node tests/parity/run.mjs [--plants] [--case=<name>] [--no-browser]
-// --no-browser stops after the build, the coverage gate and the routing checks.
-// Settings, from the environment:
-// - PARITY_WASM: the compiler wasm (default: packages/compiler/npm/meonode_swc_plugin.wasm here)
-// - PARITY_ON_UI: the packages/ui dir whose dist the "on" side uses (default: this package)
-// - PARITY_ON_OPTIONS: JSON plugin options for the "on" side (default: { "experimental_extractCss": true })
-// - PARITY_SIDES: sides to compare against the oracle, comma-separated (default: off,on)
-// - PARITY_LOAD_MAX: wait for the 1-minute load average to fall under this before the browser phase (default 10)
-// - PARITY_BROWSER: chromium (installed Chrome, the default), webkit or firefox, all headless
-// - PARITY_FORCE: input, to force pseudo-classes through real input in Chromium too
-// - PARITY_DETAIL: how many differences to print per failing comparison (default 8)
-// - PARITY_REPORT: a file to write every difference, each case's time in the browser phase, and the
-//   time each phase took per row, to, as JSON
-// - PARITY_GRAMMAR: the selector grammar module to generate pages from (default: the compiler's tests/selector-grammar.ts)
-// - PARITY_GRAMMAR_CASES: a JSON file of grammar case names, to generate only those
-// - PARITY_SHARD: k/n, to run only the k-th of n interleaved slices of the cases, without the
-//   coverage gate (which a --no-browser run checks for every case), to split a run across machines
+// usage: NODE_ENV=production node tests/parity/run.mjs [--plants] [--plant=<text>,…] [--case=<name>]
+//   [--sweep-aa=<n>] [--read-forced=<case>@<state>;…] [--no-browser]
+// README.md (Run) describes every flag and every PARITY_* setting, with its default.
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { execFile, fork } from 'node:child_process'
 import { createHash } from 'node:crypto'

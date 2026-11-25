@@ -80,8 +80,8 @@ Each side's record is compared with the oracle's on:
   `PARITY_REPORT` keeps it as `reloaded`. A second one on the same page fails
   it, naming both and the states applied before.
   In WebKit an element can match `:hover` before its hover rules apply, on
-  no fixed element and with every read holding the state: on grammar-101's 192 forced states, three sweeps of one page
-  disagree on 0 to 6 states per side (6 runs, load average 3.7 to 7.6).
+  no fixed element and with every read holding the state: over every forced state of grammar-101,
+  three sweeps of one page disagree on 0 to 6 states per side (6 runs, load average 3.7 to 7.6).
   Releasing the press over the element instead raised that to 6 to 40 over
   12 runs, so the press is released away from it. The repeated sweeps below
   decide these like any other difference. Real input does not take effect the same way in every session
@@ -151,7 +151,16 @@ Each side's record is compared with the oracle's on:
 - **exact markup**, for elements a case marks `data-parity-exact`: their
   markup with class names, and the text of every rule naming those classes,
   "on" against "off" exactly. These are nodes that must render as the same call
-  site with extraction off.
+  site with extraction off;
+- **the first paint**, for a case that sets `firstPaint`: the server HTML
+  before hydration, with the client bundle withheld, its tree and computed
+  style at 1280px in the light colour scheme and theme mode, for shapes whose server `<style>` siblings decide
+  what matches until the client moves them (`:first-child`, `:nth-child`,
+  `+`);
+- **duplicate rules**: a rule of an extracted class (`.mn-*`) that the
+  compared page's stylesheets hold more than once. A class's rule is inserted
+  once per page; a second copy, from a server style and a browser insertion
+  of the same class, moves where the rule sits.
 
 CSS transitions are run to their end before every read, so a read sees the
 state a user sees once a change has played out. Animations and transitions on
@@ -217,20 +226,26 @@ unclosed `(` ahead of the registry's joined styles on the [registry] page of
 both the oracle and the "off" side, which their own row reads as the same and
 the registry check must catch.
 
-The browser phase waits until the 1-minute load average is under 10.
+The browser phase waits until the 1-minute load average is under 10, and
+fails once it has waited 20 minutes.
 
 Settings, from the environment:
 
 - `PARITY_WASM`: the compiler wasm. Default: `packages/compiler/npm/meonode_swc_plugin.wasm`.
 - `PARITY_ON_UI`: a packages/ui directory whose built `dist` the "on" side uses.
   Default: this package.
-- `PARITY_ON_OPTIONS`: the plugin options of the "on" side, as JSON.
+- `PARITY_ON_OPTIONS`: the plugin options of the "on" side, as JSON. Default:
+  `{ "experimental_extractCss": true }`.
 - `PARITY_SIDES`: the sides compared with the oracle. Default: `off,on`.
-- `PARITY_LOAD_MAX`: the load average the browser phase waits under.
+- `PARITY_LOAD_MAX`: the load average the browser phase waits under. Default: 10.
 - `PARITY_BROWSER`: `chromium` (the default), `webkit` or `firefox`.
 - `PARITY_FORCE`: `input`, to force pseudo-classes through real input in
   Chromium too.
-- `PARITY_DETAIL`: how many differences to print per failing comparison.
+- `PARITY_DETAIL`: how many differences to print per failing comparison. Default: 8.
+- `PARITY_GRAMMAR`: the selector grammar module the grammar pages are
+  generated from. Default: the compiler's `tests/selector-grammar.ts`.
+- `PARITY_GRAMMAR_CASES`: a JSON file of grammar case names, to generate only
+  those.
 - `PARITY_REPORT`: a file to write every difference and each case's time in
   the browser phase to, as JSON, with `phases`: the milliseconds each phase
   took over the run (`totals`), per side's build (`build`: build, rsc, ssr)
@@ -273,6 +288,19 @@ PARITY_WASM=<compiler wasm> PARITY_ON_UI=<packages/ui with a built dist> bun run
 Point `PARITY_WASM` at a copy named by its hash rather than at a build output
 another process may replace, so one run compiles every side with one wasm.
 
+To check a harness change against the harness before it on the same build,
+compare two `PARITY_REPORT` files row by row:
+
+```bash
+node tests/parity/diff-reports.mjs <old report.json> <new report.json>
+```
+
+Each row (case, mode and side) must have the same differences, not only the
+same verdict. A forced-state difference either report left out as unstable,
+by its state or by its element's unit, is left out of the comparison.
+`--sides=off,on` compares only those row sides, for a new harness that reads
+rows the old one did not.
+
 ## Corpus
 
 Each case is a module in `corpus/` named `<name>.case.ts`. It exports:
@@ -306,18 +334,25 @@ They are merged over each compiled side's options.
   record only the light colour scheme and theme mode; and
   `serverModes: ['plain']`, to skip the Next.js registry render (the
   generated grammar pages use all three);
-- `render`: `client` for a client render with no server HTML, or `stream` for a
-  streamed server render.
+- `firstPaint`, to also record the server HTML before hydration (the first
+  paint above); not for client cases;
+- `render`: `client` for a client render with no server HTML, `stream` for a
+  streamed server render sent once every boundary is ready, `stream-late` for
+  one sent from the shell on (later boundaries swapped in by React's
+  scripts), or `rsc` for a server component (Flight on the server layer, then
+  server HTML from the payload, hydrated from it).
 
-- `routing`: named nodes (by their `key`) with the route each proves and the
-  properties that must stay in the call (`runtime`) or leave it for extracted
-  rules (`extracted`); `whole` asserts the node carries no extracted classes
-  or variables at all;
+- `routing`: named nodes (by their `key`), each with the route it proves. A
+  node is routed whole: named, templated, joined or left on the runtime path.
+  `carrier: true` marks a node the compiler marks as a carrier on a route
+  other than CARRIER (a themed or merged node);
 - `expected`: differences from the oracle that are known and recorded, each
   with its reason, sides, dimension and text, and optionally the server modes
   and the engines it appears in. A recorded difference that does not appear on
   a side, mode and engine it names fails the run, so a fix or a change shows;
-  on an engine it does not name it excuses nothing.
+  on an engine it does not name it excuses nothing. One with `blocker` names
+  the tie it shows: the run excuses it, lists it as a release blocker, and
+  fails once it stops appearing, so a fix shows and the pin comes out.
 
 The run fails when a shape or a route in `inventory.mjs` has no case, or when a
 route is not proven on a node by some case's `routing`. The routes are the
