@@ -9,6 +9,7 @@ import { renderToString } from 'react-dom/server'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ThemeProvider, useTheme } from '@src/main.js'
 import { ThemeContext } from '@src/components/theme-provider.client.js'
+import { fiberRootOf, reactIdle } from '@tests/_react-idle.js'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -113,7 +114,7 @@ describe('a reader of the mode', () => {
     ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = false
     const root = hydrateRoot(container, tree())
     try {
-      await new Promise(resolve => setTimeout(resolve, 50))
+      await reactIdle([fiberRootOf(container)])
 
       expect(seen).toEqual(['morning/false', 'night/true'])
       expect(afterCommit).toBe('night')
@@ -147,11 +148,16 @@ describe('a reader of the mode', () => {
     document.body.appendChild(container)
 
     ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = false
+    const serverSeen = [...seen]
     const root = hydrateRoot(container, tree(createElement(LazyLate)), { onRecoverableError: () => {} })
+    const fiberRoot = fiberRootOf(container)
     try {
-      await new Promise(resolve => setTimeout(resolve, 30))
+      // The provider hydrates first: React does all it can before the chunk is
+      // in, and the reader has not rendered on the client yet.
+      await reactIdle([fiberRoot])
+      expect(seen).toEqual(serverSeen)
       loadChunk()
-      await new Promise(resolve => setTimeout(resolve, 50))
+      await reactIdle([fiberRoot])
       expect(afterCommit).toBe('night')
     } finally {
       root.unmount()
