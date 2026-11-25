@@ -531,8 +531,9 @@ is known when the module is built, the compiler computes what the runtime would
 compute for it: the serialized styles Emotion is handed (after the theme token
 rewrite and `resolveDefaultStyle`'s defaults), and the class name the runtime
 gives them. The call site then carries that name (`__meo$n`), and each module
-registers its names and texts once through `registerStaticCss`. The runtime
-inserts the text through Emotion's own cache, so the rule, its name, its first
+registers its names and texts once through `registerStaticCss`, imported from
+`@meonode/ui` after the module's directives (`'use client'`, `'use strict'`),
+so they stay directives. The runtime inserts the text through Emotion's own cache, so the rule, its name, its first
 insertion and its class are the ones the node would have uncompiled. A module
 that imports `@meonode/ui` at run time but has no names of its own, a root
 layout say, registers an empty list: the registry then belongs to every module

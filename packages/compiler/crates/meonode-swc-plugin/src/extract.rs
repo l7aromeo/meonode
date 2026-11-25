@@ -1740,7 +1740,8 @@ fn prop_key(prop: &PropOrSpread) -> Option<String> {
     }
 }
 
-/// Prepends the helper imports and the registration call to `module`.
+/// Adds the helper imports and the registration call to `module`: the first
+/// import after its directive prologue, the rest after its last import.
 /// `imports_runtime`: the module imports `@meonode/ui` at run time, so
 /// `__meoFactoryCall` comes from there, the export that installs the join; any
 /// other module takes it from the subpath that imports nothing. Such a module
@@ -1876,17 +1877,35 @@ pub fn emit_module(module: &mut Module, extraction: &ModuleExtraction, imports_r
         })))));
     }
 
-    // After the last import, so the calls run before any code below them.
+    // The import first after the directive prologue ('use client', 'use
+    // strict'), which only counts at the start of the module; the rest after
+    // the last import, so the calls run before any code below them.
+    let prologue = directive_prologue(module);
     let at = module
         .body
         .iter()
         .rposition(|item| matches!(item, ModuleItem::ModuleDecl(ModuleDecl::Import(_))))
-        .map_or(0, |i| i + 1);
+        .map_or(prologue, |i| i + 1)
+        .max(prologue);
     let import = items.remove(0);
-    module.body.insert(0, import);
+    module.body.insert(prologue, import);
     for (offset, item) in items.into_iter().enumerate() {
         module.body.insert(at + 1 + offset, item);
     }
+}
+
+/// The number of items opening `module` that are directives: expression
+/// statements that are a string literal alone, `'use client'` or
+/// `'use strict'`. A parenthesized string, or a string after any other
+/// statement, is an ordinary expression.
+fn directive_prologue(module: &Module) -> usize {
+    module
+        .body
+        .iter()
+        .take_while(|item| {
+            matches!(item, ModuleItem::Stmt(Stmt::Expr(ExprStmt { expr, .. })) if matches!(&**expr, Expr::Lit(Lit::Str(_))))
+        })
+        .count()
 }
 
 /// `<callee>(<args>);` as a module item.
