@@ -42,6 +42,23 @@ const alive = (pid: number) => {
   }
 }
 
+/**
+ * How long a killed process may take to be gone before the test fails: far
+ * past the few milliseconds it takes on a loaded machine, and short enough
+ * that, after the test's 1 s readiness wait, the assertion still reports a
+ * survivor inside vitest's 5 s test timeout.
+ */
+const EXIT_DEADLINE_MS = 3_000
+
+/** How often to look whether it is gone: often enough to add nothing noticeable to the test. */
+const EXIT_POLL_MS = 10
+
+/** Resolves once `pid` is gone, or at {@link EXIT_DEADLINE_MS}, so the assertion after it reports a survivor. */
+const gone = async (pid: number) => {
+  const deadline = performance.now() + EXIT_DEADLINE_MS
+  while (alive(pid) && performance.now() < deadline) await new Promise(resolve => setTimeout(resolve, EXIT_POLL_MS))
+}
+
 const started: number[] = []
 let impostor: Server | undefined
 
@@ -85,6 +102,6 @@ it('fails with the output, and stops the server, when it never says where it lis
     },
   })
   await expect(silent).rejects.toThrow(/did not become ready within 1000ms[\s\S]*starting/)
-  await new Promise(resolve => setTimeout(resolve, 200))
+  await gone(pid!)
   expect(alive(pid!)).toBe(false)
 })
