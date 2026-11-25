@@ -21,6 +21,7 @@ import {
   __DEBUG__,
   COMPILED_MARKER,
   COMPILER_SCHEMA_KEYS,
+  diagnosticsEnabled,
   isDevMode,
   LIST_MARKER,
   LOCATION_MARKER,
@@ -30,8 +31,8 @@ import {
   SUPPORTED_COMPILER_SCHEMAS,
 } from '@src/constant/common.const.js'
 import { BaseNode } from '@src/core.node.js'
-import { diagnosticsEnabled } from '@src/util/theme-diagnostics.util.js'
-import { checkCss, isMergeableCss } from '@src/util/css.util.js'
+import { withDiagnostics } from '@src/util/diagnostics.util.js'
+import { isMergeableCss } from '@src/util/css.util.js'
 import { namedRuntime } from '@src/util/named-runtime-slot.util.js'
 
 /**
@@ -229,7 +230,7 @@ export class NodeUtil {
     const markerDomProps = source[schemaKeys.dom] as Record<string, unknown> | undefined
 
     const { ref, key, children, css, props: nativeProps, disableEmotion } = rawProps
-    checkCss(css)
+    if (diagnosticsEnabled() && css != null) withDiagnostics(d => d.checkCss(css))
 
     // Built only if a key survives both filters. `as` and `theme` deliberately do
     // *not* count as skippable specials here: they are not destructured above, so
@@ -448,7 +449,7 @@ export class NodeUtil {
 
     const { ref, key, children, css, props: nativeProps = {}, disableEmotion, ...restRawProps } = rawProps
     // Development rejects a value that is not a style here, and reports a reserved `styles` key.
-    checkCss(css)
+    if (diagnosticsEnabled() && css != null) withDiagnostics(d => d.checkCss(css))
 
     // A marker whose schema this runtime does not know — output from a newer
     // compiler against an older `@meonode/ui`. Props are classified the legacy

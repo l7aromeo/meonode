@@ -34,6 +34,7 @@ import MeoMemo from '@src/components/meo-memo.client.js'
 import {
   COMPILED_MARKER,
   COMPILER_SCHEMA_KEYS,
+  diagnosticsEnabled,
   INITIAL_PROPS_MARKER,
   isDevMode,
   LIST_MARKER,
@@ -45,28 +46,18 @@ import {
   STATIC_STYLE_PROP,
   STATIC_TEXT_PROP,
 } from '@src/constant/common.const.js'
-import { checkCss, checkFactoryCss, isMergeableCss, markCombinedCssChecked } from '@src/util/css.util.js'
-import CSSPropertySet from '@src/constant/css-properties.const.js'
+import { isMergeableCss } from '@src/util/css.util.js'
 import { NodeUtil } from '@src/util/node.util.js'
 import { IS_REACT_SERVER_LAYER } from '@src/util/react-layer.util.js'
 import { mayChangeTheme, passesChildrenThrough } from '@src/util/children-pass-through.util.js'
 import { namedRuntime } from '@src/util/named-runtime-slot.util.js'
-import { noteOnce, observeChildren } from '@src/util/generated-list.util.js'
 import { compileServerEmotionRule, compileServerNamedRule } from '@src/util/server-emotion.util.js'
 import { factoryShapes, type FactoryJoinSlot } from '@src/factory-call/index.js'
 import type { EmotionCache } from '@emotion/cache'
 import { themedTexts } from '@src/util/themed-text-slot.util.js'
 import { replaceThemeTokensWithCssVars } from '@src/util/server-theme.util.js'
-import {
-  collectNamedThemeVarRefs,
-  collectThemeVarRefs,
-  diagnosticsEnabled,
-  getThemeVarIndex,
-  reportThemeIssues,
-  reportThemeVarRefs,
-  reportUnresolvedThemeKey,
-  type ThemeVarIndex,
-} from '@src/util/theme-diagnostics.util.js'
+import { loadedDiagnostics, observeChildren, reportUnresolvedThemeKey, withDiagnostics } from '@src/util/diagnostics.util.js'
+import type { ThemeScope } from '@src/util/theme-diagnostics.util.js'
 import { ThemeUtil } from '@src/util/theme.util.js'
 
 /**
@@ -597,7 +588,7 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
           besidePassThrough,
           opaqueAbove,
           themeOwn,
-        } = currentWork as typeof currentWork & { opaqueAbove: boolean; themeOwn: ThemeVarIndex | undefined }
+        } = currentWork as typeof currentWork & { opaqueAbove: boolean; themeOwn: ThemeScope | undefined }
         /** The scope this node's children are in: the one above, or this node's if it is the outermost styled one. */
         let childScope = (currentWork as { scope?: EmotionCache | null }).scope ?? null
 
@@ -863,38 +854,8 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
           // `callSiteLocations` — nearly every build — so almost everyone
           // short-circuits on the first term and never reaches the call.
           if (childArguments !== finalChildren && diagnosticsEnabled()) {
-            const elements = finalChildren.filter(isValidElement)
-            const missingKey = elements.some(child => child.key == null)
-            // A list where *some* children carry keys and others do not is
-            // almost always a generated list spread in beside children the
-            // author wrote out: the `.map()` supplied keys, the heading beside
-            // it did not, and React then names the heading. The reader audits
-            // the rows, which are the innocent half.
-            const mixed = missingKey && elements.some(child => child.key != null)
-            // The shape clause needs only the list marker, which every compiled
-            // build emits. The call site needs the plugin's `callSiteLocations`
-            // option, which most builds do not set — so withholding the
-            // explanation until the line number is available would keep the
-            // useful half from nearly everyone, to avoid omitting the
-            // ornamental one.
-            //
-            // Without a location, only the mixed case is worth saying. React
-            // already reports an all-unkeyed list correctly; repeating it with
-            // no line number adds noise and nothing else.
-            //
-            // Once per call site, last so only a note about to be logged is
-            // recorded: React logs its own warning once, and a component that
-            // renders often would otherwise repeat the note on every render.
-            if (missingKey && (callSiteLocation || mixed) && noteOnce(callSiteLocation, compiledSiteKey(node.rawProps), renderTarget)) {
-              const spreadClause = mixed
-                ? ' Some children here do have keys: a spread puts a generated list and the siblings written beside it into one list, so React asks those siblings for keys too. Nest the generated part instead of spreading it.'
-                : ''
-              console.warn(
-                callSiteLocation
-                  ? `[MeoNode] A generated list at ${callSiteLocation} has children without a \`key\`. React reports the missing key itself; this names the call site it came from.${spreadClause}`
-                  : `[MeoNode] A generated list has children without a \`key\`.${spreadClause} Turn on \`callSiteLocations\` in the @meonode/compiler plugin options to have this name the file and line.`,
-              )
-            }
+            const siteKey = compiledSiteKey(node.rawProps)
+            withDiagnostics(d => d.noteGeneratedList(finalChildren, callSiteLocation, siteKey, renderTarget))
           }
 
           // Merge element props: explicit other props + DOM native props + React key.
@@ -1042,7 +1003,10 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
                 themed = parts?.themed
                 if (parts?.identity !== undefined) namedPlainText = parts.styles
                 // With a theme in scope, checked here, as css is above; with none, where the providers are, below.
-                if (activeTheme) reportThemeVarRefs(collectNamedThemeVarRefs(serverNamedStyles), getThemeVarIndex(activeTheme))
+                if (activeTheme && diagnosticsEnabled()) {
+                  const text = serverNamedStyles
+                  withDiagnostics(d => d.checkNamedStylesForTheme(text, activeTheme))
+                }
               } else {
                 // Emit `var(--meonode-theme-*)` on the server so the generated Emotion class
                 // matches the client runtime output — unifies the class hash across SSR/CSR.
@@ -1061,7 +1025,7 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
                 // is the check `StyledRenderer` makes. With none, the token
                 // references are left to `ThemeTokenCheck` below, which runs where
                 // the ThemeProvider is.
-                reportThemeIssues(themedCss, activeTheme ? getThemeVarIndex(activeTheme) : undefined)
+                if (diagnosticsEnabled()) withDiagnostics(d => d.checkServerCss(themedCss, activeTheme))
                 const cssWithDefaults = ThemeUtil.resolveDefaultStyle(themedCss)
                 // A key holding a theme token needs the theme's concrete value. With
                 // a theme in scope it has been resolved above, and one still holding
@@ -1114,11 +1078,14 @@ export class BaseNode<E extends NodeElementType = NodeElementType> {
                 // The tokens compiled here are checked where the providers are.
                 // `ThemedRule` checks its own part. Only while diagnostics are on,
                 // so production output carries nothing for it.
+                // While the diagnostics load, the element carries what the references
+                // are read from, and the check reads them once they arrive.
                 if (!activeTheme && diagnosticsEnabled()) {
-                  const refs = plain !== undefined ? collectThemeVarRefs(plain) : collectNamedThemeVarRefs(namedPlainText ?? serverNamedStyles ?? '')
-                  if (refs.length > 0) {
+                  const source = plain !== undefined ? plain : (namedPlainText ?? serverNamedStyles ?? '')
+                  const refs = loadedDiagnostics()?.themeVarRefsOf(source)
+                  if (refs === undefined || refs.length > 0) {
                     const ruleKey = `${rule.id}:check`
-                    carryWithTheme(ruleKey, createElement(ThemeTokenCheck, { key: ruleKey, refs }))
+                    carryWithTheme(ruleKey, createElement(ThemeTokenCheck, refs === undefined ? { key: ruleKey, source } : { key: ruleKey, refs }))
                   }
                 }
               }
@@ -1270,8 +1237,9 @@ export function buildNode(element: NodeElementType, props: object, deps: Depende
   if (diagnosticsEnabled()) observeChildren(element, props as Record<string, unknown>, factory)
   if (isDevMode()) {
     NodeUtil.markWrittenOutChildren(props as Record<string, unknown>)
-    checkDeps(element, deps, factory)
-    checkStyleValues(element, props as Record<string, unknown>)
+    const shape = factory === Node ? 'node' : childrenFirstFactories.has(factory) ? 'children-first' : 'props-first'
+    const component = componentRenderers.get(element as object)
+    withDiagnostics(d => d.checkFactoryArguments(element, props as Record<string, unknown>, deps, shape, component))
   }
   return new BaseNode(element, props as NodeProps, deps)
 }
@@ -1289,152 +1257,6 @@ const componentRenderers = new WeakMap<object, string>()
  */
 export function registerComponentRenderer(renderer: object, name: string): void {
   componentRenderers.set(renderer, name)
-}
-
-/**
- * Distinct deps messages remembered at once. A long-lived development server
- * keeps this module for its whole life and sees a factory for every element and
- * component it renders, so the set is dropped and started again when it fills.
- */
-const MAX_DEPS_REPORTS = 500
-
-/** The deps messages already logged, so a call a component makes on every render is reported once. */
-const reportedDeps = new Set<string>()
-
-/** How many deps messages are remembered, and the cap, for tests. */
-export function __depsReportState(): { reported: number; cap: number } {
-  return { reported: reportedDeps.size, cap: MAX_DEPS_REPORTS }
-}
-
-/** Forgets every deps message logged, for tests. */
-export function __resetDepsReport(): void {
-  reportedDeps.clear()
-}
-
-/** The call an author wrote, named with its signature, for a message about one of its arguments. */
-function describeFactoryCall(element: NodeElementType, factory: (...args: never[]) => unknown): string {
-  if (factory === Node) {
-    const component = componentRenderers.get(element as object)
-    return component === undefined ? 'Node takes (element, props, deps)' : `Component(${component}) takes (props, deps)`
-  }
-  const name = getElementTypeName(element)
-  return childrenFirstFactories.has(factory) ? `The '${name}' factory takes (children, props, deps)` : `The '${name}' factory takes (props, deps)`
-}
-
-/**
- * Reports a `deps` argument that is not an array. React reads deps as a list,
- * so anything else is a mistake, most often a props object passed one place
- * too far, as `Li('x', { key })` on a factory that takes `(props, deps)`. The
- * call itself is left as it was; `null` and an omitted `deps` mean no
- * memoisation, as they always have. Each distinct message is logged once, since
- * a component makes the same call on every render.
- */
-function checkDeps(element: NodeElementType, deps: unknown, factory: (...args: never[]) => unknown): void {
-  if (deps == null || Array.isArray(deps)) return
-  const given = typeof deps === 'object' ? 'an object' : `a ${typeof deps}`
-  const message =
-    `[MeoNode] deps must be an array, but was given ${given}. ${describeFactoryCall(element, factory)}; ` +
-    'a props object one place too far lands in deps, where it is not applied as props.'
-  if (reportedDeps.has(message)) return
-  if (reportedDeps.size >= MAX_DEPS_REPORTS) reportedDeps.clear()
-  reportedDeps.add(message)
-  console.error(message)
-}
-
-/**
- * Distinct style-value messages remembered at once, dropped and started again
- * when full, as with {@link MAX_DEPS_REPORTS}.
- */
-const MAX_STYLE_VALUE_REPORTS = 500
-
-/** The style-value messages already logged, so a call a component makes on every render is reported once. */
-const reportedStyleValues = new Set<string>()
-
-/** How many style-value messages are remembered, and the cap, for tests. */
-export function __styleValueReportState(): { reported: number; cap: number } {
-  return { reported: reportedStyleValues.size, cap: MAX_STYLE_VALUE_REPORTS }
-}
-
-/** Forgets every style-value message logged, for tests. */
-export function __resetStyleValueReport(): void {
-  reportedStyleValues.clear()
-}
-
-/**
- * What a value under a style prop is when no style can be it, or `undefined`
- * when a style can: a string, number, function, array or plain object holds a
- * style, while a DOM node, a React element, a node, an instance of a class, or
- * an object that contains itself does not. Emotion would walk such a value's
- * links without end, so it is the first of them found, with its path below
- * `path`. `within` maps each object being walked above it to its path.
- */
-function notAStyle(value: unknown, path: string, within: Map<object, string>): { path: string; kind: string } | undefined {
-  if (typeof value !== 'object' || value === null) return undefined
-  const above = within.get(value)
-  if (above !== undefined) return { path, kind: `a reference back to \`${above}\`, an object that contains itself` }
-  const nodeType = (value as { nodeType?: unknown }).nodeType
-  const nodeName = (value as { nodeName?: unknown }).nodeName
-  if (typeof nodeType === 'number' && typeof nodeName === 'string') return { path, kind: `a DOM node (${nodeName})` }
-  if (isValidElement(value)) return { path, kind: 'a React element' }
-  if (NodeUtil.isNodeInstance(value)) return { path, kind: `a node (${getElementTypeName(value.element)})` }
-  const prototype = Object.getPrototypeOf(value)
-  if (!Array.isArray(value) && prototype !== Object.prototype && prototype !== null) {
-    return { path, kind: `an instance of ${(prototype?.constructor as { name?: string } | undefined)?.name || 'a class'}` }
-  }
-  within.set(value, path)
-  try {
-    for (const key in value) {
-      if (!Object.prototype.hasOwnProperty.call(value, key)) continue
-      const found = notAStyle((value as Record<string, unknown>)[key], `${path}.${key}`, within)
-      if (found) return found
-    }
-  } finally {
-    within.delete(value)
-  }
-  return undefined
-}
-
-/**
- * Reports a value no style can be under a prop MeoNode takes as a style: one
- * named like a CSS property, or `css`. A component prop that shares a CSS
- * property's name, as a portal's `container`, never reaches the component, and
- * a DOM node or an object that contains itself there sends styling into
- * endless recursion with nothing that names the prop. Only the message is
- * added; the call behaves as before. Each distinct message is logged once,
- * since a component makes the same call on every render.
- */
-function checkStyleValues(element: NodeElementType, props: Record<string, unknown>): void {
-  // Compiled output carries the values only known at run time in its css
-  // bucket, under the names they were written with.
-  const bucketName = COMPILER_SCHEMA_KEYS[props[COMPILED_MARKER] as number]?.css
-  const bucket = bucketName === undefined ? undefined : props[bucketName]
-  if (typeof bucket === 'object' && bucket !== null) checkStyleEntries(element, bucket as Record<string, unknown>, true)
-  checkStyleEntries(element, props, false)
-}
-
-/**
- * {@link checkStyleValues} for one object: each of its entries taken as a
- * style, or, unless `allStyles`, only `css` and those named like a CSS property.
- */
-function checkStyleEntries(element: NodeElementType, props: Record<string, unknown>, allStyles: boolean): void {
-  for (const key in props) {
-    if (!allStyles && key !== 'css' && !CSSPropertySet.has(key)) continue
-    const value = props[key]
-    if (typeof value !== 'object' || value === null) continue
-    const found = notAStyle(value, key, new Map())
-    if (!found) continue
-    const component = componentRenderers.get(element as object)
-    const node = component === undefined ? `'${getElementTypeName(element)}'` : `Component(${component})`
-    const message =
-      `[MeoNode] The \`${found.path}\` style on ${node} holds ${found.kind}, which no style can be. ` +
-      (key === 'css'
-        ? 'MeoNode takes everything in the css prop as a style. To pass a value to the element as a prop, put it in `props: { … }`.'
-        : `\`${key}\` is a CSS property, so MeoNode takes it as a style and never passes it on as a prop. To pass it as a prop, put it in \`props: { ${key}: … }\`.`)
-    if (reportedStyleValues.has(message)) continue
-    if (reportedStyleValues.size >= MAX_STYLE_VALUE_REPORTS) reportedStyleValues.clear()
-    reportedStyleValues.add(message)
-    console.error(message)
-  }
 }
 
 // Export the Node factory as the main export
@@ -1490,11 +1312,26 @@ function stylesSomething(css: unknown): boolean {
  */
 export function combineFactoryProps(initialProps: Record<string, unknown> | undefined, props: Record<string, unknown> | undefined): Record<string, unknown> {
   // Checked before they are combined, so an error names the `css` it was written in.
-  checkFactoryCss(initialProps?.css)
-  checkCss(props?.css)
+  let checked = false
+  if (diagnosticsEnabled()) {
+    const factoryCss = initialProps?.css
+    const callCss = props?.css
+    withDiagnostics(d => {
+      d.checkFactoryCss(factoryCss)
+      d.checkCss(callCss)
+      checked = true
+    })
+  }
   const combined = mergeFactoryProps(initialProps, props)
-  // Made only of what was just checked, so the node does not walk it again.
-  markCombinedCssChecked(combined.css)
+  // Made only of what was just checked and passed, so the node does not walk it
+  // again. A check run after the render, once the diagnostics load, may fail
+  // without stopping it.
+  if (diagnosticsEnabled()) {
+    const combinedCss = combined.css
+    withDiagnostics(d => {
+      if (checked) d.markCombinedCssChecked(combinedCss)
+    })
+  }
   return combined
 }
 

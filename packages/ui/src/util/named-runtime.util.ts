@@ -1,6 +1,7 @@
 import type { EmotionCache } from '@emotion/cache'
 import { isValidElement, use } from 'react'
 import {
+  diagnosticsEnabled,
   IN_PLACE_STYLE_ATTRIBUTE,
   isDevMode,
   STATIC_CARRIER_MARKER,
@@ -15,7 +16,7 @@ import type { NodeInstance } from '@src/types/node.type.js'
 import { ThemeContext } from '@src/components/theme-provider.client.js'
 import { installCompiledStyles } from '@src/util/compiled-style.util.js'
 import CompiledStyledRenderer from '@src/components/compiled-styled-renderer.client.js'
-import { checkCandidatesAfterCommit, checkThemeRefsInScope, type StaticThemeCandidate } from '@src/components/static-styles.js'
+import { checkCandidatesAfterCommit, readThemeScope } from '@src/components/static-styles.js'
 import { mayChangeTheme, passesChildrenThrough, providesTheme } from '@src/util/children-pass-through.util.js'
 import { readEmotionCache } from '@src/util/emotion-cache.util.js'
 import { namedClass, type NamedStyle, serverStyleElement, standInServerCache } from '@src/util/named-style.util.js'
@@ -24,7 +25,9 @@ import { NodeUtil } from '@src/util/node.util.js'
 import { createServerCssCache } from '@src/util/server-css-cache.util.js'
 import { hasNamedStyles, staticStylesOf, templateText } from '@src/util/static-css.util.js'
 import { nameText } from '@src/util/style-name.util.js'
-import { collectNamedThemeVarRefs, diagnosticsEnabled, getTokensVarIndex, type ThemeVarIndex, unionThemeVarIndexes } from '@src/util/theme-diagnostics.util.js'
+import { loadedNamedDiagnostics, withNamedDiagnostics } from '@src/util/named-diagnostics.util.js'
+import type { CandidateSink } from '@src/util/named-development-diagnostics.util.js'
+import type { ThemeScope } from '@src/util/theme-diagnostics.util.js'
 import { themedTexts } from '@src/util/themed-text-slot.util.js'
 import { withWalkContexts } from '@src/util/walk-contexts.util.js'
 
@@ -193,7 +196,7 @@ class Walk implements NamedWalk {
   // builds none of this.
   readonly checks = diagnosticsEnabled()
   /** Named nodes' theme variables to check once committed, in a development build in the browser. */
-  private candidates: StaticThemeCandidate[] | undefined
+  private readonly sink: CandidateSink = {}
   private readonly checksAfterCommit = this.checks && isDevMode() && !NodeUtil.isServer
 
   /** What the walk reads where it runs, once: a provider's cache, Emotion's default (`null` on a server), or `undefined` outside a render. */
@@ -307,16 +310,16 @@ class Walk implements NamedWalk {
     if (cutsRuleOrder(target) || (walkNode as WalkNode).dependencies !== undefined) this.cut()
   }
 
-  scopeBelow(target: unknown, props: Record<string, unknown>, own: ThemeVarIndex | undefined): ThemeVarIndex | undefined | null {
+  scopeBelow(target: unknown, props: Record<string, unknown>, own: ThemeScope | undefined): ThemeScope | undefined | null {
     // MeoNode's own providers render their children as given, and a
     // ThemeProvider's tokens are known here, so the child's tokens resolve
     // against those merged over the ones above; any other component hides
     // what is above from the walk.
-    if (providesTheme(target)) return unionThemeVarIndexes(own ?? null, getTokensVarIndex(props.tokens))
+    if (providesTheme(target)) return { tokens: props.tokens, outer: own }
     return passesChildrenThrough(target) ? own : null
   }
 
-  classOf(walkNode: object, text: string | undefined, opaqueAbove: boolean, themeOwn: ThemeVarIndex | undefined): string | undefined {
+  classOf(walkNode: object, text: string | undefined, opaqueAbove: boolean, themeOwn: ThemeScope | undefined): string | undefined {
     const className = this.classes.get(walkNode as WalkNode)
     // A named node's theme variables, checked with nothing added to the render:
     // in the walk's own theme scope, here, against the providers above its
@@ -324,9 +327,16 @@ class Walk implements NamedWalk {
     // see into, or outside any component's render, on the element once it is
     // committed, in the browser.
     if (className !== undefined && this.checks) {
-      const refs = collectNamedThemeVarRefs(text ?? '')
-      if (refs.length > 0 && (opaqueAbove || !checkThemeRefsInScope(refs, themeOwn)) && this.checksAfterCommit)
-        (this.candidates ??= []).push({ classes: className, refs })
+      const styles = text ?? ''
+      const loaded = loadedNamedDiagnostics()
+      if (loaded !== undefined) loaded.checkNamedNode(this.sink, className, styles, themeOwn, opaqueAbove, readThemeScope, this.checksAfterCommit)
+      else {
+        // While the diagnostics load, the provider above is read now, where the
+        // render is, for a style that may reference a theme variable.
+        const scope = opaqueAbove || !styles.includes('--meonode-theme-') ? undefined : readThemeScope()
+        const { sink, checksAfterCommit } = this
+        withNamedDiagnostics(d => d.checkNamedNode(sink, className, styles, themeOwn, opaqueAbove, () => scope, checksAfterCommit))
+      }
     }
     return className
   }
@@ -354,7 +364,7 @@ class Walk implements NamedWalk {
 
   finish(): void {
     this.runAfterLastRule()
-    if (this.candidates !== undefined) checkCandidatesAfterCommit(this.candidates)
+    if (this.checksAfterCommit) checkCandidatesAfterCommit(this.sink)
   }
 }
 

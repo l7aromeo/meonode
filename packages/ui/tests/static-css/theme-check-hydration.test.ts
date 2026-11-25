@@ -14,6 +14,7 @@ import { renderToString } from 'react-dom/server'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Div, Node, ThemeProvider } from '@src/main.js'
 import { checkCandidatesAfterCommit, __resetCheckedCandidates } from '@src/util/static-theme-check.util.js'
+import { ThemeContext } from '@src/components/theme-provider.client.js'
 import { NodeUtil } from '@src/util/node.util.js'
 import { replaceThemeTokensWithCssVars } from '@src/util/server-theme.util.js'
 import { nameStyles } from '@src/util/style-name.util.js'
@@ -102,7 +103,7 @@ describe('a named node in server markup checked before React hydrates it', () =>
     const container = serverMarkup({ color: 'theme.primary' })
     // The server render warns for nothing: the provider is above the node.
     expect(tokenWarnings()).toEqual([])
-    checkCandidatesAfterCommit([candidate([['--meonode-theme-primary', 'color']])])
+    checkCandidatesAfterCommit([candidate([['--meonode-theme-primary', 'color']])], ThemeContext)
     await firstLook()
     hydrate(container, { color: 'theme.primary' })
     await new Promise(resolve => setTimeout(resolve, 50))
@@ -113,7 +114,7 @@ describe('a named node in server markup checked before React hydrates it', () =>
     const container = serverMarkup({ color: 'theme.primary.missing' })
     warnings = []
     __resetThemeDiagnostics()
-    checkCandidatesAfterCommit([candidate([['--meonode-theme-primary-missing', 'color']])])
+    checkCandidatesAfterCommit([candidate([['--meonode-theme-primary-missing', 'color']])], ThemeContext)
     await firstLook()
     expect(tokenWarnings()).toEqual([])
     hydrate(container, { color: 'theme.primary.missing' })
@@ -134,7 +135,7 @@ describe('a candidate none of whose elements is in the document', () => {
     const container = document.body.firstElementChild!
     container.remove()
     warnings = []
-    checkCandidatesAfterCommit([late])
+    checkCandidatesAfterCommit([late], ThemeContext)
     await vi.advanceTimersByTimeAsync(500)
     document.body.append(container)
     await vi.advanceTimersByTimeAsync(3000)
@@ -146,7 +147,7 @@ describe('a named node in markup React never hydrates', () => {
   it('is checked against the mounted providers after the last look', async () => {
     vi.useFakeTimers()
     serverMarkup({ color: 'theme.primary' })
-    checkCandidatesAfterCommit([candidate([['--meonode-theme-primary', 'color']])])
+    checkCandidatesAfterCommit([candidate([['--meonode-theme-primary', 'color']])], ThemeContext)
     await vi.advanceTimersByTimeAsync(1000)
     expect(tokenWarnings()).toEqual([])
     await vi.advanceTimersByTimeAsync(2000)

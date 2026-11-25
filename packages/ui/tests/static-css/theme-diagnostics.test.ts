@@ -22,7 +22,7 @@ import { replaceThemeTokensWithCssVars } from '@src/util/server-theme.util.js'
 import { nameStyles } from '@src/util/style-name.util.js'
 import { __resetStaticCss, registerStaticCss } from '@src/util/static-css.util.js'
 import { ThemeUtil } from '@src/util/theme.util.js'
-import { __resetThemeDiagnostics, getTokensVarIndex, type ThemeVarIndex, type ThemeVarRef } from '@src/util/theme-diagnostics.util.js'
+import { __resetThemeDiagnostics, definedVarsOf, getTokensVarIndex, type ThemeVarIndex, type ThemeVarRef } from '@src/util/theme-diagnostics.util.js'
 import { asThemeProps } from '../_theme-props.js'
 import { templated } from './_template.js'
 
@@ -499,18 +499,18 @@ describe('reading the nearest provider through React’s fiber', () => {
   const fiberKey = (element: Element) => Object.keys(element).find(name => name.startsWith('__reactFiber$'))!
 
   it('finds the provider above the element', () => {
-    expect(nearestThemeContext(rendered())?.definedVars().has('--meonode-theme-primary')).toBe(true)
+    expect(definedVarsOf(nearestThemeContext(rendered(), ThemeContext)!).has('--meonode-theme-primary')).toBe(true)
   })
 
   it('finds none above an element with no provider', () => {
     mount(() => Div({ children: compiled(DEFINED_COLOR, { id: 'bare' }) }).render() as ReactElement)
-    expect(nearestThemeContext(document.getElementById('bare')!)).toBeNull()
+    expect(nearestThemeContext(document.getElementById('bare')!, ThemeContext)).toBeNull()
   })
 
   it('cannot tell without the fiber key', () => {
     const element = rendered()
     delete (element as unknown as Record<string, unknown>)[fiberKey(element)]
-    expect(nearestThemeContext(element)).toBeUndefined()
+    expect(nearestThemeContext(element, ThemeContext)).toBeUndefined()
   })
 
   it.each([
@@ -519,7 +519,7 @@ describe('reading the nearest provider through React’s fiber', () => {
   ])('cannot tell when a fiber lacks `%s`', (_, fiber) => {
     const element = rendered()
     ;(element as unknown as Record<string, unknown>)[fiberKey(element)] = fiber
-    expect(nearestThemeContext(element)).toBeUndefined()
+    expect(nearestThemeContext(element, ThemeContext)).toBeUndefined()
   })
 })
 
@@ -540,7 +540,7 @@ describe('an element whose fiber cannot be read', () => {
     delete (element as unknown as Record<string, unknown>)[Object.keys(element).find(name => name.startsWith('__reactFiber$'))!]
     // The record of mounted providers is kept: it is what the element is checked against.
     warnings = []
-    checkCandidates([{ classes, refs }])
+    checkCandidates([{ classes, refs }], ThemeContext)
     const before = [...warnings]
     await Promise.resolve()
     return { before, after: warnings.filter(text => text.includes('--meonode-theme-')) }
@@ -592,7 +592,7 @@ describe('a ThemeProvider’s tokens, read from its node', () => {
     const tokens = { primary: { default: 'red', content: 'white' }, spacing: { md: 16 }, flag: true, none: null, brand: { light: '#a', dark: '#b' } }
     let defined: ThemeVarIndex | undefined
     const Read = () => {
-      defined = use(ThemeContext)!.definedVars()
+      defined = definedVarsOf(use(ThemeContext)!)
       return null
     }
     mount(() => ThemeProvider({ tokens, modes: ['light'], defaultMode: 'light', children: Node(Read) } as never).render() as ReactElement)

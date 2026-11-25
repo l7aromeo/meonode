@@ -1,5 +1,6 @@
 import { isValidElement } from 'react'
 import { COMPILED_MARKER, LIST_MARKER } from '@src/constant/common.const.js'
+import type { CapturedStack } from '@src/util/diagnostics.util.js'
 import { NodeUtil } from '@src/util/node.util.js'
 
 /**
@@ -159,33 +160,45 @@ function isEmptyStack(stack: unknown): boolean {
  * Identifies the code that called `Node`, as a string that is equal for every
  * evaluation of the same source position on the same path.
  * @param below The function whose frame and everything above it are left out.
+ * @param site The stack captured where the call was made, for a check run later.
  */
-function callSiteKey(below: (...args: never[]) => unknown): string {
+function callSiteKey(below: (...args: never[]) => unknown, site: CapturedStack | undefined): string {
   const capture = V8Error.captureStackTrace
-  if (typeof capture !== 'function') return aboveComponentBoundary(String(new Error().stack))
+  if (site === undefined && typeof capture !== 'function') return aboveComponentBoundary(String(new Error().stack))
 
   const previousLimit = Error.stackTraceLimit
   const previousPrepare = V8Error.prepareStackTrace
   try {
     Error.stackTraceLimit = CALL_SITE_FRAMES
     // Structured frames skip formatting the stack, and any source map lookup a
-    // host installed for it, which is most of the cost of reading `.stack`.
+    // host installed for it, which is most of the cost of reading `.stack`. A
+    // captured stack is formatted when first read, so it gives frames too.
     V8Error.prepareStackTrace = (_error, frames) => frames
-    const holder: StackHolder = {}
-    capture(holder, below)
-    let stack = holder.stack
+    let frameLimit = CALL_SITE_FRAMES
+    let stack: unknown
+    if (site !== undefined) stack = site.above.stack
+    else {
+      const holder: StackHolder = {}
+      capture!(holder, below)
+      stack = holder.stack
+    }
     // Safari drops the frame of a function that returns a call (proper tail
     // calls). When that was the frame to cut at, nothing is left, and the whole
     // stack identifies the call instead, this module's own frames included.
     if (isEmptyStack(stack)) {
-      Error.stackTraceLimit = CALL_SITE_FRAMES + OWN_FRAMES
-      const whole: StackHolder = {}
-      capture(whole)
-      stack = whole.stack
+      frameLimit = CALL_SITE_FRAMES + OWN_FRAMES
+      if (site !== undefined) stack = site.whole.stack
+      else {
+        Error.stackTraceLimit = frameLimit
+        const whole: StackHolder = {}
+        capture!(whole)
+        stack = whole.stack
+      }
     }
     if (!Array.isArray(stack)) return aboveComponentBoundary(String(stack))
     let key = ''
-    for (const frame of stack as CallSiteFrame[]) {
+    // A captured stack holds as many frames as the engine keeps by default.
+    for (const frame of (stack as CallSiteFrame[]).slice(0, frameLimit)) {
       if (frame.getFunctionName() === COMPONENT_BOUNDARY) break
       key += `${frame.getFileName()}:${frame.getLineNumber()}:${frame.getColumnNumber()}\n`
     }
@@ -211,10 +224,16 @@ function frameScript(line: string): string {
  * the console shows it as the developer's own frames, source-mapped where the
  * console supports that.
  */
-function callSiteError(below: (...args: never[]) => unknown): Error {
+function callSiteError(below: (...args: never[]) => unknown, site: CapturedStack | undefined): Error {
   const error = new Error('The unkeyed list above was passed as `children` here.')
   error.name = 'MeoNode call site'
-  V8Error.captureStackTrace?.(error, below)
+  if (site === undefined) V8Error.captureStackTrace?.(error, below)
+  else {
+    // `callSiteKey` read the captured stack first, as frames where the engine
+    // gives them; V8 prints each frame as `at` and the frame.
+    const frames = site.above.stack
+    error.stack = `${error.name}: ${error.message}\n${Array.isArray(frames) ? frames.map(frame => `    at ${frame}`).join('\n') : String(frames)}`
+  }
   // V8 starts a stack with the error's own line; Firefox and Safari do not.
   const lines = aboveComponentBoundary(String(error.stack)).split('\n')
   while (lines.length > 0 && !lines[0].trim()) lines.shift()
@@ -252,13 +271,14 @@ function claim(list: readonly unknown[]): void {
 }
 
 /**
- * Watches one `Node` call for an unkeyed generated `children` list. Called in
- * development only, before the node is built.
+ * Watches one `Node` call for an unkeyed generated `children` list, while
+ * diagnostics are on, before the node is built.
  * @param element The element the node renders.
  * @param props The props as the call site wrote them.
  * @param caller The function the call site called, which is left out of the stack.
+ * @param site The stack captured where the call was made, when the check runs later.
  */
-export function observeChildren(element: unknown, props: Record<string, unknown>, caller: (...args: never[]) => unknown): void {
+export function observeChildren(element: unknown, props: Record<string, unknown>, caller: (...args: never[]) => unknown, site?: CapturedStack): void {
   // A component can take a list in any prop and hand it on as some inner
   // element's `children`, as it is or re-wrapped. The list's own call site is
   // this one, so its members are claimed here and the inner call site skips them.
@@ -300,7 +320,7 @@ export function observeChildren(element: unknown, props: Record<string, unknown>
   if (rowType === undefined) return
   if (!needsCallSite(element, rowType, propCount, unkeyed)) return
 
-  const key = callSiteKey(caller)
+  const key = callSiteKey(caller, site)
   const first = lengths.get(key)
   if (first === undefined) {
     if (lengths.size >= MAX_CALL_SITES) lengths = new Map()
@@ -317,7 +337,7 @@ export function observeChildren(element: unknown, props: Record<string, unknown>
     `[MeoNode] A \`children\` list without keys came from one call site with ${first[0]}, then ${children.length} items, so it is generated at runtime rather than written out. ` +
       'MeoNode hands children to React as separate arguments, so React does not report it; the rows are matched by position and keep the wrong state when the list changes. ' +
       'Give each item a `key`, build the list with `For`, or add @meonode/compiler. The call site:',
-    callSiteError(caller),
+    callSiteError(caller, site),
   )
 }
 
@@ -338,6 +358,47 @@ export function noteOnce(location: unknown, siteKey: unknown, element: unknown):
   if (noted.size >= MAX_CALL_SITES) noted.clear()
   noted.add(site)
   return true
+}
+
+/**
+ * Notes, beside React's missing-key warning, where a generated list whose
+ * children reach React as a list came from, once per call site, while
+ * diagnostics are on.
+ * @param children The children handed to React as a list.
+ * @param location The call site's `__meo$loc`, if the plugin recorded one.
+ * @param siteKey The call site's compiled key, if its marker carries one.
+ * @param element The element the call site renders.
+ */
+export function noteGeneratedList(children: readonly unknown[], location: unknown, siteKey: unknown, element: unknown): void {
+  const elements = children.filter(isValidElement)
+  const missingKey = elements.some(child => child.key == null)
+  // A list where *some* children carry keys and others do not is almost always
+  // a generated list spread in beside children the author wrote out: the
+  // `.map()` supplied keys, the heading beside it did not, and React then names
+  // the heading. The reader audits the rows, which are the innocent half.
+  const mixed = missingKey && elements.some(child => child.key != null)
+  // The shape clause needs only the list marker, which every compiled build
+  // emits. The call site needs the plugin's `callSiteLocations` option, which
+  // most builds do not set — so withholding the explanation until the line
+  // number is available would keep the useful half from nearly everyone, to
+  // avoid omitting the ornamental one.
+  //
+  // Without a location, only the mixed case is worth saying. React already
+  // reports an all-unkeyed list correctly; repeating it with no line number adds
+  // noise and nothing else.
+  //
+  // Once per call site, last so only a note about to be logged is recorded:
+  // React logs its own warning once, and a component that renders often would
+  // otherwise repeat the note on every render.
+  if (!missingKey || !(location || mixed) || !noteOnce(location, siteKey, element)) return
+  const spreadClause = mixed
+    ? ' Some children here do have keys: a spread puts a generated list and the siblings written beside it into one list, so React asks those siblings for keys too. Nest the generated part instead of spreading it.'
+    : ''
+  console.warn(
+    location
+      ? `[MeoNode] A generated list at ${location} has children without a \`key\`. React reports the missing key itself; this names the call site it came from.${spreadClause}`
+      : `[MeoNode] A generated list has children without a \`key\`.${spreadClause} Turn on \`callSiteLocations\` in the @meonode/compiler plugin options to have this name the file and line.`,
+  )
 }
 
 /** How many call sites are remembered and reported, for tests. */

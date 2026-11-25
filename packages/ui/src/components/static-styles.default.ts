@@ -1,10 +1,8 @@
 import { use } from 'react'
 import { ThemeContext, type ThemeContextState } from '@src/components/theme-provider.client.js'
 import { providedWalkContexts } from '@src/util/walk-contexts.util.js'
-import { reportThemeVarRefs, type ThemeVarIndex, type ThemeVarRef, unionThemeVarIndexes } from '@src/util/theme-diagnostics.util.js'
-
-export type { StaticThemeCandidate } from '@src/util/static-theme-check.util.js'
-export { checkCandidatesAfterCommit } from '@src/util/static-theme-check.util.js'
+import { withNamedDiagnostics } from '@src/util/named-diagnostics.util.js'
+import type { CandidateSink } from '@src/util/named-development-diagnostics.util.js'
 
 /**
  * The development checks of named styles' theme tokens, in the default build,
@@ -13,25 +11,26 @@ export { checkCandidatesAfterCommit } from '@src/util/static-theme-check.util.js
  */
 
 /**
- * Checks, in development, theme variables a node in the walk's own theme scope
- * reads, against the providers above the component the walk renders in and
- * `own`, those of the providers the walk passed on the way to the node, with
- * nothing added to the render. On the server and in the browser alike.
- * @param refs The variables.
- * @param own The providers' between, if any.
- * @returns `false` outside a component's render, where `use` cannot read them.
+ * The nearest provider's context where a walk renders: on the server and in the
+ * browser alike, from the contexts handed to a memoized subtree's walk, or read
+ * in the component's render.
+ * @returns The context; `null` with no provider above; `undefined` outside a component's render, where `use` cannot read it.
  */
-export function checkThemeRefsInScope(refs: readonly ThemeVarRef[], own: ThemeVarIndex | undefined): boolean {
-  let context: ThemeContextState | null
+export function readThemeScope(): ThemeContextState | null | undefined {
   const provided = providedWalkContexts()
-  if (provided) context = provided.theme
-  else
-    try {
-      context = use(ThemeContext)
-    } catch {
-      return false
-    }
-  const outer = context ? context.definedVars() : null
-  reportThemeVarRefs(refs, own ? unionThemeVarIndexes(outer, own) : outer)
-  return true
+  if (provided) return provided.theme
+  try {
+    return use(ThemeContext)
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Checks a walk's named nodes left for after commit, once their elements are
+ * committed, in the browser.
+ * @param walk The walk's record.
+ */
+export function checkCandidatesAfterCommit(walk: CandidateSink): void {
+  withNamedDiagnostics(d => d.checkCandidatesAfterCommit(walk, ThemeContext))
 }

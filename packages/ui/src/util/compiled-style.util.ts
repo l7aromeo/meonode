@@ -1,7 +1,9 @@
 import type { ThemeContextState } from '@src/components/theme-provider.client.js'
 import type { Theme } from '@src/types/node.type.js'
 import { compiledStyles, type CompiledStyle } from '@src/util/named-runtime-slot.util.js'
-import { collectNamedThemeVarRefs, diagnosticsEnabled, reportThemeVarRefs, reportUnresolvedThemeKey } from '@src/util/theme-diagnostics.util.js'
+import { diagnosticsEnabled } from '@src/constant/common.const.js'
+import { reportUnresolvedThemeKey } from '@src/util/diagnostics.util.js'
+import { withNamedDiagnostics } from '@src/util/named-diagnostics.util.js'
 import { textHasThemeTokenInPrelude } from '@src/util/theme-key.util.js'
 import { resolveThemedText } from '@src/util/theme-value.util.js'
 import { themedTexts } from '@src/util/themed-text-slot.util.js'
@@ -34,7 +36,10 @@ function resolveCompiled(compiled: CompiledStyle, theme: Theme | undefined, cont
     if (report !== undefined) for (const prelude of themed.dropped) report(prelude)
     style = themed
   }
-  if (report !== undefined) reportThemeVarRefs(collectNamedThemeVarRefs(style.styles), context ? context.definedVars() : null)
+  if (report !== undefined) {
+    const { styles } = style
+    withNamedDiagnostics(d => d.checkNamedStyles(styles, context))
+  }
   return style
 }
 

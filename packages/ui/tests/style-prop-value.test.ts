@@ -9,7 +9,7 @@ import { renderToString } from 'react-dom/server'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { refreshDevMode } from '@src/constant/common.const.js'
 import { Component, createNode, Div, Node, Span } from '@src/main.js'
-import { __resetStyleValueReport, __styleValueReportState } from '@src/core.node.js'
+import { __resetStyleValueReport, __styleValueReportState } from '@src/util/factory-check.util.js'
 
 let error: ReturnType<typeof vi.spyOn>
 beforeEach(() => {

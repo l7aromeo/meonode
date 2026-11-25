@@ -5,7 +5,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { refreshDevMode } from '@src/constant/common.const.js'
 import { Component, createChildrenFirstNode, createNode, Li, Node, Span } from '@src/main.js'
-import { __depsReportState, __resetDepsReport } from '@src/core.node.js'
+import { __depsReportState, __resetDepsReport } from '@src/util/factory-check.util.js'
 
 let error: ReturnType<typeof vi.spyOn>
 beforeEach(() => {

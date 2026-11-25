@@ -5,7 +5,8 @@ import { serializeUnnamed } from '@src/util/serialize-styles.util.js'
 import { nameStyles } from '@src/util/style-name.util.js'
 import { getRegisteredStyles, insertStyles } from '@emotion/utils'
 import type { CssProp } from '@src/types/node.type.js'
-import { reportSharedStyleName, reportUncomposedClass } from '@src/util/theme-diagnostics.util.js'
+import { diagnosticsEnabled } from '@src/constant/common.const.js'
+import { withDiagnostics } from '@src/util/diagnostics.util.js'
 import { terminateRules } from '@src/util/rule-text.util.js'
 
 /**
@@ -106,7 +107,7 @@ function shareClass(name: string, styles: string, themed?: CssProp | string): vo
   const held = currentClasses.get(name) ?? previousClasses.get(name)
   if (held !== undefined) {
     if (!held.conflicted && (held.styles !== styles || !sameThemed(held.themed, themed))) {
-      reportSharedStyleName(name)
+      if (diagnosticsEnabled()) withDiagnostics(d => d.reportSharedStyleName(name))
       held.conflicted = true
     }
     if (!currentClasses.has(name)) keepSharedClass(name, held)
@@ -144,7 +145,7 @@ function registerSharedClasses(registered: Record<string, string | true>, key: s
     if (!name.startsWith(`${key}-`) || registered[name] !== undefined) continue
     const entry = sharedClass(name)
     if (entry === undefined) {
-      reportUncomposedClass(name)
+      if (diagnosticsEnabled()) withDiagnostics(d => d.reportUncomposedClass(name))
       continue
     }
     registered[name] = entry.styles

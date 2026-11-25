@@ -1,6 +1,7 @@
 import { NodeUtil } from '@src/util/node.util.js'
 import type { NodeProps } from '@src/types/node.type.js'
-import { COMPILED_MARKER, setDebugMode } from '@src/constant/common.const.js'
+import { COMPILED_MARKER } from '@src/constant/common.const.js'
+import { setDebugMode } from '@src/util/diagnostics.util.js'
 
 // Clean up caches between tests (mirrors convention used across the suite).
 afterEach(() => {

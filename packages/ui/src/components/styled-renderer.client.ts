@@ -1,5 +1,6 @@
 'use client'
 import {
+  diagnosticsEnabled,
   RUNTIME_PRECEDENCE,
   STATIC_CLASS_ONLY_PROP,
   STATIC_RUN_AFTER_PROP,
@@ -17,10 +18,10 @@ import { NodeUtil } from '@src/util/node.util.js'
 import type { CssProp, NodeElement, Theme } from '@src/types/node.type.js'
 import { ThemeContext, type ThemeContextState, type ThemeSnapshot, useThemeSnapshot } from '@src/components/theme-provider.client.js'
 import { ThemeUtil } from '@src/util/theme.util.js'
-import { diagnosticsEnabled, reportThemeIssues, reportThemeVarRefs, reportUnresolvedThemeKey, type ThemeVarRef } from '@src/util/theme-diagnostics.util.js'
+import type { ThemeVarRef } from '@src/util/theme-diagnostics.util.js'
+import { reportUnresolvedThemeKey, withDiagnostics } from '@src/util/diagnostics.util.js'
 import { isValidElementType } from '@src/helper/react-is.helper.js'
 import { createServerCssCache } from '@src/util/server-css-cache.util.js'
-import { replaceThemeTokensWithCssVars } from '@src/util/server-theme.util.js'
 import { nameStyles } from '@src/util/style-name.util.js'
 import type { NamedStyle } from '@src/util/named-style.util.js'
 import { type CompiledStyle, compiledStyles, namedRuntime } from '@src/util/named-runtime-slot.util.js'
@@ -281,9 +282,7 @@ function renderOwnClass(
  * @param context The nearest provider's context, or `null`.
  */
 function reportStyleTokens(css: unknown, context: ThemeContextState | null): void {
-  if (!diagnosticsEnabled()) return
-  if (context) reportThemeIssues(css, context.definedVars())
-  else reportThemeIssues(replaceThemeTokensWithCssVars(css), null)
+  if (diagnosticsEnabled()) withDiagnostics(d => d.checkStyledCss(css, context))
 }
 
 StyledRenderer.displayName = 'Styled'
@@ -424,7 +423,13 @@ export function ThemedRule({ className, css }: ThemedRuleProps): ReactElement | 
 
 export interface ThemeTokenCheckProps {
   /** The theme variables the element's server-compiled css references. */
-  refs: readonly ThemeVarRef[]
+  refs?: readonly ThemeVarRef[]
+
+  /**
+   * What they are read from, the css or a compiled style's text, in place of
+   * `refs` when the server rendered before its diagnostics loaded.
+   */
+  source?: unknown
 }
 
 /**
@@ -439,8 +444,8 @@ export interface ThemeTokenCheckProps {
  * rendered while diagnostics are on.
  * @returns Nothing.
  */
-export function ThemeTokenCheck({ refs }: ThemeTokenCheckProps): null {
+export function ThemeTokenCheck({ refs, source }: ThemeTokenCheckProps): null {
   const context = useContext(ThemeContext)
-  if (diagnosticsEnabled()) reportThemeVarRefs(refs, context ? context.definedVars() : null)
+  if (diagnosticsEnabled()) withDiagnostics(d => d.checkThemeVarRefs(refs, source, context))
   return null
 }

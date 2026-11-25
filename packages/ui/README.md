@@ -351,13 +351,34 @@ an effect runs too late to catch the first render's worth.
 
 In a production build the flag also turns the first group back on. That group is quiet there because `NODE_ENV` says
 `production` — read at runtime on Node, or substituted by a bundler, which folds that half of the gate to `false`; a
-browser bundle in which nothing substitutes it counts as production too. The
-messages themselves ship either way: the flag is a runtime binding, not a build-time constant, so bundlers cannot strip
-the text, and a minified bundle built with `process.env.NODE_ENV` substituted still contains every one of them. That is
-deliberate — the bugs worth this much logging are usually the ones that only reproduce in production.
+browser bundle in which nothing substitutes it counts as production too. That is deliberate — the bugs worth this much
+logging are usually the ones that only reproduce in production.
 
-The cost is the diagnostics' code in every browser bundle: about 3.9 KB gzipped (the theme checks about 2.0 KB, the
-generated-list report about 1.2 KB, the `deps` and style-value checks about 0.7 KB), whether or not the flag is ever set.
+A production build leaves the diagnostics' code out of what a page loads first, in a chunk of its own, and
+`setDebugMode(true)` loads that chunk. The checks made before it arrives are held, then run in the order they were
+made, a few milliseconds later; one that would throw in development is logged with `console.error` instead, as the
+render it was made in has finished. Up to 60,000 checks are held, a first render of about 12,000 to 20,000 nodes; past
+that, they are counted and reported as dropped.
+
+The bundlers that split the diagnostics out are webpack (and Next.js with it), Turbopack, Rollup, Rolldown (and Vite 8
+with it) and Bun. esbuild keeps them in the code a page loads first. So does a Vite `manualChunks` that assigns
+MeoNode's modules to a chunk, whether by package or as one `vendor` chunk: the lazy chunk's modules are pulled into
+that chunk too. Leave every `@meonode/*` package to Vite:
+
+```typescript
+build: {
+  rollupOptions: {
+    output: {
+      manualChunks: (id: string) =>
+        id.includes('/node_modules/@meonode/') ? undefined : id.includes('node_modules') ? 'vendor' : undefined,
+    },
+  },
+}
+```
+
+In the apps measured, first-load JavaScript is 1.7 KB gzipped smaller with Next.js 16 and Turbopack, 4.3 KB with Next.js
+16 and webpack, and 3.6 KB with Vite 8. Where the diagnostics stay in the first load, as with esbuild or a
+`manualChunks` that takes MeoNode's modules, it is about 1.6 KB larger than before, the cost of loading them later.
 
 📖 [Full list of what it logs](https://ui.meonode.com/docs/getting-started/faq)
 

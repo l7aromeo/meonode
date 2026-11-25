@@ -4,7 +4,7 @@ import type { Theme } from '@src/types/node.type.js'
 import type { ReactElement } from 'react'
 import type StyledRenderer from '@src/components/styled-renderer.client.js'
 import type { NamedStyle } from '@src/util/named-style.util.js'
-import type { ThemeVarIndex } from '@src/util/theme-diagnostics.util.js'
+import type { ThemeScope } from '@src/util/theme-diagnostics.util.js'
 import type { WalkContexts } from '@src/util/walk-contexts.util.js'
 
 /**
@@ -29,13 +29,13 @@ export interface NamedWalk {
   /** A node's complete phase, before its element is made: a component, boundary or memoized node cuts the run. */
   complete(node: object, target: unknown): void
   /** The theme scope below a provider, for the checks: its tokens joined to `own`, or `null` below another component. */
-  scopeBelow(target: unknown, props: Record<string, unknown>, own: ThemeVarIndex | undefined): ThemeVarIndex | undefined | null
+  scopeBelow(target: unknown, props: Record<string, unknown>, own: ThemeScope | undefined): ThemeScope | undefined | null
 
   /**
    * A named node's class, composed in its begin phase, its theme variables
    * checked in development.
    */
-  classOf(node: object, text: string | undefined, opaqueAbove: boolean, themeOwn: ThemeVarIndex | undefined): string | undefined
+  classOf(node: object, text: string | undefined, opaqueAbove: boolean, themeOwn: ThemeScope | undefined): string | undefined
   /** Whether a named node renders through `StyledRenderer`, as a carrier or with no cache to read. */
   rendersAtRender(node: object): boolean
 

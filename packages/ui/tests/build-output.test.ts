@@ -1,9 +1,10 @@
 import { execFileSync, execSync } from 'node:child_process'
-import { existsSync, globSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, globSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { rollup, type OutputOptions, type RollupOptions } from 'rollup'
+import nodeResolve from '@rollup/plugin-node-resolve'
 import { beforeAll, describe, expect, it, vi } from 'vitest'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -568,4 +569,377 @@ describe('build output: the factory-call entry', () => {
         expect([module, modules.includes(module)]).toEqual([module, registers])
     },
   )
+})
+
+/**
+ * The development diagnostics stay out of a production browser bundle: the
+ * bundler substitutes `process.env.NODE_ENV`, which leaves nothing importing
+ * them but the lazy load `setDebugMode(true)` starts, so each bundler splits
+ * them into a chunk of their own (#134).
+ */
+describe('build output: a production browser bundle', () => {
+  const WORK = path.join(ROOT, 'node_modules/.cache/production-bundle')
+  const requireFromRoot = createRequire(path.join(ROOT, 'package.json'))
+  const { webpack } = (requireFromRoot('next/dist/compiled/webpack/bundle5') as () => { webpack: Webpack })()
+  const esbuild = requireFromRoot('esbuild') as typeof import('esbuild')
+  const rolldown = requireFromRoot('rolldown') as typeof import('rolldown')
+
+  /**
+   * An app using the theme, a factory, a list and `setDebugMode`, so each
+   * diagnostic has a caller. It hands them to the page, since a bundler drops
+   * what an entry only exports.
+   */
+  const APP = `
+    import { Div, For, ThemeProvider, setDebugMode } from '@meonode/ui'
+    globalThis.app = {
+      setDebugMode,
+      render: rows =>
+        ThemeProvider({
+          modes: ['light'],
+          defaultMode: 'light',
+          tokens: { accent: 'red' },
+          children: Div({ color: 'theme.accent', children: For(rows, row => Div({ children: row.label }), row => row.id) }),
+        }).render(),
+    }
+  `
+
+  /** One message from each part: the theme checks, the generated-list report, the deps and style-value checks. */
+  const MESSAGES = ['is not defined by the active theme', 'list without keys came from one call site', 'deps must be an array', 'which no style can be']
+
+  /** Text only the named styles' diagnostics hold: their check after commit reads React's fibers. */
+  const NAMED_ONLY = '__reactFiber$'
+
+  /** Packages the app leaves to the page; only MeoNode's own code is under test. */
+  const EXTERNAL = [
+    'react',
+    'react-dom',
+    'react/jsx-runtime',
+    '@emotion/react',
+    '@emotion/cache',
+    '@emotion/serialize',
+    '@emotion/unitless',
+    '@emotion/utils',
+    'stylis',
+  ]
+
+  /** The code a page loads with the app, and the code it can load later. */
+  interface Chunks {
+    initial: string[]
+    lazy: string[]
+  }
+
+  /** Splits chunks into those the entry imports statically, itself included, and the rest. */
+  const byLoad = (entry: string, chunks: Map<string, { code: string; imports: string[] }>): Chunks => {
+    const initial = new Set<string>()
+    const visit = (name: string) => {
+      if (initial.has(name)) return
+      initial.add(name)
+      for (const imported of chunks.get(name)?.imports ?? []) visit(imported)
+    }
+    visit(entry)
+    const all = [...chunks.entries()]
+    return {
+      initial: all.filter(([name]) => initial.has(name)).map(([, chunk]) => chunk.code),
+      lazy: all.filter(([name]) => !initial.has(name)).map(([, chunk]) => chunk.code),
+    }
+  }
+
+  const esbuildChunks = async (): Promise<Chunks> => {
+    const outdir = path.join(WORK, 'esbuild')
+    const result = await esbuild.build({
+      stdin: { contents: APP, resolveDir: ROOT, loader: 'js' },
+      bundle: true,
+      splitting: true,
+      format: 'esm',
+      platform: 'browser',
+      minify: true,
+      write: false,
+      metafile: true,
+      outdir,
+      define: { 'process.env.NODE_ENV': '"production"' },
+      external: EXTERNAL,
+      // The package's tsconfig maps `@meonode/ui` to its sources; the app gets the build.
+      alias: { '@meonode/ui': path.join(ROOT, 'dist/esm/main.js') },
+      logLevel: 'silent',
+    })
+    const code = new Map(result.outputFiles.map(file => [path.relative(process.cwd(), file.path), file.text]))
+    const chunks = new Map(
+      Object.entries(result.metafile.outputs).map(([name, output]) => [
+        name,
+        { code: code.get(name) ?? '', imports: output.imports.filter(entry => entry.kind === 'import-statement').map(entry => entry.path) },
+      ]),
+    )
+    return byLoad(
+      Object.keys(result.metafile.outputs).find(name => result.metafile.outputs[name].entryPoint !== undefined)!,
+      chunks,
+    )
+  }
+
+  const webpackChunks = (): Promise<Chunks> => {
+    const entry = path.join(WORK, 'webpack-entry.js')
+    const outdir = path.join(WORK, 'webpack')
+    mkdirSync(WORK, { recursive: true })
+    writeFileSync(entry, APP)
+    return new Promise((resolve, reject) => {
+      webpack(
+        {
+          mode: 'production',
+          target: 'web',
+          context: ROOT,
+          entry,
+          output: { path: outdir, filename: 'main.js', chunkFilename: '[id].chunk.js', clean: true },
+          // Next's webpack loads its minimizer from Next; webpack itself drops
+          // the branch `process.env.NODE_ENV` rules out, and with it the import.
+          optimization: { minimize: false },
+          externals: Object.fromEntries(EXTERNAL.map(name => [name, `commonjs ${name}`])),
+        },
+        (error, stats) => {
+          const json = stats?.toJson({ all: false, errors: true, chunks: true }) as
+            { errors?: { message: string }[]; chunks?: { initial: boolean; files: string[] }[] } | undefined
+          const errors = json?.errors ?? []
+          if (error || !json || errors.length > 0)
+            return reject(error ?? new Error(errors.map(entry => entry.message).join('\n') || 'webpack returned no stats'))
+          const read = (initial: boolean) =>
+            (json.chunks ?? [])
+              .filter(chunk => chunk.initial === initial)
+              .flatMap(chunk => chunk.files.filter(file => file.endsWith('.js')))
+              .map(file => readFileSync(path.join(outdir, file), 'utf8'))
+          resolve({ initial: read(true), lazy: read(false) })
+        },
+      )
+    })
+  }
+
+  // Resolved as Vite resolves it, which reads the package's `sideEffects`.
+  const rollupChunks = async (): Promise<Chunks> => {
+    const entry = '\0app'
+    const bundle = await rollup({
+      input: entry,
+      external: id => EXTERNAL.some(name => id === name || id.startsWith(`${name}/`)),
+      plugins: [
+        {
+          name: 'app',
+          resolveId: id => (id === entry ? id : null),
+          load: id => (id === entry ? APP : null),
+          transform: code => code.replaceAll('process.env.NODE_ENV', '"production"'),
+        },
+        nodeResolve({ browser: true, rootDir: ROOT }),
+      ],
+      onwarn: () => {},
+    })
+    const { output } = await bundle.generate({ format: 'esm' })
+    await bundle.close()
+    const chunks = output.flatMap(chunk => (chunk.type === 'chunk' ? [chunk] : []))
+    return byLoad(chunks.find(chunk => chunk.isEntry)!.fileName, new Map(chunks.map(chunk => [chunk.fileName, { code: chunk.code, imports: chunk.imports }])))
+  }
+
+  // Rolldown, as Vite 8 runs it, pointed at the build: it reads the package's `sideEffects` too.
+  const rolldownChunks = async (): Promise<Chunks> => {
+    const entry = '\0app'
+    const bundle = await rolldown.rolldown({
+      input: entry,
+      platform: 'browser',
+      external: id => EXTERNAL.some(name => id === name || id.startsWith(`${name}/`)),
+      resolve: { alias: { '@meonode/ui': path.join(ROOT, 'dist/esm/main.js') } },
+      transform: { define: { 'process.env.NODE_ENV': '"production"' } },
+      plugins: [{ name: 'app', resolveId: id => (id === entry ? id : null), load: id => (id === entry ? APP : null) }],
+      onwarn: () => {},
+    })
+    const { output } = await bundle.generate({ format: 'esm', minify: true })
+    await bundle.close()
+    const chunks = output.flatMap(chunk => (chunk.type === 'chunk' ? [chunk] : []))
+    return byLoad(chunks.find(chunk => chunk.isEntry)!.fileName, new Map(chunks.map(chunk => [chunk.fileName, { code: chunk.code, imports: chunk.imports }])))
+  }
+
+  // Run by Bun's own bundler, pointed at the build: the package's tsconfig maps `@meonode/ui` to its sources.
+  const bunChunks = async (): Promise<Chunks> => {
+    const outdir = path.join(WORK, 'bun')
+    const entry = path.join(WORK, 'bun-entry.js')
+    rmSync(outdir, { recursive: true, force: true })
+    mkdirSync(WORK, { recursive: true })
+    writeFileSync(entry, APP.replace("'@meonode/ui'", JSON.stringify(path.join(ROOT, 'dist/esm/main.js'))))
+    execFileSync(
+      'bun',
+      [
+        'build',
+        entry,
+        '--splitting',
+        '--target=browser',
+        '--minify',
+        '--define',
+        'process.env.NODE_ENV="production"',
+        ...EXTERNAL.flatMap(name => ['--external', name]),
+        '--outdir',
+        outdir,
+      ],
+      { stdio: 'pipe' },
+    )
+    // A static import is `import"./…"` or `from"./…"`; a dynamic one is `import("./…")`.
+    const chunks = new Map(
+      readdirSync(outdir)
+        .filter(file => file.endsWith('.js'))
+        .map(file => {
+          const code = readFileSync(path.join(outdir, file), 'utf8')
+          return [file, { code, imports: [...code.matchAll(/(?:\bfrom|\bimport)\s*"\.\/([^"]+)"/g)].map(match => match[1]) }]
+        }),
+    )
+    return byLoad('bun-entry.js', chunks)
+  }
+
+  it.each([
+    ['webpack', webpackChunks],
+    ['rollup', rollupChunks],
+    ['Rolldown', rolldownChunks],
+    ['Bun', bunChunks],
+  ] as const)(
+    'leaves every diagnostic message out of what %s loads first, and in a chunk it can load later',
+    async (_, build) => {
+      const { initial, lazy } = await build()
+      // The one module the package keeps for its side effect alone, by `sideEffects`.
+      expect(initial.some(code => code.includes('was loaded in the React Server Components layer'))).toBe(true)
+      for (const message of MESSAGES) {
+        expect([message, initial.some(code => code.includes(message))]).toEqual([message, false])
+        expect([message, lazy.some(code => code.includes(message))]).toEqual([message, true])
+      }
+      // The app renders no named styles, so their diagnostics' table is left out
+      // whole: the check after commit, which alone reads React's fibers, is in no chunk.
+      expect([...initial, ...lazy].some(code => code.includes(NAMED_ONLY))).toBe(false)
+    },
+    120_000,
+  )
+
+  // esbuild's code splitting places a module in a chunk by whether any entry
+  // imports it statically, whether or not the import is used once
+  // `process.env.NODE_ENV` is folded, so the diagnostics share a chunk the page
+  // loads first, as they did before they were split out.
+  it('leaves the diagnostics in what esbuild loads first', async () => {
+    const { initial, lazy } = await esbuildChunks()
+    expect(initial.some(code => code.includes('was loaded in the React Server Components layer'))).toBe(true)
+    for (const message of MESSAGES)
+      expect([message, initial.some(code => code.includes(message)), lazy.some(code => code.includes(message))]).toEqual([message, true, false])
+  })
+})
+
+/**
+ * `setDebugMode(true)` in a production build loads the diagnostics, which the
+ * build leaves out, and reports the checks made while they load once they
+ * arrive, in the order they were made (#134).
+ */
+describe('build output: debug mode in a production build', () => {
+  /** Runs `body` against the ES module build in Node with `NODE_ENV=production`, and returns what it logged, in order, with where the render ended. */
+  const run = (body: string, entry = '@meonode/ui'): { logs: [level: string, text: string][]; rendered: number } => {
+    const code = `
+      const logs = []
+      for (const level of ['log', 'warn', 'error'])
+        console[level] = (...args) => logs.push([level, args.map(arg => (arg instanceof Error ? arg.name + ': ' + arg.message + '\\n' + arg.stack : String(arg))).join(' ')])
+      const ui = await import(${JSON.stringify(entry)})
+      const { renderToString } = await import('react-dom/server')
+      let rendered = -1
+      const settle = () => new Promise(resolve => setTimeout(resolve, 200))
+      ${body}
+      process.stdout.write(JSON.stringify({ logs, rendered }))`
+    return JSON.parse(
+      // A render of thousands of nodes logs a line for each.
+      execFileSync(process.execPath, ['--input-type=module', '-e', code], {
+        cwd: ROOT,
+        encoding: 'utf8',
+        maxBuffer: 64 * 1024 * 1024,
+        env: { ...process.env, NODE_ENV: 'production' },
+      }),
+    )
+  }
+
+  /** A provider whose children make a theme check, then a literal check, then a list reported from one call site. */
+  const RENDER = `
+    const { Div, ThemeProvider, setDebugMode } = ui
+    setDebugMode(true)
+    const list = count => Div({ children: Array.from({ length: count }, () => Div({ children: 'row' })) })
+    const lists = [2, 3].map(count => list(count))
+    renderToString(
+      ThemeProvider({
+        modes: ['light'],
+        defaultMode: 'light',
+        tokens: { accent: 'red' },
+        children: [Div({ key: 'a', color: 'theme.missing' }), Div({ key: 'b', padding: '12' }), ...lists],
+      }).render(),
+    )
+    rendered = logs.length
+    await settle()`
+
+  it('reports the checks made before the diagnostics loaded, once they load, in order', () => {
+    const { logs, rendered } = run(RENDER)
+    expect(logs.slice(0, rendered)).toEqual([['log', '[MeoNode] Debug mode enabled.']])
+    const after = logs.slice(rendered)
+    // The lists are built before the render's checks run.
+    expect(after.map(([level, text]) => [level, text.split('. ')[0]])).toEqual([
+      ['warn', '[MeoNode] A `children` list without keys came from one call site with 2, then 3 items, so it is generated at runtime rather than written out'],
+      ['warn', '[MeoNode] theme.missing (used for `color`) is not defined by the active theme'],
+      ['warn', '[MeoNode] `padding: "12"` is a number written as a string, so Emotion does not add `px` to it — it only does that for real numbers'],
+    ])
+    // The list's call site was read where the calls were made, not where the check ran.
+    expect(after[0][1]).toMatch(/MeoNode call site: The unkeyed list above was passed as `children` here\.\n\s+at list /)
+  })
+
+  it('reports nothing for the checks made while debug mode was on, if it is turned off before they load', () => {
+    const { logs } = run(RENDER.replace('rendered = logs.length', 'ui.setDebugMode(false)\n    rendered = logs.length'))
+    expect(logs).toEqual([['log', '[MeoNode] Debug mode enabled.']])
+  })
+
+  /** Renders `count` nodes, each with a literal check to report, with debug mode on, and returns what was logged after the render. */
+  const renderNodes = (count: number) => {
+    const { logs, rendered } = run(`
+      const { Div, setDebugMode } = ui
+      setDebugMode(true)
+      renderToString(Div({ children: Array.from({ length: ${count} }, (_, index) => Div({ key: index, padding: String(index + 1) })) }).render())
+      rendered = logs.length
+      await settle()`)
+    const after = logs.slice(rendered)
+    return { after, dropped: after.filter(([, text]) => text.includes('checks made while its diagnostics loaded were dropped')) }
+  }
+
+  it('holds every check of a first render of 14,000 nodes while the diagnostics load', () => {
+    const { after, dropped } = renderNodes(14_000)
+    expect(dropped).toHaveLength(0)
+    expect(after).toHaveLength(14_000)
+  })
+
+  it('holds a bounded number of checks while the diagnostics load, and reports how many it dropped', () => {
+    const { after, dropped } = renderNodes(20_000)
+    expect(dropped).toHaveLength(1)
+    expect(dropped[0][1]).toMatch(/^\[MeoNode\] Debug mode: \d+ checks made while its diagnostics loaded were dropped/)
+    // One literal report per node until the bound, and none after the notice.
+    expect(after.at(-1)).toBe(dropped[0])
+    expect(after.length - 1).toBeLessThan(20_000)
+  })
+
+  // A bundle, since Node loads the build's static import of the diagnostics
+  // whether or not it runs.
+  it('reports a diagnostics chunk that fails to load', async () => {
+    const outdir = path.join(ROOT, 'node_modules/.cache/debug-mode-missing-chunk')
+    rmSync(outdir, { recursive: true, force: true })
+    const entry = '\0ui'
+    const bundle = await rollup({
+      input: { ui: entry },
+      external: id => !id.startsWith('.') && !id.startsWith('/') && !id.startsWith('\0') && id !== '@meonode/ui',
+      plugins: [
+        {
+          name: 'ui',
+          resolveId: id => (id === entry ? id : null),
+          load: id => (id === entry ? `export * from '@meonode/ui'` : null),
+          transform: code => code.replaceAll('process.env.NODE_ENV', '"production"'),
+        },
+        nodeResolve({ rootDir: ROOT }),
+      ],
+      onwarn: () => {},
+    })
+    const { output } = await bundle.write({ dir: outdir, format: 'esm', entryFileNames: '[name].mjs', chunkFileNames: '[name]-[hash].mjs' })
+    await bundle.close()
+    const lazy = output.filter(chunk => chunk.type === 'chunk' && chunk.facadeModuleId?.endsWith('/lazy-diagnostics.util.js'))
+    expect(lazy).toHaveLength(1)
+    rmSync(path.join(outdir, lazy[0].fileName))
+    const { logs, rendered } = run(RENDER, pathToFileURL(path.join(outdir, 'ui.mjs')).href)
+    expect(logs.slice(rendered).map(([level, text]) => [level, text.split('\n')[0].replace(/'.*/, '')])).toEqual([
+      ['error', '[MeoNode] Debug mode could not load its diagnostics. Error: Cannot find module '],
+    ])
+  })
 })
