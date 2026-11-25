@@ -20,8 +20,9 @@ import { replaceThemeTokensWithCssVars } from '@src/util/server-theme.util.js'
 import { nameStyles } from '@src/util/style-name.util.js'
 import { __resetStaticCss, registerStaticCss } from '@src/util/static-css.util.js'
 import { ThemeUtil } from '@src/util/theme.util.js'
-import { __resetThemeDiagnostics, type ThemeVarRef } from '@src/util/theme-diagnostics.util.js'
+import { __checkedThemeVars, __resetThemeDiagnostics, type ThemeVarRef } from '@src/util/theme-diagnostics.util.js'
 import { asThemeProps } from '../_theme-props.js'
+import { checksSettled } from './_checks-settled.js'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -103,11 +104,14 @@ describe('a named node in server markup checked before React hydrates it', () =>
     const container = serverMarkup({ color: 'theme.primary' })
     // The server render warns for nothing: the provider is above the node.
     expect(tokenWarnings()).toEqual([])
+    __resetThemeDiagnostics()
     checkCandidatesAfterCommit([candidate([['--meonode-theme-primary', 'color']])], ThemeContext)
     await firstLook()
     hydrate(container, { color: 'theme.primary' })
-    await new Promise(resolve => setTimeout(resolve, 50))
+    await checksSettled()
     expect(tokenWarnings()).toEqual([])
+    // No warning from a check that never ran: the variable was checked.
+    expect([...__checkedThemeVars()]).toContain('--meonode-theme-primary')
   })
 
   it('is reported once React hydrates it, for a variable no provider above defines', async () => {
@@ -118,7 +122,7 @@ describe('a named node in server markup checked before React hydrates it', () =>
     await firstLook()
     expect(tokenWarnings()).toEqual([])
     hydrate(container, { color: 'theme.primary.missing' })
-    await new Promise(resolve => setTimeout(resolve, 50))
+    await checksSettled()
     const reported = tokenWarnings()
     expect(reported).toHaveLength(1)
     expect(reported[0]).toContain('is not defined by the active theme')

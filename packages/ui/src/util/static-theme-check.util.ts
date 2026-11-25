@@ -133,6 +133,10 @@ const COMMIT_RETRY_MS = 16
 const HYDRATION_RETRIES = 125
 /** The candidates each committed element was checked for, so a later render of the same element does not check it again. */
 let checkedElements = new WeakMap<Element, Set<string>>()
+/** The looks {@link checkCandidatesAfterCommit} has scheduled that have not run yet. */
+let pendingLooks = new Set<object>()
+/** Callers of {@link __checksSettled}, waiting for {@link pendingLooks} to empty. */
+let settledWaiters: (() => void)[] = []
 
 /**
  * Checks candidates once their elements are committed, from a walk, which has
@@ -145,7 +149,9 @@ let checkedElements = new WeakMap<Element, Set<string>>()
  * @param ThemeContext The context ThemeProvider provides.
  */
 export function checkCandidatesAfterCommit(candidates: readonly StaticThemeCandidate[], ThemeContext: ThemeContextType): void {
-  const look = (pending: readonly StaticThemeCandidate[], attempt: number) =>
+  const look = (pending: readonly StaticThemeCandidate[], attempt: number) => {
+    const scheduled = {}
+    pendingLooks.add(scheduled)
     setTimeout(
       () => {
         const last = attempt === COMMIT_RETRIES + HYDRATION_RETRIES
@@ -154,11 +160,36 @@ export function checkCandidatesAfterCommit(candidates: readonly StaticThemeCandi
         const absent = attempt < COMMIT_RETRIES ? pending.filter(candidate => !inDocument.includes(candidate)) : []
         const next = [...absent, ...unhydrated]
         if (next.length > 0 && !last) look(next, attempt + 1)
+        // A look from before a reset, whose record is gone, settles nothing.
+        if (pendingLooks.delete(scheduled) && pendingLooks.size === 0) {
+          const waiters = settledWaiters
+          settledWaiters = []
+          // After the report `checkCandidates` queues for an element it could not read.
+          queueMicrotask(() => waiters.forEach(resolve => resolve()))
+        }
       },
       attempt === 1 ? 0 : COMMIT_RETRY_MS,
     )
+  }
   look(candidates, 1)
 }
 
-/** Test seam: forgets which elements were checked. */
-export const __resetCheckedCandidates = (): void => void (checkedElements = new WeakMap())
+/**
+ * Test seam: forgets which elements were checked, and the looks scheduled, which
+ * a test that drops its fake timers leaves behind.
+ */
+export const __resetCheckedCandidates = (): void => {
+  checkedElements = new WeakMap()
+  pendingLooks = new Set()
+}
+
+/**
+ * Test seam: resolves once every look {@link checkCandidatesAfterCommit} has
+ * scheduled has run and reported, at once when none is scheduled.
+ * @returns A promise of that.
+ */
+export const __checksSettled = (): Promise<void> =>
+  new Promise(resolve => {
+    if (pendingLooks.size === 0) queueMicrotask(resolve)
+    else settledWaiters.push(resolve)
+  })

@@ -214,6 +214,12 @@ const siblingsOf = (varName: string, index: ThemeVarIndex): string[] => {
 const VAR_REF = /var\(\s*(--meonode-theme-[\w-]+)/g
 
 /**
+ * Every variable checked since the last reset, defined or not, so a test that
+ * expects no warning can tell a check that found nothing from one that never ran.
+ */
+const checkedVars = new Set<string>()
+
+/**
  * Reports one variable reference that will not produce a style.
  * @param varName The referenced custom property.
  * @param property The CSS property it was written against, when known.
@@ -225,6 +231,7 @@ const checkVarReference = (varName: string, property: string | undefined, index:
   // absent variant would flag correct code, so only the plain name is checked.
   if (varName.endsWith(toLengthVarName(''))) return
 
+  checkedVars.add(varName)
   if (index && index.has(varName)) return
   const siblings = index ? siblingsOf(varName, index) : []
   report(
@@ -681,9 +688,13 @@ export const trackProviderVars = (owner: object, own: ThemeVarIndex): (() => voi
 export const mountedThemeVarIndex = (): ThemeVarIndex | null =>
   mountedVars.size === 0 ? null : new Map([...mountedVars.keys()].map(varName => [varName, true]))
 
-/** Test seam: clears the once-per-problem memo and the record of mounted providers. */
+/** Test seam: every variable checked since the last {@link __resetThemeDiagnostics}. */
+export const __checkedThemeVars = (): ReadonlySet<string> => checkedVars
+
+/** Test seam: clears the once-per-problem memo, the record of checked variables and the record of mounted providers. */
 export const __resetThemeDiagnostics = (): void => {
   reported.clear()
+  checkedVars.clear()
   reportedReservedOwners = new WeakSet()
   mountedVars.clear()
   // `NODE_ENV` is captured once at module load, so a test that stubs it needs
