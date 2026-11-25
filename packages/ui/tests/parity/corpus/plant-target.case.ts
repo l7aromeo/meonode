@@ -1,8 +1,8 @@
 // The target of the planted failures in plants.mjs, and a case of its own: a
-// section with static styles, a breakpoint and a toggle whose pressed state
-// switches a static colour.
+// section with static styles, a breakpoint, a one-column multi-column box and
+// a toggle whose pressed state switches a static colour.
 import { useState, type ReactElement } from 'react'
-import { Button, Input, Section, Span } from '@meonode/ui'
+import { Button, Div, Input, Section, Span } from '@meonode/ui'
 import type { CaseMeta } from '../case.js'
 
 export const meta: CaseMeta = {
@@ -27,6 +27,8 @@ export function App(): ReactElement {
     children: [
       Span('Plant target', { key: 'text', fontWeight: 600 }),
       Span('exact', { key: 'exact', 'data-parity-exact': '', css: EXACT_CSS }),
+      // A multi-column box of one column, which a plant makes 1px taller; not stretched, so its height is its content's.
+      Div({ key: 'columns', 'data-parity-columns': '', columnCount: 1, alignSelf: 'flex-start', children: 'columns' }),
       Input({ key: 'check', type: 'checkbox' }),
       Input({ key: 'field', placeholder: 'field' }),
       Button(pressed ? 'On' : 'Off', {

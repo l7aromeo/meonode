@@ -26,6 +26,82 @@ export const DIMENSIONS = [
 const PARTS = ['', '::before', '::after', '::placeholder', '::selection']
 
 /**
+ * Firefox lays boxes out in app units of 1/60 px, and a multi-column box can
+ * snap by one unit on a later reflow with no style change, on any side alike
+ * (seen on the always-multi-column grammar fixtures, run alone). A size that
+ * moves by no more than this is layout snapping, not a styling difference.
+ */
+export const FIREFOX_APP_UNIT_PX = 1 / 60
+
+/** The properties a box's snapped size moves: its size, and the origins resolved from it. */
+const SNAPPING_PROPS = new Set(['height', 'block-size', 'width', 'inline-size', 'transform-origin', 'perspective-origin'])
+
+/** How far a length may move by layout snapping in the engine under test: one app unit in Firefox, nothing elsewhere. */
+const SNAP_PX = (process.env.PARITY_BROWSER ?? 'chromium') === 'firefox' ? FIREFOX_APP_UNIT_PX : 0
+
+/** Significant digits at which an engine rounds a serialized length; a shorter one is exact. */
+const SERIALIZED_DIGITS = 6
+
+/** A px length in a serialized value. */
+const LENGTH = /(-?\d+(?:\.\d+)?)px/g
+
+/** How far a serialized number may lie from the value it was rounded from: half its last digit when rounded, else nothing. */
+function roundingOf(number) {
+  const [whole, fraction = ''] = number.replace('-', '').split('.')
+  const significant = (whole.replace(/^0+/, '') + fraction).replace(/^0+/, '').length
+  return significant >= SERIALIZED_DIGITS ? 0.5 * 10 ** -fraction.length : 0
+}
+
+/** The px lengths in a serialized value, as written. */
+const lengthsOf = value => [...value.matchAll(LENGTH)].map(m => m[1])
+
+/** Whether the element at `path` lies inside the element at `outer`. */
+const isInside = (path, outer) => path.startsWith(`${outer} > `)
+
+/**
+ * Marks each difference of one read `snapped` when it is layout snapping
+ * alone: a size or origin with the same text around its px lengths, each pair
+ * of lengths apart by at most one app unit plus the rounding of their
+ * serialized digits, plus, on the element itself (not a pseudo-element), what
+ * the same property snapped by on the nearest snapped elements inside it. A
+ * box's size sums the snapped sizes inside it, and an origin follows its size.
+ * @param entries One read's differences: `{ element, part, prop, a, b }`, with
+ * `element` an index into `paths`; each gains `snapped`.
+ * @param paths The read's element paths, by element index.
+ */
+function markSnapped(entries, paths) {
+  for (const d of entries) d.snapped = false
+  if (!SNAP_PX) return
+  const depth = d => paths[d.element]?.split(' > ').length ?? 0
+  const candidates = entries
+    .filter(d => SNAPPING_PROPS.has(d.prop) && typeof d.a === 'string' && typeof d.b === 'string' && d.a.replace(LENGTH, 'px') === d.b.replace(LENGTH, 'px'))
+    .map(d => ({ d, x: lengthsOf(d.a), y: lengthsOf(d.b) }))
+    .filter(({ x }) => x.length > 0)
+    // The deepest first, so an element's descendants are decided before it.
+    .sort((p, q) => depth(q.d) - depth(p.d))
+  const snapped = []
+  for (const { d, x, y } of candidates) {
+    const allowed = x.map((n, i) => SNAP_PX + roundingOf(n) + roundingOf(y[i]))
+    const path = paths[d.element]
+    if (d.part === 0 && path != null) {
+      const inside = snapped.filter(s => s.prop === d.prop && s.delta.length === x.length && isInside(s.path, path))
+      // The nearest only: a snap inside another snapped element is already in that element's own.
+      for (const s of inside) if (!inside.some(t => t !== s && isInside(s.path, t.path))) s.delta.forEach((v, i) => (allowed[i] += v))
+    }
+    const delta = x.map((n, i) => Math.abs(n - y[i]))
+    d.snapped = delta.every((v, i) => v <= allowed[i])
+    if (d.snapped && d.part === 0 && path != null) snapped.push({ prop: d.prop, path, delta })
+  }
+}
+
+/** A record's unforced value for a forced-state entry `<element>/<part>/<property>`. */
+function unforcedValue(record, entry) {
+  const [element, part, prop] = entry.split('/')
+  const styles = Object.values(record.envs)[0].styles
+  return styles.elements[element]?.[part]?.[styles.props.indexOf(prop)]
+}
+
+/**
  * Server HTML with what the comparison ignores taken out: style and script
  * elements, class attributes, `--mv-*` inline variables, and React's empty
  * `<!-- -->` text separators, which render nothing and follow the number of
@@ -55,7 +131,7 @@ function firstDifference(a, b) {
   return null
 }
 
-/** Every differing computed value between two style records. */
+/** Every differing computed value between two style records, each marked `snapped` when it differs only by layout snapping. */
 function styleDifferences(a, b) {
   const out = []
   if (a.elements.length !== b.elements.length) return [`${a.elements.length} elements in the oracle, ${b.elements.length} on the side`]
@@ -64,10 +140,19 @@ function styleDifferences(a, b) {
     parts.forEach((values, part) =>
       values.forEach((v, p) => {
         const w = b.elements[e][part][p]
-        if (v !== w) out.push({ part, text: `${a.paths[e]}${PARTS[part]} ${a.props[p]}: oracle ${JSON.stringify(v)} / side ${JSON.stringify(w)}` })
+        if (v !== w)
+          out.push({
+            element: e,
+            part,
+            prop: a.props[p],
+            a: v,
+            b: w,
+            text: `${a.paths[e]}${PARTS[part]} ${a.props[p]}: oracle ${JSON.stringify(v)} / side ${JSON.stringify(w)}`,
+          })
       }),
     ),
   )
+  markSnapped(out, a.paths)
   return out
 }
 
@@ -214,11 +299,14 @@ export function compareRuleText(offHtml, onHtml, compile) {
  * Every difference between the oracle's record and a side's.
  * @param oracle The runtime side's record and server HTML: `{ record, html }`.
  * @param side The compared side's: `{ record, html }`.
- * @returns `{ dimension, where, text }` for each difference.
+ * @returns `{ dimension, where, text }` for each difference, with the
+ * differences of layout snapping alone left out and kept, in the same shape,
+ * as the array's `snapped`.
  */
 export function compareRecords(oracle, side) {
   const out = []
-  const add = (dimension, where, text) => out.push({ dimension, where, text })
+  out.snapped = []
+  const add = (dimension, where, text, snapped = false) => (snapped ? out.snapped : out).push({ dimension, where, text })
 
   const oracleHtml = normalizeHtml(oracle.html)
   const sideHtml = normalizeHtml(side.html)
@@ -242,17 +330,29 @@ export function compareRecords(oracle, side) {
     if (tree) add('tree', env, tree)
     for (const d of styleDifferences(a.styles, b.styles)) {
       const dimension = (env !== base && envDimension(env, base)) || (typeof d === 'object' && d.part ? 'pseudo-element' : 'computed')
-      add(dimension, env, typeof d === 'string' ? d : d.text)
+      add(dimension, env, typeof d === 'string' ? d : d.text, d.snapped)
     }
   }
 
   for (const key of new Set([...Object.keys(oracle.record.forced), ...Object.keys(side.record.forced)])) {
     const a = oracle.record.forced[key] ?? {}
     const b = side.record.forced[key] ?? {}
-    for (const prop of new Set([...Object.keys(a), ...Object.keys(b)])) {
-      if (a[prop] !== b[prop])
-        add('forced-state', `element ${key}`, `${prop}: oracle ${JSON.stringify(a[prop] ?? '(unchanged)')} / side ${JSON.stringify(b[prop] ?? '(unchanged)')}`)
+    const differences = []
+    for (const entry of new Set([...Object.keys(a), ...Object.keys(b)])) {
+      if (a[entry] === b[entry]) continue
+      const [element, part, prop] = entry.split('/')
+      differences.push({
+        element: Number(element),
+        part: Number(part),
+        prop,
+        // An unchanged value is the page's own unforced one.
+        a: a[entry] ?? unforcedValue(oracle.record, entry),
+        b: b[entry] ?? unforcedValue(side.record, entry),
+        text: `${entry}: oracle ${JSON.stringify(a[entry] ?? '(unchanged)')} / side ${JSON.stringify(b[entry] ?? '(unchanged)')}`,
+      })
     }
+    markSnapped(differences, Object.values(oracle.record.envs)[0].styles.paths)
+    for (const d of differences) add('forced-state', `element ${key}`, d.text, d.snapped)
   }
 
   // The server HTML before hydration, when the case records it (meta.firstPaint).
@@ -264,7 +364,7 @@ export function compareRecords(oracle, side) {
     }
     const tree = firstDifference(a.tree, b.tree)
     if (tree) add('first-paint', env, tree)
-    for (const d of styleDifferences(a.styles, b.styles)) add('first-paint', env, typeof d === 'string' ? d : d.text)
+    for (const d of styleDifferences(a.styles, b.styles)) add('first-paint', env, typeof d === 'string' ? d : d.text, d.snapped)
   }
 
   for (const step of Object.keys(oracle.record.steps)) {
@@ -276,7 +376,7 @@ export function compareRecords(oracle, side) {
     }
     const tree = firstDifference(a.tree, b.tree)
     if (tree) add('state-step', step, tree)
-    for (const d of styleDifferences(a.styles, b.styles)) add('state-step', step, typeof d === 'string' ? d : d.text)
+    for (const d of styleDifferences(a.styles, b.styles)) add('state-step', step, typeof d === 'string' ? d : d.text, d.snapped)
     // Which elements the step kept: a side that remounts what the oracle keeps loses that subtree's state.
     const length = Math.max(a.identity?.length ?? 0, b.identity?.length ?? 0)
     const changed = []

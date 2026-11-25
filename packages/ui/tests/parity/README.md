@@ -122,6 +122,17 @@ elements inside one marked `data-parity-sample="<ms>"` are paused at that time
 instead, so a read sees one fixed frame of them (a `@starting-style`
 transition, a running `@keyframes` animation).
 
+In Firefox, a size or origin (`height`, `block-size`, `width`, `inline-size`,
+`transform-origin`, `perspective-origin`) that differs by at most one app unit,
+1/60 px, is left out as layout snapping and listed under the row: Firefox lays
+boxes out in app units, and a multi-column box can snap by one unit on a later
+reflow with no style change, on any side alike. A box's size sums the sizes
+inside it, so an element is also allowed what the same property snapped by,
+in the same read, on the nearest snapped elements inside it. A plant makes a
+one-column multi-column box 1px taller, changing only sizes and origins, so a
+real difference of that kind must still fail. Chromium and WebKit compare
+these values exactly.
+
 ## Run
 
 At the repository root, build the package, the compiler and the mui package first:

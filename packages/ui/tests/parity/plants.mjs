@@ -4,8 +4,8 @@
 //
 // They all target PLANT_CASE, whose root element is a <section> holding the
 // text "Plant target", a toggle that sets aria-pressed, an element marked for
-// exact markup, a checkbox, a field with a placeholder, and a breakpoint at
-// 600px.
+// exact markup, a one-column multi-column box, a checkbox, a field with a
+// placeholder, and a breakpoint at 600px.
 //
 // afterCrossing runs its listener in the page, so it uses its globals.
 /* global Element */
@@ -280,6 +280,20 @@ export const COMPILED_PLANTS = [
  */
 export const PLANTS = [
   { dimension: 'computed', page: addRule(`${ROOT} { ${WRONG} }`) },
+  // A multi-column box 1px taller, and the boxes stretched with it: every value it changes is a size or an origin, which
+  // layout snapping excuses in Firefox up to one app unit plus the snaps inside the box (compare.mjs, markSnapped), so it
+  // must stay a failure.
+  // The block that adds the pixel is a script element, which the comparison skips.
+  {
+    dimension: 'computed',
+    name: 'a multi-column box 1px taller',
+    page: page =>
+      page.evaluate(root => {
+        const block = Object.assign(document.createElement('script'), { type: 'text/plain' })
+        block.style.cssText = 'display: block; height: 1px'
+        document.querySelector(`${root} [data-parity-columns]`).append(block)
+      }, ROOT),
+  },
   { dimension: 'pseudo-element', page: addRule(`${ROOT}::after { content: "planted" }`) },
   { dimension: 'forced-state', name: ':hover', page: addRule(`${ROOT}:hover { ${WRONG} }`) },
   { dimension: 'forced-state', name: ':focus', page: addRule(`${ROOT} button:focus { ${WRONG} }`) },

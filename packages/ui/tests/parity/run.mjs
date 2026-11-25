@@ -35,7 +35,7 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { promisify } from 'node:util'
 import { BUILD_CACHE, buildSide, caseNames, CORPUS, isRscCase, PACKAGE } from './build.mjs'
 import { collect, collectFirstPaint, INPUT_STATES, remeasureForced, resweepForced } from './collect.mjs'
-import { CACHE_KEYS, compareExact, compareRecords, compareRuleText, DIMENSIONS } from './compare.mjs'
+import { CACHE_KEYS, compareExact, compareRecords, compareRuleText, DIMENSIONS, FIREFOX_APP_UNIT_PX } from './compare.mjs'
 import { writeGeneratedCases } from './generate.mjs'
 import { ATRULES, atruleGaps, parsesAtrules } from './atrules.mjs'
 import { SELECTORS, selectorGaps } from './selectors.mjs'
@@ -536,6 +536,8 @@ let failures = problems.length
 const blockers = new Set()
 /** Each row's forced states left out as unstable under real input, for the summary and PARITY_REPORT. */
 const unstable = []
+/** Each row's differences left out as layout snapping (compare.mjs, FIREFOX_APP_UNIT_PX), for the summary and PARITY_REPORT. */
+const snapped = []
 
 /**
  * Each row's confirmed forced states that only the compared page read
@@ -635,7 +637,8 @@ async function compareModes(name, meta, plain, registry, plant) {
   const all = compareRecords({ record: plain.record, html: '' }, { record: registry.record, html: '' })
   const spec = (mode, label) => ({ label, side: 'runtime', name, mode, meta, plant: mode === 'registry' ? plant : undefined })
   const oracle = { spec: spec('plain', 'runtime plain'), record: plain.record }
-  return confirmForced(all, { oracle, off: oracle, compared: { spec: spec('registry', `runtime registry${plant ? ' planted' : ''}`), record: registry.record } }, new Map())
+  const confirmation = await confirmForced(all, { oracle, off: oracle, compared: { spec: spec('registry', `runtime registry${plant ? ' planted' : ''}`), record: registry.record } }, new Map())
+  return { ...confirmation, snapped: all.snapped }
 }
 
 /**
@@ -643,8 +646,9 @@ async function compareModes(name, meta, plain, registry, plant) {
  * what is left, and logs the row's verdict.
  * @param oracle The oracle's record, for the size line.
  * @param left The forced states left out as unstable.
+ * @param snaps The differences left out as layout snapping.
  */
-function finishRow(name, mode, side, meta, all, oracle, left) {
+function finishRow(name, mode, side, meta, all, oracle, left, snaps = []) {
   const { found, expected } = applyExpected(all, meta.expected, side, mode)
   for (const e of expected) {
     console.log(`       ${e.blocker ? 'release blocker' : 'expected'} ${e.matched ? `(${e.matched} difference(s))` : 'but ABSENT'}: ${e.reason}`)
@@ -669,6 +673,7 @@ function finishRow(name, mode, side, meta, all, oracle, left) {
   )
   for (const d of found.slice(0, DETAIL)) console.log(`       ${d.dimension} @ ${d.where}: ${d.text}`)
   noteUnstable({ case: name, mode, side }, left)
+  noteSnapped({ case: name, mode, side }, snaps)
 }
 
 /** The forced-state key a difference names (`<element index>:<state>[+<state>…]`). */
@@ -788,7 +793,7 @@ function noteOnlyCompared(row, states) {
 /** Each row's sweep outliers: states its first sweep read differently and its repeated sweeps did not, kept for PARITY_REPORT. */
 const outliers = []
 /** The run's records gathered per case, which a worker sends back with each case it reads. */
-const GATHERED = { report, unstable, onlyCompared, outliers, reloadCounts }
+const GATHERED = { report, unstable, snapped, onlyCompared, outliers, reloadCounts }
 
 /** Prints and keeps a row's sweep outliers, with the load, the time and every page's sweep counts. */
 function noteOutliers(row, states, swept) {
@@ -805,6 +810,14 @@ function noteOutliers(row, states, swept) {
     .join('; ')
   console.log(`       sweep outliers left out (${states.length}), not reproduced in ${RESWEEPS} sweeps, load ${seen.load1} at ${seen.time}: ${counts}`)
   outliers.push({ ...row, states, swept: Object.fromEntries(states.map(k => [k, swept[k]])), ...seen })
+}
+
+/** Prints and keeps the differences a row left out as layout snapping. */
+function noteSnapped(row, differences) {
+  if (!differences.length) return
+  console.log(`       layout snapping left out (${differences.length}), within ${FIREFOX_APP_UNIT_PX.toFixed(4)}px plus the snaps inside each box:`)
+  for (const d of differences.slice(0, DETAIL)) console.log(`         ${d.dimension} @ ${d.where}: ${d.text}`)
+  snapped.push({ ...row, differences })
 }
 
 /** Prints and keeps the states a row left out as unstable. */
@@ -1070,7 +1083,7 @@ try {
           const confirmation = await compareModes(name, meta, oracles.plain, oracle)
           noteOnlyCompared({ case: name, mode, side: MODES_SIDE }, confirmation.onlyCompared)
           noteOutliers({ case: name, mode, side: MODES_SIDE }, confirmation.outliers, confirmation.swept)
-          finishRow(name, mode, MODES_SIDE, meta, confirmation.found, oracles.plain, confirmation.unstable)
+          finishRow(name, mode, MODES_SIDE, meta, confirmation.found, oracles.plain, confirmation.unstable, confirmation.snapped)
         }
         const records = {}
         // Reloads for confirming forced states, shared by this case and mode's rows.
@@ -1079,11 +1092,13 @@ try {
         for (const side of COMPARED) {
           let all
           let left = []
+          let snaps = []
           startRow({ case: name, mode, side })
           try {
             records[side] = await record(side, name, mode, meta)
             const compareStarted = performance.now()
             all = compareRecords(oracle, records[side])
+            snaps = all.snapped
             // The nodes that must render as with extraction off, compared with the "off" record exactly.
             if (side === 'on' && records.off && records.on.record.exact?.length) all.push(...compareExact(records.off.record, records.on.record))
             // Every selector's rules, "off" against "on", from the server CSS text.
@@ -1110,7 +1125,7 @@ try {
           } catch (error) {
             all = [{ dimension: 'hydration', where: 'page', text: `the page failed: ${error.message}` }]
           }
-          finishRow(name, mode, side, meta, all, oracle, left)
+          finishRow(name, mode, side, meta, all, oracle, left, snaps)
         }
       }
       timings[name] = Date.now() - started
@@ -1211,6 +1226,7 @@ if (REPORT)
       differences: report,
       blockers: [...blockers],
       unstable,
+      snapped,
       onlyCompared,
       reloadCounts,
       outliers,
@@ -1222,6 +1238,10 @@ if (unstable.length) {
   console.log(`unstable forced states left out on ${ENGINE}: ${unstable.reduce((n, u) => n + u.states.length, 0)} in ${unstable.length} row(s)`)
   const byCase = Object.groupBy(unstable, u => u.case)
   for (const [name, rows] of Object.entries(byCase)) console.log(`  ${name}: ${[...new Set(rows.flatMap(u => u.states))].join(', ')}`)
+}
+if (snapped.length) {
+  console.log(`layout snapping left out on ${ENGINE}: ${snapped.reduce((n, u) => n + u.differences.length, 0)} difference(s) in ${snapped.length} row(s)`)
+  for (const [name, rows] of Object.entries(Object.groupBy(snapped, u => u.case))) console.log(`  ${name}: ${rows.reduce((n, u) => n + u.differences.length, 0)}`)
 }
 if (outliers.length) {
   console.log(`sweep outliers left out on ${ENGINE}: ${outliers.reduce((n, u) => n + u.states.length, 0)} in ${outliers.length} row(s)`)
