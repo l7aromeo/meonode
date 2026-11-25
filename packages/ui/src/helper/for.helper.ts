@@ -1,7 +1,7 @@
 import { cloneElement, isValidElement } from 'react'
 import { NodeUtil } from '@src/util/node.util.js'
 import type { NodeElement } from '@src/types/node.type.js'
-import { diagnosticsEnabled } from '@src/util/theme-diagnostics.util.js'
+import { diagnosticsEnabled } from '@src/constant/common.const.js'
 
 /**
  * Derives a stable identity for an item. Returning the same value for the same

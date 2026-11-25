@@ -79,12 +79,23 @@ export const refreshDevMode = (): void => {
 /** Read by {@link diagnosticsEnabled}; exported so the live binding is visible there. */
 export const isDevMode = (): boolean => __DEV_MODE__
 
-export function setDebugMode(enabled: boolean) {
+/** Sets {@link __DEBUG__}; `setDebugMode` is the public switch, which also loads the diagnostics. */
+export const setDebugFlag = (enabled: boolean): void => {
   __DEBUG__ = enabled
-  if (__DEBUG__) {
-    console.log('[MeoNode] Debug mode enabled.')
-  }
 }
+
+/**
+ * Diagnostics run in development, or whenever debug mode is on. Shared by every
+ * one of them, so "are warnings on?" has a single definition rather than one per
+ * call site.
+ *
+ * Neither half folds at build time: `__DEBUG__` is a binding `setDebugMode` sets
+ * in any build, and {@link isDevMode} a captured read. What keeps the
+ * diagnostics' code out of a production bundle is the import in
+ * `diagnostics.util.ts`, behind a condition a bundler does fold.
+ * @returns `true` when diagnostics should be evaluated.
+ */
+export const diagnosticsEnabled = (): boolean => __DEBUG__ || __DEV_MODE__
 
 /**
  * Marker key used by the build-time SWC compiler to identify pre-partitioned

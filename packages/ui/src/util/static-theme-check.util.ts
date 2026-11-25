@@ -1,9 +1,15 @@
-import { ThemeContext, type ThemeContextState } from '@src/components/theme-provider.client.js'
-import { mountedThemeVarIndex, reportThemeVarRefs, type ThemeVarRef } from '@src/util/theme-diagnostics.util.js'
+import type { Context } from 'react'
+import type { ThemeContextState } from '@src/components/theme-provider.client.js'
+import { definedVarsOf, mountedThemeVarIndex, reportThemeVarRefs, type ThemeVarRef } from '@src/util/theme-diagnostics.util.js'
 
 // The browser half of the development check of named styles' theme variables:
 // elements under a component inside the render, which may provide another
-// theme, are checked once they are committed.
+// theme, are checked once they are committed. Part of the diagnostics, which
+// only `diagnostics.util.ts` loads; the caller hands it `ThemeContext`, so it
+// loads no client module of its own.
+
+/** The context MeoNode's ThemeProvider provides, as the caller hands it. */
+export type ThemeContextType = Context<ThemeContextState | null>
 
 /**
  * Theme variables of a named style on elements under a component inside the
@@ -32,9 +38,10 @@ const FIBER_KEY_PREFIX = '__reactFiber$'
  * object of `$$typeof` `react.provider` whose `_context` is the context; and on
  * the provider's fiber, `memoizedProps.value`, the value it provides.
  * @param element A rendered element.
+ * @param ThemeContext The context ThemeProvider provides.
  * @returns The provider's state; `null` when none is above; `undefined` when any of those fields is missing.
  */
-export function nearestThemeContext(element: Element): ThemeContextState | null | undefined {
+export function nearestThemeContext(element: Element, ThemeContext: ThemeContextType): ThemeContextState | null | undefined {
   const key = Object.keys(element).find(name => name.startsWith(FIBER_KEY_PREFIX))
   if (key === undefined) return undefined
   let fiber: unknown = (element as unknown as Record<string, unknown>)[key]
@@ -65,12 +72,18 @@ export function nearestThemeContext(element: Element): ThemeContextState | null 
  * run, since a provider above records its tokens in an effect that runs after
  * this check.
  * @param candidates The render's candidates.
+ * @param ThemeContext The context ThemeProvider provides.
  * @param checked When given, the candidates each element was checked for, by
  * {@link candidatesKey}: an element is checked once per candidate.
  * @param final Whether to check an element without a fiber now, against the mounted providers.
  * @returns The candidates with an element left unchecked.
  */
-export function checkCandidates(candidates: readonly StaticThemeCandidate[], checked?: WeakMap<Element, Set<string>>, final = true): StaticThemeCandidate[] {
+export function checkCandidates(
+  candidates: readonly StaticThemeCandidate[],
+  ThemeContext: ThemeContextType,
+  checked?: WeakMap<Element, Set<string>>,
+  final = true,
+): StaticThemeCandidate[] {
   const unread: StaticThemeCandidate[] = []
   const deferred: StaticThemeCandidate[] = []
   for (const candidate of candidates) {
@@ -80,7 +93,7 @@ export function checkCandidates(candidates: readonly StaticThemeCandidate[], che
       if (!names.every(name => element.classList.contains(name))) continue
       let seen = checked?.get(element)
       if (seen?.has(key)) continue
-      const context = nearestThemeContext(element)
+      const context = nearestThemeContext(element, ThemeContext)
       if (context === undefined && !final) {
         if (!deferred.includes(candidate)) deferred.push(candidate)
         continue
@@ -90,7 +103,7 @@ export function checkCandidates(candidates: readonly StaticThemeCandidate[], che
         seen.add(key)
       }
       if (context === undefined) unread.push(candidate)
-      else reportThemeVarRefs(candidate.refs, context ? context.definedVars() : null)
+      else reportThemeVarRefs(candidate.refs, context ? definedVarsOf(context) : null)
     }
   }
   if (unread.length > 0)
@@ -129,14 +142,15 @@ let checkedElements = new WeakMap<Element, Set<string>>()
  * that React has not hydrated is looked at again for longer, until React
  * hydrates it. Development only, in the browser.
  * @param candidates The walk's candidates.
+ * @param ThemeContext The context ThemeProvider provides.
  */
-export function checkCandidatesAfterCommit(candidates: readonly StaticThemeCandidate[]): void {
+export function checkCandidatesAfterCommit(candidates: readonly StaticThemeCandidate[], ThemeContext: ThemeContextType): void {
   const look = (pending: readonly StaticThemeCandidate[], attempt: number) =>
     setTimeout(
       () => {
         const last = attempt === COMMIT_RETRIES + HYDRATION_RETRIES
         const inDocument = pending.filter(({ classes }) => document.getElementsByClassName(classes.split(' ')[0]).length > 0)
-        const unhydrated = inDocument.length > 0 ? checkCandidates(inDocument, checkedElements, last) : []
+        const unhydrated = inDocument.length > 0 ? checkCandidates(inDocument, ThemeContext, checkedElements, last) : []
         const absent = attempt < COMMIT_RETRIES ? pending.filter(candidate => !inDocument.includes(candidate)) : []
         const next = [...absent, ...unhydrated]
         if (next.length > 0 && !last) look(next, attempt + 1)

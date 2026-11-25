@@ -8,15 +8,14 @@
  */
 import { serializeUnnamed } from '@src/util/serialize-styles.util.js'
 import { buildNode, combineFactoryProps, FACTORY_JOIN, initialPropsFingerprint, mergeFactoryProps } from '@src/core.node.js'
-import { COMPILED_MARKER, isDevMode, STATIC_CARRIER_MARKER, STATIC_NAME_MARKER } from '@src/constant/common.const.js'
+import { COMPILED_MARKER, diagnosticsEnabled, isDevMode, STATIC_CARRIER_MARKER, STATIC_NAME_MARKER } from '@src/constant/common.const.js'
 import CSSPropertySet from '@src/constant/css-properties.const.js'
 import { callFactory, type FactoryCallSite, type FactoryShape } from '@src/factory-call/index.js'
 import { getElementTypeName } from '@src/helper/common.helper.js'
 import type { DependencyList, NodeElementType } from '@src/types/node.type.js'
-import { observeChildren } from '@src/util/generated-list.util.js'
+import { observeChildren } from '@src/util/diagnostics.util.js'
 import { registerNamedText, staticStylesOf } from '@src/util/static-css.util.js'
 import { nameStyles } from '@src/util/style-name.util.js'
-import { diagnosticsEnabled } from '@src/util/theme-diagnostics.util.js'
 import { keyHasThemeToken, keysMayMeet } from '@src/util/theme-key.util.js'
 import { ThemeUtil } from '@src/util/theme.util.js'
 

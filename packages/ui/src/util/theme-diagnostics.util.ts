@@ -1,4 +1,5 @@
-import { __DEBUG__, isDevMode, refreshDevMode } from '@src/constant/common.const.js'
+import { diagnosticsEnabled, refreshDevMode } from '@src/constant/common.const.js'
+import type { ThemeContextState } from '@src/components/theme-provider.client.js'
 import type { Theme } from '@src/types/node.type.js'
 import { toLengthVarName, wouldEmotionAddPx as emotionWouldAddPx } from '@src/util/css-unit.util.js'
 import { IS_REACT_SERVER_LAYER } from '@src/util/react-layer.util.js'
@@ -21,21 +22,6 @@ import { IS_REACT_SERVER_LAYER } from '@src/util/react-layer.util.js'
  * reversed back into a path unambiguously (a theme key may itself contain `-`).
  * Membership in the defined set answers the question exactly, either way.
  */
-
-/**
- * Diagnostics run in development, or whenever debug mode is on. Shared by every
- * one of them, so "are warnings on?" has a single definition rather than one per
- * call site.
- *
- * `NODE_ENV` is read defensively, since browser bundles may not define
- * `process`. A bundler that substitutes the expression folds the development
- * half to `false`, but it does not remove the call or the messages behind it: in
- * a minified bundle with `process.env.NODE_ENV` defined, this stays a runtime
- * call and the diagnostic strings ship. That is
- * deliberate — it is what lets `setDebugMode(true)` work in production.
- * @returns `true` when diagnostics should be evaluated.
- */
-export const diagnosticsEnabled = (): boolean => __DEBUG__ || isDevMode()
 
 /**
  * Resolution runs once per styled node per render, so an unguarded warning
@@ -481,6 +467,50 @@ export const unionThemeVarIndexes = (outer: ThemeVarIndex | null, own: ThemeVarI
   if (!outer || outer.size === 0) return own
   if (own.size === 0) return outer
   return new Map([...outer, ...own])
+}
+
+/**
+ * The theme scope a walk passed on the way to a node: the tokens of each of
+ * MeoNode's providers between the component it renders in and the node,
+ * nearest first. What they define is read only when a check needs it.
+ */
+export interface ThemeScope {
+  /** The nearest provider's `tokens`. */
+  readonly tokens: unknown
+  /** The providers above it, within the walk. */
+  readonly outer: ThemeScope | undefined
+}
+
+/** What each scope defines, built on first use. */
+const scopeVarsCache = new WeakMap<ThemeScope, ThemeVarIndex>()
+
+/**
+ * Every variable the providers of a walk's scope define, the nearest one's
+ * value winning, as `unionThemeVarIndexes` merges them.
+ * @param scope The scope.
+ * @returns Its variables.
+ */
+export const scopeVars = (scope: ThemeScope): ThemeVarIndex => {
+  let index = scopeVarsCache.get(scope)
+  if (!index) scopeVarsCache.set(scope, (index = unionThemeVarIndexes(scope.outer ? scopeVars(scope.outer) : null, getTokensVarIndex(scope.tokens))))
+  return index
+}
+
+/** What each provider's context defines, built on first use. */
+const contextVarsCache = new WeakMap<ThemeContextState, ThemeVarIndex>()
+
+/**
+ * The theme variables defined below a provider: its own and those of every
+ * provider above it. Building them reports each token the provider gives
+ * another value than a provider above (see `mergeThemeVarIndexes`).
+ * @param context The provider's context.
+ * @returns Its variables.
+ */
+export const definedVarsOf = (context: ThemeContextState): ThemeVarIndex => {
+  let index = contextVarsCache.get(context)
+  if (!index)
+    contextVarsCache.set(context, (index = mergeThemeVarIndexes(context.outer ? definedVarsOf(context.outer) : null, getTokensVarIndex(context.theme.system))))
+  return index
 }
 
 /**

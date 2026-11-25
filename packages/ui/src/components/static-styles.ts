@@ -1,7 +1,5 @@
-import type { StaticThemeCandidate } from '@src/util/static-theme-check.util.js'
-import type { ThemeVarIndex, ThemeVarRef } from '@src/util/theme-diagnostics.util.js'
-
-export type { StaticThemeCandidate }
+import type { ThemeContextState } from '@src/components/theme-provider.client.js'
+import type { CandidateSink } from '@src/util/named-development-diagnostics.util.js'
 
 /**
  * The development checks of named styles' theme tokens, in the server build.
@@ -10,7 +8,7 @@ export type { StaticThemeCandidate }
  */
 
 /** In the server build, which has no context to read: the walk checks nothing in render. */
-export const checkThemeRefsInScope = (_refs: readonly ThemeVarRef[], _own: ThemeVarIndex | undefined): boolean => false
+export const readThemeScope = (): ThemeContextState | null | undefined => undefined
 
 /** In the server build, which commits nothing: no check after commit. */
-export const checkCandidatesAfterCommit = (_candidates: readonly StaticThemeCandidate[]): void => {}
+export const checkCandidatesAfterCommit = (_walk: CandidateSink): void => {}

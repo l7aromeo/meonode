@@ -15,9 +15,10 @@ import {
   type TokenContext,
   valueContext,
 } from '@src/util/css-unit.util.js'
-import { checkThemeFunctionResult, isComponentSelector, isMergeableCss } from '@src/util/css.util.js'
+import { isComponentSelector, isMergeableCss } from '@src/util/css.util.js'
+import { diagnosticsEnabled } from '@src/constant/common.const.js'
+import { withDiagnostics } from '@src/util/diagnostics.util.js'
 import { isClientReference } from '@src/helper/react-is.helper.js'
-import { reportDroppedThemeFunction } from '@src/util/theme-diagnostics.util.js'
 import { replaceThemeTokensInString, replaceThemeTokensWithCssVars } from '@src/util/server-theme.util.js'
 
 interface FlexComponents {
@@ -150,7 +151,7 @@ const isThemeFunction = (value: unknown): value is (theme: Theme) => unknown => 
 const callThemeFunction = (fn: (theme: Theme) => unknown, theme: Theme): unknown => {
   if (isClientReference(fn)) return undefined
   const result = fn(theme)
-  checkThemeFunctionResult(result)
+  if (diagnosticsEnabled() && result !== null && typeof result === 'object') withDiagnostics(d => d.checkThemeFunctionResult(result))
   return result
 }
 
@@ -251,7 +252,7 @@ const dropThemeFunctions = <T>(value: T, property?: string, path: Set<unknown> =
     const items: unknown[] = []
     for (const item of value) {
       if (isThemeFunction(item)) {
-        reportDroppedThemeFunction(property)
+        if (diagnosticsEnabled()) withDiagnostics(d => d.reportDroppedThemeFunction(property))
         changed = true
         continue
       }
@@ -272,7 +273,7 @@ const dropThemeFunctions = <T>(value: T, property?: string, path: Set<unknown> =
       }
       const itemProperty = isSelectorOrAtRule(key) ? property : key
       if (isThemeFunction(item)) {
-        reportDroppedThemeFunction(itemProperty)
+        if (diagnosticsEnabled()) withDiagnostics(d => d.reportDroppedThemeFunction(itemProperty))
         changed = true
         continue
       }

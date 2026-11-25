@@ -1,6 +1,7 @@
 import createCache, { type EmotionCache } from '@emotion/cache'
 import { prefixer } from '@src/util/emotion-prefixer.util.js'
-import { reportSharedStyleName } from '@src/util/theme-diagnostics.util.js'
+import { diagnosticsEnabled } from '@src/constant/common.const.js'
+import { withDiagnostics } from '@src/util/diagnostics.util.js'
 
 /** The most rules the caches of one generation compile before the next generation starts. */
 export const SERVER_MEMO_RULES = 10_000
@@ -61,7 +62,10 @@ export function createServerCssCache(): EmotionCache {
     const held = own.styles.get(serialized.name)
     let rules: string | void
     if (held !== undefined && held !== serialized.styles) {
-      reportSharedStyleName(serialized.name)
+      if (diagnosticsEnabled()) {
+        const { name } = serialized
+        withDiagnostics(d => d.reportSharedStyleName(name))
+      }
       rules = createCache({ key: cache.key, stylisPlugins: [prefixer] }).insert(selector, serialized, sheet, false)
       if (shouldCache) cache.inserted[serialized.name] = true
     } else {

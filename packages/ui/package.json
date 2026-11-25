@@ -101,6 +101,16 @@
       }
     }
   },
+  "sideEffects": [
+    "./dist/esm/main.js",
+    "./dist/esm/client.js",
+    "./dist/esm/nextjs-registry/index.js",
+    "./dist/esm/util/server-layer-guard.default.js",
+    "./dist/cjs/main.cjs",
+    "./dist/cjs/client.cjs",
+    "./dist/cjs/nextjs-registry/index.cjs",
+    "./dist/cjs/util/server-layer-guard.default.cjs"
+  ],
   "files": [
     "dist",
     "package.json",
@@ -164,6 +174,7 @@
     "@typescript/native": "npm:typescript@^7.0.2",
     "@webref/css": "^8.7.10",
     "cli-table3": "^0.6.5",
+    "esbuild": "^0.28.1",
     "eslint": "^10.15.0",
     "eslint-plugin-import-x": "^4.18.1",
     "eslint-plugin-jsdoc": "^65.4.8",
@@ -177,6 +188,7 @@
     "react-dom": "^19.3.1",
     "react-router-dom": "^7.18.5",
     "react-server-dom-turbopack": "^19.3.1",
+    "rolldown": "^1.2.1",
     "rollup": "^4.68.3",
     "rollup-plugin-esbuild": "^6.2.1",
     "rollup-plugin-preserve-directives": "^0.4.0",

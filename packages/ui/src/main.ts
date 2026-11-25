@@ -2,7 +2,7 @@
 import '@src/util/server-layer-guard.js'
 
 // Common
-export { setDebugMode } from '@src/constant/common.const.js'
+export { setDebugMode } from '@src/util/diagnostics.util.js'
 export { createDataChannel } from '@src/helper/data-channel.helper.js'
 export { For, type ForIdentity } from '@src/helper/for.helper.js'
 export { themeScript, THEME_SCRIPT_CSP_HASH, type ThemeScriptConfig } from '@src/helper/theme-script.helper.js'
