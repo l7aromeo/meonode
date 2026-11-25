@@ -306,7 +306,7 @@ export function compareRuleText(offHtml, onHtml, compile) {
 export function compareRecords(oracle, side) {
   const out = []
   out.snapped = []
-  const add = (dimension, where, text, snapped = false) => (snapped ? out.snapped : out).push({ dimension, where, text })
+  const add = (dimension, where, text, snapped = false, more = {}) => (snapped ? out.snapped : out).push({ dimension, where, text, ...more })
 
   const oracleHtml = normalizeHtml(oracle.html)
   const sideHtml = normalizeHtml(side.html)
@@ -326,6 +326,11 @@ export function compareRecords(oracle, side) {
       add('tree', env, 'environment missing on the side')
       continue
     }
+    // The elements by tree path first, so one missing or extra on the side is named by its place.
+    const oraclePaths = new Set(a.styles.paths)
+    const sidePaths = new Set(b.styles.paths)
+    for (const path of oraclePaths) if (!sidePaths.has(path)) add('tree', env, `element missing on the side: ${path}`)
+    for (const path of sidePaths) if (!oraclePaths.has(path)) add('tree', env, `element extra on the side: ${path}`)
     const tree = firstDifference(a.tree, b.tree)
     if (tree) add('tree', env, tree)
     for (const d of styleDifferences(a.styles, b.styles)) {
@@ -341,18 +346,22 @@ export function compareRecords(oracle, side) {
     for (const entry of new Set([...Object.keys(a), ...Object.keys(b)])) {
       if (a[entry] === b[entry]) continue
       const [element, part, prop] = entry.split('/')
+      // An element the baseline has no element at the path of (`+<path>`) is absent where a page lacks its entry;
+      // a baseline element's absence is its `(element)` entry, so without one it is present.
+      const missing = element.startsWith('+') ? '(no element)' : prop === '(element)' ? '(present)' : '(unchanged)'
       differences.push({
-        element: Number(element),
+        entry,
+        element: element.startsWith('+') ? element : Number(element),
         part: Number(part),
         prop,
         // An unchanged value is the page's own unforced one.
         a: a[entry] ?? unforcedValue(oracle.record, entry),
         b: b[entry] ?? unforcedValue(side.record, entry),
-        text: `${entry}: oracle ${JSON.stringify(a[entry] ?? '(unchanged)')} / side ${JSON.stringify(b[entry] ?? '(unchanged)')}`,
+        text: `${entry}: oracle ${JSON.stringify(a[entry] ?? missing)} / side ${JSON.stringify(b[entry] ?? missing)}`,
       })
     }
     markSnapped(differences, Object.values(oracle.record.envs)[0].styles.paths)
-    for (const d of differences) add('forced-state', `element ${key}`, d.text, d.snapped)
+    for (const d of differences) add('forced-state', `element ${key}`, d.text, d.snapped, { entry: d.entry })
   }
 
   // The server HTML before hydration, when the case records it (meta.firstPaint).

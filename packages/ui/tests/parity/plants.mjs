@@ -5,10 +5,12 @@
 // They all target PLANT_CASE, whose root element is a <section> holding the
 // text "Plant target", a toggle that sets aria-pressed, an element marked for
 // exact markup, a one-column multi-column box, a checkbox, a field with a
-// placeholder, and a breakpoint at 600px.
+// placeholder that mounts a hint while it has focus, a box its own hover moves
+// from under the pointer, and a breakpoint at 600px.
 //
 // afterCrossing runs its listener in the page, so it uses its globals.
 /* global Element */
+import { NEUTRAL } from './collect.mjs'
 
 /** The corpus case the plants are applied to. */
 export const PLANT_CASE = 'plant-target'
@@ -19,11 +21,44 @@ const WRONG = 'outline-offset: 7px !important'
 
 const addRule = css => page => page.addStyleTag({ content: css })
 
-/** Adds a rule on the first load it is applied to and every other one after, so the planted page varies across loads. */
-function everyOtherLoad(css) {
-  let loads = 0
-  return page => (loads++ % 2 === 0 ? page.addStyleTag({ content: css }) : undefined)
+/**
+ * Keeps the pointer where it is at the first reset after it has been on the
+ * case's content, instead of moving it to the neutral square, so the element
+ * under it still matches :hover there, as WebKit can leave an element after a
+ * press (collect.mjs, withReload). Once per page, or with `again` once on
+ * every load of it, its reload included.
+ */
+function stuckHover({ again }) {
+  return page => {
+    if (!again && page.parityStuckHover) return
+    page.parityStuckHover = true
+    const { move, down, up } = page.mouse
+    let away = false
+    let pressed = false
+    let kept = false
+    page.mouse.down = options => ((pressed = true), down.call(page.mouse, options))
+    page.mouse.up = options => ((pressed = false), up.call(page.mouse, options))
+    // Only a move off the content with no button held: the press's own release away from the element is no reset.
+    page.mouse.move = async (x, y, options) => {
+      const neutral = x === NEUTRAL[0] && y === NEUTRAL[1]
+      if (neutral && away && !pressed && !kept) {
+        kept = true
+        return
+      }
+      away = !neutral
+      return move.call(page.mouse, x, y, options)
+    }
+  }
 }
+
+/** Applies `plant` on the first load and every other one after, so the planted page varies across loads. */
+function onAlternateLoads(plant) {
+  let loads = 0
+  return page => (loads++ % 2 === 0 ? plant(page) : undefined)
+}
+
+/** Adds a rule on the first load it is applied to and every other one after, so the planted page varies across loads. */
+const everyOtherLoad = css => onAlternateLoads(addRule(css))
 
 /**
  * Adds a rule once the pointer has crossed `n` elements of the case in one
@@ -52,6 +87,53 @@ function afterCrossing(n, css) {
 
 /** Elements the pointer crosses before the in-session plant takes effect: more than a fresh load's single read crosses. */
 const CROSSED_BEFORE_PLANT = 3
+
+/**
+ * Adds a rule once a key has been pressed in the session: a sweep presses one
+ * before each :focus-visible, while a fresh load reading only pointer states
+ * of the planted page never does.
+ */
+function afterKeyPress(css) {
+  return page =>
+    page.evaluate(
+      css =>
+        document.addEventListener('keydown', () => document.head.append(Object.assign(document.createElement('style'), { textContent: css })), {
+          capture: true,
+          once: true,
+        }),
+      css,
+    )
+}
+
+/**
+ * While the field has focus, once the pointer has crossed `n` elements of
+ * the case in one session, mounts a span inside the multi-column box, ahead
+ * of the checkbox, the field and the toggle in document order: DOM that an
+ * earlier state left in the page shifts every later element's index, as a
+ * button's exiting ripples do. It is positioned out of the flow, as those
+ * are, so no other element's box changes with it.
+ */
+function mountAfterCrossing(n) {
+  return page =>
+    page.evaluate(
+      ([root, n]) => {
+        const crossed = new Set()
+        document.addEventListener(
+          'pointerover',
+          event => {
+            if (event.target instanceof Element && event.target.closest('#root') && crossed.size < n) crossed.add(event.target)
+          },
+          true,
+        )
+        const field = document.querySelector(`${root} input[placeholder]`)
+        const left = Object.assign(document.createElement('span'), { textContent: 'left over' })
+        left.style.position = 'absolute'
+        field.addEventListener('focus', () => crossed.size >= n && document.querySelector(`${root} [data-parity-columns]`).append(left))
+        field.addEventListener('blur', () => left.remove())
+      },
+      [ROOT, n],
+    )
+}
 
 /**
  * The registry check's plants (run.mjs, compareModes): each changes the
@@ -274,7 +356,13 @@ export const COMPILED_PLANTS = [
  * stays a failure. `exactly` names the text every difference of its dimension
  * must hold and, for each way states are forced (`protocol` through the
  * DevTools protocol, `input` through real input), the states of one element
- * those differences must be in: one each, and none in any other. `input` marks a plant only real input can set off: where
+ * those differences must be in: one each, and none in any other. `text` names
+ * a text one difference of its dimension must hold. `recovers` marks a plant
+ * the harness must recover from: it must leave no difference, and the record
+ * field it names must be set. `excused` marks one the confirmation must leave
+ * out as unstable, so that no difference is left. `alike` marks no plant at
+ * all, a check that a state's own DOM, present on both pages, makes no
+ * difference: both records must hold an element only a forced state has. `input` marks a plant only real input can set off: where
  * states are forced through the DevTools protocol no pointer moves, so it is
  * skipped there.
  */
@@ -336,6 +424,66 @@ export const PLANTS = [
     input: true,
     page: afterCrossing(CROSSED_BEFORE_PLANT, `${ROOT} :hover, ${ROOT}:hover { ${WRONG} }`),
   },
+  // Only inside a sweep, and on alternate loads of the planted page: its repeated sweeps disagree, and its fresh loads,
+  // which read its pointer states only, all read what the oracle's do. Its first record was a load outlier, so the state
+  // is left out as unstable, while the alternate-loads plant above, which fresh loads reproduce, stays a failure.
+  {
+    dimension: 'forced-state',
+    name: 'a difference on alternate sweeps of the planted page only, never on a fresh load',
+    input: true,
+    excused: true,
+    page: onAlternateLoads(afterKeyPress(`${ROOT} :hover, ${ROOT}:hover { ${WRONG} }`)),
+  },
+  // The same for DOM an earlier state left ahead of other elements: by tree path, only the span itself differs.
+  {
+    dimension: 'forced-state',
+    name: 'an element left ahead of others on alternate sweeps of the planted page only',
+    input: true,
+    excused: true,
+    page: onAlternateLoads(mountAfterCrossing(CROSSED_BEFORE_PLANT)),
+  },
+  // A real difference beside such a span, in the same states only (not under the press, where the span is not left):
+  // the field's own rule, in every sweep (after the pointer has crossed earlier elements) and on no fresh load. The
+  // span's unit is left out alone, and the field's difference, which the shared unit holds steadily, is confirmed.
+  {
+    dimension: 'forced-state',
+    name: 'a real in-session difference beside an element left on alternate sweeps',
+    input: true,
+    confirm: 'in-session',
+    page: (() => {
+      const span = onAlternateLoads(mountAfterCrossing(CROSSED_BEFORE_PLANT))
+      const rule = afterCrossing(CROSSED_BEFORE_PLANT, `${ROOT} input[placeholder]:focus:not(:active) { ${WRONG} }`)
+      return async page => {
+        await span(page)
+        await rule(page)
+      }
+    })(),
+  },
+  // A difference on one property in the first record and on another in every load after: the sweeps still differ
+  // from the oracle, on entries the first record did not, so the state stays a failure.
+  {
+    dimension: 'forced-state',
+    name: 'a difference that moves to another property after the first load',
+    page: (() => {
+      let loads = 0
+      return page =>
+        page.addStyleTag({ content: `${ROOT} input[placeholder]:focus { ${loads++ === 0 ? WRONG : 'word-spacing: 7px !important'} }` })
+    })(),
+  },
+  // A press no sweep of the oracle holds (the box's hover moves it from under the pointer, so it is not pressed) and the
+  // planted page does: with no oracle sample to judge by, the press is left out as unstable, and the planted rule
+  // still fails the hover both pages hold.
+  {
+    dimension: 'forced-state',
+    name: 'a press the oracle never holds and the planted page does',
+    input: true,
+    page: addRule(`${ROOT} [data-parity-away]:hover { transform: none !important; ${WRONG} }`),
+  },
+  // The hint the field mounts while it has focus, ahead of the toggle, on both pages: no difference.
+  { dimension: 'forced-state', name: 'an element a state mounts ahead of others, alike on both pages', input: true, alike: true },
+  // A :hover left behind at a reset: the sweep reloads the page and goes on, and a second one fails the page naming both.
+  { dimension: 'hydration', name: 'a stuck :hover the reload clears', input: true, recovers: 'reloadedFor', page: stuckHover({ again: false }) },
+  { dimension: 'hydration', name: 'a stuck :hover after the reload too', input: true, text: ', after a reload for stray :hover', page: stuckHover({ again: true }) },
   { dimension: 'breakpoint', page: addRule(`@media (min-width: 601px) and (max-width: 601px) { ${ROOT} { ${WRONG} } }`) },
   { dimension: 'color-scheme', page: addRule(`@media (prefers-color-scheme: dark) { ${ROOT} { ${WRONG} } }`) },
   { dimension: 'theme-mode', page: addRule(`[data-theme="dark"] ${ROOT} { ${WRONG} }`) },
@@ -363,6 +511,27 @@ export const PLANTS = [
     page: page => page.evaluate(root => document.querySelector(`${root} [data-parity-exact]`).classList.add('planted-exact'), ROOT),
   },
   { dimension: 'tree', page: page => page.evaluate(root => document.querySelector(root).setAttribute('data-planted', ''), ROOT) },
+  // Elements matched by tree path (collect.mjs, readStyles): one missing at load is named by its place, and under a
+  // forced state an element only the state mounts is compared too, whether both pages mount it or one alone does.
+  {
+    dimension: 'tree',
+    name: 'an element missing at load',
+    text: 'element missing on the side: ',
+    page: page => page.evaluate(root => document.querySelector(`${root} input[type="checkbox"]`).remove(), ROOT),
+  },
+  { dimension: 'forced-state', name: 'an element only a state mounts, one property planted', input: true, page: addRule(`${ROOT} [data-parity-hint] { ${WRONG} }`) },
+  {
+    dimension: 'forced-state',
+    name: 'an element one page alone mounts under a state',
+    input: true,
+    page: page =>
+      page.evaluate(root => {
+        const field = document.querySelector(`${root} input[placeholder]`)
+        const extra = Object.assign(document.createElement('span'), { textContent: 'extra' })
+        field.addEventListener('focus', () => document.querySelector(root).append(extra))
+        field.addEventListener('blur', () => extra.remove())
+      }, ROOT),
+  },
   { dimension: 'console', page: page => page.evaluate(() => console.error('planted error')) },
   // A server text the client does not render: React reports the mismatch, and the server HTML differs.
   { dimension: 'hydration', html: body => body.replace('Plant target', 'Plant targe') },

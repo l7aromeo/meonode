@@ -24,10 +24,9 @@ export interface CaseMeta {
   steps?: CaseStep[]
 
   /**
-   * Where the compiler must send named nodes' properties on the "on" side,
-   * checked on its compiled output: so a route a case is tagged with is
-   * proven on a node, and a passing run cannot come from everything staying
-   * on the runtime path.
+   * The route each named node takes on the "on" side, whole, checked on its
+   * compiled output: so a route a case is tagged with is proven on a node,
+   * and a passing run cannot come from everything staying on the runtime path.
    */
   routing?: NodeRouting[]
   /** Differences the comparison expects, each of which must appear on the sides it names. */

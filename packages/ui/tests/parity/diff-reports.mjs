@@ -17,10 +17,15 @@ const after = read(newPath)
 if (before.engine !== after.engine) throw new Error(`the reports are from different engines: ${before.engine} and ${after.engine}`)
 
 const rowOf = d => `${d.case} [${d.mode}] ${d.side}`
-/** Forced states a report left out as unstable, by row. */
+/** Forced-state units a report left out as unstable, by row: a state, or `<state> <element key>` for one element of it. */
 const unstableOf = report => new Map(report.unstable.map(u => [rowOf(u), new Set(u.states)]))
 const leftOut = [unstableOf(before), unstableOf(after)]
-const isLeftOut = d => d.dimension === 'forced-state' && leftOut.some(map => map.get(rowOf(d))?.has(d.where.replace(/^element /, '')))
+const isLeftOut = d => {
+  if (d.dimension !== 'forced-state') return false
+  const state = d.where.replace(/^element /, '')
+  const units = [state, ...(d.entry ? [`${state} ${d.entry.split('/')[0]}`] : [])]
+  return leftOut.some(map => units.some(unit => map.get(rowOf(d))?.has(unit)))
+}
 /** Each row's differences, as `dimension @ where: text`. */
 function byRow(report) {
   const rows = new Map()
