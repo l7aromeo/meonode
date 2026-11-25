@@ -595,6 +595,17 @@ fn extract_factory_call_positions() {
 }
 
 #[test]
+fn extract_factory_call_children_first() {
+    run_partition_with_config(
+        "extract_factory_call_children_first",
+        CompileConfig {
+            factory_modules: vec!["@/slot".to_string()],
+            ..extract_config()
+        },
+    );
+}
+
+#[test]
 fn extract_factory_call_without_runtime() {
     run_partition_with_ts("extract_factory_call_without_runtime", extract_config());
 }
