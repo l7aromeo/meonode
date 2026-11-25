@@ -531,8 +531,9 @@ is known when the module is built, the compiler computes what the runtime would
 compute for it: the serialized styles Emotion is handed (after the theme token
 rewrite and `resolveDefaultStyle`'s defaults), and the class name the runtime
 gives them. The call site then carries that name (`__meo$n`), and each module
-registers its names and texts once through `registerStaticCss`. The runtime
-inserts the text through Emotion's own cache, so the rule, its name, its first
+registers its names and texts once through `registerStaticCss`, imported from
+`@meonode/ui` after the module's directives (`'use client'`, `'use strict'`),
+so they stay directives. The runtime inserts the text through Emotion's own cache, so the rule, its name, its first
 insertion and its class are the ones the node would have uncompiled. A module
 that imports `@meonode/ui` at run time but has no names of its own, a root
 layout say, registers an empty list: the registry then belongs to every module
@@ -605,10 +606,10 @@ and `useId` id.
 - **Factories imported from another module.** Their initial props are not
   readable here, so a call of one is joined at run time: a direct call of an
   imported identifier written with a capital, in node position (a return, an
-  arrow's body, a `children` value, a children-first call's children, or what
-  `.render()` is called on or given, through parentheses, arrays,
-  conditionals and `&&`/`||`/`??`), given no arguments or a props object
-  literal whose CSS props and `css` are literals, becomes
+  arrow's body, a `children` value, a children-first call's children whatever
+  that call's own style, or what `.render()` is called on or given, through
+  parentheses, arrays, conditionals and `&&`/`||`/`??`), given no arguments or
+  a props object literal whose CSS props and `css` are literals, becomes
   `__meoFactoryCall(X, __meoSiteN, ...args)`, its arguments as written. Each
   site is a module-level `{ at }` (the props' index among the arguments) with
   `r: 1` where the node is a carrier. The runtime checks that `X` is a

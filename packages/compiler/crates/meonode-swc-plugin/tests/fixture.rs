@@ -595,6 +595,42 @@ fn extract_factory_call_positions() {
 }
 
 #[test]
+fn extract_factory_call_children_first() {
+    run_partition_with_config(
+        "extract_factory_call_children_first",
+        CompileConfig {
+            factory_modules: vec!["@/slot".to_string()],
+            ..extract_config()
+        },
+    );
+}
+
+#[test]
+fn extract_directive_use_client() {
+    run_partition_with_config("extract_directive_use_client", extract_config());
+}
+
+#[test]
+fn extract_directive_use_client_strict() {
+    run_partition_with_config("extract_directive_use_client_strict", extract_config());
+}
+
+#[test]
+fn extract_directive_none() {
+    run_partition_with_config("extract_directive_none", extract_config());
+}
+
+#[test]
+fn extract_directive_not_prologue() {
+    run_partition_with_config("extract_directive_not_prologue", extract_config());
+}
+
+#[test]
+fn extract_directive_after_statement() {
+    run_partition_with_config("extract_directive_after_statement", extract_config());
+}
+
+#[test]
 fn extract_factory_call_without_runtime() {
     run_partition_with_ts("extract_factory_call_without_runtime", extract_config());
 }

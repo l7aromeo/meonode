@@ -186,10 +186,11 @@ impl Visit for Positions {
                     }
                 }
                 // A children-first call (a capitalized callee given its props
-                // second): its first argument is its children.
+                // second): its first argument is its children, whatever the
+                // call's own style.
                 Expr::Ident(id)
                     if id.sym.starts_with(|c: char| c.is_ascii_uppercase())
-                        && props_position(&call.args) == Some(1) =>
+                        && props_index(&call.args) == Some(1) =>
                 {
                     self.mark(&call.args[0].expr);
                 }
@@ -264,29 +265,40 @@ impl VisitMut for Rewriter<'_> {
     }
 }
 
-/// The index of the call's props argument, when the call is one the rewrite
-/// takes: no arguments (`0`), or a props object literal first, or second after
-/// a first argument that is not one (a children-first call's children). Two
-/// leading object literals could be either order, so neither is taken.
-fn props_position(args: &[ExprOrSpread]) -> Option<usize> {
+/// The index of the call's props argument, read from the call's shape alone:
+/// no arguments (`0`), or a props object literal first, or second after a first
+/// argument that is not one (a children-first call's children). Two leading
+/// object literals could be either order, and a spread argument hides the
+/// order, so neither is taken. [`Positions`] reads a children-first call's
+/// children from it whatever the call's style; [`props_position`] adds what
+/// the rewrite needs of the call itself.
+fn props_index(args: &[ExprOrSpread]) -> Option<usize> {
     if args.iter().any(|arg| arg.spread.is_some()) {
         return None;
     }
     let object = |at: usize| {
         args.get(at)
-            .and_then(|arg| match unwrap_transparent(&arg.expr) {
-                Expr::Object(obj) => Some(obj),
-                _ => None,
-            })
+            .is_some_and(|arg| matches!(unwrap_transparent(&arg.expr), Expr::Object(_)))
     };
-    let at = match (object(0), object(1)) {
-        _ if args.is_empty() => return Some(0),
-        (Some(_), Some(_)) => return None,
-        (Some(_), None) => 0,
-        (None, Some(_)) => 1,
-        (None, None) => return None,
-    };
-    object(at).filter(|props| static_style(props)).map(|_| at)
+    match (object(0), object(1)) {
+        _ if args.is_empty() => Some(0),
+        (true, true) => None,
+        (true, false) => Some(0),
+        (false, true) => Some(1),
+        (false, false) => None,
+    }
+}
+
+/// The index of the call's props argument, when the call is one the rewrite
+/// takes: a [`props_index`] whose props, if it is given any, have a
+/// [`static_style`].
+fn props_position(args: &[ExprOrSpread]) -> Option<usize> {
+    let at = props_index(args)?;
+    match args.get(at).map(|arg| unwrap_transparent(&arg.expr)) {
+        None => Some(at),
+        Some(Expr::Object(props)) if static_style(props) => Some(at),
+        Some(_) => None,
+    }
 }
 
 /// Whether the props' style is the same on every render: every CSS prop and
