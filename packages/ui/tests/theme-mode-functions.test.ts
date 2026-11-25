@@ -9,6 +9,7 @@ import { createRoot, hydrateRoot } from 'react-dom/client'
 import { renderToString } from 'react-dom/server'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Div, Node, ThemeProvider, useTheme } from '@src/main.js'
+import { fiberRootOf, reactIdle } from '@tests/_react-idle.js'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -119,7 +120,7 @@ describe('a css theme function reading `theme.mode`', () => {
     ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = false
     const root = hydrateRoot(container, tree(), { onRecoverableError: () => {} })
     try {
-      await new Promise(resolve => setTimeout(resolve, 50))
+      await reactIdle([fiberRootOf(container)])
       expect(afterCommit).toBe(NIGHT)
     } finally {
       root.unmount()
