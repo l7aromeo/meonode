@@ -11,6 +11,7 @@
 // `act`, so React's production build runs it too.
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import { builtinEnvironments } from 'vitest/runtime'
+import { fiberRootOf, REACT_CONTAINER_KEY, REACT_IDLE_TIMEOUT_MS, reactIdle } from '@tests/_react-idle.js'
 
 type Css = Record<string, unknown>
 type Main = typeof import('@src/main.js')
@@ -335,9 +336,6 @@ const PLACE_MARKER = 'data-meonode-place'
 /** What jsdom's virtual console prints for a stylesheet its CSS parser rejects. */
 const JSDOM_CSS_PARSE_ERROR = 'Could not parse CSS stylesheet'
 
-/** How long React's scheduler gets to finish a hydration or an unmount: its tasks run on timers in a document with no frames. */
-const HYDRATION_SETTLE_MS = 50
-
 /**
  * Renders `tree` on the server, hydrates it in a document, and reads what came
  * of it. Under `'registry'`, the registry's flush goes into the head, as Next
@@ -392,7 +390,8 @@ async function serverThenHydrate(tree: Tree, compiled: boolean, provider: Provid
     // React's production build has no `act`: it reports a mismatch to
     // `onRecoverableError`, once its scheduler has run the hydration.
     const root = hydrateRoot(container, element, { onRecoverableError: reported => void errors.push(String(reported)) })
-    await new Promise(resolve => setTimeout(resolve, HYDRATION_SETTLE_MS))
+    const fiberRoot = fiberRootOf(container)
+    await reactIdle([fiberRoot])
     error.mockRestore()
     /** The names each Emotion style element lists, in document order. */
     const names = [...document.querySelectorAll<HTMLStyleElement>('style[data-emotion]')].flatMap(sheet => sheet.dataset.emotion!.split(' ').slice(1))
@@ -415,7 +414,7 @@ async function serverThenHydrate(tree: Tree, compiled: boolean, provider: Provid
     }
     // The committed tree's fibers by kind: a renderer, a Fragment, a leaf.
     const fibers: Record<string, number> = {}
-    const rootKey = Object.keys(container).find(name => name.startsWith('__reactContainer$'))!
+    const rootKey = Object.keys(container).find(name => name.startsWith(REACT_CONTAINER_KEY))!
     const visit = (fiber: { type: unknown; tag: number; child: unknown; sibling: unknown } | null) => {
       for (; fiber; fiber = fiber.sibling as typeof fiber) {
         const type = fiber.type as { displayName?: string; name?: string } | string | null
@@ -428,7 +427,7 @@ async function serverThenHydrate(tree: Tree, compiled: boolean, provider: Provid
     Object.assign(result, { fibers })
     root.unmount()
     // What the unmount scheduled runs here, while the document still exists.
-    await new Promise(resolve => setTimeout(resolve, HYDRATION_SETTLE_MS))
+    await reactIdle([fiberRoot])
     return result
   } finally {
     await browser.teardown(globalThis)
@@ -465,7 +464,8 @@ async function rootsThenHydrate(tree: Tree, compiled: boolean, provider: 'none' 
       return client.react.isValidElement(child) ? client.react.cloneElement(element, {}, client.react.cloneElement(child)) : client.react.cloneElement(element)
     }
     const roots = containers.slice(0, 2).map((container, index) => hydrateRoot(container, pages[index]!, options))
-    await new Promise(r => setTimeout(r, HYDRATION_SETTLE_MS))
+    const fiberRoots = containers.slice(0, 2).map(fiberRootOf)
+    await reactIdle(fiberRoots)
     const idsHydrated = containers.slice(0, 2).every((container, index) => JSON.stringify(ids(container)) === JSON.stringify(before[index]))
     // The styled elements: the ones a node whose type changed would replace. A
     // case's id component is made anew by each render of its tree, so it remounts.
@@ -473,10 +473,11 @@ async function rootsThenHydrate(tree: Tree, compiled: boolean, provider: 'none' 
     const elements = containers.slice(0, 2).map(styled)
     const late = createRoot(containers[2]!, options)
     late.render(pages[2]!)
-    await new Promise(r => setTimeout(r, HYDRATION_SETTLE_MS))
+    fiberRoots.push(fiberRootOf(containers[2]!))
+    await reactIdle(fiberRoots)
     const lateElements = styled(containers[2]!)
     ;[...roots, late].forEach((root, index) => root.render(again(pages[index]! as never)))
-    await new Promise(r => setTimeout(r, HYDRATION_SETTLE_MS))
+    await reactIdle(fiberRoots)
     error.mockRestore()
     const kept = (container: Element, was: Element[]) => {
       const now = styled(container)
@@ -489,7 +490,7 @@ async function rootsThenHydrate(tree: Tree, compiled: boolean, provider: 'none' 
       markup: containers.map(container => container.innerHTML.replaceAll(/ data-id="[^"]*"/g, '')),
     }
     for (const root of [...roots, late]) root.unmount()
-    await new Promise(r => setTimeout(r, HYDRATION_SETTLE_MS))
+    await reactIdle(fiberRoots)
     return result
   } finally {
     await browser.teardown(globalThis)
@@ -507,8 +508,33 @@ const HYDRATION_FAILED =
 const HYDRATION_FAILED_PRODUCTION =
   'Error: Minified React error #418; visit https://react.dev/errors/418?args[]=HTML&args[]= for the full message or use the non-minified dev environment for full errors and additional helpful warnings.'
 
-/** How long a streamed boundary takes to be revealed and hydrated: past React's reveal throttle of 300 ms. */
-const REVEAL_SETTLE_MS = 400
+/**
+ * The data of the comment opening a streamed boundary whose content is still
+ * to come (`$?`) or is in and queued to be revealed (`$~`); React's streaming
+ * script sets it to `$` when it reveals the content.
+ */
+const PENDING_BOUNDARY_MARKERS = new Set(['$?', '$~'])
+
+/**
+ * Resolves once React's streaming script has revealed every boundary in
+ * `container`, before React hydrates what it revealed: the script reveals a
+ * boundary no sooner than its throttle after the last reveal, then calls the
+ * boundary's retry in an animation frame.
+ * @param container The root's container.
+ * @throws When a boundary is still unrevealed after {@link REACT_IDLE_TIMEOUT_MS}.
+ */
+async function boundariesRevealed(container: Element) {
+  const pending = () => {
+    const walker = document.createTreeWalker(container, NodeFilter.SHOW_COMMENT)
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) if (PENDING_BOUNDARY_MARKERS.has((node as Comment).data)) return true
+    return false
+  }
+  const deadline = performance.now() + REACT_IDLE_TIMEOUT_MS
+  while (pending()) {
+    if (performance.now() > deadline) throw new Error(`a streamed boundary was still unrevealed after ${REACT_IDLE_TIMEOUT_MS} ms`)
+    await new Promise(resolve => setTimeout(resolve, 0))
+  }
+}
 
 /** How long the server holds the boundary after the shell went out, so it streams in a chunk of its own. */
 const LATE_BOUNDARY_MS = 20
@@ -581,7 +607,8 @@ async function streamThenHydrate(tree: LateTree, compiled: boolean, provider: 'n
         onRecoverableError: reported => void errors.push(String(reported)),
       },
     )
-    await new Promise(r => setTimeout(r, HYDRATION_SETTLE_MS))
+    const fiberRoot = fiberRootOf(container)
+    await reactIdle([fiberRoot])
     const shellIds = ids()
     // The boundary's chunk, as the parser appends it to the body: its script runs.
     const chunk = document.createElement('template')
@@ -591,10 +618,12 @@ async function streamThenHydrate(tree: LateTree, compiled: boolean, provider: 'n
       else document.body.appendChild(Object.assign(document.createElement('script'), { textContent: node.textContent }))
     }
     readyState = 'complete'
-    // React reveals a boundary no sooner than its throttle after the last, then hydrates it.
-    await new Promise(r => setTimeout(r, REVEAL_SETTLE_MS))
+    await boundariesRevealed(container)
+    // The revealed server content's ids, before React hydrates it.
     const lateIds = ids()
-    await new Promise(r => setTimeout(r, HYDRATION_SETTLE_MS))
+    // The retry's frame was requested at the reveal, so it runs before this one.
+    await new Promise(resolve => requestAnimationFrame(resolve))
+    await reactIdle([fiberRoot])
     error.mockRestore()
     const result = {
       serverErrors,
@@ -609,7 +638,7 @@ async function streamThenHydrate(tree: LateTree, compiled: boolean, provider: 'n
       shellMarked: shell.includes(PLACE_MARKER),
     }
     root.unmount()
-    await new Promise(r => setTimeout(r, HYDRATION_SETTLE_MS))
+    await reactIdle([fiberRoot])
     return result
   } finally {
     await browser.teardown(globalThis)

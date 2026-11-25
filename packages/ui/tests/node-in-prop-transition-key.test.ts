@@ -10,6 +10,7 @@ import { Node, Span } from '@src/main.js'
 import { createElement, startTransition, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { fiberRootOf, reactIdle } from '@tests/_react-idle.js'
 
 /** React's scheduler yields once a render has run for 5 ms. */
 const PAST_A_FRAME_MS = 12
@@ -34,7 +35,7 @@ async function keyWarningsIn(render: (container: HTMLElement) => void): Promise<
   const container = document.createElement('div')
   document.body.append(container)
   render(container)
-  await new Promise(resolve => setTimeout(resolve, 200))
+  await reactIdle([fiberRootOf(container)])
   container.remove()
   return { text: container.textContent ?? '', warnings: errors.filter(error => error.includes('unique "key"')).length }
 }

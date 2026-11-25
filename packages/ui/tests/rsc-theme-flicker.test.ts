@@ -1,5 +1,6 @@
 import { chromium, type Browser } from '@playwright/test'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { REACT_CONTAINER_KEY, REACT_IDLE_TIMEOUT_MS } from '@tests/_react-idle.js'
 
 /**
  * What the reader actually sees on a cold load.
@@ -34,6 +35,24 @@ const PAGE = '/theme-flicker'
 /** The fixture's own palettes, as `theme-fixture.css` declares them. */
 const MORNING = 'rgb(250, 250, 252)'
 const NIGHT = 'rgb(10, 10, 15)'
+
+/** The fewest sampled frames that show the probe saw the page at all. */
+const MIN_FRAMES = 5
+
+/**
+ * The frames in a row that must find the page's React root idle. The probe
+ * polls once a frame; React's scheduler posts its tasks, passive effects among
+ * them, as browser tasks no root field records, and the browser runs those
+ * between two frames, so such a task has run by the second, and anything it
+ * schedules shows on the root.
+ */
+const REACT_IDLE_FRAMES = 2
+
+/**
+ * The frames sampled once the root is idle, so the window holds the frame its
+ * last commit painted.
+ */
+const FRAMES_AFTER_IDLE = 2
 
 let browser: Browser | null = null
 
@@ -105,8 +124,39 @@ async function framesOnColdLoad(stored: string, gutScript = false): Promise<stri
     }
 
     await page.goto(`${base()}${PAGE}`, { waitUntil: 'load' })
-    await page.waitForTimeout(400)
-    return await page.evaluate(() => window.__frames ?? [])
+    if (gutScript) {
+      // A page served through `route.fulfill` gets no React root on `document`
+      // under `next dev`, its body changed or not, so the control shows the
+      // served HTML and CSS alone, and waits for the frames it reads.
+      await page.waitForFunction(min => (window.__frames?.length ?? 0) > min, MIN_FRAMES, { polling: 'raf', timeout: REACT_IDLE_TIMEOUT_MS })
+      return await page.evaluate(() => window.__frames ?? [])
+    }
+    // Next hydrates the whole document, so its root is on `document`. Until
+    // React has committed everything it has to do there, adopting the stored
+    // mode included, a later frame could still show the wrong theme.
+    await page.waitForFunction(
+      ({ key, frames }) => {
+        const marked = Object.keys(document).find(name => name.startsWith(key))
+        if (!marked) return false
+        const root = (document as unknown as Record<string, { stateNode?: { pendingLanes?: unknown; callbackNode?: unknown } } | null>)[marked]?.stateNode
+        if (!root || typeof root.pendingLanes !== 'number' || !('callbackNode' in root)) {
+          throw new Error('no React FiberRoot with pendingLanes and callbackNode on the document')
+        }
+        const w = window as { __idleFrames?: number }
+        w.__idleFrames = root.pendingLanes === 0 && root.callbackNode === null ? (w.__idleFrames ?? 0) + 1 : 0
+        return w.__idleFrames >= frames
+      },
+      { key: REACT_CONTAINER_KEY, frames: REACT_IDLE_FRAMES },
+      { polling: 'raf', timeout: REACT_IDLE_TIMEOUT_MS },
+    )
+    return await page.evaluate(
+      frames =>
+        new Promise<string[]>(resolve => {
+          const next = (left: number) => (left ? requestAnimationFrame(() => next(left - 1)) : resolve(window.__frames ?? []))
+          next(frames)
+        }),
+      FRAMES_AFTER_IDLE,
+    )
   } finally {
     await context.close()
   }
@@ -117,7 +167,7 @@ describe('a cold load with a stored mode that is not the default', () => {
     const frames = await framesOnColdLoad('night')
 
     // Non-vacuity: the probe has to have seen the page at all.
-    expect(frames.length).toBeGreaterThan(5)
+    expect(frames.length).toBeGreaterThan(MIN_FRAMES)
     expect(frames[0]).toBe(NIGHT)
     expect(frames.filter(colour => colour === MORNING)).toEqual([])
   }, 60_000)
@@ -125,15 +175,16 @@ describe('a cold load with a stored mode that is not the default', () => {
   it('and the same page without the script does paint them, which is what makes the first case evidence', async () => {
     const frames = await framesOnColdLoad('night', true)
 
-    expect(frames.length).toBeGreaterThan(5)
-    // The document's own default, until React adopts the stored mode.
+    expect(frames.length).toBeGreaterThan(MIN_FRAMES)
+    // The document's own default: React never takes this page's document, so
+    // nothing adopts the stored mode.
     expect(frames[0]).toBe(MORNING)
     expect(frames.filter(colour => colour === MORNING).length).toBeGreaterThan(0)
   }, 60_000)
 
   it('leaves a reader on the default alone', async () => {
     const frames = await framesOnColdLoad('morning')
-    expect(frames.length).toBeGreaterThan(5)
+    expect(frames.length).toBeGreaterThan(MIN_FRAMES)
     expect(frames.filter(colour => colour === NIGHT)).toEqual([])
   }, 60_000)
 })
