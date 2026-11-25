@@ -18,9 +18,10 @@ import { replaceThemeTokensWithCssVars } from '@src/util/server-theme.util.js'
 import { ThemeUtil } from '@src/util/theme.util.js'
 import { nameStyles } from '@src/util/style-name.util.js'
 import { __resetStaticCss, registerStaticCss } from '@src/util/static-css.util.js'
-import { __resetThemeDiagnostics } from '@src/util/theme-diagnostics.util.js'
+import { __checkedThemeVars, __resetThemeDiagnostics } from '@src/util/theme-diagnostics.util.js'
 import { asThemeProps } from '../_theme-props.js'
 import { withRenderShapes } from './_render-shapes.js'
+import { checksSettled } from './_checks-settled.js'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -74,6 +75,9 @@ function tokenWarnings(node: () => NodeInstance, withProvider = true): string[] 
   return warnings.filter(text => text.includes('--meonode-theme-'))
 }
 
+/** The variables checked since the last reset, sorted. */
+const checkedVars = () => [...__checkedThemeVars()].sort()
+
 /** A component that renders its children inside a provider of its own, out of the walk's sight. */
 const InnerTheme = ({ children }: { children?: NodeInstance }) => ThemeProvider({ ...asThemeProps(inner as never), children }).render() as ReactElement
 
@@ -103,16 +107,19 @@ describe('a token the theme in scope does not define, on a named node', () => {
     const expected = tokenWarnings(() => tree(runtime), withProvider)
     expect(expected.length).toBeGreaterThan(0)
     tokenWarnings(() => tree(named), withProvider)
-    // A check after commit reports on a later task.
-    await new Promise(resolve => setTimeout(resolve, 50))
+    await checksSettled()
     expect(warnings.filter(text => text.includes('--meonode-theme-'))).toEqual(expected)
   })
 
   it.each(Object.entries(QUIET))('stays quiet as uncompiled for %s', async (_, tree) => {
     expect(tokenWarnings(() => tree(runtime))).toEqual([])
+    const expected = checkedVars()
+    expect(expected.length).toBeGreaterThan(0)
     tokenWarnings(() => tree(named))
-    await new Promise(resolve => setTimeout(resolve, 50))
+    await checksSettled()
     expect(warnings.filter(text => text.includes('--meonode-theme-'))).toEqual([])
+    // No warning from a check that never ran: the named node's variables were checked.
+    expect(checkedVars()).toEqual(expected)
   })
 })
 
@@ -215,11 +222,10 @@ describe('a named node’s token check, under a carrier', () => {
   it.each(Object.entries(TREES))('warns as uncompiled and adds nothing to the render, for %s', async (_, [tree, warns]) => {
     const run = (style: (css: Css) => Record<string, unknown>, carrier: (css: Css) => Record<string, unknown>) =>
       withRenderShapes(() => ({ warnings: tokenWarnings(() => tree(style, carrier)) }))
-    const expected = run(runtime, runtime)
+    const expected = { ...run(runtime, runtime), checked: checkedVars() }
     expect(expected.warnings.length > 0).toBe(warns)
     const compiled = run(named, carried)
-    // A check after commit reports on a later task.
-    await new Promise(resolve => setTimeout(resolve, 50))
-    expect({ ...compiled, warnings: warnings.filter(text => text.includes('--meonode-theme-')) }).toEqual(expected)
+    await checksSettled()
+    expect({ ...compiled, warnings: warnings.filter(text => text.includes('--meonode-theme-')), checked: checkedVars() }).toEqual(expected)
   })
 })

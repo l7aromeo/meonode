@@ -22,9 +22,17 @@ import { replaceThemeTokensWithCssVars } from '@src/util/server-theme.util.js'
 import { nameStyles } from '@src/util/style-name.util.js'
 import { __resetStaticCss, registerStaticCss } from '@src/util/static-css.util.js'
 import { ThemeUtil } from '@src/util/theme.util.js'
-import { __resetThemeDiagnostics, definedVarsOf, getTokensVarIndex, type ThemeVarIndex, type ThemeVarRef } from '@src/util/theme-diagnostics.util.js'
+import {
+  __checkedThemeVars,
+  __resetThemeDiagnostics,
+  definedVarsOf,
+  getTokensVarIndex,
+  type ThemeVarIndex,
+  type ThemeVarRef,
+} from '@src/util/theme-diagnostics.util.js'
 import { asThemeProps } from '../_theme-props.js'
 import { templated } from './_template.js'
+import { checksSettled } from './_checks-settled.js'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -60,9 +68,6 @@ beforeEach(() => {
   __resetThemeDiagnostics()
 })
 
-/** Lets the checks after commit run: they look on the next task, then about a frame later. */
-const afterCommitChecks = () => new Promise(resolve => setTimeout(resolve, 50))
-
 /** Renders `make`'s element from a component, where an app's walk runs and reads its contexts. */
 const inRender = (make: () => ReactElement): ReactElement =>
   createElement(function Page() {
@@ -93,14 +98,20 @@ function mount(element: () => ReactElement) {
   act(() => root.render(inRender(element)))
 }
 
-/** The token warnings rendering `node` gives, from a fresh record of what was reported. */
-async function tokenWarnings(node: () => NodeInstance, withProvider = true): Promise<string[]> {
+/**
+ * The token warnings rendering `node` gives, and the variables it checked, from
+ * a fresh record, once the checks after commit have run.
+ */
+async function tokenChecks(node: () => NodeInstance, withProvider = true): Promise<{ warnings: string[]; checked: string[] }> {
   __resetThemeDiagnostics()
   warnings = []
   mount(() => (withProvider ? ThemeProvider({ ...asThemeProps(theme as never), children: node() }) : node()).render() as ReactElement)
-  await afterCommitChecks()
-  return warnings.filter(text => text.includes('--meonode-theme-'))
+  await checksSettled()
+  return { warnings: warnings.filter(text => text.includes('--meonode-theme-')), checked: [...__checkedThemeVars()].sort() }
 }
+
+/** The token warnings rendering `node` gives, from a fresh record of what was reported. */
+const tokenWarnings = async (node: () => NodeInstance, withProvider = true): Promise<string[]> => (await tokenChecks(node, withProvider)).warnings
 
 /** Asserts the compiled call site warns exactly as the same call site uncompiled, and that it warns at all. */
 async function warnsAsUncompiled(uncompiled: () => NodeInstance, compiled: () => NodeInstance, withProvider = true) {
@@ -109,10 +120,15 @@ async function warnsAsUncompiled(uncompiled: () => NodeInstance, compiled: () =>
   expect(await tokenWarnings(compiled, withProvider)).toEqual(expected)
 }
 
-/** Asserts neither form warns. */
-async function quietAsUncompiled(uncompiled: () => NodeInstance, compiled: () => NodeInstance) {
-  expect(await tokenWarnings(uncompiled)).toEqual([])
-  expect(await tokenWarnings(compiled)).toEqual([])
+/**
+ * Asserts neither form warns, and that the compiled form checked the variables
+ * the uncompiled one did: no warning from a check that never ran.
+ */
+async function quietAsUncompiled(uncompiled: () => NodeInstance, compiled: () => NodeInstance, withProvider = true) {
+  const expected = await tokenChecks(uncompiled, withProvider)
+  expect(expected.warnings).toEqual([])
+  expect(expected.checked.length).toBeGreaterThan(0)
+  expect(await tokenChecks(compiled, withProvider)).toEqual(expected)
 }
 
 /** A component that renders its children as given. */
@@ -344,11 +360,8 @@ describe('a provider inside the walk, below its topmost host', () => {
   })
 })
 
-/** Asserts neither form warns, with no provider above the walk. */
-async function quietAsUncompiledNoOuter(uncompiled: () => NodeInstance, compiled: () => NodeInstance) {
-  expect(await tokenWarnings(uncompiled, false)).toEqual([])
-  expect(await tokenWarnings(compiled, false)).toEqual([])
-}
+/** Asserts as {@link quietAsUncompiled} does, with no provider above the walk. */
+const quietAsUncompiledNoOuter = (uncompiled: () => NodeInstance, compiled: () => NodeInstance) => quietAsUncompiled(uncompiled, compiled, false)
 
 /** Every fiber below `container`'s root, as React holds them. */
 interface Fiber {
@@ -406,7 +419,7 @@ describe('in production', () => {
     const root = createRoot(container)
     roots.push(root)
     act(() => root.render(inRender(() => page().render() as ReactElement)))
-    await afterCommitChecks()
+    await checksSettled()
     return {
       html,
       warnings: warnings.filter(text => text.includes('--meonode-theme-')),
@@ -534,7 +547,7 @@ describe('an element whose fiber cannot be read', () => {
           children: Div({ children: Node(Wrapper, { children: compiled(DEFINED_COLOR, { id: 'unread' }) }) }),
         }).render() as ReactElement,
     )
-    await afterCommitChecks()
+    await checksSettled()
     const element = document.getElementById('unread')!
     const classes = element.className
     delete (element as unknown as Record<string, unknown>)[Object.keys(element).find(name => name.startsWith('__reactFiber$'))!]
