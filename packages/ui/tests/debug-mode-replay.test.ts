@@ -41,11 +41,12 @@ it('reports a check made before the diagnostics loaded that throws once they do,
 
   expect(() => renderToString(tree())).not.toThrow()
   expect(errors).toEqual([])
-  await vi.waitFor(() => expect(diagnostics.loadedDiagnostics()).toBeDefined())
-  await Promise.resolve()
+  // The held checks run once every table of diagnostics has loaded, which can
+  // be after this module's table: wait for the report itself.
+  await vi.waitFor(() => expect(errors).toHaveLength(1))
+  expect(diagnostics.loadedDiagnostics()).toBeDefined()
 
   const message = '[MeoNode] `css` is a client component or a client module export, which is not a style.'
-  expect(errors).toHaveLength(1)
   expect(errors[0][0]).toBe('[MeoNode] A check made before the diagnostics loaded failed.')
   expect(String((errors[0][1] as Error).message)).toContain(message)
   expect(() => renderToString(tree())).toThrow(message)
