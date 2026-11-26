@@ -358,10 +358,11 @@ export function observeChildren(element: unknown, props: Record<string, unknown>
  * Records where React calls a component from, so call sites end there. Calls
  * made before it was known kept the frames below it, and are keyed again the
  * way a call made now would be.
- * @param location The frame that called one of MeoNode's own components, as `file:line:column`.
+ * @param caller The stack captured above one of MeoNode's own components as it rendered, unread.
  */
-export function learnComponentBoundary(location: string): void {
-  if (location === componentCaller) return
+export function learnComponentBoundary(caller: StackHolder): void {
+  const location = firstFrame(caller)
+  if (location === undefined || location === componentCaller) return
   componentCaller = location
   const rekeyed = new Map<string, Seen>()
   for (const [key, seen] of lengths) {
@@ -372,6 +373,23 @@ export function learnComponentBoundary(location: string): void {
   const wasReported = [...reported]
   reported.clear()
   for (const key of wasReported) reported.add(cutAtComponentCaller(key))
+}
+
+/**
+ * The first frame of a captured stack, as a call-site key writes a frame, or
+ * `undefined` where the engine gives no structured frames.
+ * @param holder The stack, unread: V8 formats it when it is first read.
+ * @returns `file:line:column`.
+ */
+function firstFrame(holder: StackHolder): string | undefined {
+  const previousPrepare = V8Error.prepareStackTrace
+  try {
+    V8Error.prepareStackTrace = (_error, frames) => frames
+    const frame = Array.isArray(holder.stack) ? (holder.stack[0] as CallSiteFrame | undefined) : undefined
+    return frame === undefined ? undefined : `${frame.getFileName()}:${frame.getLineNumber()}:${frame.getColumnNumber()}`
+  } finally {
+    V8Error.prepareStackTrace = previousPrepare
+  }
 }
 
 /** A call-site key, one frame per line, without the frames from {@link componentCaller} down. */

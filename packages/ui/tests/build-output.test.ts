@@ -1046,6 +1046,38 @@ describe('build output: debug mode in a production build', () => {
     expect(growthAfterTransition('ui.Ul({ padding: 4, children: rows })', 'function')).toEqual(GROWN_AT_THREE)
   })
 
+  // Learning where React calls a component reads the stack, which a production
+  // build with debug mode off never pays for. Turned on later, it learns on the
+  // next render of one of MeoNode's own components, once.
+  it('reads no stack to learn where React calls a component while debug mode is off, and learns once it is on', () => {
+    const code = `
+      const captured = []
+      const capture = Error.captureStackTrace
+      // The build is minified, so MeoNode's own components are told by what
+      // they carry: both accept server CSS, and the styled one is named for it.
+      Error.captureStackTrace = (target, below) => {
+        captured.push(below?.__meonodeAcceptsServerCss ? (below.displayName === 'Styled' ? 'StyledRenderer' : 'ThemeProvider') : 'other')
+        return capture(target, below)
+      }
+      console.log = () => {}
+      const ui = await import('@meonode/ui')
+      const { renderToString } = await import('react-dom/server')
+      const page = () =>
+        renderToString(ui.ThemeProvider({ modes: ['light'], defaultMode: 'light', tokens: {}, children: ui.Div({ padding: 4, children: 'x' }) }).render())
+      page()
+      const off = captured.splice(0)
+      ui.setDebugMode(true)
+      await new Promise(resolve => setTimeout(resolve, 200))
+      page()
+      page()
+      process.stdout.write(JSON.stringify({ off, on: captured }))`
+    const { off, on } = JSON.parse(
+      execFileSync(process.execPath, ['--input-type=module', '-e', code], { cwd: ROOT, encoding: 'utf8', env: { ...process.env, NODE_ENV: 'production' } }),
+    ) as { off: string[]; on: string[] }
+    expect(off).toEqual([])
+    expect(on.filter(name => name !== 'other')).toEqual(['ThemeProvider'])
+  })
+
   // A minifier renames the function React calls components from, as Next.js
   // does to React's production build, so only its place can be cut at.
   it('reports a list that grows from the first update after a transition render, with React minified', async () => {

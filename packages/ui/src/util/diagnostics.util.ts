@@ -244,56 +244,30 @@ function captureStack(caller: (...args: never[]) => unknown): CapturedStack {
   return { above, whole }
 }
 
-/** Whether {@link learnComponentCaller} has read React's call into a component. */
+/** Whether {@link learnComponentCaller} has captured React's call into a component. */
 let componentCallerLearned = false
 
 /**
- * Reads where React calls a component from, the first time one of MeoNode's own
- * components renders while diagnostics are on, and hands it to the
+ * Captures where React calls a component from, the first time one of MeoNode's
+ * own components renders while diagnostics are on, and hands it to the
  * generated-list report as the place a call site ends. React's development
  * build calls every component through a frame named
  * `react_stack_bottom_frame`, which that report cuts at by name; its
  * production build calls one from `renderWithHooks`, whose name a minifier
- * drops, so there the place is learned from a render MeoNode owns. Only an
- * engine that offers structured frames (V8, Bun) can give it.
+ * drops, so there the place is learned from a render MeoNode owns.
+ *
+ * With diagnostics off it does nothing, and a production build turned to debug
+ * mode later learns on the next such render. The stack is captured unread and
+ * read by the diagnostics, as a call site's is, so reading it stays in their
+ * chunk.
  *
  * Call it first in the component, before it calls any other component as a
- * function, so the frame read is React's.
+ * function, so the frame captured is React's.
  * @param component The component that is rendering.
  */
 export function learnComponentCaller(component: (...args: never[]) => unknown): void {
   if (componentCallerLearned || !diagnosticsEnabled()) return
   componentCallerLearned = true
-  const location = callerLocation(component)
-  if (location !== undefined) withDiagnostics(d => d.learnComponentBoundary(location))
-}
-
-/**
- * The location of the frame that called `component`, as the generated-list
- * report writes a frame, or `undefined` where the engine offers no structured frames.
- * @param component The function whose caller is read.
- * @returns `file:line:column`.
- */
-function callerLocation(component: (...args: never[]) => unknown): string | undefined {
-  const engine = Error as {
-    captureStackTrace?: (target: object, constructorOpt?: (...args: never[]) => unknown) => void
-    prepareStackTrace?: (error: Error, frames: unknown[]) => unknown
-  }
-  if (typeof engine.captureStackTrace !== 'function') return undefined
-  const previousLimit = Error.stackTraceLimit
-  const previousPrepare = engine.prepareStackTrace
-  try {
-    Error.stackTraceLimit = 1
-    engine.prepareStackTrace = (_error, frames) => frames
-    const holder: { stack?: unknown } = {}
-    engine.captureStackTrace(holder, component)
-    const frame = Array.isArray(holder.stack)
-      ? (holder.stack[0] as { getFileName?: () => unknown; getLineNumber?: () => unknown; getColumnNumber?: () => unknown } | undefined)
-      : undefined
-    if (typeof frame?.getFileName !== 'function') return undefined
-    return `${frame.getFileName()}:${frame.getLineNumber?.()}:${frame.getColumnNumber?.()}`
-  } finally {
-    engine.prepareStackTrace = previousPrepare
-    Error.stackTraceLimit = previousLimit
-  }
+  const { above } = captureStack(component)
+  withDiagnostics(d => d.learnComponentBoundary(above))
 }
