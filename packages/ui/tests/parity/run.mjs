@@ -823,9 +823,9 @@ const outliers = []
 const reloaded = []
 
 /**
- * The real-input reads whose pointer did not settle on their element
- * (collect.mjs, pointerSettled), each kept as not held, per page, for
- * PARITY_REPORT.
+ * The real-input reads whose pointer did not settle on their element even at a
+ * point picked again (collect.mjs, pointerSettled), each kept as not held, and
+ * those that settled only at the point picked again, per page, for PARITY_REPORT.
  */
 const pointer = []
 /** The run's records gathered per case, which a worker sends back with each case it reads. */
@@ -837,13 +837,17 @@ const unsettledOf = record =>
     .filter(([, sample]) => sample.pointer)
     .map(([key, { pointer: p }]) => `${key} (hovered ${p.hovered}, hit ${p.hit}${p.edge ? ', on an edge' : ''})`)
 
-/** Prints and keeps a page's reads whose pointer did not settle, with the load and time. */
+/** Prints and keeps a page's reads whose pointer did not settle and those that settled at a point picked again, with the load and time. */
 function notePointer(row, recorded) {
   const unsettled = unsettledOf(recorded.record)
-  if (!unsettled.length) return
+  const repicked = Object.entries(recorded.record.forcedSamples ?? {})
+    .filter(([, sample]) => sample.repicked && !sample.pointer)
+    .map(([key]) => key)
+  if (!unsettled.length && !repicked.length) return
   const seen = { load1: Number(loadavg()[0].toFixed(2)), time: new Date().toISOString() }
-  console.log(`       ${row.side} pointer not settled, not held (${unsettled.length}), load ${seen.load1} at ${seen.time}: ${unsettled.join(', ')}`)
-  pointer.push({ ...row, unsettled, ...seen })
+  if (unsettled.length) console.log(`       ${row.side} pointer not settled, not held (${unsettled.length}), load ${seen.load1} at ${seen.time}: ${unsettled.join(', ')}`)
+  if (repicked.length) console.log(`       ${row.side} pointer settled at a point picked again (${repicked.length}): ${repicked.join(', ')}`)
+  pointer.push({ ...row, unsettled, repicked, ...seen })
 }
 
 /** Prints and keeps the stray :hover a page's sweep was reloaded for, with the load and time. */
@@ -1366,9 +1370,10 @@ if (reloaded.length) {
   for (const [name, rows] of Object.entries(Object.groupBy(reloaded, u => u.case))) console.log(`  ${name}: ${rows.map(u => `[${u.mode}] ${u.side}`).join(', ')}`)
 }
 if (pointer.length) {
-  console.log(`pointer reads not settled on ${ENGINE}: ${pointer.reduce((n, u) => n + u.unsettled.length, 0)} in ${pointer.length} page(s)`)
+  const count = key => pointer.reduce((n, u) => n + u[key].length, 0)
+  console.log(`pointer reads on ${ENGINE}: ${count('unsettled')} not settled, ${count('repicked')} settled at a point picked again, in ${pointer.length} page(s)`)
   for (const [name, rows] of Object.entries(Object.groupBy(pointer, u => u.case)))
-    console.log(`  ${name}: ${rows.map(u => `[${u.mode}] ${u.side} ${u.unsettled.length}`).join('; ')}`)
+    console.log(`  ${name}: ${rows.map(u => `[${u.mode}] ${u.side} ${u.unsettled.length} not settled, ${u.repicked.length} picked again`).join('; ')}`)
 }
 if (outliers.length) {
   console.log(`sweep outliers left out on ${ENGINE}: ${outliers.reduce((n, u) => n + u.states.length, 0)} in ${outliers.length} row(s)`)

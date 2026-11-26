@@ -60,20 +60,35 @@ Each side's record is compared with the oracle's on:
   which `PARITY_FORCE=input` also selects in Chromium. Between states the
   pointer rests on a blank square of the harness's own pinned to the
   viewport's corner, so it never rests on page content however far the page
-  has scrolled. The pointer goes to the element's centre measured just
-  before the move, since focusing an element can scroll the page and leave
-  an earlier measure on a neighbour. A read under `:hover` or `:active` waits
-  until the element matches the state, since real input takes effect on the
-  engine's own frame. Once its hover has taken effect, the pointer must have
-  settled on the element: the deepest hovered element is the element at the
-  point, inside the forced element, and the points half a pixel either side
-  hit it too, since at a box's edge the engine's rounding decides which box
-  is hovered. A read whose pointer did not settle is kept as not held,
-  without the press for `:active` (a `:hover` rule that moves the element
-  from under the pointer would send the press to another element, and
-  WebKit then keeps `:hover` on the element after the release); the row lists
-  it with what was hovered and hit, the load and the time, and
-  `PARITY_REPORT` keeps it as `pointer`. A read counts as a sample of
+  has scrolled. The pointer goes to a point of the element's own area: the
+  first point of its box, nearest the centre and at least 2px from every box
+  edge on each axis, where the hit test at the point and half a pixel either
+  side gives the element itself. At a box's edge the engine's rounding
+  decides which box is hovered (WebKit rounds a hit test's point to whole
+  pixels), and the centre of an element often lies on a child's edge (in
+  every grammar fixture, the bottom edge of its first `p`), so the hover
+  chain ends at the element itself in every engine instead. The hit test
+  decides whose area a point is: a descendant's box is not the element's,
+  nor a table row's cell spacing (the table's) or a list's padding where an
+  item's marker sits (the item's), and a descendant it passes through
+  (`pointer-events: none`, such as a MUI button's ripple layer over the
+  whole button) is. With no such point, the child at the centre's, and so on
+  down, so a table row's read ends at its cell. The point is measured just before the move, since
+  focusing an element can scroll the page and leave an earlier measure on a
+  neighbour. A read under `:hover` or `:active` waits until the element
+  matches the state, since real input takes effect on the engine's own frame.
+  The pointer must then have settled: the deepest hovered element is the
+  element at the point, the one whose own area the point was picked in, and
+  the points half a pixel either side hit it too. A state that changes the
+  layout can leave the point off the element, on an edge or over a child the
+  state moved there (which WebKit does not hover until the next pointer
+  move), so a point that does not settle is picked once more in the settled
+  layout, and the move there hit-tests it again. Only
+  a read that settles at neither point is kept as not held, without the press
+  for `:active` (which would land on another element, and WebKit then keeps
+  `:hover` on the element after the release); the row lists it with what was
+  hovered and hit, the load and the time, lists the reads that settled only at
+  the point picked again, and `PARITY_REPORT` keeps both as `pointer`. A read counts as a sample of
   its state only when no other compared element matches `:hover` besides the
   element's own ancestors and descendants. Every DOM-state or step read fails
   the page if any compared element still matches `:hover`, and names the
