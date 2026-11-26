@@ -15,3 +15,12 @@ opt-level = "s"
 lto = true
 strip = true
 codegen-units = 1
+
+# The parser and the resolver run only with `callSiteLocations`, a development
+# option, to read the author's file (src/positions.rs), so they are optimized
+# for size.
+[profile.release.package.swc_ecma_parser]
+opt-level = "z"
+
+[profile.release.package.swc_ecma_transforms_base]
+opt-level = "z"

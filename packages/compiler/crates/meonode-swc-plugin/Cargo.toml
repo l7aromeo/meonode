@@ -12,7 +12,7 @@ publish = false
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-swc_core = { version = "84", features = ["ecma_plugin_transform"] }
+swc_core = { version = "84", features = ["ecma_plugin_transform", "ecma_parser", "ecma_parser_typescript", "ecma_transforms"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 blake3 = { version = "1.8.7", default-features = false, features = ["pure"] }
