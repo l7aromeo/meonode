@@ -354,6 +354,14 @@ In a production build the flag also turns the first group back on. That group is
 browser bundle in which nothing substitutes it counts as production too. That is deliberate — the bugs worth this much
 logging are usually the ones that only reproduce in production.
 
+React's production build reports no missing key, so there the generated-list note is the only report: it is logged for
+every compiled list whose children lack a `key`, with the call site when `callSiteLocations` recorded one and without it
+otherwise. Without the compiler, a list generated at runtime is reported at the same growth as in development once a
+styled node or a `ThemeProvider` has rendered: from it MeoNode learns where React's production build calls components,
+which is where a call site ends. Before that, under a class component's `render`, and in engines without V8's structured
+stack frames (Safari, Firefox), a list that first rendered in a transition, as a page hydrated by Next.js does, is
+reported one growth later.
+
 A production build leaves the diagnostics' code out of what a page loads first, in a chunk of its own, and
 `setDebugMode(true)` loads that chunk. The checks made before it arrives are held, then run in the order they were
 made, a few milliseconds later; one that would throw in development is logged with `console.error` instead, as the

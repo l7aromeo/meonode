@@ -942,4 +942,152 @@ describe('build output: debug mode in a production build', () => {
       ['error', '[MeoNode] Debug mode could not load its diagnostics. Error: Cannot find module '],
     ])
   })
+
+  // React's production build reports no missing key, so the note beside the
+  // report it would make is all there is.
+  it('does not say React reports the missing key, where React does not', () => {
+    const { logs, rendered } = run(`
+      const { Div, Span, setDebugMode } = ui
+      setDebugMode(true)
+      const items = ['a', 'b']
+      renderToString(Div({ __meo$: 2, __meo$k: 'mnote', __meo$list: 1, __meo$loc: 'src/app.ts:3:10', children: items.map(item => Span(item, { __meo$: 3, __meo$list: 1 })) }).render())
+      rendered = logs.length
+      await settle()`)
+    const notes = logs.slice(rendered).filter(([, text]) => text.startsWith('[MeoNode] A generated list at src/app.ts:3:10'))
+    expect(notes).toHaveLength(1)
+    expect(logs.some(([, text]) => text.includes('unique "key"'))).toBe(false)
+    expect(notes[0][1]).not.toContain('React reports the missing key itself')
+  })
+
+  // Outside production, a generated list whose children all lack a key is left
+  // to React's report when the compiler recorded no location. In production
+  // React makes none, so that would leave the list unreported.
+  it('reports a generated list without keys that the compiler recorded no location for', () => {
+    const { logs, rendered } = run(`
+      const { Div, Span, setDebugMode } = ui
+      setDebugMode(true)
+      const items = ['a', 'b']
+      renderToString(Div({ __meo$: 2, __meo$k: 'mnoloc', __meo$list: 1, children: items.map(item => Span(item, { __meo$: 3, __meo$list: 1 })) }).render())
+      rendered = logs.length
+      await settle()`)
+    expect(logs.some(([, text]) => text.includes('unique "key"'))).toBe(false)
+    expect(logs.slice(rendered).filter(([, text]) => text.startsWith('[MeoNode] A generated list has children without a `key`'))).toHaveLength(1)
+  })
+
+  /**
+   * Renders a list of `count` unkeyed rows in a jsdom page of React's production
+   * build, first in a transition, as Next.js hydrates, then grown to 3 and 4 in
+   * synchronous updates, as a click's would be, and returns the reports between
+   * the renders.
+   * @param list The `Node` call that renders the rows, given `rows`.
+   * @param component How `Rows` renders: as a function component, or from a class component's `render`.
+   * @param modules The module that gives `ui`, `React`, `createRoot` and `flushSync`, or `undefined` for the installed packages.
+   */
+  const growthAfterTransition = (list: string, component: 'function' | 'class', modules?: string) => {
+    const code = `
+      import { createRequire } from 'node:module'
+      const { JSDOM } = createRequire(process.cwd() + '/package.json')('jsdom')
+      const dom = new JSDOM('<!doctype html><div id="root"></div>')
+      Object.assign(globalThis, { window: dom.window, document: dom.window.document, HTMLElement: dom.window.HTMLElement })
+      const events = []
+      console.warn = message => events.push(String(message).split('. ')[0])
+      console.log = () => {}
+      const { ui, React, createRoot, flushSync } = ${
+        modules === undefined
+          ? `{ ui: await import('@meonode/ui'), React: await import('react'), createRoot: (await import('react-dom/client')).createRoot, flushSync: (await import('react-dom')).flushSync }`
+          : `await import(${JSON.stringify(modules)})`
+      }
+      ui.setDebugMode(true)
+      await new Promise(resolve => setTimeout(resolve, 200))
+      const renderRows = count => {
+        const rows = Array.from({ length: count }, (_, index) => ui.Li({ children: 'row ' + index }))
+        return ${list}.render()
+      }
+      const Rows = ${component === 'class' ? 'class extends React.Component { render() { return renderRows(this.props.count) } }' : '({ count }) => renderRows(count)'}
+      const root = createRoot(document.getElementById('root'))
+      React.startTransition(() => root.render(React.createElement(Rows, { count: 2 })))
+      await new Promise(resolve => setTimeout(resolve, 50))
+      events.push('rendered 2')
+      for (const count of [3, 4]) {
+        flushSync(() => root.render(React.createElement(Rows, { count })))
+        events.push('rendered ' + count)
+      }
+      process.stdout.write(JSON.stringify(events))`
+    return JSON.parse(
+      execFileSync(process.execPath, ['--input-type=module', '-e', code], {
+        cwd: ROOT,
+        encoding: 'utf8',
+        env: { ...process.env, NODE_ENV: 'production' },
+      }),
+    ) as string[]
+  }
+
+  const GROWN_AT_THREE = [
+    'rendered 2',
+    '[MeoNode] A `children` list without keys came from one call site with 2, then 3 items, so it is generated at runtime rather than written out',
+    'rendered 3',
+    'rendered 4',
+  ]
+
+  const GROWN_LATE = [
+    'rendered 2',
+    'rendered 3',
+    '[MeoNode] A `children` list without keys came from one call site with 3, then 4 items, so it is generated at runtime rather than written out',
+    'rendered 4',
+  ]
+
+  // Next.js hydrates in a transition, which React renders in its concurrent
+  // work loop, and a click's update renders in its sync one. React's production
+  // build has no frame that ends a component's stack, so the frames of each
+  // loop would make the same call site two. MeoNode's own components learn
+  // where React calls a component from; the styled list's renders after the
+  // list's first call, which is keyed again once it has.
+  it('reports a list that grows from the first update after a transition render, as in development', () => {
+    expect(growthAfterTransition('ui.Ul({ padding: 4, children: rows })', 'function')).toEqual(GROWN_AT_THREE)
+  })
+
+  // A minifier renames the function React calls components from, as Next.js
+  // does to React's production build, so only its place can be cut at.
+  it('reports a list that grows from the first update after a transition render, with React minified', async () => {
+    const outfile = path.join(ROOT, 'node_modules/.cache/minified-react/modules.mjs')
+    rmSync(path.dirname(outfile), { recursive: true, force: true })
+    const { build } = await import('esbuild')
+    await build({
+      stdin: {
+        contents: `export * as ui from '@meonode/ui'\nexport * as React from 'react'\nexport { createRoot } from 'react-dom/client'\nexport { flushSync } from 'react-dom'`,
+        resolveDir: ROOT,
+      },
+      bundle: true,
+      format: 'esm',
+      platform: 'browser',
+      minify: true,
+      define: { 'process.env.NODE_ENV': '"production"' },
+      outfile,
+      logLevel: 'silent',
+    })
+    // React's production client names no frame for components, and the
+    // minifier renamed the function that calls them.
+    const reactDom = readFileSync(
+      path.join(path.dirname(createRequire(path.join(ROOT, 'package.json')).resolve('react-dom/package.json')), 'cjs/react-dom-client.production.js'),
+      'utf8',
+    )
+    expect(reactDom).toContain('function renderWithHooks(')
+    expect(reactDom).not.toContain('react_stack_bottom_frame')
+    expect(readFileSync(outfile, 'utf8')).not.toContain('renderWithHooks')
+    expect(growthAfterTransition('ui.Ul({ padding: 4, children: rows })', 'function', pathToFileURL(outfile).href)).toEqual(GROWN_AT_THREE)
+  })
+
+  // With none of MeoNode's own components rendered there is nothing to learn
+  // React's call from, and the call site keeps the frames below it: the update
+  // after the transition is keyed apart from it, and the list is reported one
+  // growth later than in development.
+  it('reports a list on a page of unstyled nodes only from the second update after a transition render', () => {
+    expect(growthAfterTransition('ui.Ul({ children: rows })', 'function')).toEqual(GROWN_LATE)
+  })
+
+  // React calls a class component's `render` from a place of its own, which no
+  // component of MeoNode's renders through, so it is never learned.
+  it('reports a list a class component renders only from the second update after a transition render', () => {
+    expect(growthAfterTransition('ui.Ul({ padding: 4, children: rows })', 'class')).toEqual(GROWN_LATE)
+  })
 })

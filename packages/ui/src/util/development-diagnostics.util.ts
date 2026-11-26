@@ -25,7 +25,7 @@ import {
 
 export { checkCss, checkFactoryCss, checkThemeFunctionResult, markCombinedCssChecked } from '@src/util/css-check.util.js'
 export { checkFactoryArguments } from '@src/util/factory-check.util.js'
-export { noteGeneratedList, observeChildren } from '@src/util/generated-list.util.js'
+export { learnComponentBoundary, noteGeneratedList, observeChildren } from '@src/util/generated-list.util.js'
 export {
   reportDroppedThemeFunction,
   reportSharedStyleName,

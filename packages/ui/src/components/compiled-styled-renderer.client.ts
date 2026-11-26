@@ -1,5 +1,6 @@
 'use client'
 import StyledRenderer from '@src/components/styled-renderer.client.js'
+import { learnComponentCaller } from '@src/util/diagnostics.util.js'
 import { installNamedRuntime } from '@src/util/named-runtime.util.js'
 
 /**
@@ -18,6 +19,8 @@ import { installNamedRuntime } from '@src/util/named-runtime.util.js'
  * @returns The element.
  */
 export default function CompiledStyledRenderer(props: Parameters<typeof StyledRenderer>[0]): ReturnType<typeof StyledRenderer> {
+  // Before `StyledRenderer` reads its own caller, which here is this function.
+  learnComponentCaller(CompiledStyledRenderer)
   installNamedRuntime()
   return StyledRenderer(props)
 }
