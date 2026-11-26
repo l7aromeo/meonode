@@ -507,6 +507,21 @@ production, so guessing would either ship source paths into production bundles
 or withhold them from the builds that want them. A build that does not ask
 carries no locations at all.
 
+**Modules another tool re-prints first.** With Next.js `reactCompiler`, Babel
+prints each client module that may hold a component before SWC parses it, so
+the lines SWC gives the plugin are Babel's, not yours. When the text the plugin
+parses differs from the file on disk, it reads the file, finds the same call
+sites in it, and names their line and column there. A call it cannot pair names
+its file alone ("A generated list at `src/app/page.ts`"):
+
+- a callee with more marked call sites in one text than in the other;
+- a file that does not parse;
+- a module whose file the plugin cannot read, when it imports React Compiler's
+  runtime. SWC lets a plugin read only the project directory, so this is a
+  module outside it, such as a workspace package in a monorepo.
+
+With the option off, the plugin reads and parses nothing.
+
 Measured on a 55-file application with 17 files containing a marked list, 65
 keys emitted: **+4,747 bytes of transform output (1.44%), +759 bytes gzipped
 (0.92%)**. Locations are emitted only alongside `__meo$list`, never on an
@@ -814,6 +829,7 @@ crates/meonode-swc-plugin/
   src/keys.rs                       shared special-key / key-name utilities
   src/config.rs                     plugin config (`factoryModules`, `callSiteLocations`)
   src/partition.rs                  prop partitioning + marker emission
+  src/positions.rs                  author's call-site positions in a re-printed module
   src/css_props.rs                  @generated — see Development
   src/factories.rs                  @generated — see Development
   tests/                            SWC fixture tests

@@ -1,5 +1,5 @@
 import { isValidElement } from 'react'
-import { COMPILED_MARKER, LIST_MARKER } from '@src/constant/common.const.js'
+import { COMPILED_MARKER, isDevMode, LIST_MARKER } from '@src/constant/common.const.js'
 import type { CapturedStack } from '@src/util/diagnostics.util.js'
 import { NodeUtil } from '@src/util/node.util.js'
 
@@ -81,6 +81,17 @@ let claimed = new WeakSet<object>()
  * an update, StrictMode's second pass), so a call site ends there.
  */
 const COMPONENT_BOUNDARY = 'react_stack_bottom_frame'
+
+/**
+ * Where React calls a component from, as `file:line:column`, learned from the
+ * first render of one of MeoNode's own components. React's production build
+ * has no {@link COMPONENT_BOUNDARY}, and a minifier renames the function that
+ * calls components, so the place is all there is to cut at. A transition
+ * renders on a different scheduler path from a synchronous update, and without
+ * the cut the same call site would get two keys. React calls a component again
+ * after a render-phase update from another place, which is not learned.
+ */
+let componentCaller: string | undefined
 
 /** The structured frames V8 offers through `Error.prepareStackTrace`. */
 interface CallSiteFrame {
@@ -200,7 +211,9 @@ function callSiteKey(below: (...args: never[]) => unknown, site: CapturedStack |
     // A captured stack holds as many frames as the engine keeps by default.
     for (const frame of (stack as CallSiteFrame[]).slice(0, frameLimit)) {
       if (frame.getFunctionName() === COMPONENT_BOUNDARY) break
-      key += `${frame.getFileName()}:${frame.getLineNumber()}:${frame.getColumnNumber()}\n`
+      const location = `${frame.getFileName()}:${frame.getLineNumber()}:${frame.getColumnNumber()}`
+      if (location === componentCaller) break
+      key += `${location}\n`
     }
     return key
   } finally {
@@ -342,6 +355,56 @@ export function observeChildren(element: unknown, props: Record<string, unknown>
 }
 
 /**
+ * Records where React calls a component from, so call sites end there. Calls
+ * made before it was known kept the frames below it, and are keyed again the
+ * way a call made now would be.
+ * @param caller The stack captured above one of MeoNode's own components as it rendered, unread.
+ */
+export function learnComponentBoundary(caller: StackHolder): void {
+  const location = firstFrame(caller)
+  if (location === undefined || location === componentCaller) return
+  componentCaller = location
+  const rekeyed = new Map<string, Seen>()
+  for (const [key, seen] of lengths) {
+    const cut = cutAtComponentCaller(key)
+    if (!rekeyed.has(cut)) rekeyed.set(cut, seen)
+  }
+  lengths = rekeyed
+  const wasReported = [...reported]
+  reported.clear()
+  for (const key of wasReported) reported.add(cutAtComponentCaller(key))
+}
+
+/**
+ * The first frame of a captured stack, as a call-site key writes a frame, or
+ * `undefined` where the engine gives no structured frames.
+ * @param holder The stack, unread: V8 formats it when it is first read.
+ * @returns `file:line:column`.
+ */
+function firstFrame(holder: StackHolder): string | undefined {
+  const previousPrepare = V8Error.prepareStackTrace
+  try {
+    V8Error.prepareStackTrace = (_error, frames) => frames
+    const frame = Array.isArray(holder.stack) ? (holder.stack[0] as CallSiteFrame | undefined) : undefined
+    return frame === undefined ? undefined : `${frame.getFileName()}:${frame.getLineNumber()}:${frame.getColumnNumber()}`
+  } finally {
+    V8Error.prepareStackTrace = previousPrepare
+  }
+}
+
+/** A call-site key, one frame per line, without the frames from {@link componentCaller} down. */
+function cutAtComponentCaller(key: string): string {
+  const frames = key.split('\n')
+  const at = frames.indexOf(componentCaller as string)
+  return at === -1
+    ? key
+    : frames
+        .slice(0, at)
+        .map(frame => `${frame}\n`)
+        .join('')
+}
+
+/**
  * Whether the note beside React's missing-key warning for a marked list is
  * still to be logged at this call site, recording it as logged. React logs its
  * own warning once, so the note is logged once too. A call site is named by
@@ -361,9 +424,10 @@ export function noteOnce(location: unknown, siteKey: unknown, element: unknown):
 }
 
 /**
- * Notes, beside React's missing-key warning, where a generated list whose
- * children reach React as a list came from, once per call site, while
- * diagnostics are on.
+ * Notes where a generated list whose children reach React as a list came from,
+ * once per call site, while diagnostics are on. In development the note sits
+ * beside React's own missing-key warning; React's production build makes none,
+ * so there, with debug mode on, the note is the only report.
  * @param children The children handed to React as a list.
  * @param location The call site's `__meo$loc`, if the plugin recorded one.
  * @param siteKey The call site's compiled key, if its marker carries one.
@@ -377,20 +441,23 @@ export function noteGeneratedList(children: readonly unknown[], location: unknow
   // `.map()` supplied keys, the heading beside it did not, and React then names
   // the heading. The reader audits the rows, which are the innocent half.
   const mixed = missingKey && elements.some(child => child.key != null)
+  // React's development build is the one `isDevMode` reads `NODE_ENV` for.
+  const reactReports = isDevMode()
   // The shape clause needs only the list marker, which every compiled build
   // emits. The call site needs the plugin's `callSiteLocations` option, which
   // most builds do not set — so withholding the explanation until the line
   // number is available would keep the useful half from nearly everyone, to
   // avoid omitting the ornamental one.
   //
-  // Without a location, only the mixed case is worth saying. React already
-  // reports an all-unkeyed list correctly; repeating it with no line number adds
-  // noise and nothing else.
+  // Where React reports, only the mixed case is worth saying without a
+  // location: React already reports an all-unkeyed list correctly, and
+  // repeating it with no line number adds noise and nothing else.
   //
   // Once per call site, last so only a note about to be logged is recorded:
   // React logs its own warning once, and a component that renders often would
   // otherwise repeat the note on every render.
-  if (!missingKey || !(location || mixed) || !noteOnce(location, siteKey, element)) return
+  if (!missingKey || !(location || mixed || !reactReports) || !noteOnce(location, siteKey, element)) return
+  if (!reactReports) return void console.warn(productionNote(location, mixed))
   const spreadClause = mixed
     ? ' Some children here do have keys: a spread puts a generated list and the siblings written beside it into one list, so React asks those siblings for keys too. Nest the generated part instead of spreading it.'
     : ''
@@ -401,9 +468,28 @@ export function noteGeneratedList(children: readonly unknown[], location: unknow
   )
 }
 
+/**
+ * The note for a production build, where React reports no missing key, so it
+ * says what React's warning would have.
+ * @param location The call site's `__meo$loc`, if the plugin recorded one.
+ * @param mixed Whether some children of the list have keys.
+ * @returns The note.
+ */
+function productionNote(location: unknown, mixed: boolean): string {
+  const where = location ? ` at ${location}` : ''
+  const spreadClause = mixed
+    ? ' Some children here do have keys: a spread puts a generated list and the siblings written beside it into one list, so those siblings need keys too. Nest the generated part instead of spreading it.'
+    : ''
+  const locationHint = location ? '' : ' Turn on `callSiteLocations` in the @meonode/compiler plugin options to have this name the file and line.'
+  return (
+    `[MeoNode] A generated list${where} has children without a \`key\`. React's production build does not report a missing key, so this is the only report: ` +
+    `its rows are matched by position and keep the wrong state when the list changes. Give each item a \`key\`, or build the list with \`For\`.${spreadClause}${locationHint}`
+  )
+}
+
 /** How many call sites are remembered and reported, for tests. */
-export function __generatedListState(): { callSites: number; groups: number; reported: number; noted: number } {
-  return { callSites: lengths.size, groups: groupCount, reported: reported.size, noted: noted.size }
+export function __generatedListState(): { callSites: number; groups: number; reported: number; noted: number; componentCaller: string | undefined } {
+  return { callSites: lengths.size, groups: groupCount, reported: reported.size, noted: noted.size, componentCaller }
 }
 
 /** Forgets every call site and array seen, for tests. */

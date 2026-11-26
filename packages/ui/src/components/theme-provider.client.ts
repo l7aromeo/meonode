@@ -17,7 +17,7 @@ import type { Children, ResolvedThemeMode, ResolvedThemePreference, ResolvedThem
 import { Node } from '@src/core.node.js'
 import { buildThemeVariablesCss } from '@src/util/server-theme.util.js'
 import { diagnosticsEnabled } from '@src/constant/common.const.js'
-import { trackProviderTokens, withDiagnostics } from '@src/util/diagnostics.util.js'
+import { learnComponentCaller, trackProviderTokens, withDiagnostics } from '@src/util/diagnostics.util.js'
 
 export interface ThemeContextValue {
   /**
@@ -422,6 +422,7 @@ export default function ThemeProvider({
   system,
   storageKey = 'theme',
 }: ThemeProviderProps): ReactNode {
+  learnComponentCaller(ThemeProvider)
   // Checked at construction, ungated, and named.
   //
   // These are required props, so a typechecked caller cannot omit one. A

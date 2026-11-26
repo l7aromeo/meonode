@@ -94,6 +94,7 @@ mod carrier;
 // Prop partitioning + call-site key emission. Public for the same
 // reason as `detect`.
 pub mod partition;
+mod positions;
 
 /// Entry point invoked by the SWC plugin host (next-swc / @swc/core).
 ///
@@ -116,13 +117,28 @@ pub fn process_transform(
     let filename = resolve_filename(&metadata);
     let plugin_config =
         config::CompileConfig::from_json(metadata.get_transform_plugin_config().as_deref());
-    partition::transform_program(
+    partition::transform_program_reading(
         &mut program,
         &filename,
         &plugin_config,
         Some(&metadata.source_map),
+        &read_project_file,
     );
     program
+}
+
+/// Where SWC's plugin runner maps the host's working directory in the
+/// plugin's sandbox. Nothing outside it can be read.
+const SANDBOX_CWD: &str = "/cwd";
+
+/// Reads a file of the project by the name [`resolve_filename`] gives it,
+/// relative to the working directory; `None` for a name outside it, or one
+/// the host does not let the plugin read.
+fn read_project_file(filename: &str) -> Option<String> {
+    if filename == "unknown" || std::path::Path::new(filename).is_absolute() {
+        return None;
+    }
+    std::fs::read_to_string(format!("{SANDBOX_CWD}/{filename}")).ok()
 }
 
 /// Resolves the filename used to compute each call site's `k` value: the
