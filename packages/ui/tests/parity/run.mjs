@@ -821,8 +821,30 @@ function noteOnlyCompared(row, states) {
 const outliers = []
 /** The pages reloaded once during their forced-state sweep for a stray :hover (collect.mjs, withReload), for PARITY_REPORT. */
 const reloaded = []
+
+/**
+ * The real-input reads whose pointer did not settle on their element
+ * (collect.mjs, pointerSettled), each kept as not held, per page, for
+ * PARITY_REPORT.
+ */
+const pointer = []
 /** The run's records gathered per case, which a worker sends back with each case it reads. */
-const GATHERED = { report, unstable, snapped, onlyCompared, outliers, reloadCounts, reloaded }
+const GATHERED = { report, unstable, snapped, onlyCompared, outliers, reloadCounts, reloaded, pointer }
+
+/** The forced states of a record whose pointer did not settle, each with what was hovered and hit. */
+const unsettledOf = record =>
+  Object.entries(record?.forcedSamples ?? {})
+    .filter(([, sample]) => sample.pointer)
+    .map(([key, { pointer: p }]) => `${key} (hovered ${p.hovered}, hit ${p.hit}${p.edge ? ', on an edge' : ''})`)
+
+/** Prints and keeps a page's reads whose pointer did not settle, with the load and time. */
+function notePointer(row, recorded) {
+  const unsettled = unsettledOf(recorded.record)
+  if (!unsettled.length) return
+  const seen = { load1: Number(loadavg()[0].toFixed(2)), time: new Date().toISOString() }
+  console.log(`       ${row.side} pointer not settled, not held (${unsettled.length}), load ${seen.load1} at ${seen.time}: ${unsettled.join(', ')}`)
+  pointer.push({ ...row, unsettled, ...seen })
+}
 
 /** Prints and keeps the stray :hover a page's sweep was reloaded for, with the load and time. */
 function noteReload(row, recorded) {
@@ -962,6 +984,18 @@ try {
         if (!recovered) failures++
         console.log(
           `${recovered ? 'recovered' : 'FAIL'} plant ${plant.dimension} ${plant.name}: ${found.length} difference(s)${found.length ? ` (${found.slice(0, 2).map(d => d.text).join(' | ')})` : ''}, ${plant.recovers} ${JSON.stringify(side?.record[plant.recovers] ?? null)}`,
+        )
+        continue
+      }
+      // A plant that leaves the pointer unsettled must make the planted page list a read that neither unplanted page lists.
+      if (plant.pointer) {
+        // By state key: the hovered and hit names carry class names, which differ between sides.
+        const keyOf = entry => entry.split(' ')[0]
+        const others = new Set([...unsettledOf(oracle.record), ...unsettledOf(cleanSide.record)].map(keyOf))
+        const fresh = unsettledOf(side?.record).filter(entry => !others.has(keyOf(entry)))
+        if (!fresh.length) failures++
+        console.log(
+          `${fresh.length ? 'listed' : 'MISSED'} plant ${plant.dimension} ${plant.name}: pointer not settled on the planted page alone: ${fresh.join(', ') || 'none'}${side ? '' : ` (the page failed: ${found[0]?.text})`}`,
         )
         continue
       }
@@ -1151,6 +1185,7 @@ try {
         try {
           oracle = await record('runtime', name, mode, meta)
           noteReload({ case: name, mode, side: 'runtime' }, oracle)
+          notePointer({ case: name, mode, side: 'runtime' }, oracle)
         } catch (error) {
           failures++
           console.log(`FAIL ${name} [${mode}] runtime: the oracle page failed: ${error.message}`)
@@ -1176,6 +1211,7 @@ try {
           try {
             records[side] = await record(side, name, mode, meta)
             noteReload({ case: name, mode, side }, records[side])
+            notePointer({ case: name, mode, side }, records[side])
             const compareStarted = performance.now()
             all = compareRecords(oracle, records[side])
             snaps = all.snapped
@@ -1311,6 +1347,7 @@ if (REPORT)
       reloadCounts,
       outliers,
       reloaded,
+      pointer,
       timings,
       phases: { totals: phaseTotals, build: buildPhases, rows: rowPhases },
     }),
@@ -1327,6 +1364,11 @@ if (snapped.length) {
 if (reloaded.length) {
   console.log(`pages reloaded once for a stray :hover on ${ENGINE}: ${reloaded.length}`)
   for (const [name, rows] of Object.entries(Object.groupBy(reloaded, u => u.case))) console.log(`  ${name}: ${rows.map(u => `[${u.mode}] ${u.side}`).join(', ')}`)
+}
+if (pointer.length) {
+  console.log(`pointer reads not settled on ${ENGINE}: ${pointer.reduce((n, u) => n + u.unsettled.length, 0)} in ${pointer.length} page(s)`)
+  for (const [name, rows] of Object.entries(Object.groupBy(pointer, u => u.case)))
+    console.log(`  ${name}: ${rows.map(u => `[${u.mode}] ${u.side} ${u.unsettled.length}`).join('; ')}`)
 }
 if (outliers.length) {
   console.log(`sweep outliers left out on ${ENGINE}: ${outliers.reduce((n, u) => n + u.states.length, 0)} in ${outliers.length} row(s)`)

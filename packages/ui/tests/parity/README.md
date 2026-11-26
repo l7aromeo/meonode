@@ -64,11 +64,16 @@ Each side's record is compared with the oracle's on:
   before the move, since focusing an element can scroll the page and leave
   an earlier measure on a neighbour. A read under `:hover` or `:active` waits
   until the element matches the state, since real input takes effect on the
-  engine's own frame. The press for `:active` is made only when the point
-  still lands on the element once its hover has taken effect: a `:hover`
-  rule that moves the element from under the pointer would send the press
-  to another element, and WebKit then keeps `:hover` on the element after
-  the release. That read is kept as not held. A read counts as a sample of
+  engine's own frame. Once its hover has taken effect, the pointer must have
+  settled on the element: the deepest hovered element is the element at the
+  point, inside the forced element, and the points half a pixel either side
+  hit it too, since at a box's edge the engine's rounding decides which box
+  is hovered. A read whose pointer did not settle is kept as not held,
+  without the press for `:active` (a `:hover` rule that moves the element
+  from under the pointer would send the press to another element, and
+  WebKit then keeps `:hover` on the element after the release); the row lists
+  it with what was hovered and hit, the load and the time, and
+  `PARITY_REPORT` keeps it as `pointer`. A read counts as a sample of
   its state only when no other compared element matches `:hover` besides the
   element's own ancestors and descendants. Every DOM-state or step read fails
   the page if any compared element still matches `:hover`, and names the
@@ -118,7 +123,11 @@ Each side's record is compared with the oracle's on:
   through real input, since the DevTools protocol moves no pointer. Under
   real input too, a planted hover left at a return to the square must be
   recovered from by one reload with no difference, and one left again after
-  the reload must fail the page naming both; an element only a focus state
+  the reload must fail the page naming both; a point the planted page
+  measures blind to the plant target's inner box's child, whose box and hit
+  test the planted page gives to the inner box, so that the point is the
+  box's centre inside that child, must leave a read not settled on that page
+  alone; an element only a focus state
   mounts (the plant target's hint, ahead of the toggle) must make no
   difference on both pages alike, must fail with one property planted, and
   so must one that the planted page alone mounts under that state. A

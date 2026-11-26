@@ -6,7 +6,8 @@
 // text "Plant target", a toggle that sets aria-pressed, an element marked for
 // exact markup, a one-column multi-column box, a checkbox, a field with a
 // placeholder that mounts a hint while it has focus, a box its own hover moves
-// from under the pointer, and a breakpoint at 600px.
+// from under the pointer, a box whose centre lies inside its child, and a
+// breakpoint at 600px.
 //
 // afterCrossing runs its listener in the page, so it uses its globals.
 /* global Element */
@@ -103,6 +104,28 @@ function afterKeyPress(css) {
         }),
       css,
     )
+}
+
+/**
+ * Hides the children of the element `selector` matches from the pointer's
+ * measure on the planted page: their boxes, and the hit test, which gives the
+ * element where it would give a child. The plant target's inner box has its
+ * centre inside its child, so the point the planted page picks there lies on
+ * the child and the hover the pointer gets is the child's: the pointer there
+ * must not settle.
+ */
+function pointBlindToChildren(selector) {
+  return page =>
+    page.evaluate(s => {
+      const box = document.querySelector(s)
+      const children = new Set(box.children)
+      for (const child of children) child.getClientRects = () => []
+      const hit = document.elementFromPoint.bind(document)
+      document.elementFromPoint = (x, y) => {
+        const found = hit(x, y)
+        return children.has(found) ? box : found
+      }
+    }, selector)
 }
 
 /**
@@ -470,13 +493,14 @@ export const PLANTS = [
         page.addStyleTag({ content: `${ROOT} input[placeholder]:focus { ${loads++ === 0 ? WRONG : 'word-spacing: 7px !important'} }` })
     })(),
   },
-  // A press no sweep of the oracle holds (the box's hover moves it from under the pointer, so it is not pressed) and the
-  // planted page does: with no oracle sample to judge by, the press is left out as unstable, and the planted rule
-  // still fails the hover both pages hold.
+  // A hover and a press no sweep of the oracle holds (the box's hover moves it out of the viewport, so the pointer
+  // never settles on it) and the planted page does: with no oracle sample to judge by, both are left out as unstable,
+  // and the planted rule leaves no difference.
   {
     dimension: 'forced-state',
-    name: 'a press the oracle never holds and the planted page does',
+    name: 'a hover and a press the oracle never holds and the planted page does',
     input: true,
+    excused: true,
     page: addRule(`${ROOT} [data-parity-away]:hover { transform: none !important; ${WRONG} }`),
   },
   // The hint the field mounts while it has focus, ahead of the toggle, on both pages: no difference.
@@ -484,6 +508,7 @@ export const PLANTS = [
   // A :hover left behind at a reset: the sweep reloads the page and goes on, and a second one fails the page naming both.
   { dimension: 'hydration', name: 'a stuck :hover the reload clears', input: true, recovers: 'reloadedFor', page: stuckHover({ again: false }) },
   { dimension: 'hydration', name: 'a stuck :hover after the reload too', input: true, text: ', after a reload for stray :hover', page: stuckHover({ again: true }) },
+  { dimension: 'forced-state', name: "a point blind to a child's box", input: true, pointer: true, page: pointBlindToChildren('[data-parity-inner]') },
   { dimension: 'breakpoint', page: addRule(`@media (min-width: 601px) and (max-width: 601px) { ${ROOT} { ${WRONG} } }`) },
   { dimension: 'color-scheme', page: addRule(`@media (prefers-color-scheme: dark) { ${ROOT} { ${WRONG} } }`) },
   { dimension: 'theme-mode', page: addRule(`[data-theme="dark"] ${ROOT} { ${WRONG} }`) },

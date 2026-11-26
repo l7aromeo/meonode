@@ -397,9 +397,9 @@ async function forcedByCdp(page, base, sets, onlyMarked, read, spend = () => {})
  * for :focus-visible. An element with no box gets no pointer states. The
  * :active read is taken with the pointer still over the element, so :hover
  * holds in it too, and a rule under :hover alone shows in both reads. The
- * press is made only when the point still lands on the element once its
- * hover has taken effect: otherwise it would land on another element, so
- * that :active read is kept as not held.
+ * press is made only when the pointer has settled on the element once its
+ * hover has taken effect (pointTo): otherwise the read is kept as not held,
+ * with what was hovered and hit.
  */
 async function forcedByInput(page, base, sets, onlyMarked, read, upTo = Infinity, samples = {}, reload = null) {
   let elements = await comparedElements(page)
@@ -408,20 +408,22 @@ async function forcedByInput(page, base, sets, onlyMarked, read, upTo = Infinity
   for (let index = 0; index < elements.length; index++) {
     if (index > upTo) break
     if (!targets[index]) continue
-    let centre = await centreOf(elements[index])
+    let point = await centreOf(elements[index])
     await settle(page)
     // After a reload the page's elements are new nodes, so the handles and the centre are taken again.
     const again = reload && (async () => {
       await reload()
       elements = await comparedElements(page)
-      centre = await centreOf(elements[index])
+      point = await centreOf(elements[index])
       await settle(page)
     })
     for (const states of sets) {
       const key = `${index}:${states.join('+')}`
-      const { changed, held, waited, layout, stray } = await withReload(page, again, () => applyByInput(page, base, elements[index], index, centre, states, read))
+      const { changed, held, waited, layout, stray, pointer } = await withReload(page, again, () =>
+        applyByInput(page, base, elements[index], index, point, states, read),
+      )
       out[key] = changed
-      samples[key] = { held, waited, layout, ...(stray && { stray }) }
+      samples[key] = { held, waited, layout, ...(stray && { stray }), ...(pointer && { pointer }) }
     }
   }
   await withReload(page, reload, () => resetInput(page))
@@ -441,6 +443,43 @@ async function centreOf(element) {
   await element.scrollIntoViewIfNeeded().catch(() => {})
   const box = await element.boundingBox()
   return box && box.width > 0 && box.height > 0 ? [box.x + box.width / 2, box.y + box.height / 2] : null
+}
+
+/**
+ * How far, in px, either side of the point must hit the same element for the
+ * pointer to count as settled: at a box's edge, an engine's hit test and its
+ * rounding of the pointer against layout units decide which box is hovered.
+ */
+const POINTER_REACH = 0.5
+
+/**
+ * Runs in the page with the pointer at (x, y): whether it is settled on the
+ * element. The deepest :hover element must be the element at the point and
+ * inside `el`, and the points `reach` px either side on each axis must hit
+ * that element too, so no box edge lies within rounding of the point. Names
+ * the hovered and the hit element when it is not.
+ */
+function pointerSettled(el, [x, y, reach]) {
+  const hovered = [...document.querySelectorAll(':hover')].pop() ?? null
+  const hit = document.elementFromPoint(x, y)
+  const around = [
+    [x - reach, y],
+    [x + reach, y],
+    [x, y - reach],
+    [x, y + reach],
+  ].every(([px, py]) => document.elementFromPoint(px, py) === hit)
+  if (hovered === hit && hit && el.contains(hit) && around) return { settled: true }
+  const name = node => (node ? `${node.tagName.toLowerCase()}${node.className ? `.${String(node.className).split(' ').join('.')}` : ''}` : 'none')
+  return { settled: false, hovered: name(hovered), hit: name(hit), ...(!around && { edge: true }) }
+}
+
+/** The pointer to `point` on the element, then, once its hover has taken effect there, checked by pointerSettled. */
+async function pointTo(page, element, point) {
+  await settle(page)
+  await page.mouse.move(...point)
+  await element.evaluate(waitForStates, [['hover'], STATE_WAIT_FRAMES])
+  await settle(page)
+  return element.evaluate(pointerSettled, [...point, POINTER_REACH])
 }
 
 /** The side of the blank square the pointer rests on between states, in px. */
@@ -550,20 +589,8 @@ function waitForStates(el, [states, frames]) {
   })
 }
 
-/**
- * Runs with the pointer on the element: whether, once its hover has taken
- * effect, the element still matches :hover and the point still hits it or a
- * descendant. A :hover rule that moves the element from under the pointer
- * fails this, and a press there would land on another element.
- */
-async function pointerStaysOn(page, element, point) {
-  await element.evaluate(waitForStates, [['hover'], STATE_WAIT_FRAMES])
-  await settle(page)
-  return element.evaluate((el, [x, y]) => el.matches(':hover') && el.contains(document.elementFromPoint(x, y)), point)
-}
-
 /** Applies one set of states to the element at `index` by real input, from a reset, and returns what changed from `base`. */
-async function applyByInput(page, base, element, index, centre, states, read) {
+async function applyByInput(page, base, element, index, point, states, read) {
   await resetInput(page)
   let pressed = false
   // Focus first, since moving focus by pointer would end a hover or a press.
@@ -577,21 +604,23 @@ async function applyByInput(page, base, element, index, centre, states, read) {
     await element.evaluate(el => el.focus?.({ focusVisible: true }))
   }
   if (states.includes('focus-within')) await element.evaluate(el => el.querySelector('input, button, select, textarea, a[href], [tabindex]')?.focus())
-  // The centre measured again here: focus scrolls the element into view, so a point measured before it can lie on a neighbour.
-  if ((states.includes('hover') || states.includes('active')) && centre) {
-    centre = (await centreOf(element)) ?? centre
-    await settle(page)
-    await page.mouse.move(...centre)
+  // The centre measured again here: focus scrolls the element into view, so a point measured before it can lie on a
+  // neighbour.
+  const pointing = (states.includes('hover') || states.includes('active')) && point
+  let check = null
+  if (pointing) {
+    point = (await centreOf(element)) ?? point
+    check = await pointTo(page, element, point)
   }
-  // No press where the element's own hover has moved it from under the pointer: the press would land on another
-  // element, so the read is no sample of :active, and WebKit keeps :hover on the element after that press is released.
-  const offElement = states.includes('active') && centre ? !(await pointerStaysOn(page, element, centre)) : false
-  if (states.includes('active') && centre && !offElement) {
+  // No press where the pointer did not settle on the element: the press would land on another element or on an edge,
+  // so the read is no sample of :active, and WebKit keeps :hover on the element after that press is released.
+  const offElement = pointing ? !check.settled : false
+  if (states.includes('active') && pointing && !offElement) {
     await page.mouse.down()
     pressed = true
   }
   // Real input takes effect on the engine's own frame, so read only once the element matches the states the pointer set.
-  const pointerStates = centre && !offElement ? states.filter(state => state === 'hover' || state === 'active') : []
+  const pointerStates = pointing && !offElement ? states.filter(state => state === 'hover' || state === 'active') : []
   const waited = pointerStates.length ? await element.evaluate(waitForStates, [pointerStates, STATE_WAIT_FRAMES]) : true
   await settle(page)
   const changed = await read(index)
@@ -599,8 +628,7 @@ async function applyByInput(page, base, element, index, centre, states, read) {
   // under the pointer ends itself, and a read without the state is no sample of it.
   const kept = pointerStates.length ? await element.evaluate((el, list) => list.every(state => el.matches(`:${state}`)), pointerStates) : true
   // Any other hovered element is a state the read carries that the other side may lack: no sample either.
-  const onElement = centre && (states.includes('hover') || states.includes('active'))
-  const stray = await page.evaluate(strayHovers, [SKIPPED_TAGS, onElement ? index : null])
+  const stray = await page.evaluate(strayHovers, [SKIPPED_TAGS, pointing ? index : null])
   const held = !offElement && kept && !stray.length
   // The scroll boxes a state can change: its fixture's and the document's, whose scrollbars an engine may add a frame late.
   const layout = await element.evaluate(el => {
@@ -618,7 +646,8 @@ async function applyByInput(page, base, element, index, centre, states, read) {
     await page.mouse.up()
   }
   lastInput.set(page, `the ${states.join('+')} state of element ${index}`)
-  return { changed, held, waited, layout, ...(stray.length && { stray }) }
+  const pointer = offElement ? { hovered: check.hovered, hit: check.hit, ...(check.edge && { edge: true }) } : null
+  return { changed, held, waited, layout, ...(stray.length && { stray }), ...(pointer && { pointer }) }
 }
 
 /**
