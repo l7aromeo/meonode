@@ -9,6 +9,9 @@ import { beforeAll, describe, expect, it, vi } from 'vitest'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
+/** What the server-layer guard throws when an entry of the default build loads in the React Server Components layer. */
+const GUARD_MESSAGE = '[MeoNode] The default entry of @meonode/ui was loaded in the React Server Components layer'
+
 const CLIENT_FILES = [
   'dist/esm/components/theme-provider.client.js',
   'dist/esm/components/portal-provider.client.js',
@@ -351,8 +354,6 @@ describe('build output: the server build and the default build', () => {
       expect(output).toBe('loaded')
     },
   )
-
-  const GUARD_MESSAGE = '[MeoNode] The default entry of @meonode/ui was loaded in the React Server Components layer'
 
   it('refuses to load its default cjs entry in Node, where `react` resolves to its react-server build', () => {
     let failure = ''
@@ -818,6 +819,143 @@ describe('build output: a production browser bundle', () => {
     for (const message of MESSAGES)
       expect([message, initial.some(code => code.includes(message)), lazy.some(code => code.includes(message))]).toEqual([message, true, false])
   })
+})
+
+/**
+ * The package's `sideEffects` list names the entries and the server-layer guard,
+ * so a bundler drops every other module an app does not use, and still runs the
+ * guard where the default entry loads in the React Server Components layer
+ * (#173). Without the field, webpack keeps every module an entry re-exports,
+ * since each might matter for what loading it does; with `false`, it drops the
+ * guard too.
+ */
+describe('build output: the sideEffects list', () => {
+  const WORK = path.join(ROOT, 'node_modules/.cache/side-effects')
+  const requireFromRoot = createRequire(path.join(ROOT, 'package.json'))
+  const { webpack } = (requireFromRoot('next/dist/compiled/webpack/bundle5') as () => { webpack: Webpack })()
+
+  /** Packages the app leaves to the page; only MeoNode's own modules are under test. */
+  const EXTERNAL = [
+    'react',
+    'react-dom',
+    'react/jsx-runtime',
+    '@emotion/react',
+    '@emotion/cache',
+    '@emotion/serialize',
+    '@emotion/unitless',
+    '@emotion/utils',
+    'stylis',
+  ]
+
+  /** The modules of CSS extraction, which only compiled code calls into. */
+  const EXTRACTION = [
+    'util/static-css.util.js',
+    'util/named-runtime.util.js',
+    'util/named-style.util.js',
+    'util/compiled-style.util.js',
+    'components/compiled-styled-renderer.client.js',
+    'components/static-styles.default.js',
+    'util/static-theme-check.util.js',
+    'util/themed-text.util.js',
+    'util/walk-contexts.util.js',
+    'util/emotion-cache.default.util.js',
+    'factory-call/join.js',
+    'util/css-value.util.js',
+  ]
+
+  /**
+   * The providers, the portal host and the theme script. `theme-provider.client.js`
+   * is not among them: it holds the theme context every styled node reads.
+   */
+  const WRAPPERS = [
+    'components/theme-provider.js',
+    'components/portal-provider.js',
+    'components/portal-provider.client.js',
+    'components/portal-host.js',
+    'components/portal-host.client.js',
+    'helper/theme-script.helper.js',
+  ]
+
+  /** The part of webpack's compilation that says which modules each chunk holds. */
+  interface WebpackModule {
+    resource?: string
+    modules?: WebpackModule[]
+  }
+  interface Compilation {
+    chunks: Iterable<object>
+    chunkGraph: { getChunkModulesIterable(chunk: object): Iterable<WebpackModule> }
+  }
+
+  /** Bundles `source` with webpack in production and returns the paths, under `dist/esm`, of the modules its chunks hold. */
+  const bundledModules = (source: string, options: { target: 'web' | 'node'; reactServer?: boolean; out: string }): Promise<string[]> => {
+    const entry = path.join(WORK, `${options.out}.js`)
+    mkdirSync(WORK, { recursive: true })
+    writeFileSync(entry, source)
+    return new Promise((resolve, reject) => {
+      webpack(
+        {
+          mode: 'production',
+          target: options.target,
+          context: ROOT,
+          entry,
+          output: { path: path.join(WORK, options.out), filename: 'main.cjs', clean: true },
+          optimization: { minimize: false },
+          ...(options.reactServer
+            ? {
+                // The default entry by path, as an alias that bypasses the export
+                // conditions would load it, with React's react-server build bundled.
+                resolve: {
+                  conditionNames: ['react-server', 'import', 'module', 'default'],
+                  alias: { '@meonode/ui$': path.join(ROOT, 'dist/esm/main.js') },
+                },
+                // That build lacks the client hooks; the guard, at run time, is what refuses it.
+                module: { parser: { javascript: { exportsPresence: false } } },
+                externals: Object.fromEntries(EXTERNAL.filter(name => !name.startsWith('react')).map(name => [name, `commonjs ${name}`])),
+              }
+            : { externals: Object.fromEntries(EXTERNAL.map(name => [name, `commonjs ${name}`])) }),
+        },
+        (error, stats) => {
+          const errors = stats?.toJson({ all: false, errors: true }).errors ?? []
+          if (error || !stats || errors.length > 0)
+            return reject(error ?? new Error(errors.map(entry => entry.message).join('\n') || 'webpack returned no stats'))
+          // The chunk graph, not the stats, which shorten the module list; a
+          // concatenated module lists the modules it joined.
+          const { chunks, chunkGraph } = (stats as unknown as { compilation: Compilation }).compilation
+          const resources = [...chunks].flatMap(chunk =>
+            [...chunkGraph.getChunkModulesIterable(chunk)].flatMap(module => (module.modules ?? [module]).map(inner => inner.resource ?? '')),
+          )
+          resolve(resources.flatMap(resource => path.relative(ROOT, resource).match(/^dist\/esm\/(.+\.js)$/)?.[1] ?? []))
+        },
+      )
+    })
+  }
+
+  it('leaves out of an app that renders two elements every extraction module and every wrapper it does not use, and keeps the guard', async () => {
+    const modules = await bundledModules(
+      "import { Div, Row } from '@meonode/ui'\nglobalThis.app = () => Row({ children: Div({ children: 'hello' }) }).render()\n",
+      { target: 'web', out: 'two-elements' },
+    )
+    expect(modules).toContain('core.node.js')
+    expect(modules).toContain('util/server-layer-guard.default.js')
+    for (const module of [...EXTRACTION, ...WRAPPERS]) expect([module, modules.includes(module)]).toEqual([module, false])
+  }, 120_000)
+
+  it('still refuses the default entry where webpack bundles it with React’s react-server build', async () => {
+    await bundledModules("import { Div, Row } from '@meonode/ui'\nglobalThis.page = Row({ children: Div({ children: 'hello' }) })\nconsole.log('loaded')\n", {
+      target: 'node',
+      reactServer: true,
+      out: 'server-layer',
+    })
+    let failure = ''
+    let output = ''
+    try {
+      output = execFileSync(process.execPath, [path.join(WORK, 'server-layer/main.cjs')], { cwd: ROOT, encoding: 'utf8', stdio: 'pipe' }).trim()
+    } catch (error) {
+      failure = String((error as { stderr?: string }).stderr)
+    }
+    expect(output).toBe('')
+    expect(failure).toContain(GUARD_MESSAGE)
+  }, 120_000)
 })
 
 /**
