@@ -243,3 +243,31 @@ function captureStack(caller: (...args: never[]) => unknown): CapturedStack {
   else above.stack = whole.stack
   return { above, whole }
 }
+
+/** Whether {@link learnComponentCaller} has captured React's call into a component. */
+let componentCallerLearned = false
+
+/**
+ * Captures where React calls a component from, the first time one of MeoNode's
+ * own components renders while diagnostics are on, and hands it to the
+ * generated-list report as the place a call site ends. React's development
+ * build calls every component through a frame named
+ * `react_stack_bottom_frame`, which that report cuts at by name; its
+ * production build calls one from `renderWithHooks`, whose name a minifier
+ * drops, so there the place is learned from a render MeoNode owns.
+ *
+ * With diagnostics off it does nothing, and a production build turned to debug
+ * mode later learns on the next such render. The stack is captured unread and
+ * read by the diagnostics, as a call site's is, so reading it stays in their
+ * chunk.
+ *
+ * Call it first in the component, before it calls any other component as a
+ * function, so the frame captured is React's.
+ * @param component The component that is rendering.
+ */
+export function learnComponentCaller(component: (...args: never[]) => unknown): void {
+  if (componentCallerLearned || !diagnosticsEnabled()) return
+  componentCallerLearned = true
+  const { above } = captureStack(component)
+  withDiagnostics(d => d.learnComponentBoundary(above))
+}

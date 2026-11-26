@@ -19,7 +19,7 @@ import type { CssProp, NodeElement, Theme } from '@src/types/node.type.js'
 import { ThemeContext, type ThemeContextState, type ThemeSnapshot, useThemeSnapshot } from '@src/components/theme-provider.client.js'
 import { ThemeUtil } from '@src/util/theme.util.js'
 import type { ThemeVarRef } from '@src/util/theme-diagnostics.util.js'
-import { reportUnresolvedThemeKey, withDiagnostics } from '@src/util/diagnostics.util.js'
+import { learnComponentCaller, reportUnresolvedThemeKey, withDiagnostics } from '@src/util/diagnostics.util.js'
 import { isValidElementType } from '@src/helper/react-is.helper.js'
 import { createServerCssCache } from '@src/util/server-css-cache.util.js'
 import { nameStyles } from '@src/util/style-name.util.js'
@@ -46,6 +46,7 @@ export interface StyledRendererProps<E extends NodeElement> {
 const selectMode = (snapshot: ThemeSnapshot) => snapshot.mode
 
 export default function StyledRenderer<E extends NodeElement, TProps extends Record<string, any>>(props: StyledRendererProps<E> & TProps): JSX.Element {
+  learnComponentCaller(StyledRenderer)
   const context = useContext(ThemeContext)
   const emotionCache = useEmotionCache()
 
