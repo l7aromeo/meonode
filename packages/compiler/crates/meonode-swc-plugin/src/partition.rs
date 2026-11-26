@@ -31,6 +31,7 @@
 //! never rewritten in either — they must resolve to concrete values at runtime,
 //! since `var()` is invalid inside media features and selector text.
 
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::mem;
 
@@ -48,6 +49,7 @@ use crate::effect::is_static_literal;
 use crate::explain;
 use crate::extract::{Factory, ModuleExtraction, ModuleScope, emit_module};
 use crate::keys::{is_special_key, is_stable_key_visible_special, key_name_atom};
+use crate::positions::{self, Positions};
 use crate::theme::{is_length_key, is_selector_or_at_rule, rewrite_theme_tokens_for};
 
 const MARKER_KEY: &str = "__meo$";
@@ -299,15 +301,31 @@ struct SiteContext<'a> {
     /// locations, and on any host that provides none.
     source_map: Option<&'a dyn SourceMapper>,
     emit_locations: bool,
+    /// Where the source map's positions are not the author's, the ones that are.
+    positions: Positions,
+    /// Set for a pass that only finds the sites that get a location: each
+    /// site's span is recorded here instead (see [`recorded_sites`]).
+    record: Option<RefCell<Vec<Span>>>,
 }
 
 impl SiteContext<'_> {
     /// `file:line:column` for `span`, or `None` when locations are switched off
     /// or there is no source map to resolve against. Columns are 1-based to
     /// match what an editor shows; `col_display` is 0-based.
+    /// A site [`positions`] could not pair names its file alone.
     fn location(&self, span: Span) -> Option<String> {
         if !self.emit_locations {
             return None;
+        }
+        if let Some(record) = &self.record {
+            record.borrow_mut().push(span);
+            return None;
+        }
+        if let Positions::Recovered(recovered) = &self.positions {
+            return Some(match recovered.get(&span.lo.0) {
+                Some(at) => format!("{}:{at}", self.filename),
+                None => self.filename.to_string(),
+            });
         }
         let loc = self.source_map?.lookup_char_pos(span.lo);
         Some(format!(
@@ -1042,15 +1060,65 @@ pub fn transform_program(
     config: &CompileConfig,
     source_map: Option<&dyn SourceMapper>,
 ) {
-    let mut compilable: HashMap<(u32, u32), (usize, ChildrenOrigin)> = HashMap::new();
-    let mut key_only: HashMap<(u32, u32), (usize, ChildrenOrigin)> = HashMap::new();
-    let mut synthesize: HashMap<(u32, u32), usize> = HashMap::new();
+    transform_program_reading(program, filename, config, source_map, &|_| None);
+}
 
+/// [`transform_program`], with `read_source` reading the file the author
+/// wrote by the name the plugin knows it by, `None` when it cannot. With
+/// `callSiteLocations` on, a call site is then located in that file when the
+/// text the host parsed is not it (see `positions.rs`).
+pub fn transform_program_reading(
+    program: &mut Program,
+    filename: &str,
+    config: &CompileConfig,
+    source_map: Option<&dyn SourceMapper>,
+    read_source: &dyn Fn(&str) -> Option<String>,
+) {
+    let positions = match source_map {
+        Some(source_map) if config.call_site_locations => {
+            positions::of(program, filename, config, source_map, read_source)
+        }
+        _ => Positions::AsParsed,
+    };
     let ctx = SiteContext {
         filename,
         source_map,
         emit_locations: config.call_site_locations,
+        positions,
+        record: None,
     };
+    rewrite_program(program, config, ctx);
+}
+
+/// The spans of the call sites in `program` that get a location, from a pass
+/// over it that writes none.
+pub(crate) fn recorded_sites(
+    mut program: Program,
+    filename: &str,
+    config: &CompileConfig,
+) -> Vec<Span> {
+    let ctx = SiteContext {
+        filename,
+        source_map: None,
+        emit_locations: true,
+        positions: Positions::AsParsed,
+        record: Some(RefCell::new(Vec::new())),
+    };
+    let record = rewrite_program(&mut program, config, ctx);
+    record.map(RefCell::into_inner).unwrap_or_default()
+}
+
+/// Rewrites every accepted call site of `program`, and hands back what `ctx`
+/// recorded.
+fn rewrite_program(
+    program: &mut Program,
+    config: &CompileConfig,
+    ctx: SiteContext<'_>,
+) -> Option<RefCell<Vec<Span>>> {
+    let mut compilable: HashMap<(u32, u32), (usize, ChildrenOrigin)> = HashMap::new();
+    let mut key_only: HashMap<(u32, u32), (usize, ChildrenOrigin)> = HashMap::new();
+    let mut synthesize: HashMap<(u32, u32), usize> = HashMap::new();
+
     // Calls of imported factories first, written as `__meoFactoryCall(...)`, so
     // detection below sees them as the plain calls they become, and compiles
     // the factory calls among their arguments as it does any. One the compiler
@@ -1099,7 +1167,7 @@ pub fn transform_program(
     }
 
     if compilable.is_empty() && key_only.is_empty() && synthesize.is_empty() && !has_sites {
-        return;
+        return ctx.record;
     }
 
     let mut rewriter = Rewriter {
@@ -1114,6 +1182,7 @@ pub fn transform_program(
         crate::carrier::mark(module, scope, &mut extraction.sites);
         emit_module(module, extraction, scope.imports_runtime());
     }
+    rewriter.ctx.record
 }
 
 #[cfg(test)]
@@ -1171,6 +1240,20 @@ mod tests {
         arg_idx: usize,
         passes: usize,
     ) -> Vec<ObjectLit> {
+        transformed_objects_reading(src, filename, config, arg_idx, passes, None)
+    }
+
+    /// Like [`transformed_objects_at_passes`], with `on_disk` as the file the
+    /// plugin reads for `filename`: the author's text when a tool before SWC
+    /// re-printed `src`, `None` when it cannot be read.
+    fn transformed_objects_reading(
+        src: &str,
+        filename: &str,
+        config: &CompileConfig,
+        arg_idx: usize,
+        passes: usize,
+        on_disk: Option<&str>,
+    ) -> Vec<ObjectLit> {
         GLOBALS.set(&Globals::new(), || {
             let cm: Lrc<SourceMap> = Default::default();
             let fm = cm.new_source_file(Lrc::new(FileName::Anon), src.to_string());
@@ -1190,8 +1273,13 @@ mod tests {
             let top_level_mark = Mark::new();
             program.visit_mut_with(&mut resolver(unresolved_mark, top_level_mark, false));
 
+            let read_source = |path: &str| {
+                (path == filename)
+                    .then(|| on_disk.map(str::to_string))
+                    .flatten()
+            };
             for _ in 0..passes {
-                transform_program(&mut program, filename, config, Some(&*cm));
+                transform_program_reading(&mut program, filename, config, Some(&*cm), &read_source);
             }
 
             struct Collector {
@@ -2591,5 +2679,138 @@ mod tests {
         let obj = objs.remove(0);
         assert_eq!(list_marker(&obj), None);
         assert_eq!(loc_of(&obj), None);
+    }
+
+    /// The locations of the marked call sites in `printed`, the text the host
+    /// hands the plugin, when `on_disk` is the file the author wrote.
+    fn locations_reading(printed: &str, on_disk: Option<&str>) -> Vec<Option<String>> {
+        transformed_objects_reading(printed, "app/page.tsx", &with_locations(), 0, 1, on_disk)
+            .iter()
+            .filter(|obj| list_marker(obj).is_some())
+            .map(loc_of)
+            .collect()
+    }
+
+    /// What the author wrote: two generated lists, each in a component.
+    const AUTHORED: &str = "import { Div, Section } from '@meonode/ui';\n\nconst items = ['a', 'b'];\n\nfunction First() {\n  return Div({ children: items.map(fn) });\n}\n\nfunction Second() {\n  return Section({ children: items.map(fn) });\n}\n";
+
+    /// React Compiler runs as a Babel pass before SWC and hands on the file as
+    /// Babel prints it: other lines, other columns. The plugin reads the file
+    /// the author wrote and names its line and column.
+    #[test]
+    fn call_site_location_names_the_authors_line_in_a_re_printed_file() {
+        let printed = "import { c as _c } from \"react/compiler-runtime\";\nimport { Div, Section } from '@meonode/ui';\nconst items = ['a', 'b'];\nfunction First() {\n  const $ = _c(1);\n  let t0;\n  if ($[0] === Symbol.for(\"react.memo_cache_sentinel\")) {\n    t0 = Div({\n      children: items.map(fn)\n    });\n    $[0] = t0;\n  } else {\n    t0 = $[0];\n  }\n  return t0;\n}\nfunction Second() {\n  return Section({\n    children: items.map(fn)\n  });\n}\n";
+        assert_eq!(
+            locations_reading(printed, Some(AUTHORED)),
+            [
+                Some("app/page.tsx:6:10".to_string()),
+                Some("app/page.tsx:10:10".to_string())
+            ],
+        );
+    }
+
+    /// React Compiler can move a call ahead of another one. Pairing each site
+    /// with the original site of the same callee and occurrence follows it;
+    /// pairing by position among all sites would swap the two.
+    #[test]
+    fn call_site_location_follows_a_call_the_re_print_moved() {
+        let printed = "import { Div, Section } from '@meonode/ui';\nconst items = ['a', 'b'];\nconst second = Section({ children: items.map(fn) });\nfunction First() {\n  return Div({ children: items.map(fn) });\n}\nfunction Second() {\n  return second;\n}\n";
+        assert_eq!(
+            locations_reading(printed, Some(AUTHORED)),
+            [
+                Some("app/page.tsx:10:10".to_string()),
+                Some("app/page.tsx:6:10".to_string())
+            ],
+        );
+    }
+
+    /// React Compiler moves a callback out of its call into a function of its
+    /// own (`_temp`), so a list nested in another one's callback is no longer
+    /// inside that call. Pairing in source order still matches outer with
+    /// outer and inner with inner.
+    #[test]
+    fn call_site_location_pairs_in_source_order_when_a_callback_moves_out() {
+        let authored = "import { Div } from '@meonode/ui';\n\nfunction Grid() {\n  return Div({ children: rows.map(row => Div({ children: row.map(fn) })) });\n}\n";
+        let printed = "import { Div } from '@meonode/ui';\nfunction Grid() {\n  return Div({\n    children: rows.map(_temp)\n  });\n}\nfunction _temp(row) {\n  return Div({\n    children: row.map(fn)\n  });\n}\n";
+        assert_eq!(
+            locations_reading(printed, Some(authored)),
+            [
+                Some("app/page.tsx:4:10".to_string()),
+                Some("app/page.tsx:4:42".to_string())
+            ],
+        );
+    }
+
+    /// A callee with more marked sites in one text than in the other cannot be
+    /// paired: its sites name the file alone, and the others are still paired.
+    #[test]
+    fn call_site_location_names_only_the_file_when_the_counts_differ() {
+        let printed = "import { Div, Section } from '@meonode/ui';\nconst items = ['a', 'b'];\nfunction First() {\n  return Div({ children: items.map(fn) });\n}\nfunction Second() {\n  return Section({ children: items.map(fn) });\n}\nfunction Extra() {\n  return Div({ children: items.map(fn) });\n}\n";
+        assert_eq!(
+            locations_reading(printed, Some(AUTHORED)),
+            [
+                Some("app/page.tsx".to_string()),
+                Some("app/page.tsx:10:10".to_string()),
+                Some("app/page.tsx".to_string()),
+            ],
+        );
+    }
+
+    /// A local binding that shadows a factory is not a call site, in the file
+    /// as in the parsed text, so the sites still pair.
+    #[test]
+    fn call_site_location_skips_a_shadowing_binding_in_the_file() {
+        let authored = "import { Div } from '@meonode/ui';\n\nfunction Local(Div) {\n  return Div({ children: items.map(fn) });\n}\n\nfunction List() {\n  return Div({ children: items.map(fn) });\n}\n";
+        let printed = "import { Div } from '@meonode/ui';\nfunction Local(Div) {\n  return Div({\n    children: items.map(fn)\n  });\n}\nfunction List() {\n  return Div({\n    children: items.map(fn)\n  });\n}\n";
+        assert_eq!(
+            locations_reading(printed, Some(authored)),
+            [Some("app/page.tsx:8:10".to_string())]
+        );
+    }
+
+    /// A file that differs and does not parse gives no position to pair with.
+    #[test]
+    fn call_site_location_names_only_the_file_when_the_original_does_not_parse() {
+        let printed = "import { Div } from '@meonode/ui';\nfunction First() {\n  return Div({ children: items.map(fn) });\n}\n";
+        assert_eq!(
+            locations_reading(printed, Some("function (")),
+            [Some("app/page.tsx".to_string())]
+        );
+    }
+
+    /// A file the plugin cannot read, such as a module outside the project
+    /// directory, cannot be compared. React Compiler's output imports its
+    /// runtime, so such a module names the file alone; any other keeps the
+    /// position it was parsed with.
+    #[test]
+    fn call_site_location_without_the_file_names_only_the_file_in_react_compiler_output() {
+        for runtime in ["react/compiler-runtime", "react-compiler-runtime"] {
+            let printed = format!(
+                "import {{ c as _c }} from \"{runtime}\";\nimport {{ Div }} from '@meonode/ui';\nfunction List(t0) {{\n  const $ = _c(1);\n  return Div({{ children: items.map(fn) }});\n}}\n"
+            );
+            assert_eq!(
+                locations_reading(&printed, None),
+                [Some("app/page.tsx".to_string())],
+                "{runtime}"
+            );
+        }
+        let plain = "import { Div } from '@meonode/ui';\nfunction List() {\n  return Div({ children: items.map(fn) });\n}\n";
+        assert_eq!(
+            locations_reading(plain, None),
+            [Some("app/page.tsx:3:10".to_string())]
+        );
+    }
+
+    /// The text the host parsed is the file: its own positions are the
+    /// author's, and the file is not parsed again.
+    #[test]
+    fn call_site_location_keeps_the_parsed_position_when_the_file_is_unchanged() {
+        assert_eq!(
+            locations_reading(AUTHORED, Some(AUTHORED)),
+            [
+                Some("app/page.tsx:6:10".to_string()),
+                Some("app/page.tsx:10:10".to_string())
+            ],
+        );
     }
 }
