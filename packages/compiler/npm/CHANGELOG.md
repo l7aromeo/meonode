@@ -1,5 +1,15 @@
 # @meonode/compiler
 
+## 0.11.1
+
+### Patch Changes
+
+- [#189](https://github.com/l7aromeo/meonode/pull/189) [`1ad89d3`](https://github.com/l7aromeo/meonode/commit/1ad89d36bef6483f8b1455856f354d0db5fd21d8) Thanks [@l7aromeo](https://github.com/l7aromeo)! - With `callSiteLocations` and Next.js `reactCompiler`, a client note now names the line and column the author wrote. Next.js has Babel re-print each client module that may hold a component before SWC parses it, whether or not React Compiler compiles anything in it, so `__meo$loc` named Babel's lines: off by up to 120 in the apps measured. The plugin now reads the file from the project directory, finds the same call sites in it and pairs them by callee and occurrence. Where it cannot pair a call, the note names the file alone. With the option off, the output is unchanged. The wasm grows by 0.64 MB (0.20 MB gzipped) for the parser (Fixes [#185](https://github.com/l7aromeo/meonode/issues/185)).
+
+- [#180](https://github.com/l7aromeo/meonode/pull/180) [`26f77ec`](https://github.com/l7aromeo/meonode/commit/26f77ec0ce4248ebdd200b8571b55efc66c343b5) Thanks [@l7aromeo](https://github.com/l7aromeo)! - With `experimental_extractCss`, an imported factory called as a child of a children-first call is now joined at run time whatever the parent's own style, as the README describes. `Button([Slot({ color: 'red' })], { css: { ...base } })`, a `css` built by a call, a CSS prop read at run time, a sole child, and a parent whose props hold `theme`, `as`, a spread or a computed key all left `Slot(...)` as written, on the runtime path. A child whose own style is not made of literals is still left as written, and the output with the option off is unchanged (Fixes [#172](https://github.com/l7aromeo/meonode/issues/172)).
+
+- [#180](https://github.com/l7aromeo/meonode/pull/180) [`f5cd90f`](https://github.com/l7aromeo/meonode/commit/f5cd90f9f26cea3bb1b057c557078ac147305b67) Thanks [@l7aromeo](https://github.com/l7aromeo)! - With `experimental_extractCss`, the import the compiler adds from `@meonode/ui` now goes after the module's directives, such as `'use client'` and `'use strict'`. It went first, above the directive, so the directive stopped being one, and Next.js with webpack refused the build ("The "use client" directive must be placed before other expressions"). Turbopack builds kept such modules as client modules, and their output is unchanged. A module with no directive is unchanged (Fixes [#176](https://github.com/l7aromeo/meonode/issues/176)).
+
 ## 0.11.0
 
 ### Minor Changes

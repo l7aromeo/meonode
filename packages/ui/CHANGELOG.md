@@ -1,5 +1,22 @@
 # @meonode/ui
 
+## 3.4.1
+
+### Patch Changes
+
+- [#177](https://github.com/l7aromeo/meonode/pull/177) [`4f9b78d`](https://github.com/l7aromeo/meonode/commit/4f9b78d5adec438d007242c3335cae349b4e8f44) Thanks [@l7aromeo](https://github.com/l7aromeo)! - A production build no longer carries MeoNode's development diagnostics in the code a page loads first ([#134](https://github.com/l7aromeo/meonode/issues/134)). They are in a chunk of their own, which `setDebugMode(true)` loads; the checks made before it arrives are held, up to 60,000, and run in the order they were made once it does. Development builds are unchanged: every check still runs where it is made.
+  
+  webpack (and Next.js with it), Turbopack, Rollup, Rolldown (and Vite 8 with it) and Bun split the diagnostics out. esbuild keeps them in the first load, and so does a Vite `manualChunks` that assigns MeoNode's modules to a chunk, by package or as one `vendor` chunk; there the first load is about 1.6 KB gzipped larger than before. The README's Debug Mode section gives a `manualChunks` that leaves `@meonode/*` to Vite. In the apps measured, first-load JavaScript is 1.7 KB gzipped smaller with Next.js 16 and Turbopack, 4.3 KB with Next.js 16 and webpack, and 3.6 KB with Vite 8.
+  
+  The 3.3.0 note for the unkeyed-list report ([#108](https://github.com/l7aromeo/meonode/issues/108)) said its code, about 1.5 KB gzipped, ships in the browser bundle. It was about 1.2 KB, as the README measured; with the bundlers above it is now loaded only when debug mode is turned on.
+
+- [#188](https://github.com/l7aromeo/meonode/pull/188) [`9606276`](https://github.com/l7aromeo/meonode/commit/96062764c5a84aebbd6b757ecf5d91a54224f212) Thanks [@l7aromeo](https://github.com/l7aromeo)! - Debug mode in a production build reports unkeyed lists as development does.
+  
+  - A compiled list whose children lack a `key` is now noted in production whether or not `callSiteLocations` recorded its location, and the note says it is the only report, since React's production build makes none. It no longer says that React reports the missing key ([#187](https://github.com/l7aromeo/meonode/issues/187)). Development output is unchanged.
+  - An uncompiled list that grows from the first update after a transition render, as a click after Next.js hydration does, is reported at that update, as in development, instead of one growth later ([#186](https://github.com/l7aromeo/meonode/issues/186)). The call site now ends where React calls the component, which MeoNode learns from the first render of a styled node or a `ThemeProvider`, minified React included. A page with neither, a class component's `render`, and engines without V8's structured stack frames keep the frames below, and are reported one growth later as before.
+
+- [#184](https://github.com/l7aromeo/meonode/pull/184) [`baaea64`](https://github.com/l7aromeo/meonode/commit/baaea64df85c1ca5cd9cb7d6a7ad8f87b656f1cc) Thanks [@l7aromeo](https://github.com/l7aromeo)! - The `sideEffects` list added with the lazy diagnostics also lets bundlers leave out what an app does not use: an app that uses neither CSS extraction, a theme or portal provider, nor a portal host no longer ships their modules, and the server-layer guard still refuses the default entry in the React Server Components layer (Fixes [#173](https://github.com/l7aromeo/meonode/issues/173)). For an app that renders only `Row` and `Div`, without the compiler, the first load against 3.4.0 goes from 92,852 to 79,293 bytes minified (30,666 to 26,184 gzipped) under webpack 5, and from 684,098 to 662,719 bytes (212,769 to 206,141 gzipped) of client JavaScript, Next.js's own included, under Next.js 16 with Turbopack. Both figures include the diagnostics leaving the first load.
+
 ## 3.4.0
 
 ### Minor Changes
