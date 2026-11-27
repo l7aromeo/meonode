@@ -4,7 +4,7 @@
 // and theme mode, each state step, and hydration errors.
 //
 // readTree, readStyles and settle run in the page, so they use its globals.
-/* global Node, getComputedStyle, requestAnimationFrame, CSS */
+/* global Node, getComputedStyle, requestAnimationFrame, CSS, innerWidth, innerHeight */
 
 /** The elements compared: everything under #root except what carries no rendered styles of its own. */
 const SKIPPED_TAGS = ['STYLE', 'SCRIPT', 'LINK', 'NOSCRIPT', 'TEMPLATE']
@@ -391,15 +391,16 @@ async function forcedByCdp(page, base, sets, onlyMarked, read, spend = () => {})
 }
 
 /**
- * Forced states through real input: the pointer over the element's centre for
- * :hover, pressed there for :active (and released away from it, so nothing is
- * clicked), focus after a pointer click for :focus, and focus after a key press
- * for :focus-visible. An element with no box gets no pointer states. The
- * :active read is taken with the pointer still over the element, so :hover
- * holds in it too, and a rule under :hover alone shows in both reads. The
- * press is made only when the point still lands on the element once its
- * hover has taken effect: otherwise it would land on another element, so
- * that :active read is kept as not held.
+ * Forced states through real input: the pointer on a point of the element's
+ * own area (ownPoint) for :hover, pressed there for :active (and released away
+ * from it, so nothing is clicked), focus after a pointer click for :focus, and
+ * focus after a key press for :focus-visible. An element with no box in view
+ * gets no pointer states. The :active read is taken with the pointer still
+ * over the element, so :hover holds in it too, and a rule under :hover alone
+ * shows in both reads. The press is made only when the pointer has settled on
+ * the element once its hover has taken effect (pointTo), at that point or at
+ * one picked again in the layout the hover settled into: otherwise the read is
+ * kept as not held, with what was hovered and hit.
  */
 async function forcedByInput(page, base, sets, onlyMarked, read, upTo = Infinity, samples = {}, reload = null) {
   let elements = await comparedElements(page)
@@ -408,20 +409,22 @@ async function forcedByInput(page, base, sets, onlyMarked, read, upTo = Infinity
   for (let index = 0; index < elements.length; index++) {
     if (index > upTo) break
     if (!targets[index]) continue
-    let centre = await centreOf(elements[index])
+    let point = await pointOf(elements[index])
     await settle(page)
-    // After a reload the page's elements are new nodes, so the handles and the centre are taken again.
+    // After a reload the page's elements are new nodes, so the handles and the point are taken again.
     const again = reload && (async () => {
       await reload()
       elements = await comparedElements(page)
-      centre = await centreOf(elements[index])
+      point = await pointOf(elements[index])
       await settle(page)
     })
     for (const states of sets) {
       const key = `${index}:${states.join('+')}`
-      const { changed, held, waited, layout, stray } = await withReload(page, again, () => applyByInput(page, base, elements[index], index, centre, states, read))
+      const { changed, held, waited, layout, stray, repicked, pointer } = await withReload(page, again, () =>
+        applyByInput(page, base, elements[index], index, point, states, read),
+      )
       out[key] = changed
-      samples[key] = { held, waited, layout, ...(stray && { stray }) }
+      samples[key] = { held, waited, layout, ...(stray && { stray }), ...(repicked && { repicked }), ...(pointer && { pointer }) }
     }
   }
   await withReload(page, reload, () => resetInput(page))
@@ -436,11 +439,117 @@ async function comparedElements(page) {
   return all.filter((_, i) => kept[i])
 }
 
-/** The element's centre after scrolling it into view, or null when it has no box. */
-async function centreOf(element) {
+/**
+ * How far the pointer stays from every box edge, in px. At a box's edge, an
+ * engine's hit test and its rounding of the pointer against layout units
+ * decide which box is hovered, so the hover chain would depend on rounding.
+ * WebKit rounds a hit test's point to whole px, so a point 1px from an edge
+ * has a point `POINTER_REACH` beyond it on the other box: 2px keeps both on
+ * the element.
+ */
+const POINTER_MARGIN = 2
+
+/**
+ * How far, in px, either side of the point must hit the same element, both
+ * when the point is picked and when the pointer is checked there, so no box
+ * edge lies within rounding of the point.
+ */
+const POINTER_REACH = 0.5
+
+/**
+ * Runs on the element: the point the pointer goes to. Its box in the viewport
+ * is cut into horizontal bands at every descendant element's top and bottom
+ * edge; in each band at least `2 * margin` px tall, the candidates are the
+ * points `margin` px inside the band and the box on each axis: nearest the
+ * box's centre, the middle and both ends. The first one, nearest the centre,
+ * where the hit test at the point and `reach` px either side on each axis
+ * returns the element is taken, so the hover chain ends at the element in
+ * every engine. The hit test is the authority on whose area a point is: a
+ * descendant's box, a table row's cell spacing (the table's), a list item's
+ * marker in the list's padding (the item's) are not the element's, and a
+ * descendant the hit test passes through (pointer-events: none) is. When no
+ * candidate holds (a child fills the box), the child at the centre's point,
+ * by the same rule; with no child there, the centre. `depth` is how many such
+ * steps down the element whose area holds the point lies. Null when no part
+ * of the box is in the viewport.
+ */
+function ownPoint(el, [margin, reach]) {
+  const hits = (node, x, y) =>
+    [
+      [x, y],
+      [x - reach, y],
+      [x + reach, y],
+      [x, y - reach],
+      [x, y + reach],
+    ].every(([px, py]) => document.elementFromPoint(px, py) === node)
+  // The candidates in [low, high] on one axis: nearest the centre, the middle and both ends, `margin` px inside.
+  const along = (low, high, centre) => [...new Set([Math.min(Math.max(centre, low + margin), high - margin), (low + high) / 2, low + margin, high - margin])]
+  const pointIn = node => {
+    const r = node.getBoundingClientRect()
+    const box = { left: Math.max(r.left, 0), right: Math.min(r.right, innerWidth), top: Math.max(r.top, 0), bottom: Math.min(r.bottom, innerHeight) }
+    if (box.right <= box.left || box.bottom <= box.top) return null
+    const cx = (box.left + box.right) / 2
+    const cy = (box.top + box.bottom) / 2
+    const edges = [...node.querySelectorAll('*')]
+      .flatMap(d => [...d.getClientRects()])
+      .filter(q => q.width > 0 && q.height > 0)
+      .flatMap(q => [q.top, q.bottom])
+      .filter(y => y > box.top && y < box.bottom)
+    const ys = [...new Set([box.top, box.bottom, ...edges])].sort((a, b) => a - b)
+    const candidates = []
+    if (box.right - box.left >= 2 * margin) {
+      for (let i = 1; i < ys.length; i++) {
+        const [top, bottom] = [ys[i - 1], ys[i]]
+        if (bottom - top < 2 * margin) continue
+        for (const y of along(top, bottom, cy)) for (const x of along(box.left, box.right, cx)) candidates.push({ x, y, distance: (x - cx) ** 2 + (y - cy) ** 2 })
+      }
+    }
+    const found = candidates.sort((a, b) => a.distance - b.distance).find(({ x, y }) => hits(node, x, y))
+    if (found) return { x: found.x, y: found.y, depth: 0 }
+    const child = [...node.children].find(c => [...c.getClientRects()].some(q => cx >= q.left && cx <= q.right && cy >= q.top && cy <= q.bottom))
+    const below = child && pointIn(child)
+    return below ? { ...below, depth: below.depth + 1 } : { x: cx, y: cy, depth: 0 }
+  }
+  return pointIn(el)
+}
+
+/** The element scrolled into view and the pointer's point on it (ownPoint), or null when it has no box in view. */
+async function pointOf(element) {
   await element.scrollIntoViewIfNeeded().catch(() => {})
-  const box = await element.boundingBox()
-  return box && box.width > 0 && box.height > 0 ? [box.x + box.width / 2, box.y + box.height / 2] : null
+  return element.evaluate(ownPoint, [POINTER_MARGIN, POINTER_REACH])
+}
+
+/**
+ * Runs in the page with the pointer at (x, y): whether it is settled on the
+ * element. The deepest :hover element must be the element at the point, the
+ * one whose own area the point was picked in (`depth` steps below `el`), and
+ * the points `reach` px either side on each axis must hit it too, so no box
+ * edge lies within rounding of the point. Names the hovered and the hit
+ * element when it is not.
+ */
+function pointerSettled(el, [x, y, depth, reach]) {
+  const hovered = [...document.querySelectorAll(':hover')].pop() ?? null
+  const hit = document.elementFromPoint(x, y)
+  let owner = hit
+  for (let i = 0; i < depth; i++) owner = owner?.parentElement ?? null
+  const around = [
+    [x - reach, y],
+    [x + reach, y],
+    [x, y - reach],
+    [x, y + reach],
+  ].every(([px, py]) => document.elementFromPoint(px, py) === hit)
+  if (hovered === hit && hit && owner === el && around) return { settled: true }
+  const name = node => (node ? `${node.tagName.toLowerCase()}${node.className ? `.${String(node.className).split(' ').join('.')}` : ''}` : 'none')
+  return { settled: false, hovered: name(hovered), hit: name(hit), ...(!around && { edge: true }) }
+}
+
+/** The pointer to `point` on the element, then, once its hover has taken effect there, checked by pointerSettled. */
+async function pointTo(page, element, point) {
+  await settle(page)
+  await page.mouse.move(point.x, point.y)
+  await element.evaluate(waitForStates, [['hover'], STATE_WAIT_FRAMES])
+  await settle(page)
+  return element.evaluate(pointerSettled, [point.x, point.y, point.depth, POINTER_REACH])
 }
 
 /** The side of the blank square the pointer rests on between states, in px. */
@@ -550,20 +659,8 @@ function waitForStates(el, [states, frames]) {
   })
 }
 
-/**
- * Runs with the pointer on the element: whether, once its hover has taken
- * effect, the element still matches :hover and the point still hits it or a
- * descendant. A :hover rule that moves the element from under the pointer
- * fails this, and a press there would land on another element.
- */
-async function pointerStaysOn(page, element, point) {
-  await element.evaluate(waitForStates, [['hover'], STATE_WAIT_FRAMES])
-  await settle(page)
-  return element.evaluate((el, [x, y]) => el.matches(':hover') && el.contains(document.elementFromPoint(x, y)), point)
-}
-
 /** Applies one set of states to the element at `index` by real input, from a reset, and returns what changed from `base`. */
-async function applyByInput(page, base, element, index, centre, states, read) {
+async function applyByInput(page, base, element, index, point, states, read) {
   await resetInput(page)
   let pressed = false
   // Focus first, since moving focus by pointer would end a hover or a press.
@@ -577,21 +674,33 @@ async function applyByInput(page, base, element, index, centre, states, read) {
     await element.evaluate(el => el.focus?.({ focusVisible: true }))
   }
   if (states.includes('focus-within')) await element.evaluate(el => el.querySelector('input, button, select, textarea, a[href], [tabindex]')?.focus())
-  // The centre measured again here: focus scrolls the element into view, so a point measured before it can lie on a neighbour.
-  if ((states.includes('hover') || states.includes('active')) && centre) {
-    centre = (await centreOf(element)) ?? centre
-    await settle(page)
-    await page.mouse.move(...centre)
+  // The point measured again here: focus scrolls the element into view, so a point measured before it can lie on a
+  // neighbour. A state that changes the layout can leave the point off the element or on a box edge, so a point that
+  // does not settle is picked once more in the layout the state settled into.
+  const pointing = (states.includes('hover') || states.includes('active')) && point
+  let check = null
+  let repicked = false
+  if (pointing) {
+    point = (await pointOf(element)) ?? point
+    check = await pointTo(page, element, point)
+    if (!check.settled) {
+      const again = await pointOf(element)
+      if (again) {
+        point = again
+        repicked = true
+        check = await pointTo(page, element, point)
+      }
+    }
   }
-  // No press where the element's own hover has moved it from under the pointer: the press would land on another
-  // element, so the read is no sample of :active, and WebKit keeps :hover on the element after that press is released.
-  const offElement = states.includes('active') && centre ? !(await pointerStaysOn(page, element, centre)) : false
-  if (states.includes('active') && centre && !offElement) {
+  // No press where the pointer did not settle on the element: the press would land on another element or on an edge,
+  // so the read is no sample of :active, and WebKit keeps :hover on the element after that press is released.
+  const offElement = pointing ? !check.settled : false
+  if (states.includes('active') && pointing && !offElement) {
     await page.mouse.down()
     pressed = true
   }
   // Real input takes effect on the engine's own frame, so read only once the element matches the states the pointer set.
-  const pointerStates = centre && !offElement ? states.filter(state => state === 'hover' || state === 'active') : []
+  const pointerStates = pointing && !offElement ? states.filter(state => state === 'hover' || state === 'active') : []
   const waited = pointerStates.length ? await element.evaluate(waitForStates, [pointerStates, STATE_WAIT_FRAMES]) : true
   await settle(page)
   const changed = await read(index)
@@ -599,8 +708,7 @@ async function applyByInput(page, base, element, index, centre, states, read) {
   // under the pointer ends itself, and a read without the state is no sample of it.
   const kept = pointerStates.length ? await element.evaluate((el, list) => list.every(state => el.matches(`:${state}`)), pointerStates) : true
   // Any other hovered element is a state the read carries that the other side may lack: no sample either.
-  const onElement = centre && (states.includes('hover') || states.includes('active'))
-  const stray = await page.evaluate(strayHovers, [SKIPPED_TAGS, onElement ? index : null])
+  const stray = await page.evaluate(strayHovers, [SKIPPED_TAGS, pointing ? index : null])
   const held = !offElement && kept && !stray.length
   // The scroll boxes a state can change: its fixture's and the document's, whose scrollbars an engine may add a frame late.
   const layout = await element.evaluate(el => {
@@ -618,7 +726,8 @@ async function applyByInput(page, base, element, index, centre, states, read) {
     await page.mouse.up()
   }
   lastInput.set(page, `the ${states.join('+')} state of element ${index}`)
-  return { changed, held, waited, layout, ...(stray.length && { stray }) }
+  const pointer = offElement ? { hovered: check.hovered, hit: check.hit, ...(check.edge && { edge: true }) } : null
+  return { changed, held, waited, layout, ...(stray.length && { stray }), ...(repicked && { repicked }), ...(pointer && { pointer }) }
 }
 
 /**
@@ -687,7 +796,7 @@ export async function remeasureForced(browser, url, meta, plant, keys) {
       const [at, list] = key.split(':')
       const index = Number(at)
       out[key] = elements[index]
-        ? (await withReload(page, reload, async () => applyByInput(page, base, elements[index], index, await centreOf(elements[index]), list.split('+'), read))).changed
+        ? (await withReload(page, reload, async () => applyByInput(page, base, elements[index], index, await pointOf(elements[index]), list.split('+'), read))).changed
         : null
     }
     return out

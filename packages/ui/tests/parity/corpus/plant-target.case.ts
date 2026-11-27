@@ -1,8 +1,8 @@
 // The target of the planted failures in plants.mjs, and a case of its own: a
 // section with static styles, a breakpoint, a one-column multi-column box, a
 // toggle whose pressed state switches a static colour, a hint the field
-// mounts while it has focus, and a box its own hover moves from under the
-// pointer.
+// mounts while it has focus, a box its own hover moves from under the
+// pointer, and a box whose centre is its child's bottom edge.
 import { useState, type ReactElement } from 'react'
 import { Button, Div, Input, Section, Span } from '@meonode/ui'
 import type { CaseMeta } from '../case.js'
@@ -44,8 +44,11 @@ export function App(): ReactElement {
         color: pressed ? 'rgb(0, 128, 0)' : 'rgb(128, 0, 0)',
         onClick: () => setPressed(p => !p),
       }),
-      // Its hover moves it from under the pointer, so no page holds its :hover or :active under real input.
-      Span('away', { key: 'away', 'data-parity-away': '', display: 'inline-block', css: { '&:hover': { transform: 'translateY(48px)' } } }),
+      // Its hover moves it out of the viewport, past the left edge where no scroll reaches it, so no point picked
+      // again follows it and no page holds its :hover or :active under real input.
+      Span('away', { key: 'away', 'data-parity-away': '', display: 'inline-block', css: { '&:hover': { transform: 'translateX(-200vw)' } } }),
+      // Its centre lies inside its child; its own area is the strip below the child.
+      Div({ key: 'inner', 'data-parity-inner': '', width: 40, height: 40, alignSelf: 'flex-start', children: Div({ key: 'inner-top', height: 30 }) }),
     ],
   }).render() as ReactElement
 }
